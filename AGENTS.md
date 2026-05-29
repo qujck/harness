@@ -61,3 +61,8 @@ Runs `verify.sh`, then checks: clean tree (or commits made), `PROGRESS.md` touch
 All stack-specific commands live in `harness.env` (copied from `harness.env.example`).
 The scripts themselves are generic — see that file to point the harness at this
 project's build, test, e2e, and health-check commands.
+
+First-time setup is automated: in Claude Code, run **`/configure`** — it detects
+the stack, confirms every value with you, and fills `harness.env` plus the
+placeholders in this file, `DECISIONS.md`, and `feature_list.json`, and writes a
+starter `CLAUDE.md`. (Manual fallback: edit those files by hand — see `README.md`.)

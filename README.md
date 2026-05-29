@@ -27,14 +27,35 @@ scripts/
   settings.json          # Claude Code hook wiring
   hooks/stop-check.sh        # per-turn lenient handoff warning
   hooks/user-prompt-check.sh # nudge to run init.sh
+  skills/configure/SKILL.md  # /configure — fills every placeholder for you (Claude Code)
 ```
 
-## Setup (≈2 minutes)
+## Setup
+
+### The fast path — `/configure` (Claude Code)
 
 1. **Copy the kit into your repo root** (everything except this README):
    ```bash
    cp -r agent-harness/{scripts,.claude,AGENTS.md,PROGRESS.md,DECISIONS.md,feature_list.json,harness.env.example} /path/to/your-repo/
    ```
+
+2. **Open the repo in Claude Code and run `/configure`.** The skill detects your
+   stack, then **asks you to confirm or override every value** (it never assumes a
+   command, path, or convention) and writes all of it for you: `harness.env`, the
+   `AGENTS.md` / `DECISIONS.md` / `feature_list.json` placeholders, and a starter
+   project-specific `CLAUDE.md`. This replaces steps 2–3 of the manual path below.
+
+3. **Clock in** when it's done (`/configure` will offer to run this):
+   ```bash
+   bash scripts/init.sh   # also installs the git pre-commit hook
+   ```
+
+4. **Restart Claude Code** so it picks up `.claude/settings.json` (the hooks load
+   at startup, not mid-session).
+
+### The manual path (other agents, or no Claude Code)
+
+After step 1 above:
 
 2. **Create your config** and fill in your project's commands:
    ```bash
@@ -46,21 +67,22 @@ scripts/
    `VERIFY_PATH_FILTER` to the paths that should trigger a pre-commit verify.
    **Leave any line blank to skip that step.**
 
-3. **Fill the `{{placeholders}}`** in `AGENTS.md`, and (recommended) write a
-   project-specific `CLAUDE.md` with your data model / runbook.
+3. **Fill the `{{placeholders}}`** in `AGENTS.md` and `DECISIONS.md`, remove the
+   `example_replace_me` entry in `feature_list.json`, and write a project-specific
+   `CLAUDE.md` with your data model / runbook.
 
-4. **Clock in** — this also installs the git pre-commit hook:
-   ```bash
-   bash scripts/init.sh
-   ```
+4. **Clock in** (installs the pre-commit hook): `bash scripts/init.sh`.
 
-5. **Restart Claude Code** (or your agent) so it picks up `.claude/settings.json`.
+5. **Restart your agent** so it picks up `.claude/settings.json`.
 
-6. **Gitignore the runtime bits:**
-   ```
-   .agent/
-   .claude/settings.local.json
-   ```
+### Either way — gitignore the runtime bits
+
+The kit's `.gitignore` already lists these; confirm they're in your repo's:
+```
+.agent/
+harness.env
+.claude/settings.local.json
+```
 
 ## The loop, once configured
 
