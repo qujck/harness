@@ -1,0 +1,8 @@
+# Runtime / per-session state — never committed.
+.agent/
+
+# Per-project config (copy from harness.env.example).
+harness.env
+
+# Per-developer Claude Code overrides.
+.claude/settings.local.json

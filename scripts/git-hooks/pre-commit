@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# .git/hooks/pre-commit — installed by scripts/init.sh from this versioned source.
+#
+# Runs verify.sh static + unit layers (e2e skipped — CI runs that on push).
+# Only fires when staged paths match VERIFY_PATH_FILTER (harness.env), so
+# docs-only commits don't pay for a full build. Bypass in emergencies with
+# `git commit --no-verify` (and explain why in the commit message).
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+# shellcheck source=/dev/null
+[[ -f harness.env ]] && source harness.env
+
+VERIFY_PATH_FILTER="${VERIFY_PATH_FILTER:-}"
+
+STAGED=$(git diff --cached --name-only)
+if [[ -n "$VERIFY_PATH_FILTER" ]] && ! grep -qE "$VERIFY_PATH_FILTER" <<< "$STAGED"; then
+  echo "pre-commit: no staged paths match VERIFY_PATH_FILTER — skipping verify.sh"
+  exit 0
+fi
+
+echo "pre-commit: running scripts/verify.sh (static + unit; e2e skipped, runs in CI)"
+SKIP_E2E=1 bash scripts/verify.sh

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Agent-harness hook wiring. Stop -> lenient handoff check every turn; UserPromptSubmit -> session-marker nudge. Strict enforcement is the git pre-commit hook + explicit handoff.sh. Per-developer overrides go in .claude/settings.local.json (gitignore it).",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/user-prompt-check.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
