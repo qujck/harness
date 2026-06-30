@@ -14,14 +14,19 @@ Stack-agnostic — you point it at your project's commands in one config file.
 
 ```
 harness.env.example      # ← the only thing you edit per project
-AGENTS.md                # routing file for agents (fill the {{placeholders}})
-PROGRESS.md              # mutable "what's happening now"
+AGENTS.md                # routing file: the rules + the loop, for any agent
+PROGRESS.md              # mutable "what's happening right now"
 DECISIONS.md             # append-only architecture log
-feature_list.json        # the work queue (WIP=1, status machine)
+features/                # the work queue: one <id>.json ticket per file
+feature_list.archive.jsonl  # completed tickets (append-only, one per line)
+.gitattributes           # union-merge the append-only logs
 scripts/
   init.sh                # clock in
   verify.sh              # Definition of Done
   handoff.sh             # clock out gate
+  archive-passing.sh     # move passing tickets to the archive
+  _features.sh           # ledger helper: aggregates features/*.json (sourced)
+  _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)
 .claude/
   settings.json          # Claude Code hook wiring
@@ -30,20 +35,81 @@ scripts/
   skills/configure/SKILL.md  # /configure — fills every placeholder for you (Claude Code)
 ```
 
+**The three scripts are the harness.** They map onto a session's lifecycle:
+
+- **`scripts/init.sh` — clock in.** Idempotent bootstrap: checks required tools,
+  copies `.env` from `.env.example`, brings your stack up (`UP_CMD`), waits on the
+  health endpoint, installs the git pre-commit hook, writes the
+  `.agent/session.active` marker, and prints the next ready feature (highest
+  priority whose dependencies are met). Initialization is its own phase, kept
+  separate from implementation.
+- **`scripts/verify.sh` — the Definition of Done.** The *only* thing that decides
+  whether a feature is "passing": static → unit → e2e, run in order, stop on first
+  failure (each layer skipped if its `harness.env` command is blank). Exit 0 or it
+  isn't done — an agent can't self-grade.
+- **`scripts/handoff.sh` — clock out.** Refuses to end a session that isn't clean:
+  re-runs verify, then checks the tree is clean (or committed), `PROGRESS.md` was
+  touched, no debug artifacts were added, and nudges on ledger WIP. Fix the gap
+  rather than work around it — that's the whole point. (With `PER_STREAM_STACKS=1`
+  a strict pass also tears this worktree's stack down.)
+
+**Three enforcement tiers** make sure none of that is skippable:
+
+1. **`.claude/hooks/user-prompt-check.sh`** — a soft nudge to run `init.sh` when the
+   session marker is missing (fires on each prompt).
+2. **`.claude/hooks/stop-check.sh`** — a per-turn *lenient* handoff check that warns
+   about gaps without blocking (fires only when the tree is dirty).
+3. **`scripts/git-hooks/pre-commit`** — the hard stop: runs verify's static+unit
+   layers on commit and won't let you commit past a failure (`--no-verify` overrides
+   in emergencies).
+
+**The documents & the ledger** carry state between sessions:
+
+- **`AGENTS.md`** — the single entry point any agent reads first: the hard rules and
+  the session loop. Short by design; points to a per-project `CLAUDE.md` for detail.
+- **`PROGRESS.md`** — mutable "what's happening right now"; `handoff.sh` won't pass
+  unless it was touched this session.
+- **`DECISIONS.md`** — append-only log of architectural choices, binding until
+  superseded, so the next agent doesn't re-litigate them.
+- **`features/`** — the work queue: **one `features/<id>.json` per ticket** (the
+  entry object alone), each with a status machine (`not_started → in_progress →
+  passing` / `blocked` / `wont_do`), a real `verification_command`, and optional
+  `depends_on` / `solo`. One file per ticket means concurrent branches never
+  conflict on the queue. Schema: [features/README.md](features/README.md).
+- **`feature_list.archive.jsonl`** — completed tickets, one compact entry per line;
+  `scripts/archive-passing.sh` moves `passing` tickets here to keep the queue lean.
+- **`.gitattributes`** — `merge=union` on `PROGRESS.md` / `DECISIONS.md` / the
+  archive so concurrent branches that each append don't conflict.
+
+**Configuration & setup:**
+
+- **`harness.env.example`** — the only per-project file you edit; copy to
+  `harness.env` and point the generic scripts at your build / test / e2e / health
+  commands (leave any line blank to skip that step).
+- **`scripts/_features.sh`** — sourced helper that aggregates `features/*.json`
+  into the shape `init.sh` / `handoff.sh` read.
+- **`scripts/_stack.sh`** — sourced helper for **local** parallel (several
+  worktrees on one machine): a per-worktree compose project, port discovery, and
+  `.agent/env`. Inert unless `PER_STREAM_STACKS=1`.
+- **`.claude/settings.json`** — wires the two hooks into Claude Code.
+- **`.claude/skills/configure/SKILL.md`** — the `/configure` skill: detects your
+  stack and fills every placeholder for you (Claude Code only).
+
 ## Setup
 
 ### The fast path — `/configure` (Claude Code)
 
 1. **Copy the kit into your repo root** (everything except this README):
    ```bash
-   cp -r agent-harness/{scripts,.claude,AGENTS.md,PROGRESS.md,DECISIONS.md,feature_list.json,harness.env.example} /path/to/your-repo/
+   cp -r agent-harness/{scripts,.claude,features,AGENTS.md,PROGRESS.md,DECISIONS.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
    ```
 
 2. **Open the repo in Claude Code and run `/configure`.** The skill detects your
    stack, then **asks you to confirm or override every value** (it never assumes a
    command, path, or convention) and writes all of it for you: `harness.env`, the
-   `AGENTS.md` / `DECISIONS.md` / `feature_list.json` placeholders, and a starter
-   project-specific `CLAUDE.md`. This replaces steps 2–3 of the manual path below.
+   `AGENTS.md` / `DECISIONS.md` placeholders, the first `features/` ticket, and a
+   starter project-specific `CLAUDE.md`. This replaces steps 2–3 of the manual
+   path below.
 
 3. **Clock in** when it's done (`/configure` will offer to run this):
    ```bash
@@ -67,9 +133,10 @@ After step 1 above:
    `VERIFY_PATH_FILTER` to the paths that should trigger a pre-commit verify.
    **Leave any line blank to skip that step.**
 
-3. **Fill the `{{placeholders}}`** in `AGENTS.md` and `DECISIONS.md`, remove the
-   `example_replace_me` entry in `feature_list.json`, and write a project-specific
-   `CLAUDE.md` with your data model / runbook.
+3. **Fill the `{{placeholders}}`** in `AGENTS.md` and `DECISIONS.md`, replace
+   `features/example_replace_me.json` with your first real ticket (see
+   `features/README.md` for the schema), and write a project-specific `CLAUDE.md`
+   with your data model / runbook.
 
 4. **Clock in** (installs the pre-commit hook): `bash scripts/init.sh`.
 
@@ -87,10 +154,11 @@ harness.env
 ## The loop, once configured
 
 ```
-bash scripts/init.sh        # start of session
-# … add a feature_list.json entry (not_started → in_progress) BEFORE coding …
-bash scripts/verify.sh      # exit 0 == done; then mark the feature "passing"
-bash scripts/handoff.sh     # end of session — must be green to clock out
+bash scripts/init.sh            # start of session
+# … add a features/<id>.json ticket (not_started → in_progress) BEFORE coding …
+bash scripts/verify.sh          # exit 0 == done; then mark the ticket "passing"
+bash scripts/archive-passing.sh # move passing tickets to the archive
+bash scripts/handoff.sh         # end of session — must be green to clock out
 ```
 
 ## Config reference
@@ -106,6 +174,65 @@ bash scripts/handoff.sh     # end of session — must be green to clock out
 | `VERIFY_UI` | verify | Opt-in browser suite, gated by `RUN_UI=1`. |
 | `VERIFY_PATH_FILTER` | pre-commit | Regex of staged paths that trigger verify. Blank = always. |
 | `DEBUG_PATTERNS` | handoff | Space-separated regexes; an added line matching any blocks handoff. |
+| `PER_STREAM_STACKS` | init, verify, handoff | `1` = **local** parallel: per-worktree docker stack with discovered ports. Default `0`. |
+| `STACK_HEALTH_SERVICE` / `STACK_HEALTH_CONTAINER_PORT` / `STACK_HEALTH_PATH` | init | Per-stream health probe (`PER_STREAM_STACKS=1`): which compose service/container-port/path to poll (host port discovered). |
+
+The **distributed** parallel-safe workflow (per-ticket ledger, ready-frontier,
+union-merge, WIP nudge) is the default and has no config switch — see below.
+
+## Parallel development
+
+When more than one agent (or person) works the repo at once, two things break:
+they fight over the same containers, and every PR conflicts on the same hot-spot
+in the shared logs/ledger. The harness splits the fix into two halves.
+
+### Distributed — the default (no config)
+
+For agents on **separate clones or machines**. On by default; nothing to switch
+on. It removes every git-level conflict source:
+
+- **Per-ticket ledger.** The work queue is the `features/` directory, **one
+  `features/<id>.json` per ticket**, so two agents adding/flipping different
+  tickets never touch the same file. (A single shared JSON array was the conflict
+  source — arrays can't union-merge.) `passing` tickets move to
+  **`feature_list.archive.jsonl`** (one line each) via `scripts/archive-passing.sh`.
+- **`depends_on` + ready frontier.** A ticket may list `depends_on: [ids]`;
+  `init.sh` offers the next ticket from the **ready frontier** (deps all
+  `passing`). Add `solo: true` to a ticket that must run alone. Pick work from the
+  frontier, preferring a different `area` from the other agent.
+- **WIP is a nudge.** `handoff.sh` warns — never fails — on multiple `in_progress`.
+  Isolation, not a count, is the safety.
+- **Union-merge logs.** `.gitattributes` sets `merge=union` on `PROGRESS.md`,
+  `DECISIONS.md`, and the JSONL archive, so concurrent appends auto-merge.
+- **Isolation rule.** `AGENTS.md` rule 0: never share a checkout.
+
+### Local — optional (`PER_STREAM_STACKS=1`)
+
+For several git worktrees on **one machine** — only where it can run **several
+stacks at once** (and `UP_CMD` is docker-compose based). Each worktree gets its
+**own compose project** (named from the worktree dir) with **kernel-assigned host
+ports**. `init.sh` discovers the ports into `.agent/env`; the other scripts read
+it, so each stream reaches its own stack. Strict `handoff.sh` tears the stack
+down (`down -v`); the per-turn Stop-hook never does (`KEEP_STACK=1` keeps it after
+a clean handoff). Set `STACK_HEALTH_SERVICE` / `STACK_HEALTH_CONTAINER_PORT` /
+`STACK_HEALTH_PATH` so init can find and probe the health endpoint. *If your
+machine can't run multiple stacks, leave this `0` — you still get the distributed
+workflow across separate clones.*
+
+### Complementary patterns (adopt as they fit — not shipped as code)
+
+These are GitHub/CI/project-specific, so the kit documents rather than ships them:
+
+- **Merge queue.** Enable GitHub's merge queue and add a `merge_group:` trigger to
+  your CI workflow so PRs build+test the *combined* result and land **serially** —
+  this is what actually kills the rebase treadmill when concurrent PRs race `main`.
+- **Ticket → issue mirror.** A small `gh`-based script can open a tracking issue
+  when a ticket goes `in_progress` and print a `Closes #N` line for the PR body
+  (the `features/<id>.json` file stays the source of truth; the issue auto-closes
+  on merge).
+- **Verify fast-lane.** Short-circuit `verify.sh` to the cheap relevant checks when
+  a diff touches only frontend/docs/ledger paths that can't affect the backend
+  layers — minutes saved per parallel PR.
 
 ## Design notes
 

@@ -1,0 +1,13 @@
+# Append-only logs: auto-UNION both sides on merge instead of conflicting, so
+# concurrent parallel-dev branches that each append don't collide here. Entry
+# order in these files isn't load-bearing. (Harmless when working solo.)
+PROGRESS.md                 merge=union
+DECISIONS.md                merge=union
+
+# Parallel-dev feature ledger (PARALLEL_DEV=1): the append-only archive is JSONL
+# (one entry per line) which unions cleanly. The LIVE queue uses one file per
+# ticket (features/<id>.json) so concurrent tickets never touch the same file —
+# there's nothing to union there. (The monolithic feature_list.json used in solo
+# mode is a JSON array and is deliberately NOT union-merged — unioning it yields
+# an invalid document.)
+feature_list.archive.jsonl  merge=union

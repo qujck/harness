@@ -1,6 +1,6 @@
 ---
 name: configure
-description: Configure the agent-harness for THIS repository. Use right after dropping the harness kit into a new project's root — it fills harness.env, the AGENTS.md / DECISIONS.md / feature_list.json placeholders, and generates a starter CLAUDE.md. Detects the stack, then asks you to confirm or override every value rather than assuming. Trigger on "configure the harness", "set up the harness", "/configure".
+description: Configure the agent-harness for THIS repository. Use right after dropping the harness kit into a new project's root — it fills harness.env, the AGENTS.md / DECISIONS.md placeholders, seeds the features/ queue, and generates a starter CLAUDE.md. Detects the stack, then asks you to confirm or override every value rather than assuming. Trigger on "configure the harness", "set up the harness", "/configure".
 ---
 
 # Configure the agent-harness
@@ -78,6 +78,23 @@ Walk these in order. Each maps to a `harness.env` variable (see
 | Which staged paths trigger a pre-commit verify | `VERIFY_PATH_FILTER` | regex; blank = always run |
 | Debug-artifact patterns to block at handoff | `DEBUG_PATTERNS` | confirm the language-appropriate defaults |
 
+### Parallel development
+
+The **distributed** parallel-safe workflow (per-ticket `features/` ledger,
+`depends_on`/ready-frontier, union-merge `.gitattributes`, worktree-isolation
+rule) is the **default** — nothing to ask or switch on; it ships that way.
+
+Only one thing to ask, and only when relevant — **local** parallel:
+
+- **Only if the stack is docker-compose based:** "Will you run several git
+  worktrees on this ONE machine, and can it run several container stacks at
+  once?" If yes, set `PER_STREAM_STACKS=1` and collect `STACK_HEALTH_SERVICE`
+  (the compose service that serves health), `STACK_HEALTH_CONTAINER_PORT` (its
+  in-container port), and `STACK_HEALTH_PATH` (e.g. `/health`) — propose these
+  from the detected compose file. If not, leave `PER_STREAM_STACKS=0` (they still
+  get the distributed workflow across separate clones). Never enable it for a
+  non-compose `UP_CMD`.
+
 Then collect the **prose** the docs need:
 
 - **One-paragraph project description** — what it is, the stack, where it runs in
@@ -86,8 +103,8 @@ Then collect the **prose** the docs need:
   Ask explicitly; if none, say so and the placeholder is deleted, not left.
 - **Project-specific layering notes** for the "adding a feature" checklist, if
   any.
-- **Whether to seed `feature_list.json`** with a first real feature now, or leave
-  an empty queue. Either way the `example_replace_me` entry is removed.
+- **Whether to seed the first `features/<id>.json` ticket** now, or leave an empty
+  queue. Either way the `features/example_replace_me.json` placeholder is removed.
 
 ## Step 3 — Write the files
 
@@ -97,13 +114,20 @@ Only after the interview, and only with confirmed values:
    confirmed values. Keep the explanatory comments.
 2. **`AGENTS.md`** — replace every `{{…}}` placeholder with the confirmed prose;
    delete the "Replace the {{PLACEHOLDERS}}…" instruction line; delete any
-   placeholder the user said doesn't apply (don't leave an empty `{{…}}`).
+   placeholder the user said doesn't apply (don't leave an empty `{{…}}`). Leave
+   rule 0 (worktree isolation) and the "Parallel development" subsection in place —
+   the distributed workflow is the default for every project.
 3. **`DECISIONS.md`** — replace `{{DATE}}` with today's date from Step 0.
-4. **`feature_list.json`** — remove the `example_replace_me` entry. If the user
-   chose to seed a feature, add it with `status: "not_started"` and a real
-   `verification_command`; otherwise leave `"features": []`.
+4. **The ledger (`features/`):** the queue is one file per ticket. Remove the
+   `features/example_replace_me.json` placeholder; if seeding, write the first real
+   ticket at `features/<id>.json` (the entry object alone — schema in
+   `features/README.md`, with optional `depends_on` / `solo`). Otherwise leave the
+   directory holding just `README.md`. Confirm `features/`, `.gitattributes`, and
+   `feature_list.archive.jsonl` are committed (not gitignored).
 5. **`CLAUDE.md`** — generate a starter (see below). Create it if absent;
-   if one already exists, ask before overwriting and prefer merging.
+   if one already exists, ask before overwriting and prefer merging. If
+   `PER_STREAM_STACKS=1`, document that each worktree runs its own `init.sh` and
+   that strict `handoff.sh` tears the stack down.
 
 ### Generating the starter CLAUDE.md
 
@@ -126,8 +150,9 @@ invent it.
 
 ## Step 4 — Verify your own output
 
-1. Run `bash -n scripts/*.sh` and `jq empty feature_list.json` to confirm
-   nothing is syntactically broken.
+1. Run `bash -n scripts/*.sh` and validate every ticket
+   (`for f in features/*.json; do jq empty "$f" || echo "bad: $f"; done`) to
+   confirm nothing is syntactically broken.
 2. Confirm no `{{` placeholders remain: `grep -rn '{{' AGENTS.md DECISIONS.md`.
 3. Show the user a concise summary of every file written and the key
    `harness.env` values.

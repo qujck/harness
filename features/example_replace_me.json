@@ -1,0 +1,14 @@
+{
+  "id": "example_replace_me",
+  "priority": 0,
+  "area": "example",
+  "title": "Delete this file and add your first real ticket",
+  "user_visible_behavior": "N/A — template placeholder.",
+  "status": "not_started",
+  "depends_on": [],
+  "verification": "How another agent confirms this works.",
+  "verification_command": "bash scripts/verify.sh",
+  "evidence": null,
+  "last_verified_commit": null,
+  "notes": "One ticket per file: features/<id>.json holds this entry object alone. See features/README.md for the schema."
+}

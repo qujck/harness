@@ -8,7 +8,7 @@
 #   2. scripts/verify.sh exits 0
 #   3. PROGRESS.md was modified this session (uncommitted, or a recent commit)
 #   4. No debug artifacts in tracked changes (DEBUG_PATTERNS in harness.env)
-#   5. feature_list.json has at most one feature with status="in_progress"
+#   5. ledger WIP nudge (features/ in_progress count — a warning, not a cap)
 #   6. Git working tree is clean OR all changes are committed
 #
 # Usage:
@@ -23,9 +23,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck source=/dev/null
 [[ -f harness.env ]] && source harness.env
+# Per-stream stack identity (COMPOSE_PROJECT_NAME, dc) for the strict-mode
+# teardown below + the feature-ledger helper (features_live_json).
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/_stack.sh"
 
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
+PER_STREAM_STACKS="${PER_STREAM_STACKS:-0}"
 DEBUG_PATTERNS="${DEBUG_PATTERNS:-console\.log debugger; //[[:space:]]*TODO Console\.WriteLine}"
 
 LENIENT=0
@@ -99,14 +104,18 @@ if (( ${#debug_hits[@]} > 0 )); then
 fi
 ok "no debug artifacts added"
 
-# 5. WIP=1 in feature_list.json.
-step "[5/6] feature_list.json WIP=1"
-in_progress=$(jq '[.features[] | select(.status == "in_progress")] | length' feature_list.json 2>/dev/null || echo 0)
+# 5. WIP in the ledger — a nudge, not a hard cap. Multiple in_progress is fine
+#    PROVIDED each runs in its OWN git worktree/clone; worktree isolation + the
+#    depends_on ready-frontier are the safety, not a count.
+step "[5/6] ledger WIP (parallel-OK)"
+_live=$(features_live_json)
+in_progress=$(printf '%s' "$_live" | jq '[.features[] | select(.status == "in_progress")] | length' 2>/dev/null || echo 0)
 if (( in_progress > 1 )); then
-  jq -r '.features[] | select(.status == "in_progress") | "   - \(.id)"' feature_list.json
-  fail "$in_progress features marked in_progress; only one is allowed"
+  printf '%s' "$_live" | jq -r '.features[] | select(.status == "in_progress") | "   - \(.id)"'
+  warn "$in_progress features in_progress — fine PROVIDED each runs in its OWN git worktree/clone (worktree isolation + depends_on are the safety, not a WIP count). If these are all in THIS one checkout, finish or park all but one."
+else
+  ok "$in_progress feature(s) in_progress"
 fi
-ok "$in_progress feature(s) in_progress"
 
 # 6. Working tree clean OR commits made.
 step "[6/6] Git tree state"
@@ -118,6 +127,24 @@ else
     fail "uncommitted changes — commit them or run with ALLOW_DIRTY=1"
   fi
   ok "tree clean"
+fi
+
+# 7. Tear down THIS worktree's per-stream stack — STRICT mode + PER_STREAM_STACKS=1
+#    only. The Stop hook runs with --lenient and must NEVER reach this (or the env
+#    would die after every turn). CI is excluded (its runner is already ephemeral).
+#    KEEP_STACK=1 keeps it alive for a human who wants it to survive a clean
+#    handoff. Only reached when every check above passed (a failed check exits
+#    earlier, leaving the env up to fix).
+if [[ "$PER_STREAM_STACKS" == "1" ]] && (( LENIENT == 0 )) \
+    && [[ "${CI:-}" != "true" ]] && [[ "${KEEP_STACK:-0}" != "1" ]]; then
+  step "Tear down per-stream stack ($COMPOSE_PROJECT_NAME) — docker compose down -v"
+  if command -v docker >/dev/null 2>&1; then
+    dc down -v --remove-orphans >/dev/null 2>&1 || warn "teardown reported an issue (already down?)"
+    rm -f "$REPO_ROOT/.agent/env" "$REPO_ROOT/.agent/session.active"
+    ok "stack '$COMPOSE_PROJECT_NAME' down; .agent/env + session.active cleared"
+  else
+    warn "docker not available — skipped teardown"
+  fi
 fi
 
 if (( LENIENT == 1 )); then

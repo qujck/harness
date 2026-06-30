@@ -22,6 +22,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck source=/dev/null
 [[ -f harness.env ]] && source harness.env
+# Per-stream helpers: in PER_STREAM_STACKS=1 mode this re-loads .agent/env so
+# HEALTH_URL below is the discovered per-worktree port, not the static default.
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/_stack.sh"
 
 VERIFY_STATIC="${VERIFY_STATIC:-}"
 VERIFY_UNIT="${VERIFY_UNIT:-}"
