@@ -1,6 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_comment": "Agent-harness hook wiring. Stop -> lenient handoff check every turn; UserPromptSubmit -> session-marker nudge. Strict enforcement is the git pre-commit hook + explicit handoff.sh. Per-developer overrides go in .claude/settings.local.json (gitignore it).",
   "hooks": {
     "Stop": [
       {
@@ -25,6 +24,12 @@
           }
         ]
       }
+    ]
+  },
+  "_comment": "Agent-harness hook wiring. Stop -> lenient handoff check every turn; UserPromptSubmit -> session-marker nudge. Strict enforcement is the git pre-commit hook + explicit handoff.sh. Per-developer overrides go in .claude/settings.local.json (gitignore it).",
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:walkinglabs.github.io)"
     ]
   }
 }

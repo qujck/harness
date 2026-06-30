@@ -25,6 +25,8 @@ Full project map and commands: [CLAUDE.md](CLAUDE.md) *(create this per-project;
 5. **Append to `DECISIONS.md`** for any architectural choice another agent might re-debate. Past decisions are binding until superseded.
 6. {{PROJECT-SPECIFIC RULE — e.g. module isolation, naming, layering. Delete if none.}}
 
+> These rules implement *Learn Harness Engineering* (L02–L12): the feature list is a harness primitive (L08), agents can't self-grade (L09), e2e proves boundary defects absent (L10), every session leaves a clean state (L12). See [README.md](README.md) → "Design notes" for the full part→lecture mapping.
+
 ---
 
 ## Session entry — clock in

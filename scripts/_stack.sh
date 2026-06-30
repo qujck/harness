@@ -1,5 +1,10 @@
-# scripts/_stack.sh — OPTIONAL per-stream docker-stack helpers (Tier B).
+# scripts/_stack.sh — OPTIONAL per-stream docker-stack helpers (LOCAL parallel).
 # SOURCE this file (do not execute it).
+#
+# Lec 2, the Environment subsystem: a reproducible, ISOLATED stack. Per worktree
+# it's also the operational substrate that lets several agents run in parallel on
+# one machine without corrupting each other (the multi-agent operation Lec 11
+# assumes). Across separate clones you're already isolated and don't need this.
 #
 # It always loads the feature-ledger helpers (scripts/_features.sh), so every
 # harness script that sources it gets features_live_json regardless of mode.
@@ -15,8 +20,8 @@
 # Requires a docker-compose stack. For non-compose projects leave
 # PER_STREAM_STACKS=0 and the harness uses UP_CMD / HEALTH_URL as usual.
 #
-# Provides (Tier B only): $COMPOSE_PROJECT_NAME, dc, stack_port, refresh_stack_env.
-# Provides (always):       $REPO_ROOT, stack_default_proj, features_live_json.
+# Provides (PER_STREAM_STACKS=1 only): $COMPOSE_PROJECT_NAME, dc, stack_port, refresh_stack_env.
+# Provides (always):                    $REPO_ROOT, stack_default_proj, features_live_json.
 
 if [[ -z "${REPO_ROOT:-}" ]]; then
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

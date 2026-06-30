@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # scripts/archive-passing.sh — move passing tickets out of the live queue.
 #
+# Keeps the Lec 8 feature-list primitive lean and machine-readable: the live
+# queue stays just the outstanding work (fast ready-frontier query), while
+# completed tickets become append-only history.
+#
 # For each features/<id>.json with status "passing", append a compact one-line
 # entry to feature_list.archive.jsonl (merge=union via .gitattributes, so
 # concurrent archive appends auto-merge) and remove the live file. Run it after a

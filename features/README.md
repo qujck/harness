@@ -1,5 +1,11 @@
 # features/ — the work queue (one file per ticket)
 
+This directory is a **harness primitive**, not documentation (Learn Harness
+Engineering, **L08**): *"documents can be ignored; primitives can't be bypassed."*
+Every ticket carries the **triple** — behaviour, verification command, current
+state — and moves through a **status machine** whose `passing` transition is
+gated on `verify.sh` (the agent can't self-grade it there; **L09**).
+
 The live work queue is this directory: **one `features/<id>.json` per ticket**,
 each holding that ticket's entry object alone. Adding, flipping, or archiving a
 ticket touches only its own file, so concurrent branches never conflict on the

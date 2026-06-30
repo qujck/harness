@@ -234,9 +234,44 @@ These are GitHub/CI/project-specific, so the kit documents rather than ships the
   a diff touches only frontend/docs/ledger paths that can't affect the backend
   layers — minutes saved per parallel PR.
 
-## Design notes
+## Design notes — the framework it implements
 
-The lecture references in the script comments (lec 6 / 9 / 10 / 12) trace back to
-a harness-engineering framework: initialization is its own phase, agents can't
-self-grade, only end-to-end testing proves boundary defects are absent, and every
-session must leave a clean state. Adjust freely — the mechanism is the point.
+This kit is a concrete implementation of **[Learn Harness Engineering](https://walkinglabs.github.io/learn-harness-engineering/)**
+(WalkingLabs), a 12-lecture framework. A *harness* is everything outside the model
+weights — its five subsystems are **instructions, tools, environment, state, and
+feedback** (L02) — and the guiding rule is to **make the correct path the path of
+least resistance**: constrain the agent with executable rules rather than
+enumerating instructions it can ignore. The `Lec N` references in the script
+headers point back to these lectures.
+
+Each part maps to a lecture's driver:
+
+| Part | Lecture | Driver it embodies |
+|---|---|---|
+| `AGENTS.md` — a short router to `CLAUDE.md` / docs | **L04** | One giant instruction file fails — keep the entry file small; link, don't inline. |
+| `PROGRESS.md`, `.agent/session.active` | **L05** | Long-running tasks lose continuity — carry state across sessions in files, not chat. |
+| `DECISIONS.md`; "the repo *is* the spec" | **L03** | The repo is the single source of record. |
+| `scripts/init.sh` — the bootstrap contract | **L06** | Initialization is its own phase: can start, verify, see progress, pick up next — *before* coding. |
+| `features/` + `_features.sh` + `archive-passing.sh` | **L08** | Feature lists are harness *primitives* — "documents can be ignored; primitives can't be bypassed." Each ticket carries the triple (behaviour, verification command, state). |
+| WIP nudge + `depends_on` ready-frontier | **L07** | Agents overreach and under-finish — bound work so finite attention isn't split `C/k` across tasks. |
+| `scripts/verify.sh` exit 0 = Definition of Done | **L09** | Agents declare victory too early — only the verifier (not judgement) advances a ticket to `passing`. |
+| `verify.sh` static → unit → **e2e** | **L10** | End-to-end testing changes results — component-boundary defects only surface end-to-end. |
+| per-stream stacks / `_stack.sh` (the Environment subsystem) | **L02** | Reproducible, isolated environments — and the substrate that lets multiple agents run at once. |
+| `handoff.sh` + per-stream teardown | **L12** | Every session must leave a clean state, or the next pays a 30–50% handoff penalty re-diagnosing. |
+| Enforcement: pre-commit + Stop / UserPromptSubmit hooks | **L02 / L08** | A primitive, not a document — the correct path is *enforced*, not merely advised. |
+
+**Where we extend the framework for parallel work.** L07's WIP=1 is the safest
+*default*, but it assumes a single attention context. Once each agent runs in an
+isolated checkout (own worktree or clone), WIP=1 relaxes to a per-checkout
+*nudge* — finite attention is still one task per agent while the fleet runs many.
+The per-ticket `features/` layout, union-merge logs, and the `depends_on` frontier
+are what make that safe: they remove the shared-file conflicts a single JSON
+array created.
+
+**What we deliberately defer.** **L11** — observability inside the harness (task
+traces / OpenTelemetry, sprint contracts, evaluator rubrics, the
+Planner→Generator→Evaluator split) — is not implemented. It's the highest-ceiling
+lecture but the heaviest; revisit it as the agent fleet and eval needs grow (see
+`DECISIONS.md`).
+
+The mechanism is the point — adjust freely.
