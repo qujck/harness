@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/handoff.sh — clean-state session-exit gate.
 #
-# Lec 12: every session must leave a clean state, or the next session faces
+# L12: every session must leave a clean state, or the next session faces
 # cascading failures. This script refuses to "pass" a session unless ALL of:
 #
 #   1. .agent/session.active exists (i.e. scripts/init.sh has run)

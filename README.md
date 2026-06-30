@@ -8,7 +8,11 @@ the path of least resistance and makes self-grading impossible:
 - **`handoff.sh`** clocks out — refuses a dirty/undocumented/self-graded session.
 - **Three enforcement tiers** so nothing slips: a soft nudge, a per-turn warning, and a hard pre-commit block.
 
-Stack-agnostic — you point it at your project's commands in one config file.
+**Stack-agnostic** — you point it at your project's commands in one config file.
+**Largely agent-agnostic too:** the scripts, the ledger, and the git pre-commit
+gate work with *any* agent (or a human); the `.claude/` hooks and `/configure`
+skill are the first-class **Claude Code** integration. Other agents use the
+manual path and still get hard enforcement via the git hook.
 
 ## What's in the box
 
@@ -17,6 +21,7 @@ harness.env.example      # ← the only thing you edit per project
 AGENTS.md                # routing file: the rules + the loop, for any agent
 PROGRESS.md              # mutable "what's happening right now"
 DECISIONS.md             # append-only architecture log
+OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
 features/                # the work queue: one <id>.json ticket per file
 feature_list.archive.jsonl  # completed tickets (append-only, one per line)
 .gitattributes           # union-merge the append-only logs
@@ -53,15 +58,16 @@ scripts/
   rather than work around it — that's the whole point. (With `PER_STREAM_STACKS=1`
   a strict pass also tears this worktree's stack down.)
 
-**Three enforcement tiers** make sure none of that is skippable:
+**Three enforcement tiers** make sure none of that is skippable. Tiers 1–2 are
+the Claude Code integration; tier 3 is agent-agnostic (plain git):
 
-1. **`.claude/hooks/user-prompt-check.sh`** — a soft nudge to run `init.sh` when the
-   session marker is missing (fires on each prompt).
-2. **`.claude/hooks/stop-check.sh`** — a per-turn *lenient* handoff check that warns
-   about gaps without blocking (fires only when the tree is dirty).
-3. **`scripts/git-hooks/pre-commit`** — the hard stop: runs verify's static+unit
-   layers on commit and won't let you commit past a failure (`--no-verify` overrides
-   in emergencies).
+1. **`.claude/hooks/user-prompt-check.sh`** *(Claude Code)* — a soft nudge to run
+   `init.sh` when the session marker is missing (fires on each prompt).
+2. **`.claude/hooks/stop-check.sh`** *(Claude Code)* — a per-turn *lenient* handoff
+   check that warns about gaps without blocking (fires only when the tree is dirty).
+3. **`scripts/git-hooks/pre-commit`** *(any agent)* — the hard stop: runs verify's
+   static+unit layers on commit and won't let you commit past a failure
+   (`--no-verify` overrides in emergencies).
 
 **The documents & the ledger** carry state between sessions:
 
@@ -101,7 +107,7 @@ scripts/
 
 1. **Copy the kit into your repo root** (everything except this README):
    ```bash
-   cp -r agent-harness/{scripts,.claude,features,AGENTS.md,PROGRESS.md,DECISIONS.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
+   cp -r agent-harness/{scripts,.claude,features,AGENTS.md,PROGRESS.md,DECISIONS.md,OBSERVABILITY.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
    ```
 
 2. **Open the repo in Claude Code and run `/configure`.** The skill detects your
@@ -271,7 +277,8 @@ array created.
 **What we deliberately defer.** **L11** — observability inside the harness (task
 traces / OpenTelemetry, sprint contracts, evaluator rubrics, the
 Planner→Generator→Evaluator split) — is not implemented. It's the highest-ceiling
-lecture but the heaviest; revisit it as the agent fleet and eval needs grow (see
-`DECISIONS.md`).
+lecture but the heaviest; revisit it as the agent fleet and eval needs grow.
+[OBSERVABILITY.md](OBSERVABILITY.md) is the concrete adoption path (and there's a
+commented `OBSERVABILITY` stub in `harness.env.example`).
 
 The mechanism is the point — adjust freely.

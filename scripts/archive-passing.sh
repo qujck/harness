@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/archive-passing.sh — move passing tickets out of the live queue.
 #
-# Keeps the Lec 8 feature-list primitive lean and machine-readable: the live
+# Keeps the L08 feature-list primitive lean and machine-readable: the live
 # queue stays just the outstanding work (fast ready-frontier query), while
 # completed tickets become append-only history.
 #

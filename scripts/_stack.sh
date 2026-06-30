@@ -1,9 +1,9 @@
 # scripts/_stack.sh — OPTIONAL per-stream docker-stack helpers (LOCAL parallel).
 # SOURCE this file (do not execute it).
 #
-# Lec 2, the Environment subsystem: a reproducible, ISOLATED stack. Per worktree
+# L02, the Environment subsystem: a reproducible, ISOLATED stack. Per worktree
 # it's also the operational substrate that lets several agents run in parallel on
-# one machine without corrupting each other (the multi-agent operation Lec 11
+# one machine without corrupting each other (the multi-agent operation L11
 # assumes). Across separate clones you're already isolated and don't need this.
 #
 # It always loads the feature-ledger helpers (scripts/_features.sh), so every

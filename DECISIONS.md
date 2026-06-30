@@ -22,4 +22,5 @@ stacks) is opt-in via `PER_STREAM_STACKS=1`.
 Deliberately deferred for now: **L11 — observability inside the harness** (task
 traces / OpenTelemetry, sprint contracts, evaluator rubrics, the
 Planner→Generator→Evaluator split). Highest-ceiling lecture, heaviest to build;
-revisit if/when the agent fleet and eval needs grow.
+revisit if/when the agent fleet and eval needs grow. The adoption path is written
+up in `OBSERVABILITY.md` (with an opt-in `OBSERVABILITY` stub in `harness.env`).

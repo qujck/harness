@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/init.sh — bootstrap contract for a fresh agent session.
 #
-# Lec 6 of the harness-engineering framework: initialization is its own phase,
+# L06 of the harness-engineering framework: initialization is its own phase,
 # not mixed with implementation. Idempotent. Brings the stack up, waits on the
 # health endpoint, installs the git pre-commit hook, marks the session active,
 # and prints the next ready feature from the ledger.
@@ -163,7 +163,7 @@ mkdir -p "$REPO_ROOT/.agent"
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$REPO_ROOT/.agent/session.active"
 ok "wrote .agent/session.active"
 
-# 7. Bootstrap-contract summary (lec 6: can start, test, see progress, pick up next).
+# 7. Bootstrap-contract summary (L06: can start, test, see progress, pick up next).
 step "Bootstrap contract"
 [[ "$PER_STREAM_STACKS" == "1" ]] && echo "   stream            : $COMPOSE_PROJECT_NAME"
 echo "   can verify        : bash scripts/verify.sh"

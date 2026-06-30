@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/verify.sh — Definition of Done.
 #
-# Lec 9: an agent cannot self-grade. Lec 10: only end-to-end testing proves
+# L09: an agent cannot self-grade. L10: only end-to-end testing proves
 # component-boundary defects don't exist. This script is the single command
 # whose exit code decides whether a feature is "passing".
 #

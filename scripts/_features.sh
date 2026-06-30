@@ -1,9 +1,9 @@
 # scripts/_features.sh — feature-ledger helpers. SOURCE this (don't execute).
 #
-# Lec 8 (feature lists are harness PRIMITIVES): the work list is a primitive, not
+# L08 (feature lists are harness PRIMITIVES): the work list is a primitive, not
 # a document — "documents can be ignored; primitives can't be bypassed." Each
 # ticket carries the triple (behaviour, verification command, state); only the
-# verifier advances it to "passing" (pass-state gating, Lec 9).
+# verifier advances it to "passing" (pass-state gating, L09).
 #
 # The work queue is the features/ directory — ONE features/<id>.json per ticket,
 # the entry object alone — so concurrent branches never conflict on it (a single
