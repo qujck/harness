@@ -145,7 +145,13 @@ step "Git pre-commit hook"
 HOOK_SRC="$REPO_ROOT/scripts/git-hooks/pre-commit"
 if [[ -f "$HOOK_SRC" ]] && git rev-parse --git-dir >/dev/null 2>&1; then
   HOOK_DST="$(git rev-parse --git-path hooks/pre-commit)"
-  if [[ ! -f "$HOOK_DST" ]] || ! cmp -s "$HOOK_SRC" "$HOOK_DST"; then
+  if [[ -f "$HOOK_DST" ]] && ! cmp -s "$HOOK_SRC" "$HOOK_DST" \
+      && ! grep -q 'installed by scripts/init.sh' "$HOOK_DST" 2>/dev/null; then
+    # A foreign hook already exists (integration into an existing repo). Never
+    # clobber it — warn and let the user chain it. See README "Integrate into an
+    # existing project".
+    warn "existing pre-commit hook is not the harness's — left untouched. Chain it to keep verify-on-commit (README: 'Integrate into an existing project')."
+  elif [[ ! -f "$HOOK_DST" ]] || ! cmp -s "$HOOK_SRC" "$HOOK_DST"; then
     mkdir -p "$(dirname "$HOOK_DST")"
     cp "$HOOK_SRC" "$HOOK_DST"
     chmod +x "$HOOK_DST"

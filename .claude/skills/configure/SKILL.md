@@ -40,7 +40,16 @@ toward one more question.
    this from the directory where they copied the kit.
 2. If `harness.env` already exists, ask whether to reconfigure (and whether to
    overwrite the already-filled docs) before touching anything.
-3. Get today's date for the DECISIONS.md stamp: run `date +%F`.
+3. **Existing project?** If the repo already had content before the kit (its own
+   `AGENTS.md` / `CLAUDE.md`, a `.gitattributes`, a `.gitignore`, a
+   `.git/hooks/pre-commit`, CI, tests), treat this as an *integration*: **merge,
+   never overwrite**. Fold the harness rules + loop into the existing `AGENTS.md`;
+   append (don't replace) the three `merge=union` lines to `.gitattributes`; add
+   the runtime bits to `.gitignore`; and leave any foreign pre-commit hook in
+   place (`init.sh` already refuses to clobber it — tell the user to chain it).
+   Map `harness.env` to commands the project already has. See README →
+   "Integrate into an existing project".
+4. Get today's date for the DECISIONS.md stamp: run `date +%F`.
 
 ## Step 1 — Detect the stack (read-only)
 

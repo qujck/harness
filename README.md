@@ -148,6 +148,53 @@ After step 1 above:
 
 5. **Restart your agent** so it picks up `.claude/settings.json`.
 
+### Integrate into an existing project
+
+The paths above assume a fresh adoption. For a repo that already has code, CI,
+docs, and maybe its own agent instructions, adopt **incrementally and
+non-destructively** — merge into what's there, don't overwrite it.
+
+1. **Copy only the non-colliding files first.** `scripts/`, `features/`,
+   `feature_list.archive.jsonl`, `OBSERVABILITY.md`, and `harness.env.example` are
+   almost always new. Copy them in. Hold back the four that commonly collide —
+   `AGENTS.md`, `CLAUDE.md`, `.gitattributes`, `.gitignore` — and merge them by
+   hand (below).
+
+2. **Point `harness.env` at commands you already have.** You're not inventing a
+   build/test pipeline — you're naming it. Set `VERIFY_STATIC` / `VERIFY_UNIT` /
+   `VERIFY_E2E` to your existing lint/test/e2e commands, `UP_CMD` + `HEALTH_URL`
+   to however you already start the app, and `VERIFY_PATH_FILTER` to your source
+   paths. Leave any layer blank if you don't have it yet.
+
+3. **Merge, don't replace, the colliding files:**
+   - **`AGENTS.md`** — if one exists, keep your project content and fold in the
+     harness's hard rules + the clock-in/clock-out loop. If not, use the kit's.
+   - **`CLAUDE.md`** — keep yours; add a pointer to `AGENTS.md` and that
+     `verify.sh` exit 0 is the Definition of Done. (`/configure` will offer to
+     merge rather than overwrite.)
+   - **`.gitattributes`** — *append* the three `merge=union` lines; don't clobber
+     your existing attributes.
+   - **`.gitignore`** — add `.agent/`, `harness.env`, `.claude/settings.local.json`.
+
+4. **Handle an existing pre-commit hook.** `init.sh` will **not** overwrite a
+   foreign `.git/hooks/pre-commit` — it warns and leaves yours in place. To get
+   the harness's verify-on-commit gate, chain them: rename yours (e.g. to
+   `pre-commit.local`), install the harness hook, and add a line to it that calls
+   your saved hook. (It only manages a hook it recognises as its own.)
+
+5. **Seed the ledger from work already in flight — or start clean.** You do *not*
+   need to backfill history. Either add a `features/<id>.json` for each open piece
+   of work (one file per ticket; see `features/README.md`), or leave the queue
+   empty and create tickets going forward. Delete `features/example_replace_me.json`.
+
+6. **Existing tests already red?** That's fine — `verify.sh` will report it. Adopt
+   the rule *"a ticket is `passing` only when verify is green"* from the next
+   ticket onward; you don't have to make the whole suite pass on day one.
+
+7. **Clock in and restart your agent** — steps 4–5 of the paths above. In Claude
+   Code, `/configure` automates most of this: it detects your stack, asks before
+   reconfiguring an existing `harness.env`, and prefers merging `CLAUDE.md`.
+
 ### Either way — gitignore the runtime bits
 
 The kit's `.gitignore` already lists these; confirm they're in your repo's:
@@ -247,7 +294,7 @@ This kit is a concrete implementation of **[Learn Harness Engineering](https://w
 weights — its five subsystems are **instructions, tools, environment, state, and
 feedback** (L02) — and the guiding rule is to **make the correct path the path of
 least resistance**: constrain the agent with executable rules rather than
-enumerating instructions it can ignore. The `Lec N` references in the script
+enumerating instructions it can ignore. The `L0N` references in the script
 headers point back to these lectures.
 
 Each part maps to a lecture's driver:
