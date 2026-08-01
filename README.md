@@ -6,13 +6,26 @@ state that is painful to reconstruct and impossible to review after the fact.
 
 ## `statusline.sh`
 
-Deployed to **`~/.claude/statusline.sh`**. Claude Code pipes a JSON blob to it on stdin and renders the
-line it prints — model, agent name, cwd, context gauge, weekly-limit gauge, and the running gate for
-*this* session.
+**This file IS the live status line — not a copy of one.** `~/.claude/settings.json` points its
+`statusLine.command` straight at this path:
 
-```bash
-cp claude/statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh
+```json
+"statusLine": { "command": "/home/peter/dev/download/claude/statusline.sh", "refreshInterval": 5 }
 ```
+
+Claude Code pipes a JSON blob to it on stdin and renders the line it prints — model, agent name, cwd,
+context gauge, weekly-limit gauge, and the running gate for *this* session.
+
+There is deliberately no copy step and nothing to keep in sync: one file, so it cannot drift. Two
+consequences worth knowing:
+
+- **Editing it changes your status line immediately**, before you commit. Your working tree is the
+  thing that runs.
+- **Moving or deleting this directory breaks the status line**, and because a command that fails to run
+  renders nothing, that shows up as a blank bar rather than an error. If you ever relocate this repo,
+  update `statusLine.command` with it.
+
+It must stay executable (`chmod +x`) — it is invoked directly, not via `bash <file>`.
 
 Two things to know before editing it:
 
@@ -25,9 +38,9 @@ Two things to know before editing it:
   either side and the other must change with it — `bash scripts/init.sh --selftest` in that repo pins
   it.
 
-Copied here 2026-07-31, at the version that fixed the identity lookup
+Added here 2026-07-31, at the version that fixed the identity lookup
 (`fix_statusline_cwd_fallback_names_the_wrong_agent`, qujck/strength#3994): the cwd fallback no longer
 names whoever else owns the directory, and the recorded worktree is actually read.
 
-**This is a copy, not the live file.** Nothing syncs it automatically — if you edit `~/.claude/statusline.sh`,
-copy it back and commit, or the next change lands on top of a stale snapshot.
+It arrived as a copy alongside `~/.claude/statusline.sh` and was promoted to the live file the same day
+— a copy would have drifted the first time anyone edited one side.
