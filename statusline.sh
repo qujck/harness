@@ -261,6 +261,37 @@ for pat in verify.sh e2e.sh acceptance-ui.sh; do
   done
 done
 
+# ── CI runs being waited on ──────────────────────────────────────────────────
+# Same idea as the gates above, for the OTHER thing a session sits waiting on:
+# a `gh run watch <id>` following a run on the self-hosted runner (a PR verify,
+# the merge canary, the nightly). The watcher is a real process launched from
+# the agent's worktree, so the same scoping works: cwd → .agent/name → mine.
+# The run id is shown in full — it is what you paste into `gh run view`.
+#
+# The `-c` rejection matters doubly here: agent-issued watchers are wrapped in
+# `bash -c 'cd <worktree> && gh run watch …'`, so the wrapper MENTIONS the
+# command while the child gh process carries it as real argv. Rejecting -c keeps
+# the wrapper out and the child in — one entry per watched run, deduped below.
+for pid in $(pgrep -f 'gh run watch' 2>/dev/null); do
+  argv=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' '\n')
+  printf '%s\n' "$argv" | /usr/bin/grep -qx -- '-c' && continue
+  # Must be gh itself with `run watch <id>` as its own argv entries.
+  printf '%s\n' "$argv" | head -1 | /usr/bin/grep -qE '(^|/)gh$' || continue
+  printf '%s\n' "$argv" | /usr/bin/grep -qx 'watch' || continue
+  rid=$(printf '%s\n' "$argv" | /usr/bin/grep -m1 -xE '[0-9]{6,}')
+  [ -n "$rid" ] || continue
+  gdir=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+  [ -n "$gdir" ] || continue
+  gname=$(cat "$gdir/.agent/name" 2>/dev/null)
+  secs=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$secs" ] || continue
+  if [ -z "$me" ]; then
+    unnamed="$unnamed""ci:$rid $(basename "$gdir") $secs"$'\n'
+  elif [ -n "$gname" ] && [ "${gname,,}" = "${me,,}" ]; then
+    mine="$mine""ci:$rid $secs"$'\n'
+  fi
+done
+
 # EVERY gate of MINE, one entry per script, longest-lived first. Not collapsed to
 # a single line, because a verify SPAWNS the others — so "verify 5m12s ·
 # acceptance-ui 0m48s" says both that it is alive and which stage it reached.
