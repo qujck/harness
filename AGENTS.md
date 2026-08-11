@@ -21,6 +21,15 @@ Full project map and commands: [CLAUDE.md](CLAUDE.md) *(create this per-project;
 1. **One ticket per change.** Add a `features/<id>.json` ticket file with `status: "not_started"` *before* writing code; flip to `"in_progress"` when you start. Multiple may be `in_progress` across **isolated checkouts** — WIP is a handoff nudge, not a hard cap; worktree isolation + `depends_on` are the safety. See [features/README.md](features/README.md).
 2. **Don't self-grade.** A feature is `passing` only after `bash scripts/verify.sh` exits 0. Do not edit `status` to `passing` by judgement.
 3. **Definition of Done = `scripts/verify.sh` exits 0.** No other definition.
+3b. **Name yourself, and claim before you start.** `echo '<you>' > .agent/name` (or export
+   `AGENT_NAME`), then `bash scripts/feature-ticket.sh claim <id>`. ⚠ **Flipping a ticket to
+   `in_progress` is NOT a lock** — two agents can both read a status and both start. The pushed
+   branch is the lock: the remote rejects the second pusher. With one agent this costs nothing;
+   with two it is the difference between parallel work and duplicated work.
+
+3c. **Before you trust any measurement, read [METHOD.md](METHOD.md).** Especially: could this
+   instrument have produced the OTHER answer, and is this count a window or a period.
+
 4. **Write this session's own entry at session end** — `bash scripts/progress.sh new "<what happened>"` creates `progress/<stamp>-<name>-<slug>.md`. `scripts/handoff.sh` refuses to pass otherwise. ⚠ ONE FILE PER SESSION, never a shared one: `PROGRESS.md` is frozen history now — read it, never append. Two agents editing one file conflict by construction, and `merge=union` does NOT save you because GitHub's PR merge ignores merge drivers.
 5. **Append to `DECISIONS.md`** for any architectural choice another agent might re-debate. Past decisions are binding until superseded.
 6. {{PROJECT-SPECIFIC RULE — e.g. module isolation, naming, layering. Delete if none.}}

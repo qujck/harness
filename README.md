@@ -6,6 +6,11 @@ the path of least resistance and makes self-grading impossible:
 - **`init.sh`** clocks in — boots the stack, installs the git hook, marks the session.
 - **`verify.sh`** is the *only* Definition of Done — static → unit → e2e, exit 0 or it isn't done.
 - **`handoff.sh`** clocks out — refuses a dirty/undocumented/self-graded session.
+- **`feature-ticket.sh`** claims work so two agents cannot take the same ticket — the pushed
+  branch is the lock, because it is the only operation that is atomic across machines.
+- **`METHOD.md`** is the other half of the harness: the workflow rules stop you skipping a
+  step, and METHOD stops you believing a broken measurement. A broken test fails; a broken
+  measurement passes, and you act on it.
 - **Three enforcement tiers** so nothing slips: a soft nudge, a per-turn warning, and a hard pre-commit block.
 
 **Stack-agnostic** — you point it at your project's commands in one config file.
@@ -19,6 +24,7 @@ manual path and still get hard enforcement via the git hook.
 ```
 harness.env.example      # ← the only thing you edit per project
 AGENTS.md                # routing file: the rules + the loop, for any agent
+METHOD.md                # how to know your MEASUREMENT is sound — read before trusting a result
 PROGRESS.md              # FROZEN history — read it, never append (see progress/)
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
@@ -32,6 +38,8 @@ scripts/
   handoff.sh             # clock out gate
   archive-passing.sh     # move passing tickets to features/archive/<id>.json
   progress.sh            # write this session's own entry under progress/
+  feature-ticket.sh      # claim/park/release — the PUSHED BRANCH is the lock
+  lib/agent-name.sh      # who this session is (sourced; parses no arguments)
   _features.sh           # ledger helper: aggregates features/*.json (sourced)
   _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)

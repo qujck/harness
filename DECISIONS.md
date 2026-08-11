@@ -52,3 +52,37 @@ rare and the log reads badly split across files, so the trade is accepted — bu
 same conflict, and the answer when it happens is to keep both entries, not to add a merge driver.
 
 **Supersedes** the `.gitattributes` comment that described the jsonl archive as unioning "cleanly".
+
+## 2026-08-11 — the harness gains claims, identity, and a method for measuring
+
+**Decision.** Three additions, each closing a gap that only appears once the harness is doing the
+job it is adopted for.
+
+**1. `scripts/feature-ticket.sh` — claims.** The harness advertised parallel agents and had no way
+to take a ticket. ⚠ **A ticket status is not a lock**: two agents can both read `not_started`, both
+write `in_progress`, and both start. Checking for a branch first is not a lock either — both can
+look, both see nothing, both proceed. Exactly one operation here is atomic across machines:
+`git push origin <id>`, which the remote **rejects** for the second pusher. The claim is therefore
+the push, and everything else is bookkeeping around it. The branch is based on `origin/main`, never
+on HEAD, so a claim cannot silently absorb another agent's unmerged commits.
+
+**2. `scripts/lib/agent-name.sh` — identity.** Every ownership record is worthless if it says
+"agent". ⚠ `.agent/name` names a **directory**, not a session: two agents sharing one checkout share
+an identity, silently, with nothing else looking wrong. That is the concrete reason the harness
+tells you to work in your own worktree.
+
+**3. `METHOD.md` — the other half.** The scripts make the WORKFLOW hard to get wrong. METHOD is
+about the MEASUREMENT, and it is the higher-value half per byte: **a broken test fails, a broken
+measurement passes and you act on it.** Every rule in it is drawn from a real incident, and the two
+that catch most of them are *could this instrument have produced the other answer* and *is this
+count a window or a period*.
+
+**⚠ Written while breaking two of its own rules, which is the argument for having it.** The refusal
+message in `feature-ticket.sh` used backticks inside a double-quoted string — command substitution
+— so it executed `release` and mangled itself; found only by driving the refusal path, which is the
+path least likely to be exercised and most likely to be read when something has already gone wrong.
+And a regex edit to `features/README.md` matched across a sentence boundary and corrupted the
+paragraph it was fixing. Both were caught by looking at the output rather than at the diff.
+
+**Not included, deliberately:** no takeover verb, no batch claims, no issue-tracker integration.
+Those are conveniences. What is here is the part that makes concurrency SAFE.
