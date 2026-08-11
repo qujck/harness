@@ -71,18 +71,25 @@ else
   ok "verify passed"
 fi
 
-# 3. PROGRESS.md touched (uncommitted edits OR a commit in the last 6 hours).
-step "[3/6] PROGRESS.md touched this session"
-progress_dirty=0
-git diff --quiet -- PROGRESS.md 2>/dev/null || progress_dirty=1
-git diff --cached --quiet -- PROGRESS.md 2>/dev/null || progress_dirty=1
-recent_progress_commit=$(git log --since='6 hours ago' --pretty=format:'%h' -- PROGRESS.md 2>/dev/null | head -1 || true)
-if (( progress_dirty == 1 )); then
-  ok "PROGRESS.md has uncommitted edits"
+# 3. A session entry exists under progress/ (uncommitted OR committed in the last 6 hours).
+#
+# ⚠ THIS USED TO REQUIRE PROGRESS.md, WHICH MADE EVERY SESSION TOUCH ONE SHARED FILE. Two agents
+# finishing near each other then conflicted by construction, and the harness answered that with
+# `merge=union` — which GitHub's PR merge IGNORES. See scripts/progress.sh for the measurement.
+# One file per session has nothing to union.
+PROGRESS_DIR="${PROGRESS_DIR:-progress}"
+step "[3/6] a session entry was written under $PROGRESS_DIR/"
+progress_new=""
+# Uncommitted (staged or not) — the usual case: written moments ago, about to be committed.
+progress_new="$(git status --porcelain -- "$PROGRESS_DIR" 2>/dev/null | head -1 || true)"
+# …or committed recently, for a session that already landed its entry.
+recent_progress_commit=$(git log --since='6 hours ago' --pretty=format:'%h' -- "$PROGRESS_DIR" 2>/dev/null | head -1 || true)
+if [[ -n "$progress_new" ]]; then
+  ok "a $PROGRESS_DIR/ entry is pending commit"
 elif [[ -n "$recent_progress_commit" ]]; then
-  ok "PROGRESS.md updated in recent commit $recent_progress_commit"
+  ok "a $PROGRESS_DIR/ entry landed in recent commit $recent_progress_commit"
 else
-  fail "PROGRESS.md was not touched this session — update it before handing off"
+  fail "no session entry this session — run: bash scripts/progress.sh new \"<what happened>\""
 fi
 
 # 4. No debug artifacts in added lines (vs HEAD).
