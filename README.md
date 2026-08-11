@@ -19,17 +19,19 @@ manual path and still get hard enforcement via the git hook.
 ```
 harness.env.example      # ← the only thing you edit per project
 AGENTS.md                # routing file: the rules + the loop, for any agent
-PROGRESS.md              # mutable "what's happening right now"
+PROGRESS.md              # FROZEN history — read it, never append (see progress/)
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
 features/                # the work queue: one <id>.json ticket per file
-feature_list.archive.jsonl  # completed tickets (append-only, one per line)
-.gitattributes           # union-merge the append-only logs
+features/archive/        # completed tickets: one <id>.json per file
+progress/                # session records: one file per session
+.gitattributes           # ⚠ sets NO merge driver, deliberately — see the file
 scripts/
   init.sh                # clock in
   verify.sh              # Definition of Done
   handoff.sh             # clock out gate
-  archive-passing.sh     # move passing tickets to the archive
+  archive-passing.sh     # move passing tickets to features/archive/<id>.json
+  progress.sh            # write this session's own entry under progress/
   _features.sh           # ledger helper: aggregates features/*.json (sourced)
   _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)

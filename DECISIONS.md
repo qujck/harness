@@ -24,3 +24,31 @@ traces / OpenTelemetry, sprint contracts, evaluator rubrics, the
 Planner→Generator→Evaluator split). Highest-ceiling lecture, heaviest to build;
 revisit if/when the agent fleet and eval needs grow. The adoption path is written
 up in `OBSERVABILITY.md` (with an opt-in `OBSERVABILITY` stub in `harness.env`).
+
+## 2026-08-11 — union-merge is not a concurrency strategy; one file per writer is
+
+**Decision.** Nothing in this harness relies on a `.gitattributes` merge driver. Every artifact that
+two agents can write at the same time gets ONE FILE PER WRITER:
+
+| artifact | was | is |
+|---|---|---|
+| completed tickets | `feature_list.archive.jsonl`, appended, `merge=union` | `features/archive/<id>.json` |
+| session records | `PROGRESS.md`, appended, `merge=union` | `progress/<stamp>-<name>-<slug>.md` |
+| live tickets | already one file per ticket | unchanged |
+
+**Why.** ⚠ **GitHub's PR merge IGNORES `.gitattributes` merge drivers.** A local `git merge` honours
+them, so the pattern tests clean on one machine and fails on the workflow this harness prescribes
+(branch + PR). In the project this harness was extracted from it produced **two full PR re-rolls in
+one day (2026-07-14)** before the cause was found: two agents archive different tickets, both append
+a line, GitHub reports a conflict, and both have to re-roll.
+
+**⚠ The failure mode is what makes this worth a decision rather than a fix.** The union driver does
+not fail loudly or early — it works for the person who tests it, and only breaks once a second agent
+exists, which is exactly when the harness is doing its job. Shipping it as advice meant handing
+every adopter a defect that appears at the moment they start using the feature it was written for.
+
+**What is deliberately NOT split:** `DECISIONS.md` remains a single append-only file. Entries are
+rare and the log reads badly split across files, so the trade is accepted — but it is exposed to the
+same conflict, and the answer when it happens is to keep both entries, not to add a merge driver.
+
+**Supersedes** the `.gitattributes` comment that described the jsonl archive as unioning "cleanly".
