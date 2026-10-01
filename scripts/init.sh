@@ -119,7 +119,9 @@ if [[ -f .env.example ]]; then
   fi
 fi
 
-# 3. Bring the stack up.
+# 3. Bring the stack up — unless the box is at its cap (scripts/agent-stacks.sh --check: refuses, names
+#    the holders, stops nothing; the CI seat and INFRA_STACK_PROJECTS are not counted).
+bash "$REPO_ROOT/scripts/agent-stacks.sh" --check || exit 1
 if [[ "$PER_STREAM_STACKS" == "1" ]]; then
   # ── Local parallel: a per-worktree docker-compose stack with discovered ports ──
   command -v docker >/dev/null || fail "docker required for PER_STREAM_STACKS=1"
