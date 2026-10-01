@@ -51,7 +51,8 @@ load-bearing half — what you must not touch. The rules below bind all four rol
    `infra/ledger-db/`, defined in [docs/ledger-spec.md](docs/ledger-spec.md)) or Jira
    (`TICKET_STORE=jira`), same verbs; `scripts/lib/ticket-store.sh` is the adapter. A write needs a
    session identity: `GIT_AUTHOR_EMAIL` must map to a row in `agents/roster.json`, or the ledger
-   refuses (exit 3). *(Jira arrives with `feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`.)*
+   refuses (exit 3). Jira: [docs/ticket-store-jira.md](docs/ticket-store-jira.md) — the same verbs
+   over a Jira project (the issue key is the ticket id; the branch stays the lock).
 3. **Don't self-grade.** The required check on your PR is the definition of done; `passing` is a row
    write after the merge, with the PR number, never a judgement.
 4. **Completion is three row writes AFTER the merge**: `ledger-db.sh flip-passing <id> <pr>` →
