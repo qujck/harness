@@ -203,3 +203,19 @@ names the hook), and `scripts/ops-alerts-settle.sh` (the settle tick + the sweep
 healthy unit into a recovery reading). The seeded project's platform-paths/installer (388 lines,
 44 couplings) are not ported. The throwaway-box drive of the installed units is recorded below once
 run.
+
+### The drive (2026-10-01, this box, user scope, scratch project `hdemo`, `ALERT_TRANSPORT=none`)
+
+`install-units.sh` rendered and installed `hdemo-unit-failure@.service` and `hdemo-alerts-settle.{service,timer}`.
+A probe unit (`ExecStart=/bin/sh -c 'test -f …/healthy'`, `OnFailure=hdemo-unit-failure@%n.service`) was started
+with the file absent, then with it present. The journal, filtered on the contract words, shows exactly two lines:
+
+    12:17:03  [FAILING]   unit-failed:hdemo-probe.service   (the hook, on the failed run)
+    12:32:04  [RECOVERED] unit-failed:hdemo-probe.service   (the settle tick: the 12:22 tick's sweep read the unit
+                                                              `inactive` = healthy and recorded the recovery; it was
+                                                              announced once it had held the 10-minute settle)
+
+Three settle ticks between them (12:22, 12:27, 12:32) announced nothing. The scratch units were then disabled and
+removed. **A finding on the way:** my drive of a mistyped flag (`--slef-test`) against `install-units.sh` fell
+through to the real action and installed `harness-*` units on the box (removed) — the fall-through child 7's
+refusal now closes.
