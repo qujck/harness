@@ -38,10 +38,10 @@ load-bearing half — what you must not touch. The rules below bind all four rol
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;
    check `agent_name_resolved / agent_name_source` prints your name and `session` before anything
-   writes. `.agent/name` is a directory's label, never a session's identity. *(The roster and the
-   onboarding script arrive with
-   `feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows`;
-   until then export `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL` yourself and the scripts read those.)*
+   writes. `.agent/name` is a directory's label, never a session's identity: `init.sh` refuses a
+   session whose name came from a file or `$AGENT_NAME`, and refuses a checkout holding another
+   agent's live marker (`ALLOW_SHARED_CHECKOUT=1` for a deliberate hand-off). New agent:
+   `bash scripts/agent-onboard.sh <Name> <role>` registers the roster row and prints the line.
 2. **One ticket per change, and the ticket store is the ledger, behind one verb set.** A raise
    creates a row at `not_started` (`bash scripts/feature-ticket.sh raise <id>` with a hand-authored
    JSON you never commit); `selected` is the PO's move (`groom`); claim before you start
@@ -65,7 +65,10 @@ load-bearing half — what you must not touch. The rules below bind all four rol
 6. **Write this session's entry before a block boundary, as a ledger row** — `bash
    scripts/progress.sh new "<title>" --body-file <file>` — never as a file, never as a commit (an
    entry committed after the PR opens supersedes its verify). `handoff.sh` refuses a session with
-   no entry. *(Rows arrive with `feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows`; a file under `progress/` until then.)*
+   no entry (it reads the store: `ledger-db.sh session-entries --mine --since <session start>`).
+   `progress/` and `PROGRESS.md` are frozen history: `scripts/check-no-new-progress-files.sh` fails
+   `verify.sh` on a new file there. With `TICKET_STORE=jira` an entry is a comment on the issue
+   named by `JIRA_SESSION_LOG_ISSUE`.
 7. **Append to `DECISIONS.md`** for any choice another agent might re-debate. A decision is
    binding until superseded — and **a decision recorded with a reason lapses when the reason
    does**: re-ask it, do not obey it.
