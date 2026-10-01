@@ -1,0 +1,14 @@
+# @@PROJECT@@-alerts-settle.service — the settle tick of the condition contract. A recovery is announced
+# only once it has HELD (settle window), and a flapping key only once it has held the flap window; that
+# needs a tick that fires with no new reading. This oneshot runs scripts/ops-alerts-settle.sh every few
+# minutes (the paired .timer) and sweeps unit-failed:<unit> keys whose unit is healthy again.
+# Rendered from this template by scripts/install-units.sh; never edit the installed copy.
+[Unit]
+Description=@@PROJECT@@ — settle due alert recoveries and sweep healthy unit-failed keys
+OnFailure=@@PROJECT@@-unit-failure@%n.service
+[Service]
+Type=oneshot
+WorkingDirectory=@@REPO_ROOT@@
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/env bash @@REPO_ROOT@@/scripts/ops-alerts-settle.sh
+TimeoutStartSec=120

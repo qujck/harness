@@ -182,3 +182,24 @@ beside both calls in the workflow and asserted by the shape check. Dropped: `che
 template has no runners or ruleset; the row's end-to-end items stay open until a project wires it
 (the runbook says how). This child gives the template a required check (`route`, `verify`), so the
 earlier children's PRs may be armed once a project's ruleset names them.
+
+## 2026-10-01 — Ops alerts are conditions: one email on failing, one on recovery (template child 6)
+
+`feat_harness_ops_alerts_are_conditions_with_one_email_on_failing_and_one_on_recovery`. Ported:
+`scripts/lib/ops-alert.sh` + `scripts/lib/ops_alert_machine.py` (the condition contract of the
+seeded project's 2026-09-28 decision: [FAILING] once, [RECOVERED] once it has held the settle
+window, [FLAPPING] at the fifth transition in an hour and then silence; a send that fails does not
+advance state) with the shared vectors in `scripts/testdata/ops-alert-conditions.json` (12 scenarios
+— the twelfth is the two-senders flap), `scripts/ops-alerts.sh` (the durable queue), and the
+OnFailure hook `scripts/ops-alert-unit-failure.sh`. Changed on purpose: the transport is CONFIG
+(`ALERT_TRANSPORT=none|resend|post`, addresses from `harness.env`, the key from the monitoring
+dir's `.env`), nothing project-named in the library; and the two-senders defect is closed by design
+— `ops_alert_state_dir` resolves ONE location (explicit, `ALERT_STATE_DIR`, `$PLATFORM_VAR`,
+`~/.local/state/<project>/alerts`) with no second fallback and REFUSES to run (exit 2) when it
+cannot create it; the queue lives beside it. NEW: `scripts/systemd/*.in` templates
+(`unit-failure@.service`, `alerts-settle.{service,timer}`) rendered and installed by
+`scripts/install-units.sh` (user scope; its self-test proves no placeholder survives and every service
+names the hook), and `scripts/ops-alerts-settle.sh` (the settle tick + the sweeper that turns a
+healthy unit into a recovery reading). The seeded project's platform-paths/installer (388 lines,
+44 couplings) are not ported. The throwaway-box drive of the installed units is recorded below once
+run.

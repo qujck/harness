@@ -1,0 +1,10 @@
+# @@PROJECT@@-alerts-settle.timer — every 5 minutes (the settle window is 10: two ticks inside it).
+[Unit]
+Description=@@PROJECT@@ — settle tick for alert conditions
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+[Install]
+WantedBy=timers.target
