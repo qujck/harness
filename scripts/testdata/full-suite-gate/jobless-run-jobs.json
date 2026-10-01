@@ -1,0 +1,16 @@
+{
+ "_comment": [
+  "A scheduled run CANCELLED BEFORE ANY JOB EXISTED — the real shape of run 33992051892 (created",
+  "2026-09-05T21:06:22Z), verified against the API: {\"total_count\": 0, \"jobs\": []}.",
+  "",
+  "⚠ THIS IS A THIRD ROUTE, NOT A REPEAT. `cancel-in-progress` is false for `schedule`, so it protects",
+  "a RUNNING run and never a PENDING one; a pending run superseded by the next hourly is cancelled",
+  "before it is ever expanded into jobs. So there is NO JOB OBJECT AT ALL — and therefore no",
+  "`runner_name` to interrogate, which is the discriminator every other case turns on.",
+  "",
+  "Not-dispatched and no-such-job reach the same verdict (no claim, look beneath it) by different",
+  "paths, and only one of them has an object to ask. Flagged by the PO on exactly that reasoning."
+ ],
+ "total_count": 0,
+ "jobs": []
+}

@@ -159,3 +159,26 @@ and says CANNOT TELL, not pass, when the store is unreachable. `verify.sh` runs 
 REAL against the diff, not only its arms (the seeded project's lesson: a step that ran the arms and
 never the gate let four files through). With `TICKET_STORE=jira`, an entry is a comment on the issue
 `JIRA_SESSION_LOG_ISSUE` names (head line `[session-entry] <who>: <title>`), refused by name when unset.
+
+## 2026-10-01 — CI routes a PR by diff, runs a subset, and gates merges on the hourly full suite (template child 5)
+
+`feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite`.
+The SHAPE of the seeded project's 3,483-line pipeline, generic: `.github/workflows/ci.yml` (route →
+verify → land, + a `repair-main` job; one concurrency group per event+ref with cancel-in-progress
+only for pull_request; runner labels as repository VARIABLES mirroring harness.env) and
+`hourly-full-suite.yml` (its own group, never cancelling). Ported as-is with the repo parametrised:
+`full-suite-gate.sh` (270 arms green here; reads `FULL_SUITE_WORKFLOW=hourly-full-suite.yml`),
+`ci-stack-project.sh` (project keyed on the RUNNER NAME), `ci-merge-pr-base.sh`, `ci-land-pr.sh`,
+`yield-to-repair.sh`, `check-verify-cost-budget.sh`, `lib/bounded.sh`, `lib/gh-checks.sh`,
+`verify-stages.sh`. NEW: `ui-relevant-specs.sh` (a small path-row selector with the seeded
+project's two properties — an unmapped surface path runs everything; always-specs always run — and
+the same map FORMAT; the by-content resolver and generated map are NOT ported), `ui-map.txt` as an
+example with the deliberately-unmapped class documented, `check-merge-seat-count.sh` (asserts the
+DECLARED count, the seeded project's lesson from its second-seat trial), `check-workflow-shape.sh`
+(mutation arms), and `verify.sh` as the tiered runner with a per-tier budget (`VERIFY_STEP_BUDGET_S`),
+`UI_ONLY`/`UI_GREP`/`VERIFY_FULL`. The gate's 0/1/2 contract and the proceed-on-2 policy are written
+beside both calls in the workflow and asserted by the shape check. Dropped: `check-required-check-name.sh`
+(it reads a classifier the template does not ship). **Not driven end to end on a real project**: the
+template has no runners or ruleset; the row's end-to-end items stay open until a project wires it
+(the runbook says how). This child gives the template a required check (`route`, `verify`), so the
+earlier children's PRs may be armed once a project's ruleset names them.
