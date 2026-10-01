@@ -123,3 +123,22 @@ is edited in a PR). `init.sh` reads the frontier and `handoff.sh` the live claim
 and board machinery is that project's migration history), its migration files 001–147 (replaced by
 the baseline), and its exempt-gate runners (child 7). Self-tests: `ledger-db.sh` 96 arms + the
 adapter's 7, `ledger-migrate.sh`, `feature-ticket.sh` 11 — all run by `verify.sh` step [0/3].
+
+## 2026-10-01 — Jira is a ticket store behind the same verbs (template child 3)
+
+`feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`. Owner: "for process it should support
+jira for tickets". NEW code, not a port: `scripts/lib/ticket_store_jira.py` (one method per verb,
+the database store's verdict strings and exit codes), reached through the child-2 seam
+(`scripts/lib/ticket-store.sh`, `TICKET_STORE=jira`). Assumptions stated in
+`docs/ticket-store-jira.md` for the owner to correct: Jira Cloud, REST v3, email + API token in
+`harness.env` (never in git — `scripts/check-no-committed-jira-token.sh`), one project per harness
+project. The issue KEY is the ticket id so the branch-is-the-lock rule holds; the status map is DATA
+validated against the project's real workflow before any write; requirement text lives in description
+sections rewritten only by `amend`, with a comment naming who and why. Two transports: live (retries
+429/503; a final failure is cannot-tell for a read, a refusal for a write) and fixture (an in-process
+fake of exactly the endpoints the verbs use; `--live --record` regenerates it from a real project).
+**Not yet run against a real Jira project** — the owner has not named one; the `--live` item on the
+row stays open until he does. Carl relayed a docs-only reading of the owner's words
+("just put a simple jira can be used in place of x, y, z and I will get it extended elsewhere");
+asked directly, the owner chose "Keep the adapter", so the doc carries that short section AND the
+adapter ships. 38 self-test arms + 5 for the token gate, both run by `verify.sh` step [0/3].
