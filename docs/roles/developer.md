@@ -36,7 +36,7 @@ the channel, not an escalation.
   them in the same PR or name them in the ticket. One project was bitten by one defect three times.
 - **The durable record, at all times.** You cannot compact yourself; compaction happens when your
   context fills. A session entry is a ledger row (`bash scripts/progress.sh new "<title>"
-  --body-file <file>` *— rows arrive with `feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows`; a file until then*), written before
+  --body-file <file>` — a row, never a file: `progress/` is frozen history), written before
   a block boundary, and at that boundary say so out loud.
 
 ## What you do not do

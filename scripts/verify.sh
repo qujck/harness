@@ -58,6 +58,14 @@ bash scripts/feature-ticket.sh --self-test  || fail "feature-ticket.sh self-test
 bash scripts/lib/ticket-store-jira.sh --self-test || fail "ticket-store-jira self-test failed (the Jira store behind the same verbs)"
 bash scripts/check-no-committed-jira-token.sh --self-test || fail "the committed-token gate's own self-test failed"
 bash scripts/check-no-committed-jira-token.sh || fail "a tracked file carries a Jira token — rotate it NOW, then remove it"
+# identity and session entries: the gate's arms, onboarding, progress.sh; and the progress FREEZE
+# invoked for REAL against this diff (not only its self-test — the seeded project once let four files
+# onto main because the step ran the arms and never the gate)
+bash scripts/lib/identity-gate.sh --self-test       || fail "identity-gate self-test failed"
+bash scripts/agent-onboard.sh --self-test           || fail "agent-onboard self-test failed"
+bash scripts/progress.sh --self-test                || fail "progress.sh self-test failed"
+bash scripts/check-no-new-progress-files.sh --self-test || fail "the progress-freeze gate's own self-test failed"
+bash scripts/check-no-new-progress-files.sh         || fail "a session-entry FILE was added under progress/ or PROGRESS.md — entries are ledger rows: bash scripts/progress.sh new"
 ok "harness checks green"
 
 if [[ -n "$VERIFY_STATIC" ]]; then

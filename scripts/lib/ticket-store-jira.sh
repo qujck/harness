@@ -128,8 +128,21 @@ PYX
   _t "an unreachable Jira is CANNOT TELL (exit 2) for a read, never 'no row'" 2 "$(JIRA_FIXTURE_FAIL_NEXT=down python3 "$PY" ticket-row "$(g key)" >/dev/null 2>&1; echo $?)"
   _t "an unreachable Jira is a refusal (exit 1) for a write, naming it" "refused:jira-unavailable" "$(JIRA_FIXTURE_FAIL_NEXT=down python3 "$PY" groom "$fk" why 2>/dev/null | cut -d: -f1-2)"
   # unsupported verbs refuse loudly with 2
-  _t "session-entry is unsupported here and exits 2, loudly" 2 "$(python3 "$PY" session-entry x >/dev/null 2>&1; echo $?)"
+  _t "sync-agent-roles is unsupported here and exits 2, loudly" 2 "$(python3 "$PY" sync-agent-roles >/dev/null 2>&1; echo $?)"
   _t "the adapter is reached through ledger-db.sh when TICKET_STORE=jira" "$(g key)|" "$(cd "$HERE/../.." && TICKET_STORE=jira bash scripts/ledger-db.sh ticket-row "$(g key)" 2>/dev/null | head -c 0; TICKET_STORE=jira bash scripts/ledger-db.sh show "$(g key)" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["id"]+"|")')"
+  # session entries: comments on the configured session-log issue (child 4's decision)
+  _t "session-entry is refused by name with no session-log issue configured" "refused:JIRA_SESSION_LOG_ISSUE-is-not-set-in-harness.env" \
+     "$(printf '{"title":"t","body":"b"}' | python3 "$PY" session-entry)"
+  printf '{"id":"zz_session_log","title":"Session log","status":"not_started","area":"ci"}\n' > "$JIRA_FIXTURE_DIR/sl.json"
+  slk="$(python3 "$PY" raise "$JIRA_FIXTURE_DIR/sl.json")"; slk="${slk#ok:}"
+  _t "session-entry writes a comment on the session-log issue" "ok:" \
+     "$(printf '{"title":"did a thing","body":"the body","ticket_id":"HAR-1","pr":7}' | JIRA_SESSION_LOG_ISSUE="$slk" python3 "$PY" session-entry | cut -c1-3)"
+  _t "session-entry without a body is refused" "refused:session-entry-needs-title-and-body" \
+     "$(printf '{"title":"t"}' | JIRA_SESSION_LOG_ISSUE="$slk" python3 "$PY" session-entry)"
+  _t "session-entries --mine lists this session's entries as id|created|agent|title" "Example|did a thing (ticket HAR-1) (PR #7)" \
+     "$(JIRA_SESSION_LOG_ISSUE="$slk" python3 "$PY" session-entries --mine | cut -d'|' -f3-)"
+  _t "session-entries --agent <other> lists nothing of mine (negative control)" "" \
+     "$(JIRA_SESSION_LOG_ISSUE="$slk" python3 "$PY" session-entries --agent Nobody)"
   rm -rf "$JIRA_FIXTURE_DIR"
   (( fails == 0 )) && echo "ticket-store-jira --self-test: ok" || { echo "ticket-store-jira --self-test: FAILED" >&2; exit 1; }
   exit 0

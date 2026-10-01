@@ -32,7 +32,8 @@ PROGRESS.md              # FROZEN history — read it, never append (see progres
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
 infra/ledger-db/         # the ticket store: ONE Postgres per box (compose, baseline schema, migrations)
-agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name -> role
+agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name -> role (agents · machines · assistants)
+progress/, PROGRESS.md   # FROZEN history: a session entry is a ledger row (scripts/progress.sh new), never a file
 progress/                # session records: one file per session
 .gitattributes           # ⚠ sets NO merge driver, deliberately — see the file
 scripts/
@@ -40,6 +41,8 @@ scripts/
   verify.sh              # Definition of Done
   handoff.sh             # clock out gate
   ledger-db.sh           # the ticket verbs: raise · groom · claim · park · amend · flip-passing · archive · release · frontier …
+  agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
+  progress.sh            # session entries as ledger rows: new · tail · list
   ledger-migrate.sh      # apply infra/ledger-db/*.sql to the running ledger, recorded in ledger.schema_migration
   ledger-db-deploy.sh    # sync infra/ledger-db/ to the deploy dir outside every checkout, write pgpass once
   progress.sh            # write this session's own entry under progress/
