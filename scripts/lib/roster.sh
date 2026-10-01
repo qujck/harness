@@ -171,7 +171,9 @@ roster_email_for_name() {
 
 # The derived form, and the ONLY one. Lowercase the name; one domain.
 # ⚠ Do NOT add a second spelling here. The whole naming rule is that there is one.
-ROSTER_DOMAIN="${ROSTER_DOMAIN:-weaversite.co.uk}"
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/harness-env.sh" 2>/dev/null || true
+# the naming rule: <name, lowercased>@ROSTER_DOMAIN (harness.env; default <project>.local)
+ROSTER_DOMAIN="${ROSTER_DOMAIN:-${HARNESS_PROJECT:-harness}.local}"
 roster_email_of_name() { printf '%s@%s\n' "${1,,}" "$ROSTER_DOMAIN"; }
 
 # ── file-backed wrappers ────────────────────────────────────────────────────────────────────────
@@ -387,6 +389,8 @@ fi
 # feature-ticket.sh and agent-name.sh, where `$1` is the CALLER's argument — `feature-ticket.sh
 # claim <id>` would otherwise be read as a flag for this library.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
+  _real_domain="$ROSTER_DOMAIN"    # the shipped roster is judged against the CONFIGURED domain (below)
+  ROSTER_DOMAIN=weaversite.co.uk   # the fixtures below carry the seeded project's addresses; pin the rule to them
   set -uo pipefail
   fails=0
   t() { local want="$1" desc="$2" got="$3"
@@ -552,7 +556,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     [[ -z "$_bad" ]] && printf '  ok    the shipped roster satisfies its own schema\n' \
       || { printf '  FAIL  shipped roster rows are malformed: %s\n' "$_bad"; fails=1; }
     # Every address must be the derived form. A hand-typed address is a second spelling.
-    _mm="$(jq -r '(.agents // [])[] | select((.email // "") != ((.name // "" | ascii_downcase) + "@weaversite.co.uk")) | .name' "$ROSTER_FILE" 2>/dev/null)"
+    _mm="$(jq -r --arg d "$_real_domain" '(.agents // [])[] | select((.email // "") != ((.name // "" | ascii_downcase) + "@" + $d)) | .name' "$ROSTER_FILE" 2>/dev/null)"
     [[ -z "$_mm" ]] && printf '  ok    every address is the derived form of its name\n' \
       || { printf '  FAIL  addresses do not match the naming rule: %s\n' "$_mm"; fails=1; }
     # ⚠ AND NO DUPLICATES, IN EITHER FIELD. Two rows for one identity is the drift this file exists

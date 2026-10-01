@@ -238,4 +238,9 @@ scripts, 14 of them exiting 0; one of those fall-throughs (`install-units.sh`) I
 developer's box during the drive. After: every enrolled script exits 2 on the typo (37 of 37). Three
 template scripts (the marker gate, `verify.sh`, `agent-name.sh`) parsed the flag by hand and now go
 through the contract. Not ported: `check-verify-steps-reach-the-failure-reporter.sh` (it reads a
-CI step the template's workflow does not have).
+CI step the template's workflow does not have). **Wired on the way:** the ported `verify-stages.sh`
+(the stage report the full-suite gate renders — "Playwright: NOT RUN — stopped at static checks") is
+now sourced by `verify.sh`: `vs_init` at the start, `vs_begin`/`vs_skip` per tier, `vs_finish` on
+exit, and `VERIFY_PLANT_RED=<stage>` plants a red so the library's self-test drives a REAL run (the
+harness step is skipped in a planted run, so it cannot recurse into itself); the verify, repair and
+hourly jobs publish the report on failure (job summary, the "verify stages" check-run the gate reads).

@@ -42,7 +42,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  checks: read
+  checks: write      # the "verify stages" check-run (scripts/verify-stages.sh) on a red run
   actions: read
 
 jobs:
@@ -184,6 +184,22 @@ jobs:
             2) echo "::warning::the full-suite gate CANNOT TELL (rc=2) — proceeding, because a broken query must never halt the factory. The safety net is ABSENT for this run." ;;
             *) echo "::error::the gate exited $rc, outside its 0/1/2 contract"; exit 1 ;;
           esac
+      - name: Name the verify stages that never ran
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          r="$RUNNER_TEMP/verify-stages.txt"
+          bash scripts/verify-stages.sh --markdown "$r" >> "$GITHUB_STEP_SUMMARY" || true
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+               -f "name=verify stages" -f head_sha="${GITHUB_SHA}" -f status=completed -f conclusion=neutral \
+               -f external_id="${GITHUB_RUN_ID}" \
+               -f 'output[title]=which stages of this verify ran' \
+               -f "output[summary]=$(bash scripts/verify-stages.sh --lines "$r")" \
+               -f "output[text]=$(cat "$r" 2>/dev/null || true)" >/dev/null 2>&1 \
+            || echo "::warning::could not publish the stage report — the merge-queue gate will say it is unknown"
       - name: Teardown — return the CI seat
         if: ${{ always() }}
         run: docker compose -p "${COMPOSE_PROJECT_NAME:-none}" down -v --remove-orphans 2>/dev/null || true
@@ -226,6 +242,22 @@ jobs:
         run: echo "COMPOSE_PROJECT_NAME=$(bash scripts/ci-stack-project.sh "${RUNNER_NAME:-}")" >> "$GITHUB_ENV"
       - name: The FULL suite on this PR — the repair proves the suite itself
         run: VERIFY_FULL=1 RUN_UI=1 bash scripts/verify.sh
+      - name: Name the verify stages that never ran
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          r="$RUNNER_TEMP/verify-stages.txt"
+          bash scripts/verify-stages.sh --markdown "$r" >> "$GITHUB_STEP_SUMMARY" || true
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+               -f "name=verify stages" -f head_sha="${GITHUB_SHA}" -f status=completed -f conclusion=neutral \
+               -f external_id="${GITHUB_RUN_ID}" \
+               -f 'output[title]=which stages of this verify ran' \
+               -f "output[summary]=$(bash scripts/verify-stages.sh --lines "$r")" \
+               -f "output[text]=$(cat "$r" 2>/dev/null || true)" >/dev/null 2>&1 \
+            || echo "::warning::could not publish the stage report — the merge-queue gate will say it is unknown"
       - name: Teardown — return the seat
         if: ${{ always() }}
         run: docker compose -p "${COMPOSE_PROJECT_NAME:-none}" down -v --remove-orphans 2>/dev/null || true
