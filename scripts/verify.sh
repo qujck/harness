@@ -54,6 +54,10 @@ step "[0/3] Harness — the ledger's self-tests (ledger-db.sh, ledger-migrate.sh
 bash scripts/ledger-db.sh --self-test       || fail "ledger-db.sh self-test failed (the verbs or the store adapter)"
 bash scripts/ledger-migrate.sh --self-test  || fail "ledger-migrate.sh self-test failed"
 bash scripts/feature-ticket.sh --self-test  || fail "feature-ticket.sh self-test failed (claim/release/exists)"
+# the Jira store: the whole lifecycle against the fixture transport; and no Jira token in any tracked file
+bash scripts/lib/ticket-store-jira.sh --self-test || fail "ticket-store-jira self-test failed (the Jira store behind the same verbs)"
+bash scripts/check-no-committed-jira-token.sh --self-test || fail "the committed-token gate's own self-test failed"
+bash scripts/check-no-committed-jira-token.sh || fail "a tracked file carries a Jira token — rotate it NOW, then remove it"
 ok "harness checks green"
 
 if [[ -n "$VERIFY_STATIC" ]]; then

@@ -107,8 +107,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
   attributed (`amend`), every claim a row AND a pushed lock branch (`feature-ticket.sh claim`).
   Definition: [docs/ledger-spec.md](docs/ledger-spec.md). Bring it up once per box:
   `bash scripts/ledger-db-deploy.sh && docker compose -f ~/.local/state/<project>/ledger-db/docker-compose.yml up -d`.
-  Store choice: `TICKET_STORE=db|jira` in `harness.env` (Jira arrives with
-  `feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`).
+  Store choice: `TICKET_STORE=db|jira` in `harness.env`; Jira (Cloud, REST v3, the issue key as the
+  ticket id) is [docs/ticket-store-jira.md](docs/ticket-store-jira.md).
 - **`feature_list.archive.jsonl`** — completed tickets, one compact entry per line;
   `scripts/archive-passing.sh` moves `passing` tickets here to keep the queue lean.
 - **`.gitattributes`** — `merge=union` on `PROGRESS.md` / `DECISIONS.md` / the

@@ -9,3 +9,4 @@ harness.env
 
 # the ledger password — one per box, never in the repo
 infra/ledger-db/pgpass
+__pycache__/
