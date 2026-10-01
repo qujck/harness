@@ -48,6 +48,9 @@ scripts/
   ci-stack-project.sh    # the CI compose project, keyed on the RUNNER NAME (never a label two runners can share)
   check-merge-seat-count.sh  # the registry carries MERGE_SEAT_RUNNERS runners with the seat label, as declared
   check-workflow-shape.sh    # ci.yml keeps route -> verify -> land, the gate's 0/1/2 policy beside the call, the hourly's own group
+  lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
+  ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
+  install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   progress.sh            # session entries as ledger rows: new · tail · list
   ledger-migrate.sh      # apply infra/ledger-db/*.sql to the running ledger, recorded in ledger.schema_migration
   ledger-db-deploy.sh    # sync infra/ledger-db/ to the deploy dir outside every checkout, write pgpass once

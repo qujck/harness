@@ -1,0 +1,31 @@
+# systemd-user service (a TEMPLATE, hence the @) — emails when the unit named in %i fails.
+# (infra_batcher_stall_alerts)
+#
+# ⚠ THE FIRST LINE'S WORDING IS LOAD-BEARING — keep it as "…-user service". When
+# install-platform-services.sh transforms a unit to system scope it rewrites exactly that phrase
+# (and the timer equivalent) to "SYSTEM", then FAILS the unit if any user-scope wording survives,
+# because the installed file must not tell its reader it is a user unit. Writing "…-user TEMPLATE
+# unit" here missed the rewrite and reddened verify; so did explaining the trap using the literal
+# phrase, which is why this comment talks around it. The gate caught both, which is its job.
+#
+# Wired in by `OnFailure=strength-unit-failure@%n.service` on any scheduled unit. %n expands to
+# the failing unit's full name, arrives here as %i, and is passed to the handler — so one
+# template serves every timer rather than one bespoke handler each.
+#
+# WHY. On 2026-08-07 the merge batcher stopped dead for ~45 minutes and the merge queue froze
+# behind it. systemd recorded `Failed with result 'exit-code'` at 11:31 and nothing was
+# listening. The signal already existed; nobody had connected it to anything.
+#
+# ⚠ NO OnFailure= ON THIS UNIT. A failure handler that handles its own failure is a spin. The
+# script it runs returns 0 on every path for the same reason.
+[Unit]
+Description=@@PROJECT@@ — alert that %i failed (a CONDITION: one email on failing, one on recovery)
+
+[Service]
+Type=oneshot
+WorkingDirectory=@@REPO_ROOT@@
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/env bash @@REPO_ROOT@@/scripts/ops-alert-unit-failure.sh %i
+# Sending one email is seconds. Past a minute the mail path is the problem, and the alert about
+# a stuck unit must not itself get stuck.
+TimeoutStartSec=60

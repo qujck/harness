@@ -103,6 +103,13 @@ bash scripts/check-merge-seat-count.sh --self-test  || fail "check-merge-seat-co
 bash scripts/full-suite-gate.sh --self-test         || fail "full-suite-gate self-test failed (270 arms)"
 bash scripts/check-workflow-shape.sh --self-test    || fail "the workflow-shape gate's own self-test failed"
 bash scripts/check-workflow-shape.sh                || fail "the workflow no longer has the shape its header promises"
+# alerts: the condition contract (library + machine against the shared vectors), the queue, the hook, the units
+bash scripts/lib/ops-alert.sh --self-test           || fail "ops-alert library self-test failed"
+python3 scripts/lib/ops_alert_machine.py --self-test || fail "ops-alert machine disagrees with the shared vectors"
+bash scripts/ops-alerts.sh --self-test              || fail "ops-alerts queue reader self-test failed"
+bash scripts/ops-alert-unit-failure.sh --self-test  || fail "unit-failure hook self-test failed"
+bash scripts/ops-alerts-settle.sh --self-test       || fail "ops-alerts-settle self-test failed"
+bash scripts/install-units.sh --self-test           || fail "install-units self-test failed (a placeholder survived, or a service lacks the hook)"
 ok "harness checks green"
 
 if (( UI_ONLY )); then
