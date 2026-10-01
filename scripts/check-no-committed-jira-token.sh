@@ -17,7 +17,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 token_lines() {
   awk '
     /^[[:space:]]*#/ { next }
-    /JIRA_(API_)?TOKEN[[:space:]]*=[[:space:]]*["'"'"']?[^"'"'"'[:space:]]+/ { print FILENAME ":" FNR ": " $0; next }
+    /JIRA_(API_)?TOKEN[[:space:]]*=[[:space:]]*["'"'"']?[^"'"'"'#[:space:]]+/ { print FILENAME ":" FNR ": " $0; next }
     /ATATT3x[A-Za-z0-9_=-]{20,}/ { print FILENAME ":" FNR ": " $0; next }
     /Authorization"?: *"?Basic [A-Za-z0-9+\/=]{20,}/ { print FILENAME ":" FNR ": " $0 }
   ' "$1" 2>/dev/null
@@ -28,6 +28,8 @@ if selftest_is_flag "${1:-}"; then
   _t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"; else printf '  FAIL  %s (want %q got %q)\n' "$1" "$2" "$3"; fails=1; fi; }
   printf 'JIRA_API_TOKEN=\nJIRA_EMAIL=me@x\n# JIRA_API_TOKEN=secret in a comment\n' > "$d/example.env"
   _t "an empty value and a commented example are clean" 0 "$(token_lines "$d/example.env" | grep -c .)"
+  printf 'JIRA_API_TOKEN=                    # NEVER in git: the example file is tracked\n' > "$d/trailing.env"
+  _t "an empty value with a trailing comment is clean (the .example file, 2026-10-01: a false red)" 0 "$(token_lines "$d/trailing.env" | grep -c .)"
   printf 'JIRA_API_TOKEN=ATATT3xFfGF0abcdefghijklmnopqrstuvwxyz\n' > "$d/planted.env"
   _t "a planted token is refused" 1 "$(token_lines "$d/planted.env" | grep -c .)"
   printf 'JIRA_TOKEN="abc123def456"\n' > "$d/quoted.env"
