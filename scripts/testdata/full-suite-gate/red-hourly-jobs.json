@@ -1,0 +1,100 @@
+{
+ "jobs": [
+  {
+   "name": "hourly full suite",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success",
+     "number": 1
+    },
+    {
+     "name": "Run actions/checkout@v5",
+     "conclusion": "success",
+     "number": 2
+    },
+    {
+     "name": "Create dev .env",
+     "conclusion": "success",
+     "number": 3
+    },
+    {
+     "name": "Reclaim the CI seat \u2014 clear a stack no job will come back for",
+     "conclusion": "success",
+     "number": 4
+    },
+    {
+     "name": "Generate the coverage artifact this gate inspects",
+     "conclusion": "success",
+     "number": 5
+    },
+    {
+     "name": "Full house gate on main tip \u2014 bash scripts/verify.sh",
+     "conclusion": "failure",
+     "number": 6
+    },
+    {
+     "name": "Upload Playwright report + traces",
+     "conclusion": "success",
+     "number": 7
+    },
+    {
+     "name": "Post Run actions/checkout@v5",
+     "conclusion": "success",
+     "number": 14
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success",
+     "number": 15
+    }
+   ]
+  },
+  {
+   "name": "build + unit tests + handoff gate",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "Playwright UI suite (manual)",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "nightly full verify (drift detector)",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "coverage on merge (unit only \u2014 no e2e)",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "build + push API image",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "coverage (advisory)",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "verify",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "API e2e",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "route",
+   "conclusion": "skipped",
+   "steps": []
+  }
+ ]
+}

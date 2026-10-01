@@ -1,0 +1,39 @@
+# .github/workflows/hourly-full-suite.yml — the FULL suite on main, hourly. A red here BLOCKS the merge
+# queue through scripts/full-suite-gate.sh (judging on the newest concluded run, naming the run and the
+# sha); that is what makes the per-PR browser SUBSET safe. Its own concurrency group, keyed on the cron,
+# so a scheduled run never cancels another scheduled run and never shares a group with a PR.
+# (feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite)
+name: hourly full suite
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+concurrency:
+  group: hourly-${{ github.event.schedule || 'dispatch' }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  hourly-full-suite:
+    name: hourly full suite
+    runs-on: [self-hosted, "${{ vars.CANARY_LABEL || 'canary-box' }}"]
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HARNESS_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, fetch-depth: 0 }
+      - name: Yield to an open repair PR, and clear the doomed verifies ahead of it
+        run: |
+          bash scripts/yield-to-repair.sh --doomed || true
+          bash scripts/yield-to-repair.sh --hourly "$GITHUB_RUN_ID"
+      - name: Key this job's stack on the runner that took it
+        run: echo "COMPOSE_PROJECT_NAME=$(bash scripts/ci-stack-project.sh "${RUNNER_NAME:-}")" >> "$GITHUB_ENV"
+      - name: Full house gate on main tip — the whole suite
+        run: VERIFY_FULL=1 RUN_UI=1 bash scripts/verify.sh
+      - name: Teardown — return the seat
+        if: ${{ always() }}
+        run: docker compose -p "${COMPOSE_PROJECT_NAME:-none}" down -v --remove-orphans 2>/dev/null || true

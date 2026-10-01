@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "name": "hourly full suite",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v5",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Create dev .env",
+          "conclusion": "skipped"
+        }
+      ]
+    }
+  ]
+}

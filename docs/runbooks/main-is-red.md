@@ -1,9 +1,8 @@
 # Runbook: `main` is red
 
-*(Template. The lane this describes arrives with
-`feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite`;
-until then "red main" means the required check fails on `main`'s tip and the repair is an ordinary
-PR. The rules about ownership and evidence apply either way.)*
+*(The lane this describes is `.github/workflows/ci.yml`'s `repair` job and `hourly-full-suite.yml`;
+the mechanics are in [ci-lanes.md](ci-lanes.md). "Red main" means the newest concluded hourly full
+suite on `main` failed, so `scripts/full-suite-gate.sh` exits 1 and the merge queue is blocked.)*
 
 ## One owner, ahead of everything
 
