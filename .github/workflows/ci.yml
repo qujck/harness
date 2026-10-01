@@ -1,0 +1,231 @@
+# .github/workflows/ci.yml — how a PR reaches main. The SHAPE of the seeded project's pipeline, generic.
+# (feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite)
+#
+#   route  (ROUTE label)  reads the diff and picks a LANE and a RUNNER; asks the full-suite gate whether
+#                         main is red; turns the changed paths into the browser subset (scripts/ui-relevant-specs.sh)
+#   verify (the routed runner) merges the PR's base into the branch (or stops), keys its compose project on
+#                         the RUNNER NAME (scripts/ci-stack-project.sh — never the label: two runners can share one),
+#                         runs scripts/verify.sh, then the browser subset, then the full-suite gate
+#   land   (ROUTE label)  the pipeline merges its own PR by REBASE and carries the verdict onto main
+#   repair (CANARY label) a PR labelled `repair-main` proves the FULL suite itself, so a red main can be fixed
+#                         while the gate is closed (docs/runbooks/main-is-red.md)
+#
+# Required status checks on the ruleset: `route` and `verify` (REQUIRED_CHECKS in harness.env; the
+# ruleset is set in GitHub by hand, once). Runner labels are GitHub repository VARIABLES mirroring the
+# same keys in harness.env (a workflow cannot read harness.env): MERGE_SEAT_LABEL, LEDGER_LANE_LABEL,
+# CANARY_LABEL, ROUTE_LABEL. Defaults below match harness.env.example.
+#
+# ⚠ REPLACE, NEVER RE-RUN, AFTER A CHANGE TO THIS FILE. A re-run executes the workflow definition the
+# run was CREATED with, so a re-run of an old run tests the old pipeline and reports it on the new tip.
+# Push a new commit (or close/reopen the PR) instead. scripts/check-workflow-shape.sh asserts the
+# invariants this header states.
+name: ci
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_suite_on_main:
+        description: run the full suite on main now (what the hourly does)
+        type: boolean
+        default: false
+
+# One group per (event, ref): a newer push to the same PR cancels the verify of the old tip; a push to
+# main never cancels another push to main (the ref differs per PR, and cancel-in-progress is only true
+# for pull_request). The schedule lives in hourly-full-suite.yml with its own group.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  actions: read
+
+jobs:
+  route:
+    name: route
+    runs-on: [self-hosted, "${{ vars.ROUTE_LABEL || 'route-box' }}"]
+    if: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+      lane: ${{ steps.pick.outputs.lane }}
+      browser: ${{ steps.subset.outputs.browser }}
+      ui_grep: ${{ steps.subset.outputs.ui_grep }}
+      force_full: ${{ steps.main_state.outputs.force_full }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: pick
+        name: a ledger/docs-only diff does not need the merge seat
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SEAT_LABEL: ${{ vars.MERGE_SEAT_LABEL || 'forge-box' }}
+          LEDGER_LANE_LABEL: ${{ vars.LEDGER_LANE_LABEL || 'ledger-lane' }}
+          LEDGER_LANE_PATHS_RE: ${{ vars.LEDGER_LANE_PATHS_RE || '^(docs/|infra/ledger-db/|agents/|([^/]+/)*[^/]+\.md$)' }}
+        run: |
+          set -uo pipefail
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" 2>/dev/null || true)"
+          if [[ -z "$changed" ]]; then
+            printf 'runner=%s\nlane=full\n' "$MERGE_SEAT_LABEL" >> "$GITHUB_OUTPUT"
+            echo "could not read the diff — routing to the merge seat (the safe default)"; exit 0
+          fi
+          if printf '%s\n' "$changed" | awk -v re="$LEDGER_LANE_PATHS_RE" '$0 !~ re {found=1} END {exit !found}'; then
+            printf 'runner=%s\nlane=full\n' "$MERGE_SEAT_LABEL" >> "$GITHUB_OUTPUT"
+            echo "touches code — the merge seat ($MERGE_SEAT_LABEL):"; printf '%s\n' "$changed" | awk -v re="$LEDGER_LANE_PATHS_RE" '$0 !~ re' | head -20
+          else
+            printf 'runner=%s\nlane=ledger\n' "$LEDGER_LANE_LABEL" >> "$GITHUB_OUTPUT"
+            echo "ledger/docs only ($(wc -l <<<"$changed") files) — $LEDGER_LANE_LABEL, leaving the merge seat free"
+          fi
+      - id: main_state
+        name: is main's full suite red — if so this PR must prove the FULL suite
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL_SUITE_ON_EVERY_PR: ${{ vars.FULL_SUITE_ON_EVERY_PR }}
+          FULL_SUITE_WORKFLOW: hourly-full-suite.yml   # the hourly lives in its own workflow file (its own concurrency group)
+          HARNESS_REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          export FULL_SUITE_TIMEOUT_MIN="${FULL_SUITE_TIMEOUT_MIN:-90}"
+          if bash scripts/full-suite-gate.sh > "$RUNNER_TEMP/main-state.log" 2>&1; then rc=0; else rc=$?; fi
+          sed 's/^/  /' "$RUNNER_TEMP/main-state.log"
+          # THE GATE'S CONTRACT: 0 = main is green (proceed) · 1 = main is RED (block, and promote this PR to the
+          # full suite so it can carry the evidence) · 2 = CANNOT TELL (a broken query must never halt the
+          # factory: proceed, say so loudly — the safety net is ABSENT for this run).
+          case "$rc" in
+            0) force_full=0 ;;
+            1) force_full=1; echo "::warning::route: main is RED — this PR runs the FULL suite" ;;
+            2) force_full=0; echo "::warning::route: the full-suite gate CANNOT TELL (rc=2) — proceeding without the safety net" ;;
+            *) force_full=0; echo "::error::route: the gate exited $rc, outside its 0/1/2 contract — a defect in the gate" ;;
+          esac
+          printf 'force_full=%s\n' "$force_full" >> "$GITHUB_OUTPUT"
+      - id: subset
+        name: the browser specs that cover the surfaces this PR touched
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FORCE_FULL: ${{ steps.main_state.outputs.force_full }}
+        run: |
+          set -uo pipefail
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" 2>/dev/null || true)"
+          surface="$(printf '%s\n' "$changed" | bash scripts/ui-relevant-specs.sh --surface)"
+          if [[ -z "$surface" && "$FORCE_FULL" != 1 ]]; then
+            printf 'browser=0\nui_grep=\n' >> "$GITHUB_OUTPUT"; echo "no browser surface in the diff — no browser run"; exit 0
+          fi
+          grep_re="$(printf '%s\n' "$surface" | bash scripts/ui-relevant-specs.sh || echo __ALL__)"
+          [[ "$FORCE_FULL" == 1 ]] && grep_re=__ALL__
+          printf 'browser=1\n' >> "$GITHUB_OUTPUT"
+          if [[ "$grep_re" == __ALL__ || -z "$grep_re" ]]; then printf 'ui_grep=\n' >> "$GITHUB_OUTPUT"; echo "browser: the WHOLE suite"
+          else printf 'ui_grep=%s\n' "$grep_re" >> "$GITHUB_OUTPUT"; echo "browser subset: $grep_re"; fi
+
+  verify:
+    name: verify
+    needs: route
+    runs-on: [self-hosted, "${{ needs.route.outputs.runner }}"]
+    if: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HARNESS_REPO: ${{ github.repository }}
+    steps:
+      - name: stand down — a draft gets no verdict
+        if: ${{ github.event.pull_request.draft == true }}
+        run: echo "::error::a draft must never satisfy the gate"; exit 1
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Key this job's stack on the runner that took it, not the route label
+        run: |
+          p="$(bash scripts/ci-stack-project.sh "${RUNNER_NAME:-}")" || { echo "::error::cannot name the CI stack: this runner has no RUNNER_NAME"; exit 1; }
+          echo "COMPOSE_PROJECT_NAME=$p" >> "$GITHUB_ENV"; echo "stack project: $p"
+      - name: Merge the PR's base branch into this branch, or stop
+        run: bash scripts/ci-merge-pr-base.sh
+      - name: Stamp the start of the required check
+        run: date +%s > "$RUNNER_TEMP/verify-start"
+      - name: The full house gate — bash scripts/verify.sh
+        env:
+          VERIFY_FULL: ${{ needs.route.outputs.force_full == '1' && '1' || '' }}
+        run: bash scripts/verify.sh 2>&1 | tee "$RUNNER_TEMP/verify-output.log"
+      - name: Browser — the specs that cover the surfaces this PR touched
+        if: ${{ needs.route.outputs.browser == '1' }}
+        env:
+          UI_GREP: ${{ needs.route.outputs.ui_grep }}
+        run: RUN_UI=1 UI_ONLY=1 bash scripts/verify.sh 2>&1 | tee -a "$RUNNER_TEMP/verify-output.log"
+      - name: Cost budget for the required check
+        if: ${{ always() }}
+        env:
+          CI_VERIFY_BUDGET_MINUTES: ${{ needs.route.outputs.browser == '1' && (vars.CI_VERIFY_BUDGET_BROWSER_MIN || '40') || (vars.CI_VERIFY_BUDGET_MIN || '21') }}
+        run: |
+          [[ -f "$RUNNER_TEMP/verify-start" ]] || { echo "verify cost: UNMEASURABLE — no start stamp. Not reporting this as within budget."; exit 0; }
+          VERIFY_START_FILE="$RUNNER_TEMP/verify-start" bash scripts/check-verify-cost-budget.sh || true
+      - name: The full suite must not be red on main
+        env:
+          FULL_SUITE_CALLER: verify
+          FULL_SUITE_LANE: ${{ needs.route.outputs.lane }}
+          FULL_SUITE_ON_EVERY_PR: ${{ vars.FULL_SUITE_ON_EVERY_PR }}
+          FULL_SUITE_WORKFLOW: hourly-full-suite.yml
+          FULL_SUITE_REPAIR_RUN_ID: ${{ github.run_id }}
+          FULL_SUITE_REPAIR_JOB: repair full suite (main is red)
+          FULL_SUITE_REPAIR_LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'repair-main') && '1' || '0' }}
+        run: |
+          set -uo pipefail
+          export FULL_SUITE_TIMEOUT_MIN="${FULL_SUITE_TIMEOUT_MIN:-90}"
+          if bash scripts/full-suite-gate.sh; then rc=0; else rc=$?; fi
+          # THE PROCEED-ON-2 POLICY, WRITTEN BESIDE THE CALL: 0 proceed · 1 BLOCK (main is red; the run id and sha
+          # are named by the gate) · 2 PROCEED with a warning — a broken query must never halt the factory, and
+          # the gate says what it could not read. Anything else is a defect in the gate: fail.
+          case "$rc" in
+            0) ;;
+            1) echo "::error::main's full suite is RED — this PR cannot merge until a repair lands (docs/runbooks/main-is-red.md)"; exit 1 ;;
+            2) echo "::warning::the full-suite gate CANNOT TELL (rc=2) — proceeding, because a broken query must never halt the factory. The safety net is ABSENT for this run." ;;
+            *) echo "::error::the gate exited $rc, outside its 0/1/2 contract"; exit 1 ;;
+          esac
+      - name: Teardown — return the CI seat
+        if: ${{ always() }}
+        run: docker compose -p "${COMPOSE_PROJECT_NAME:-none}" down -v --remove-orphans 2>/dev/null || true
+
+  land:
+    name: land
+    needs: [route, verify]
+    runs-on: [self-hosted, "${{ vars.ROUTE_LABEL || 'route-box' }}"]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.verify.result == 'success' }}
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HARNESS_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Merge — the pipeline lands its own PR, by rebase
+        run: |
+          if gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --rebase --delete-branch; then echo "landed #$PR"
+          else echo "::warning::#$PR did not merge now (branch protection or a newer base) — arm it: gh pr merge $PR --rebase --auto"; fi
+      - name: Carry the verdict onto main and dispatch what a landing owes
+        run: bash scripts/ci-land-pr.sh || true
+
+  repair:
+    name: repair full suite (main is red)
+    runs-on: [self-hosted, "${{ vars.CANARY_LABEL || 'canary-box' }}"]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'repair-main') }}
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HARNESS_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Clear the doomed verifies queued ahead of this PR's own
+        run: bash scripts/yield-to-repair.sh --doomed || true
+      - name: Merge the PR's base branch into this branch, or stop
+        run: bash scripts/ci-merge-pr-base.sh
+      - name: Key this job's stack on the runner that took it
+        run: echo "COMPOSE_PROJECT_NAME=$(bash scripts/ci-stack-project.sh "${RUNNER_NAME:-}")" >> "$GITHUB_ENV"
+      - name: The FULL suite on this PR — the repair proves the suite itself
+        run: VERIFY_FULL=1 RUN_UI=1 bash scripts/verify.sh
+      - name: Teardown — return the seat
+        if: ${{ always() }}
+        run: docker compose -p "${COMPOSE_PROJECT_NAME:-none}" down -v --remove-orphans 2>/dev/null || true

@@ -1,0 +1,32 @@
+# scripts/ui-map.txt — per-PR browser-test subset: changed path => spec-name fragments.
+# (feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite)
+#
+# Read by scripts/ui-relevant-specs.sh, which turns the PR's changed paths into a Playwright --grep
+# ERE, or the sentinel __ALL__. Format: <path-regex><TAB><spec-name-fragment-alternation>; `#` and
+# blank lines are ignored; a path may match several rows and their fragments are unioned.
+#
+# ⚠ TWO PROPERTIES, AND EVERYTHING ELSE IS DETAIL.
+#   1. A CHANGED SURFACE PATH THAT MATCHES NO ROW RUNS THE FULL SUITE (__ALL__). That is the whole
+#      safety argument: the failure mode of an unmapped path is SLOW, never UNTESTED. Adding a row
+#      is how you make your own PRs faster; forgetting to is free of risk.
+#   2. THE ALWAYS-SPECS ALWAYS RUN (UI_ALWAYS_SPECS in harness.env): whatever the diff maps to, one
+#      end-to-end flow is exercised, so a change that breaks the app in general cannot reach main
+#      because its diff happened to map to something narrow.
+#
+# ⚠ THE DELIBERATELY UNMAPPED CLASS. Shared files that every page depends on (a global stylesheet, a
+# string table, the app shell, the test harness itself) must have NO row: a PATH row cannot say
+# which pages a change inside such a file affects, so a row there would be a guess that makes a
+# narrow subset look safe. Leave them unmapped — they run everything — and say so here:
+#   frontend/src/app.css            (every page)        — unmapped by decision
+#   frontend/src/i18n/*.json        (every string)      — unmapped by decision
+#   e2e-ui/playwright.config.*      (the harness)       — unmapped by decision
+#
+# ⚠ AND THAT IS TRUE PER PR AND FALSE SYSTEM-WIDE: a subset is safe only because the FULL suite runs
+# hourly on main and a red there blocks the merge queue (scripts/full-suite-gate.sh). Remove the
+# hourly run and this map is a hole, not a speed-up.
+#
+# EXAMPLE ROWS — replace with your project's. Paths are regexes matched against each changed path.
+^frontend/src/pages/login/	login|sign-in
+^frontend/src/pages/account/	account|profile
+^frontend/src/components/nav/	nav|header
+^backend/src/Api/Auth/	login|sign-in|session

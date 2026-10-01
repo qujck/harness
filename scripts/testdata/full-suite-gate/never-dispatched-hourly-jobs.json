@@ -1,0 +1,31 @@
+{
+ "_comment": [
+  "An hourly full suite CANCELLED WITHOUT EVER GETTING A RUNNER — the shape that makes duration",
+  "useless as a timeout test, and the reason `run_job_dispatched` exists.",
+  "",
+  "`runner_name` is null and there are no step timings, because nothing ran. But GitHub still stamps",
+  "`started_at = created_at` and `completed_at` at the moment of cancellation, so the arithmetic",
+  "yields 86 MINUTES — comfortably past `timeout-minutes: 45`, and indistinguishable by size from a",
+  "genuine kill at the wall.",
+  "",
+  "The numbers are real: run 33989185479 on 2026-09-05 was created 20:08:03 and its job did not",
+  "start until 21:34:21 — 86 minutes of queue on a saturated seat. That run DID eventually dispatch",
+  "and time out; this fixture is the counterfactual in which it had been cancelled while waiting,",
+  "which is exactly what happened to the 21:06 run that concluded `cancelled` with no hourly job",
+  "at all.",
+  "",
+  "Without the dispatch guard this payload substitutes a TIMED_OUT_CANCEL sentinel and BLOCKS THE",
+  "MERGE QUEUE on a suite that never executed. A false block is the expensive direction and nothing",
+  "downstream can tell it from a real one."
+ ],
+ "jobs": [
+  {
+   "name": "hourly full suite",
+   "conclusion": "cancelled",
+   "runner_name": null,
+   "started_at": "2026-09-05T20:08:03Z",
+   "completed_at": "2026-09-05T21:34:21Z",
+   "steps": []
+  }
+ ]
+}

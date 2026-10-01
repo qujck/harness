@@ -34,6 +34,7 @@
 # The obvious implementation of "is this name free?" is `select(.status == "active")`, which answers
 # FREE for a retired name. roster.sh's readers deliberately ignore status for exactly that reason.
 set -uo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/harness-env.sh"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO_ROOT/scripts/lib/selftest-flag.sh"
 . "$REPO_ROOT/scripts/lib/roster.sh"

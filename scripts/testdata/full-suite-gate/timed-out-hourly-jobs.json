@@ -1,0 +1,36 @@
+{
+ "_comment": [
+  "The REAL shape of an hourly full suite killed by `timeout-minutes: 45`, taken from run",
+  "33986089157 on 2026-09-05: started 20:08:38Z, concluded `cancelled` at 20:53:55Z — 45m17s.",
+  "Three earlier runs that hour were identical to the second (45m17s, 45m18s, 45m17s).",
+  "",
+  "The point of this fixture is the CONCLUSION: GitHub does NOT say `timed_out` when a job exceeds",
+  "its limit, it says `cancelled` — which the gate read as a gap, so the suite failing in the",
+  "loudest possible way was the one state that could never block the merge queue.",
+  "",
+  "Steps are `success` up to the point of the kill, exactly as the real payload had them: a timeout",
+  "leaves no failing step to find, which is why run_death_site cannot classify it and the duration",
+  "is the only evidence available.",
+  "",
+  "⚠ `runner_name` IS LOAD-BEARING AND THIS FIXTURE OMITTED IT AT FIRST. The real payload carries",
+  "`canary-box` (verified against run 33986089157). Without it this fixture was indistinguishable",
+  "from a job that never got a runner, so once run_job_dispatched landed it stopped blocking — the",
+  "fix would have gone green while never firing. The positive control is what caught that: a",
+  "fixture is a COPY of reality and an omitted field is a difference, even when nothing reads it yet."
+ ],
+ "jobs": [
+  {
+   "name": "hourly full suite",
+   "conclusion": "cancelled",
+   "runner_name": "canary-box",
+   "started_at": "2026-09-05T20:08:38Z",
+   "completed_at": "2026-09-05T20:53:55Z",
+   "steps": [
+    { "name": "Set up job", "conclusion": "success", "number": 1 },
+    { "name": "Run actions/checkout@v5", "conclusion": "success", "number": 2 },
+    { "name": "Create dev .env", "conclusion": "success", "number": 3 },
+    { "name": "The full house gate — bash scripts/verify.sh", "conclusion": null, "number": 4 }
+   ]
+  }
+ ]
+}

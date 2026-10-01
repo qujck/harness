@@ -109,16 +109,20 @@ or handed back with `release --abandon`). A Stop hook runs the lenient form afte
 
 ## How a PR reaches `main`
 
-*(Arrives with `feat_harness_ci_routes_a_pr_by_diff_runs_a_test_subset_and_gates_merges_on_the_hourly_full_suite`;
-until then a PR runs `scripts/verify.sh` as its required check.)* The shape it will have: a
-**route** job reads the diff and picks a lane; **verify** runs the tiered gate on the merged tree
-(a browser SUBSET selected by a path map for page diffs; the full suite hourly on `main`); a red
-hourly **blocks the merge queue** through a gate that judges on the newest concluded run; the
-sanctioned exit from a red `main` is the **repair lane**
-([docs/runbooks/main-is-red.md](docs/runbooks/main-is-red.md)); after a change to the workflow,
-old runs are **replaced, never rerun**. Merge by rebase; arm `--auto` and move on; nothing is held
-for review; destructive ops need an explicit ask (`--force-with-lease` after a rebase and
-`feature-ticket.sh release` are the standing exceptions).
+`.github/workflows/ci.yml` ([docs/runbooks/ci-lanes.md](docs/runbooks/ci-lanes.md)): a **route**
+job reads the diff and picks a lane and a runner (docs/ledger-only → the ledger lane, never the
+merge seat); **verify** merges the base in, keys its stack on the RUNNER NAME, runs the tiered
+`scripts/verify.sh` (each tier under `VERIFY_STEP_BUDGET_S`), then the browser SUBSET
+`scripts/ui-relevant-specs.sh` chose from `scripts/ui-map.txt` (an unmapped surface path runs
+everything), then the full-suite gate; the full suite runs hourly on `main`
+(`hourly-full-suite.yml`) and a red one **blocks the merge queue** through
+`scripts/full-suite-gate.sh`, which judges on the newest concluded run and names it (exit 0/1/2;
+2 = cannot tell, and the workflow proceeds with a warning, written beside the call); the sanctioned
+exit from a red `main` is a PR labelled `repair-main`, which proves the full suite itself
+([docs/runbooks/main-is-red.md](docs/runbooks/main-is-red.md)); **land** merges by rebase; after a
+change to the workflow, old runs are **replaced, never rerun**. Required contexts: `route` and
+`verify`. Arm `--auto` and move on; nothing is held for review; destructive ops need an explicit ask
+(`--force-with-lease` after a rebase and `feature-ticket.sh release` are the standing exceptions).
 
 ---
 

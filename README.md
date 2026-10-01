@@ -32,6 +32,7 @@ PROGRESS.md              # FROZEN history — read it, never append (see progres
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
 infra/ledger-db/         # the ticket store: ONE Postgres per box (compose, baseline schema, migrations)
+.github/workflows/       # ci.yml (route -> verify -> land, + repair) and hourly-full-suite.yml; docs/runbooks/ci-lanes.md
 agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name -> role (agents · machines · assistants)
 progress/, PROGRESS.md   # FROZEN history: a session entry is a ledger row (scripts/progress.sh new), never a file
 progress/                # session records: one file per session
@@ -42,6 +43,11 @@ scripts/
   handoff.sh             # clock out gate
   ledger-db.sh           # the ticket verbs: raise · groom · claim · park · amend · flip-passing · archive · release · frontier …
   agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
+  full-suite-gate.sh     # is main's hourly full suite red? judges on the newest concluded run, names it; exit 0/1/2
+  ui-relevant-specs.sh   # changed paths -> the browser subset (scripts/ui-map.txt), or __ALL__
+  ci-stack-project.sh    # the CI compose project, keyed on the RUNNER NAME (never a label two runners can share)
+  check-merge-seat-count.sh  # the registry carries MERGE_SEAT_RUNNERS runners with the seat label, as declared
+  check-workflow-shape.sh    # ci.yml keeps route -> verify -> land, the gate's 0/1/2 policy beside the call, the hourly's own group
   progress.sh            # session entries as ledger rows: new · tail · list
   ledger-migrate.sh      # apply infra/ledger-db/*.sql to the running ledger, recorded in ledger.schema_migration
   ledger-db-deploy.sh    # sync infra/ledger-db/ to the deploy dir outside every checkout, write pgpass once
