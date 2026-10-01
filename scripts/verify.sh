@@ -66,12 +66,22 @@ ok()   { printf '   \033[1;32mok\033[0m %s\n' "$*"; }
 fail() { printf '   \033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 
 start_ts=$(date +%s)
+# ── the stage report: which stages RAN and which never started because an earlier one stopped the run
+# (scripts/verify-stages.sh; the full-suite gate renders it: "Playwright: NOT RUN — stopped at static checks").
+# VERIFY_PLANT_RED=<stage> plants a red at that stage so verify-stages.sh --self-test can drive a REAL run.
+. "$REPO_ROOT/scripts/verify-stages.sh"
+vs_init "${VERIFY_STAGES_FILE:-${RUNNER_TEMP:-$REPO_ROOT/.agent}/verify-stages.txt}"
+_vs_on_exit() { local rc=$?; declare -F vs_finish >/dev/null 2>&1 && { vs_finish "$rc" || true; }; }
+trap _vs_on_exit EXIT
 
 # 1. Static.
 # ── [0/3] The harness's own checks — always, whatever harness.env says ──────────────────────
 # A check is invoked for REAL, after its own self-test: a step that only runs a gate's arms is not
 # a gate (METHOD.md). The tier manifest that enrols every self-test arrives with the self-test
 # child of the template epic; until then the harness's checks are listed here by hand.
+if [[ -n "${VERIFY_PLANT_RED:-}" ]]; then
+  step "[0/3] Harness — skipped: VERIFY_PLANT_RED=$VERIFY_PLANT_RED (a planted run proves the stage report, not the harness checks)"
+else
 step "[0/3] Harness — scripts/check-docs-markers-match-landed-children.sh"
 bash scripts/check-docs-markers-match-landed-children.sh || fail "a doc describes a landed child as still to come"
 # the ticket store: the adapter + the verbs (a throwaway Postgres built from the baseline), the
@@ -113,33 +123,40 @@ bash scripts/check-no-new-progress-files.sh || fail "a session-entry FILE was ad
 step "[0/3] Harness — scripts/check-workflow-shape.sh"
 bash scripts/check-workflow-shape.sh || fail "the workflow no longer has the shape its header promises"
 ok "harness checks green"
+fi
 
 if (( UI_ONLY )); then
   step "[1/3]–[3/3] skipped — UI_ONLY=1 (the browser step alone)"
-elif [[ -n "$VERIFY_STATIC" ]]; then
-  step "[1/3] Static — $VERIFY_STATIC"; tier_start
-  eval "$VERIFY_STATIC" || fail "static check failed"
+  vs_skip static 'UI_ONLY=1'; vs_skip unit 'UI_ONLY=1'; vs_skip api-e2e 'UI_ONLY=1'
+elif [[ -n "$VERIFY_STATIC" || -n "${VERIFY_PLANT_RED:-}" ]]; then
+  step "[1/3] Static — ${VERIFY_STATIC:-(nothing configured)}"; tier_start; vs_begin static
+  [[ "${VERIFY_PLANT_RED:-}" == static ]] && fail "planted red (VERIFY_PLANT_RED=static) — scripts/verify-stages.sh --self-test drives the stage report through a real run"
+  [[ -n "$VERIFY_STATIC" ]] && { eval "$VERIFY_STATIC" || fail "static check failed"; }
   tier_end "static"
 else
+  vs_skip static 'VERIFY_STATIC unset'
   step "[1/3] Static — skipped (VERIFY_STATIC unset)"
 fi
 
 # 2. Unit.
 if (( UI_ONLY )); then :
 elif [[ -n "$VERIFY_UNIT" ]]; then
-  step "[2/3] Unit — $VERIFY_UNIT"; tier_start
+  step "[2/3] Unit — $VERIFY_UNIT"; tier_start; vs_begin unit
+  [[ "${VERIFY_PLANT_RED:-}" == unit ]] && fail "planted red (VERIFY_PLANT_RED=unit)"
   eval "$VERIFY_UNIT" || fail "unit tests failed"
   tier_end "unit"
 else
+  vs_skip unit 'VERIFY_UNIT unset'
   step "[2/3] Unit — skipped (VERIFY_UNIT unset)"
 fi
 
 # 3. End-to-end.
 if (( UI_ONLY )); then :
 elif [[ "$SKIP_E2E" == "1" || -z "$VERIFY_E2E" ]]; then
-  step "[3/3] E2E — skipped"
+  step "[3/3] E2E — skipped"; vs_skip api-e2e "$([[ "$SKIP_E2E" == 1 ]] && echo 'SKIP_E2E=1' || echo 'VERIFY_E2E unset')"
 else
-  step "[3/3] E2E — $VERIFY_E2E"; tier_start
+  step "[3/3] E2E — $VERIFY_E2E"; tier_start; vs_begin api-e2e
+  [[ "${VERIFY_PLANT_RED:-}" == api-e2e ]] && fail "planted red (VERIFY_PLANT_RED=api-e2e)"
   # Bring the stack up if a health endpoint is configured and unreachable.
   if [[ -n "$HEALTH_URL" ]] && ! curl --silent --fail --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
     echo "   stack not reachable — bringing it up via scripts/init.sh"
@@ -155,9 +172,11 @@ if [[ "${RUN_UI:-0}" == "1" && -n "$VERIFY_UI" ]]; then
   if [[ -n "$VERIFY_FULL" ]]; then step "[4/4] UI — the WHOLE suite (VERIFY_FULL=1) — $VERIFY_UI"; export UI_GREP=""
   elif [[ -n "$UI_GREP" ]]; then step "[4/4] UI — the subset for this diff (UI_GREP='$UI_GREP') — $VERIFY_UI"; export UI_GREP
   else step "[4/4] UI — $VERIFY_UI"; fi
-  tier_start
+  tier_start; vs_begin playwright
   eval "$VERIFY_UI" || fail "ui acceptance failed"
   tier_end "ui"
+else
+  vs_skip playwright "$([[ "${RUN_UI:-0}" == 1 ]] && echo 'VERIFY_UI unset' || echo 'RUN_UI not set (the guarded browser step)')"
 fi
 
 dur=$(( $(date +%s) - start_ts ))

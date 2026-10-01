@@ -436,6 +436,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
+  # the fixtures below are sibling worktrees named strength-<agent> (the seeded project's shape); the
+  # sibling scan keys on HARNESS_PROJECT, so the self-test pins it to the fixtures' prefix
+  HARNESS_PROJECT=strength
   set -uo pipefail
   t_fail() { printf 'agent-name selftest FAIL: %s\n' "$*" >&2; exit 1; }
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

@@ -8,7 +8,7 @@
   "agents": [
     {
       "name": "Example",
-      "email": "example@your-project.example",
+      "email": "example@harness.local",
       "role": "developer",
       "status": "retired",
       "onboarded": "2026-10-01",
