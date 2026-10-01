@@ -31,6 +31,8 @@ cd "$REPO_ROOT"
 # Per-stream stack helpers (dc, stack_port). The ticket store is the ledger: scripts/ledger-db.sh.
 # shellcheck source=/dev/null
 . "$REPO_ROOT/scripts/_stack.sh"
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/lib/harness-env.sh"
 
 HEALTH_URL="${HEALTH_URL:-}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"
@@ -61,6 +63,50 @@ for tool in $REQUIRED_TOOLS; do
   command -v "$tool" >/dev/null || fail "$tool not found (REQUIRED_TOOLS in harness.env)"
 done
 ok "jq${REQUIRED_TOOLS:+, $REQUIRED_TOOLS} present"
+
+# 1b. WHO IS THIS SESSION — from the session, never from a file (scripts/lib/identity-gate.sh).
+step "Identity — from the session, via agents/roster.json"
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/lib/identity-gate.sh"
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/lib/agent-name.sh" 2>/dev/null || true
+_id_name="$(agent_name_resolved 2>/dev/null || true)"; _id_src="$(agent_name_source 2>/dev/null || true)"
+case "$(identity_verdict "$_id_name" "$_id_src")" in
+  ok) ;;
+  no-identity)
+    [[ -n "${CI:-}" ]] || {
+      echo "   ✗ no session identity: GIT_AUTHOR_EMAIL is unset or not in agents/roster.json." >&2
+      echo "     Launch with the line this prints:  bash scripts/agent-onboard.sh --launch-line <YourName>" >&2
+      echo "     (new agent? bash scripts/agent-onboard.sh <Name> <role> registers the roster row first)" >&2
+      exit 1; } ;;
+  file-identity)
+    echo "   ✗ your name '$_id_name' came from $_id_src, not from this session (GIT_AUTHOR_EMAIL → roster)." >&2
+    echo "     A directory's label is not an identity: every write would be stamped with whoever owns this checkout." >&2
+    echo "     Relaunch with:  bash scripts/agent-onboard.sh --launch-line $_id_name" >&2
+    exit 1 ;;
+esac
+_id_incumbent="$(cat "$REPO_ROOT/.agent/name" 2>/dev/null || true)"
+_id_marker=0; [[ -f "$REPO_ROOT/.agent/session.active" ]] && _id_marker=1
+if [[ "$(checkout_occupancy_kind "$([[ "${ALLOW_SHARED_CHECKOUT:-0}" == 1 ]] && echo 1 || echo 0)" "$_id_marker" "$_id_name" "$_id_incumbent")" == occupied ]]; then
+  echo "   ✗ this checkout is OCCUPIED: $_id_incumbent has a live session here (.agent/session.active) and you are $_id_name." >&2
+  echo "     Two agents in one checkout corrupt each other. Make your own:  git worktree add --no-track ../${HARNESS_PROJECT:-$(basename "$REPO_ROOT")}-$(tr '[:upper:]' '[:lower:]' <<<"$_id_name") -b <ticket-id> origin/main" >&2
+  echo "     (Deliberate hand-off of this directory: ALLOW_SHARED_CHECKOUT=1 bash scripts/init.sh)" >&2
+  exit 1
+fi
+if [[ -n "$_id_name" ]]; then
+  mkdir -p "$REPO_ROOT/.agent"; printf '%s\n' "$_id_name" > "$REPO_ROOT/.agent/name"   # the DIRECTORY's label, written from the session, never read as an identity
+  _id_role="$(roster_lookup_role "$_id_name" 2>/dev/null || true)"
+  ok "you are $_id_name (session)${_id_role:+ — role: $_id_role, read docs/roles/$_id_role.md}"
+else
+  echo "   (CI: no session identity; writes are refused by the store)"
+fi
+
+step "Your role — read its document first, every session (all four exist in every project)"
+echo "   Product Owner        : docs/roles/product-owner.md        — the ledger and the routing; grooms; never codes"
+echo "   Developer            : docs/roles/developer.md            — the code, to a terminal state; never grooms"
+echo "   Head of Testing      : docs/roles/head-of-testing.md      — what 'proven' means; the suites; never ships product"
+echo "   Process improvement  : docs/roles/process-improvement.md  — the pipeline, gates, runbooks; never product work"
+echo "   Who holds which      : docs/roles/roster.md"
 
 # 2. .env present (if the project ships a .env.example template).
 if [[ -f .env.example ]]; then

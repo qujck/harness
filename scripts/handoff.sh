@@ -77,19 +77,18 @@ fi
 # finishing near each other then conflicted by construction, and the harness answered that with
 # `merge=union` — which GitHub's PR merge IGNORES. See scripts/progress.sh for the measurement.
 # One file per session has nothing to union.
-PROGRESS_DIR="${PROGRESS_DIR:-progress}"
-step "[3/6] a session entry was written under $PROGRESS_DIR/"
-progress_new=""
-# Uncommitted (staged or not) — the usual case: written moments ago, about to be committed.
-progress_new="$(git status --porcelain -- "$PROGRESS_DIR" 2>/dev/null | head -1 || true)"
-# …or committed recently, for a session that already landed its entry.
-recent_progress_commit=$(git log --since='6 hours ago' --pretty=format:'%h' -- "$PROGRESS_DIR" 2>/dev/null | head -1 || true)
-if [[ -n "$progress_new" ]]; then
-  ok "a $PROGRESS_DIR/ entry is pending commit"
-elif [[ -n "$recent_progress_commit" ]]; then
-  ok "a $PROGRESS_DIR/ entry landed in recent commit $recent_progress_commit"
+# ⚠ A SESSION ENTRY IS A LEDGER ROW, NEVER A FILE (progress/ and PROGRESS.md are frozen history;
+# scripts/check-no-new-progress-files.sh refuses a new file there). The check reads the STORE for an
+# entry by this session's identity since the session marker was written.
+step "[3/6] a session entry was written this session (a ledger row)"
+_se_since="$(head -1 "$REPO_ROOT/.agent/session.active" 2>/dev/null || true)"
+_se_rows="$(bash scripts/ledger-db.sh session-entries --mine ${_se_since:+--since "$_se_since"} --limit 1 2>/dev/null | grep -c . || true)"
+if [[ "${_se_rows:-0}" -gt 0 ]]; then
+  ok "a session entry row exists since ${_se_since:-the session started}"
+elif bash scripts/ledger-db.sh ping >/dev/null 2>&1; then
+  fail "no session entry this session — run: bash scripts/progress.sh new \"<title>\" --body-file <file>   (a row, never a file)"
 else
-  fail "no session entry this session — run: bash scripts/progress.sh new \"<what happened>\""
+  warn "the ticket store could not be reached — CANNOT TELL whether an entry was written (not a pass)"
 fi
 
 # 4. No debug artifacts in added lines (vs HEAD).

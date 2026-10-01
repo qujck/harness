@@ -25,7 +25,8 @@ With `TICKET_STORE=jira`, Jira is used **in place of**:
 | requirement text (`notes`, `verification`, `verification_command`, `depends_on`) | columns, changed only by `amend` | description **sections** (ADF headings), rewritten only by `amend`, every change a comment naming who and why |
 | the issue link (`record-issue`) | `ledger.record_issue` | nothing to record: the key *is* the issue |
 | comments / answers | `ledger.comment` | Jira comments |
-| session entries, agent-role sync, the PO queue views | ledger rows and views | **not provided** (exit 2, naming it): keep the database for those, or extend the adapter |
+| session entries (`progress.sh new`, `session-entries`) | `ledger.session_entry` rows | comments on ONE configured issue, `JIRA_SESSION_LOG_ISSUE` (head line `[session-entry] <who>: <title>`); unset → refused by name |
+| agent-role sync, the PO queue views, orphans | ledger views | **not provided** (exit 2, naming it): keep the database for those, or extend the adapter |
 
 Everything above the seam — `feature-ticket.sh` (the lock branch), `init.sh` (the frontier),
 `handoff.sh` (live claims), the completion rule (three row writes after the merge), the role

@@ -142,3 +142,20 @@ row stays open until he does. Carl relayed a docs-only reading of the owner's wo
 ("just put a simple jira can be used in place of x, y, z and I will get it extended elsewhere");
 asked directly, the owner chose "Keep the adapter", so the doc carries that short section AND the
 adapter ships. 38 self-test arms + 5 for the token gate, both run by `verify.sh` step [0/3].
+
+## 2026-10-01 — Identity comes from the session; a session entry is a row (template child 4)
+
+`feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows`.
+Ported from the seeded project: `scripts/agent-onboard.sh` (register a roster row; PRINT the launch
+line — the line is the deliverable), `scripts/progress.sh` (entries as rows: new · tail · list),
+`scripts/check-no-new-progress-files.sh` (progress/ and PROGRESS.md are frozen history), the roster's
+three populations (agents · machines · assistants, with their notes). NEW, not ported: `init.sh`'s
+identity step (`scripts/lib/identity-gate.sh`, two pure decisions with arms): a session whose name
+came from `.agent/name` or `$AGENT_NAME` is REFUSED with the launch line to use — the seeded
+project's "kept from .agent/name" prompt is gone, because a directory's label is not evidence of who
+is typing; a checkout with another agent's live marker is refused unless `ALLOW_SHARED_CHECKOUT=1`.
+`handoff.sh` reads the store for this session's entry (`session-entries --mine --since <marker>`),
+and says CANNOT TELL, not pass, when the store is unreachable. `verify.sh` runs the freeze gate for
+REAL against the diff, not only its arms (the seeded project's lesson: a step that ran the arms and
+never the gate let four files through). With `TICKET_STORE=jira`, an entry is a comment on the issue
+`JIRA_SESSION_LOG_ISSUE` names (head line `[session-entry] <who>: <title>`), refused by name when unset.

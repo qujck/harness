@@ -1,7 +1,7 @@
 # Roster — which name holds which role
 
-The register is `agents/roster.json` *(arrives with `feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows` —
-until then a project keeps it by hand in the same shape)*. One row per agent that has ever
+The register is `agents/roster.json`, written by `bash scripts/agent-onboard.sh <Name> <role>`
+(which also prints the launch line that gives the session its identity). One row per agent that has ever
 worked in the repo: `name`, `role`, `email`, `status` (`active` | `retired`), `onboarded`,
 `offboarded`, `evidence`. Four roles exist in every project that uses this harness, whatever the
 team size — a solo project holds all four in one head and still benefits from knowing which hat

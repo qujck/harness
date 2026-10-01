@@ -222,7 +222,7 @@ class FixtureTransport:
                 issue["fields"]["assignee"] = next((u for u in self.state["users"] if u["accountId"] == acc), None) if acc else None
                 self._save(); return 204, None
             if method == "POST" and sub == "/comment":
-                self.state["comments"].setdefault(key, []).append({"id": str(len(self.state["comments"].get(key, [])) + 1), "body": body["body"], "author": {"displayName": os.environ.get("JIRA_EMAIL", "")}}); self._save()
+                self.state["comments"].setdefault(key, []).append({"id": str(len(self.state["comments"].get(key, [])) + 1), "body": body["body"], "author": {"displayName": os.environ.get("JIRA_EMAIL", "")}, "created": time.strftime("%Y-%m-%dT%H:%M:%S.000+0000", time.gmtime())}); self._save()
                 return 201, self.state["comments"][key][-1]
             if method == "GET" and sub == "/comment":
                 return 200, {"comments": self.state["comments"].get(key, [])}
@@ -438,6 +438,41 @@ class JiraStore:
     def answer(self, key, text):
         if not self._issue(key): return f"unknown:{key}"
         self._comment(key, f"{self._me()}: {text}"); return "ok"
+    # ── session entries: comments on ONE configured "session log" issue (JIRA_SESSION_LOG_ISSUE) ──
+    # Decided in docs/ticket-store-jira.md (child 3) for child 4: a session entry is a comment on that
+    # issue — title on the first line, then the body — so the handoff check can read "did I write one
+    # since the session started" from the same store the tickets live in. No issue configured →
+    # refused by name (not a silent pass): the project either configures one or keeps the database.
+    def session_entry(self, payload):
+        log = env("JIRA_SESSION_LOG_ISSUE")
+        if not log: return "refused:JIRA_SESSION_LOG_ISSUE-is-not-set-in-harness.env"
+        if not self._issue(log): return f"refused:session-log-issue-does-not-exist:{log}"
+        d = json.loads(payload) if isinstance(payload, str) else payload
+        if not isinstance(d, dict) or not d.get("title") or not d.get("body"): return "refused:session-entry-needs-title-and-body"
+        head = f"[session-entry] {self._me()}: {d['title']}" + (f" (ticket {d['ticket_id']})" if d.get("ticket_id") else "") + (f" (PR #{d['pr']})" if d.get("pr") else "")
+        out = self._write("POST", f"/rest/api/3/issue/{log}/comment", {"body": {"type": "doc", "version": 1, "content": [adf_para(head), adf_para(str(d["body"]))]}})
+        return f"ok:{out.get('id', '?')}"
+    def session_entries(self, args):
+        log = env("JIRA_SESSION_LOG_ISSUE")
+        if not log: raise CannotTell("cannot-tell:JIRA_SESSION_LOG_ISSUE-is-not-set-in-harness.env")
+        opts = {"mine": False, "agent": None, "since": None, "limit": 20}
+        a = list(args)
+        while a:
+            if a[0] == "--mine": opts["mine"] = True; a = a[1:]
+            elif a[0] in ("--agent", "--since", "--limit") and len(a) > 1: opts[a[0][2:]] = a[1]; a = a[2:]
+            else: raise CannotTell("cannot-tell:usage: session-entries [--mine|--agent <name>] [--since <ts>] [--limit <n>]")
+        c = self._read("GET", f"/rest/api/3/issue/{log}/comment") or {"comments": []}
+        rows = []
+        for x in c["comments"]:
+            paras = (x.get("body") or {}).get("content") or []
+            text = _node_text(paras[0]) if paras else ""   # the head paragraph: "[session-entry] <who>: <title> …"
+            if not text.startswith("[session-entry] "): continue
+            who = text[len("[session-entry] "):].split(":", 1)[0]
+            if opts["mine"] and who != self._me(): continue
+            if opts["agent"] and who != opts["agent"]: continue
+            if opts["since"] and (x.get("created") or "9999") < opts["since"]: continue
+            rows.append(f"{x.get('id')}|{x.get('created', '')}|{who}|{text.split(chr(10))[0][len('[session-entry] ')+len(who)+2:]}")
+        return "\n".join(rows[-int(opts["limit"]):])
     def ping(self):
         return "ok" if self._read("GET", "/rest/api/3/myself") is not None else "cannot-tell"
     def dump_workflow(self):
@@ -461,9 +496,8 @@ class JiraStore:
                            "initial": self.status_map["not_started"], "statuses": names,
                            "transitions": prev.get("transitions", []), "users": users or prev.get("users", [])}, indent=2)
 
-READ_VERBS = {"ticket-row", "ticket-owner", "show", "frontier", "board", "comments", "ping", "whoami", "dump-workflow", "validate-status-map"}
-UNSUPPORTED = {"session-entry": "session entries are ledger rows (child 4); Jira has no equivalent — keep a ledger for them or use TICKET_STORE=db",
-               "session-entries": "see session-entry", "sync-agent-roles": "Jira accounts are managed in Jira, not by this harness",
+READ_VERBS = {"ticket-row", "ticket-owner", "show", "frontier", "board", "comments", "ping", "whoami", "dump-workflow", "validate-status-map", "session-entries"}
+UNSUPPORTED = {"sync-agent-roles": "Jira accounts are managed in Jira, not by this harness",
                "clear-refusal": "no refusal store in the Jira adapter", "po-owner": "roles come from agents/roster.json, not Jira",
                "po-queue": "use `frontier`", "waiting": "use a JQL board for parked issues", "summary": "use Jira's own dashboards",
                "orphans": "assignees in Jira are accounts, never departed agents; use Jira's user admin", "ticket-grep": "use `show` per key or JQL"}
@@ -506,6 +540,8 @@ def main(argv):
         elif verb == "comments": v = s.comments(args[0])
         elif verb == "answer": v = s.answer(args[0], " ".join(args[1:]))
         elif verb == "ping": v = s.ping()
+        elif verb == "session-entry": v = s.session_entry(sys.stdin.read())
+        elif verb == "session-entries": v = s.session_entries(args)
         elif verb == "validate-status-map": s.ensure_workflow(); v = "ok"
         elif verb == "dump-workflow": v = s.dump_workflow()
         else:
