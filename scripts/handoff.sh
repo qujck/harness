@@ -8,7 +8,7 @@
 #   2. scripts/verify.sh exits 0
 #   3. PROGRESS.md was modified this session (uncommitted, or a recent commit)
 #   4. No debug artifacts in tracked changes (DEBUG_PATTERNS in harness.env)
-#   5. ledger WIP nudge (features/ in_progress count — a warning, not a cap)
+#   5. ledger WIP nudge (live claims on the ledger — a warning, not a cap)
 #   6. Git working tree is clean OR all changes are committed
 #
 # Usage:
@@ -24,7 +24,7 @@ cd "$REPO_ROOT"
 # shellcheck source=/dev/null
 [[ -f harness.env ]] && source harness.env
 # Per-stream stack identity (COMPOSE_PROJECT_NAME, dc) for the strict-mode
-# teardown below + the feature-ledger helper (features_live_json).
+# teardown below.
 # shellcheck source=/dev/null
 . "$REPO_ROOT/scripts/_stack.sh"
 
@@ -115,13 +115,14 @@ ok "no debug artifacts added"
 #    PROVIDED each runs in its OWN git worktree/clone; worktree isolation + the
 #    depends_on ready-frontier are the safety, not a count.
 step "[5/6] ledger WIP (parallel-OK)"
-_live=$(features_live_json)
-in_progress=$(printf '%s' "$_live" | jq '[.features[] | select(.status == "in_progress")] | length' 2>/dev/null || echo 0)
+# the ledger's live claims (rows in_progress), not a file count
+_claims="$(bash scripts/ledger-db.sh board 2>/dev/null | awk -F'|' '$3!="-" && $3!=""' || true)"
+in_progress="$(printf '%s' "$_claims" | grep -c . || true)"
 if (( in_progress > 1 )); then
-  printf '%s' "$_live" | jq -r '.features[] | select(.status == "in_progress") | "   - \(.id)"'
-  warn "$in_progress features in_progress — fine PROVIDED each runs in its OWN git worktree/clone (worktree isolation + depends_on are the safety, not a WIP count). If these are all in THIS one checkout, finish or park all but one."
+  printf '%s\n' "$_claims" | awk -F'|' '{ printf "   - %s (%s)\n", $1, $3 }'
+  warn "$in_progress claims live on the ledger — fine PROVIDED each runs in its OWN git worktree (worktree isolation + depends_on are the safety, not a count)"
 else
-  ok "$in_progress feature(s) in_progress"
+  ok "$in_progress claim(s) live on the ledger"
 fi
 
 # 6. Working tree clean OR commits made.

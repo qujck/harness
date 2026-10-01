@@ -102,3 +102,24 @@ marker outlives its child (`docs/landed-children.txt`). The file ledger under `f
 until the ticket-store child lands; the docs say so. The template's own `verify.sh` runs the marker
 check (self-test and real) until the tier manifest arrives.
 
+
+## 2026-10-01 — The ticket store is the ledger database, behind one verb set (template child 2)
+
+`feat_harness_the_ledger_is_a_database_with_raise_groom_claim_amend_flip_archive_and_release_verbs`.
+The file ledger under `features/` is gone (with `_features.sh` and `archive-passing.sh`); the store
+is a Postgres per box under `infra/ledger-db/` — the seeded project's schema squashed into ONE
+baseline (`001-baseline.sql`, 19 tables, 33 views, 66 functions, grants to `ledger_agent` /
+`ledger_console` / `ledger_owner`) with a `000-roles.sql` that creates the group roles, and later
+changes as numbered migrations applied by `ledger-migrate.sh`. `ledger-db.sh` is the port of the
+seeded project's verbs with the project name parametrised (`HARNESS_PROJECT`, via
+`scripts/lib/harness-env.sh`); its FILE-ERA verbs (`sync`, `mirror`, `regenerate`, `freshness`,
+`export`) refuse by name — the template never had a file era. `scripts/lib/ticket-store.sh` is the
+adapter: `TICKET_STORE=db|jira`, one verb contract, an unsupported verb exits 2 loudly, never a silent
+pass. `feature-ticket.sh` keeps what a row cannot be — the pushed lock branch — and records the
+claim on the row; a refused record takes the lock down again. A write needs a session identity
+mapped by `agents/roster.json` (the onboarding script that fills it is child 4; until then the file
+is edited in a PR). `init.sh` reads the frontier and `handoff.sh` the live claims from the ledger.
+**Deliberately not ported:** the seeded project's 16,000-line `feature-ticket.sh` (its sync, repair
+and board machinery is that project's migration history), its migration files 001–147 (replaced by
+the baseline), and its exempt-gate runners (child 7). Self-tests: `ledger-db.sh` 96 arms + the
+adapter's 7, `ledger-migrate.sh`, `feature-ticket.sh` 11 — all run by `verify.sh` step [0/3].
