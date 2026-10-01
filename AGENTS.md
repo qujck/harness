@@ -73,9 +73,13 @@ load-bearing half — what you must not touch. The rules below bind all four rol
    binding until superseded — and **a decision recorded with a reason lapses when the reason
    does**: re-ask it, do not obey it.
 8. **Every self-test is invoked by something, through one flag contract, or says why not.** A
-   check that only ever runs its own arms is not a check. *(The contract, the tier manifest and
-   the step-promise gate arrive with
-   `feat_harness_self_tests_follow_one_flag_contract_and_a_tier_manifest_that_verify_runs`.)*
+   check that only ever runs its own arms is not a check. The contract is `scripts/lib/selftest-flag.sh`
+   (`selftest_is_flag` / `selftest_requested` / `selftest_reject_typo`: a mistyped flag exits 2, never
+   runs the real action); the manifest is `scripts/selftest-tiers.txt` (`verify` | `stack` | `nowhere`
+   + reason), and `verify.sh` runs exactly its `verify` tier with a floor of one; three gates hold it:
+   `check-selftests-are-invoked.sh` (an invocation is evidence, a prose mention is not),
+   `check-selftest-flag-contract.sh` (no hand-parsed flags; the legacy list is empty), and
+   `check-steps-invoke-their-scripts.sh` (a step that names a gate must run it for real).
 9. {{PROJECT-SPECIFIC RULE — e.g. module isolation, naming, layering. Delete if none.}}
 
 > These rules implement *Learn Harness Engineering* (L02–L12): the ledger is a harness primitive

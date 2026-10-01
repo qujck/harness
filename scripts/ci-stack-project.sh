@@ -35,6 +35,7 @@ ci_stack_project() {
   printf '%s_ci_%s\n' "${HARNESS_PROJECT:-harness}" "$n"
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   f=0
   t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"; else printf '  FAIL  %s: want %q got %q\n' "$1" "$3" "$2"; f=1; fi; }

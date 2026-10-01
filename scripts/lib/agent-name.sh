@@ -427,16 +427,15 @@ agent_name_taken_by() {
 # and exited 0 in silence. Guarded on BASH_SOURCE: when SOURCED, $1 is the caller's.
 # (chore_unify_selftest_flag_spelling)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  case "${1:-}" in
-    ''|--self-test|--selftest) ;;
-    *) printf 'unknown argument: %s\n' "$1" >&2
-       printf 'usage: agent-name.sh [--self-test]\n' >&2
-       exit 2 ;;
-  esac
+  . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+  if [[ -n "${1:-}" ]] && ! selftest_is_flag "${1:-}"; then
+    printf 'unknown argument: %s\n' "$1" >&2
+    printf 'usage: agent-name.sh [--self-test]\n' >&2
+    exit 2
+  fi
 fi
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" &&
-      ( "${1:-}" == "--self-test" || "${1:-}" == "--selftest" ) ]]; then
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   set -uo pipefail
   t_fail() { printf 'agent-name selftest FAIL: %s\n' "$*" >&2; exit 1; }
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

@@ -20,6 +20,7 @@ render_unit() { sed -e "s|@@PROJECT@@|$2|g" -e "s|@@REPO_ROOT@@|$3|g" "$1"; }
 # installed_name <template path> <project> -> <project>-<basename without .in>
 installed_name() { local b; b="$(basename -- "$1" .in)"; printf '%s-%s\n' "$2" "$b"; }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   f=0; d="$(mktemp -d)"; _t() { [[ "$2" == "$3" ]] && printf '  ok    %s\n' "$1" || { printf '  FAIL  %s (want %q got %q)\n' "$1" "$2" "$3"; f=1; }; }
   printf '[Unit]\nDescription=@@PROJECT@@ x\nOnFailure=@@PROJECT@@-unit-failure@%%n.service\n[Service]\nWorkingDirectory=@@REPO_ROOT@@\n' > "$d/t.service.in"

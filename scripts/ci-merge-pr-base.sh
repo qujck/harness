@@ -158,6 +158,7 @@ ci_merge_pr_base() {
 # ⚠ IT DRIVES REAL GIT REPOSITORIES, and it asserts on WHICH SHA WAS MERGED — never on an exit code
 # alone. The broken version this replaces exited 0 and printed a cheerful success line while merging
 # the wrong tree; a test reading only the status would have passed against it.
+declare -F selftest_reject_typo >/dev/null && selftest_reject_typo "${1:-}"
 if declare -F selftest_is_flag >/dev/null && selftest_is_flag "${1:-}"; then
   fails=0
   t() { if [[ "$2" == "$3" ]]; then printf '  ok   %s\n' "$1"
