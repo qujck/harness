@@ -1,0 +1,1741 @@
+{
+ "about": [
+  "The ops-alert CONDITION contract, as data. (infra_an_ops_alert_is_a_condition_that_emails_once_when_it_starts_failing_and_once_when_it_recovers)",
+  "BOTH implementations run every scenario here: the client (scripts/lib/ops_alert_machine.py, via scripts/lib/ops-alert.sh --self-test) and the API backstop (OpsAlertConditionMachine, via OpsAlertConditionMachineTests). One contract, two transports, one list of cases, so the two cannot drift apart unnoticed.",
+  "PO RULING (Carl, 2026-09-28): SETTLED RECOVERY. [FAILING] at once; [RECOVERED] only once the key has stayed recovered for SETTLE (10 min); a re-fail inside the window cancels it silently; more than 4 transitions in 60 min sends ONE [FLAPPING], then nothing until it settles. \u26a0 SUPERSEDED 2026-09-29 where they conflict (Carl withdrew it for the owner-approved DECISIONS 2026-09-28 record): a key that has gone FLAPPING is released only by an HOUR of stability (FLAP_WINDOW); an ordinary failure keeps the 10-minute settle.",
+  "Each step is {t: minutes since the scenario started, op: failing|recovered|tick}. `tick` is a scheduled settle check with no new reading (pr-refresh's 3-minute tick on the client, the hosted service on the server). expect lists every email the scenario sends, as [t, kind]."
+ ],
+ "settle_minutes": 10,
+ "flap_window_minutes": 60,
+ "flap_max_transitions": 4,
+ "scenarios": [
+  {
+   "name": "one failure, many readings: 100 failing calls send one email",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "failing"
+    },
+    {
+     "t": 2,
+     "op": "failing"
+    },
+    {
+     "t": 3,
+     "op": "failing"
+    },
+    {
+     "t": 4,
+     "op": "failing"
+    },
+    {
+     "t": 5,
+     "op": "failing"
+    },
+    {
+     "t": 6,
+     "op": "failing"
+    },
+    {
+     "t": 7,
+     "op": "failing"
+    },
+    {
+     "t": 8,
+     "op": "failing"
+    },
+    {
+     "t": 9,
+     "op": "failing"
+    },
+    {
+     "t": 10,
+     "op": "failing"
+    },
+    {
+     "t": 11,
+     "op": "failing"
+    },
+    {
+     "t": 12,
+     "op": "failing"
+    },
+    {
+     "t": 13,
+     "op": "failing"
+    },
+    {
+     "t": 14,
+     "op": "failing"
+    },
+    {
+     "t": 15,
+     "op": "failing"
+    },
+    {
+     "t": 16,
+     "op": "failing"
+    },
+    {
+     "t": 17,
+     "op": "failing"
+    },
+    {
+     "t": 18,
+     "op": "failing"
+    },
+    {
+     "t": 19,
+     "op": "failing"
+    },
+    {
+     "t": 20,
+     "op": "failing"
+    },
+    {
+     "t": 21,
+     "op": "failing"
+    },
+    {
+     "t": 22,
+     "op": "failing"
+    },
+    {
+     "t": 23,
+     "op": "failing"
+    },
+    {
+     "t": 24,
+     "op": "failing"
+    },
+    {
+     "t": 25,
+     "op": "failing"
+    },
+    {
+     "t": 26,
+     "op": "failing"
+    },
+    {
+     "t": 27,
+     "op": "failing"
+    },
+    {
+     "t": 28,
+     "op": "failing"
+    },
+    {
+     "t": 29,
+     "op": "failing"
+    },
+    {
+     "t": 30,
+     "op": "failing"
+    },
+    {
+     "t": 31,
+     "op": "failing"
+    },
+    {
+     "t": 32,
+     "op": "failing"
+    },
+    {
+     "t": 33,
+     "op": "failing"
+    },
+    {
+     "t": 34,
+     "op": "failing"
+    },
+    {
+     "t": 35,
+     "op": "failing"
+    },
+    {
+     "t": 36,
+     "op": "failing"
+    },
+    {
+     "t": 37,
+     "op": "failing"
+    },
+    {
+     "t": 38,
+     "op": "failing"
+    },
+    {
+     "t": 39,
+     "op": "failing"
+    },
+    {
+     "t": 40,
+     "op": "failing"
+    },
+    {
+     "t": 41,
+     "op": "failing"
+    },
+    {
+     "t": 42,
+     "op": "failing"
+    },
+    {
+     "t": 43,
+     "op": "failing"
+    },
+    {
+     "t": 44,
+     "op": "failing"
+    },
+    {
+     "t": 45,
+     "op": "failing"
+    },
+    {
+     "t": 46,
+     "op": "failing"
+    },
+    {
+     "t": 47,
+     "op": "failing"
+    },
+    {
+     "t": 48,
+     "op": "failing"
+    },
+    {
+     "t": 49,
+     "op": "failing"
+    },
+    {
+     "t": 50,
+     "op": "failing"
+    },
+    {
+     "t": 51,
+     "op": "failing"
+    },
+    {
+     "t": 52,
+     "op": "failing"
+    },
+    {
+     "t": 53,
+     "op": "failing"
+    },
+    {
+     "t": 54,
+     "op": "failing"
+    },
+    {
+     "t": 55,
+     "op": "failing"
+    },
+    {
+     "t": 56,
+     "op": "failing"
+    },
+    {
+     "t": 57,
+     "op": "failing"
+    },
+    {
+     "t": 58,
+     "op": "failing"
+    },
+    {
+     "t": 59,
+     "op": "failing"
+    },
+    {
+     "t": 60,
+     "op": "failing"
+    },
+    {
+     "t": 61,
+     "op": "failing"
+    },
+    {
+     "t": 62,
+     "op": "failing"
+    },
+    {
+     "t": 63,
+     "op": "failing"
+    },
+    {
+     "t": 64,
+     "op": "failing"
+    },
+    {
+     "t": 65,
+     "op": "failing"
+    },
+    {
+     "t": 66,
+     "op": "failing"
+    },
+    {
+     "t": 67,
+     "op": "failing"
+    },
+    {
+     "t": 68,
+     "op": "failing"
+    },
+    {
+     "t": 69,
+     "op": "failing"
+    },
+    {
+     "t": 70,
+     "op": "failing"
+    },
+    {
+     "t": 71,
+     "op": "failing"
+    },
+    {
+     "t": 72,
+     "op": "failing"
+    },
+    {
+     "t": 73,
+     "op": "failing"
+    },
+    {
+     "t": 74,
+     "op": "failing"
+    },
+    {
+     "t": 75,
+     "op": "failing"
+    },
+    {
+     "t": 76,
+     "op": "failing"
+    },
+    {
+     "t": 77,
+     "op": "failing"
+    },
+    {
+     "t": 78,
+     "op": "failing"
+    },
+    {
+     "t": 79,
+     "op": "failing"
+    },
+    {
+     "t": 80,
+     "op": "failing"
+    },
+    {
+     "t": 81,
+     "op": "failing"
+    },
+    {
+     "t": 82,
+     "op": "failing"
+    },
+    {
+     "t": 83,
+     "op": "failing"
+    },
+    {
+     "t": 84,
+     "op": "failing"
+    },
+    {
+     "t": 85,
+     "op": "failing"
+    },
+    {
+     "t": 86,
+     "op": "failing"
+    },
+    {
+     "t": 87,
+     "op": "failing"
+    },
+    {
+     "t": 88,
+     "op": "failing"
+    },
+    {
+     "t": 89,
+     "op": "failing"
+    },
+    {
+     "t": 90,
+     "op": "failing"
+    },
+    {
+     "t": 91,
+     "op": "failing"
+    },
+    {
+     "t": 92,
+     "op": "failing"
+    },
+    {
+     "t": 93,
+     "op": "failing"
+    },
+    {
+     "t": 94,
+     "op": "failing"
+    },
+    {
+     "t": 95,
+     "op": "failing"
+    },
+    {
+     "t": 96,
+     "op": "failing"
+    },
+    {
+     "t": 97,
+     "op": "failing"
+    },
+    {
+     "t": 98,
+     "op": "failing"
+    },
+    {
+     "t": 99,
+     "op": "failing"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ]
+   ]
+  },
+  {
+   "name": "failing then recovered, held for the settle period: two emails",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 30,
+     "op": "recovered"
+    },
+    {
+     "t": 33,
+     "op": "tick"
+    },
+    {
+     "t": 36,
+     "op": "tick"
+    },
+    {
+     "t": 39,
+     "op": "tick"
+    },
+    {
+     "t": 42,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     42,
+     "RECOVERED"
+    ]
+   ]
+  },
+  {
+   "name": "NEGATIVE CONTROL: a recovery is never announced before it has settled",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 30,
+     "op": "recovered"
+    },
+    {
+     "t": 30,
+     "op": "tick"
+    },
+    {
+     "t": 39,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ]
+   ]
+  },
+  {
+   "name": "a recovered reading with no prior failure sends nothing",
+   "steps": [
+    {
+     "t": 0,
+     "op": "recovered"
+    },
+    {
+     "t": 20,
+     "op": "tick"
+    },
+    {
+     "t": 40,
+     "op": "recovered"
+    }
+   ],
+   "expect": []
+  },
+  {
+   "name": "a re-fail inside the settle window cancels the recovery silently; the failure email stands",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 30,
+     "op": "recovered"
+    },
+    {
+     "t": 35,
+     "op": "failing"
+    },
+    {
+     "t": 50,
+     "op": "tick"
+    },
+    {
+     "t": 120,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ]
+   ]
+  },
+  {
+   "name": "F R F R F inside an hour: [FAILING] then [FLAPPING], two emails",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "recovered"
+    },
+    {
+     "t": 2,
+     "op": "failing"
+    },
+    {
+     "t": 3,
+     "op": "recovered"
+    },
+    {
+     "t": 4,
+     "op": "failing"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     4,
+     "FLAPPING"
+    ]
+   ]
+  },
+  {
+   "name": "200 transitions: still two emails, then exactly one [RECOVERED] once the last recovery (t=199) has held an HOUR \u2014 a flapping key needs FLAP_WINDOW, not the 10-minute settle",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "recovered"
+    },
+    {
+     "t": 2,
+     "op": "failing"
+    },
+    {
+     "t": 3,
+     "op": "recovered"
+    },
+    {
+     "t": 4,
+     "op": "failing"
+    },
+    {
+     "t": 5,
+     "op": "recovered"
+    },
+    {
+     "t": 6,
+     "op": "failing"
+    },
+    {
+     "t": 7,
+     "op": "recovered"
+    },
+    {
+     "t": 8,
+     "op": "failing"
+    },
+    {
+     "t": 9,
+     "op": "recovered"
+    },
+    {
+     "t": 10,
+     "op": "failing"
+    },
+    {
+     "t": 11,
+     "op": "recovered"
+    },
+    {
+     "t": 12,
+     "op": "failing"
+    },
+    {
+     "t": 13,
+     "op": "recovered"
+    },
+    {
+     "t": 14,
+     "op": "failing"
+    },
+    {
+     "t": 15,
+     "op": "recovered"
+    },
+    {
+     "t": 16,
+     "op": "failing"
+    },
+    {
+     "t": 17,
+     "op": "recovered"
+    },
+    {
+     "t": 18,
+     "op": "failing"
+    },
+    {
+     "t": 19,
+     "op": "recovered"
+    },
+    {
+     "t": 20,
+     "op": "failing"
+    },
+    {
+     "t": 21,
+     "op": "recovered"
+    },
+    {
+     "t": 22,
+     "op": "failing"
+    },
+    {
+     "t": 23,
+     "op": "recovered"
+    },
+    {
+     "t": 24,
+     "op": "failing"
+    },
+    {
+     "t": 25,
+     "op": "recovered"
+    },
+    {
+     "t": 26,
+     "op": "failing"
+    },
+    {
+     "t": 27,
+     "op": "recovered"
+    },
+    {
+     "t": 28,
+     "op": "failing"
+    },
+    {
+     "t": 29,
+     "op": "recovered"
+    },
+    {
+     "t": 30,
+     "op": "failing"
+    },
+    {
+     "t": 31,
+     "op": "recovered"
+    },
+    {
+     "t": 32,
+     "op": "failing"
+    },
+    {
+     "t": 33,
+     "op": "recovered"
+    },
+    {
+     "t": 34,
+     "op": "failing"
+    },
+    {
+     "t": 35,
+     "op": "recovered"
+    },
+    {
+     "t": 36,
+     "op": "failing"
+    },
+    {
+     "t": 37,
+     "op": "recovered"
+    },
+    {
+     "t": 38,
+     "op": "failing"
+    },
+    {
+     "t": 39,
+     "op": "recovered"
+    },
+    {
+     "t": 40,
+     "op": "failing"
+    },
+    {
+     "t": 41,
+     "op": "recovered"
+    },
+    {
+     "t": 42,
+     "op": "failing"
+    },
+    {
+     "t": 43,
+     "op": "recovered"
+    },
+    {
+     "t": 44,
+     "op": "failing"
+    },
+    {
+     "t": 45,
+     "op": "recovered"
+    },
+    {
+     "t": 46,
+     "op": "failing"
+    },
+    {
+     "t": 47,
+     "op": "recovered"
+    },
+    {
+     "t": 48,
+     "op": "failing"
+    },
+    {
+     "t": 49,
+     "op": "recovered"
+    },
+    {
+     "t": 50,
+     "op": "failing"
+    },
+    {
+     "t": 51,
+     "op": "recovered"
+    },
+    {
+     "t": 52,
+     "op": "failing"
+    },
+    {
+     "t": 53,
+     "op": "recovered"
+    },
+    {
+     "t": 54,
+     "op": "failing"
+    },
+    {
+     "t": 55,
+     "op": "recovered"
+    },
+    {
+     "t": 56,
+     "op": "failing"
+    },
+    {
+     "t": 57,
+     "op": "recovered"
+    },
+    {
+     "t": 58,
+     "op": "failing"
+    },
+    {
+     "t": 59,
+     "op": "recovered"
+    },
+    {
+     "t": 60,
+     "op": "failing"
+    },
+    {
+     "t": 61,
+     "op": "recovered"
+    },
+    {
+     "t": 62,
+     "op": "failing"
+    },
+    {
+     "t": 63,
+     "op": "recovered"
+    },
+    {
+     "t": 64,
+     "op": "failing"
+    },
+    {
+     "t": 65,
+     "op": "recovered"
+    },
+    {
+     "t": 66,
+     "op": "failing"
+    },
+    {
+     "t": 67,
+     "op": "recovered"
+    },
+    {
+     "t": 68,
+     "op": "failing"
+    },
+    {
+     "t": 69,
+     "op": "recovered"
+    },
+    {
+     "t": 70,
+     "op": "failing"
+    },
+    {
+     "t": 71,
+     "op": "recovered"
+    },
+    {
+     "t": 72,
+     "op": "failing"
+    },
+    {
+     "t": 73,
+     "op": "recovered"
+    },
+    {
+     "t": 74,
+     "op": "failing"
+    },
+    {
+     "t": 75,
+     "op": "recovered"
+    },
+    {
+     "t": 76,
+     "op": "failing"
+    },
+    {
+     "t": 77,
+     "op": "recovered"
+    },
+    {
+     "t": 78,
+     "op": "failing"
+    },
+    {
+     "t": 79,
+     "op": "recovered"
+    },
+    {
+     "t": 80,
+     "op": "failing"
+    },
+    {
+     "t": 81,
+     "op": "recovered"
+    },
+    {
+     "t": 82,
+     "op": "failing"
+    },
+    {
+     "t": 83,
+     "op": "recovered"
+    },
+    {
+     "t": 84,
+     "op": "failing"
+    },
+    {
+     "t": 85,
+     "op": "recovered"
+    },
+    {
+     "t": 86,
+     "op": "failing"
+    },
+    {
+     "t": 87,
+     "op": "recovered"
+    },
+    {
+     "t": 88,
+     "op": "failing"
+    },
+    {
+     "t": 89,
+     "op": "recovered"
+    },
+    {
+     "t": 90,
+     "op": "failing"
+    },
+    {
+     "t": 91,
+     "op": "recovered"
+    },
+    {
+     "t": 92,
+     "op": "failing"
+    },
+    {
+     "t": 93,
+     "op": "recovered"
+    },
+    {
+     "t": 94,
+     "op": "failing"
+    },
+    {
+     "t": 95,
+     "op": "recovered"
+    },
+    {
+     "t": 96,
+     "op": "failing"
+    },
+    {
+     "t": 97,
+     "op": "recovered"
+    },
+    {
+     "t": 98,
+     "op": "failing"
+    },
+    {
+     "t": 99,
+     "op": "recovered"
+    },
+    {
+     "t": 100,
+     "op": "failing"
+    },
+    {
+     "t": 101,
+     "op": "recovered"
+    },
+    {
+     "t": 102,
+     "op": "failing"
+    },
+    {
+     "t": 103,
+     "op": "recovered"
+    },
+    {
+     "t": 104,
+     "op": "failing"
+    },
+    {
+     "t": 105,
+     "op": "recovered"
+    },
+    {
+     "t": 106,
+     "op": "failing"
+    },
+    {
+     "t": 107,
+     "op": "recovered"
+    },
+    {
+     "t": 108,
+     "op": "failing"
+    },
+    {
+     "t": 109,
+     "op": "recovered"
+    },
+    {
+     "t": 110,
+     "op": "failing"
+    },
+    {
+     "t": 111,
+     "op": "recovered"
+    },
+    {
+     "t": 112,
+     "op": "failing"
+    },
+    {
+     "t": 113,
+     "op": "recovered"
+    },
+    {
+     "t": 114,
+     "op": "failing"
+    },
+    {
+     "t": 115,
+     "op": "recovered"
+    },
+    {
+     "t": 116,
+     "op": "failing"
+    },
+    {
+     "t": 117,
+     "op": "recovered"
+    },
+    {
+     "t": 118,
+     "op": "failing"
+    },
+    {
+     "t": 119,
+     "op": "recovered"
+    },
+    {
+     "t": 120,
+     "op": "failing"
+    },
+    {
+     "t": 121,
+     "op": "recovered"
+    },
+    {
+     "t": 122,
+     "op": "failing"
+    },
+    {
+     "t": 123,
+     "op": "recovered"
+    },
+    {
+     "t": 124,
+     "op": "failing"
+    },
+    {
+     "t": 125,
+     "op": "recovered"
+    },
+    {
+     "t": 126,
+     "op": "failing"
+    },
+    {
+     "t": 127,
+     "op": "recovered"
+    },
+    {
+     "t": 128,
+     "op": "failing"
+    },
+    {
+     "t": 129,
+     "op": "recovered"
+    },
+    {
+     "t": 130,
+     "op": "failing"
+    },
+    {
+     "t": 131,
+     "op": "recovered"
+    },
+    {
+     "t": 132,
+     "op": "failing"
+    },
+    {
+     "t": 133,
+     "op": "recovered"
+    },
+    {
+     "t": 134,
+     "op": "failing"
+    },
+    {
+     "t": 135,
+     "op": "recovered"
+    },
+    {
+     "t": 136,
+     "op": "failing"
+    },
+    {
+     "t": 137,
+     "op": "recovered"
+    },
+    {
+     "t": 138,
+     "op": "failing"
+    },
+    {
+     "t": 139,
+     "op": "recovered"
+    },
+    {
+     "t": 140,
+     "op": "failing"
+    },
+    {
+     "t": 141,
+     "op": "recovered"
+    },
+    {
+     "t": 142,
+     "op": "failing"
+    },
+    {
+     "t": 143,
+     "op": "recovered"
+    },
+    {
+     "t": 144,
+     "op": "failing"
+    },
+    {
+     "t": 145,
+     "op": "recovered"
+    },
+    {
+     "t": 146,
+     "op": "failing"
+    },
+    {
+     "t": 147,
+     "op": "recovered"
+    },
+    {
+     "t": 148,
+     "op": "failing"
+    },
+    {
+     "t": 149,
+     "op": "recovered"
+    },
+    {
+     "t": 150,
+     "op": "failing"
+    },
+    {
+     "t": 151,
+     "op": "recovered"
+    },
+    {
+     "t": 152,
+     "op": "failing"
+    },
+    {
+     "t": 153,
+     "op": "recovered"
+    },
+    {
+     "t": 154,
+     "op": "failing"
+    },
+    {
+     "t": 155,
+     "op": "recovered"
+    },
+    {
+     "t": 156,
+     "op": "failing"
+    },
+    {
+     "t": 157,
+     "op": "recovered"
+    },
+    {
+     "t": 158,
+     "op": "failing"
+    },
+    {
+     "t": 159,
+     "op": "recovered"
+    },
+    {
+     "t": 160,
+     "op": "failing"
+    },
+    {
+     "t": 161,
+     "op": "recovered"
+    },
+    {
+     "t": 162,
+     "op": "failing"
+    },
+    {
+     "t": 163,
+     "op": "recovered"
+    },
+    {
+     "t": 164,
+     "op": "failing"
+    },
+    {
+     "t": 165,
+     "op": "recovered"
+    },
+    {
+     "t": 166,
+     "op": "failing"
+    },
+    {
+     "t": 167,
+     "op": "recovered"
+    },
+    {
+     "t": 168,
+     "op": "failing"
+    },
+    {
+     "t": 169,
+     "op": "recovered"
+    },
+    {
+     "t": 170,
+     "op": "failing"
+    },
+    {
+     "t": 171,
+     "op": "recovered"
+    },
+    {
+     "t": 172,
+     "op": "failing"
+    },
+    {
+     "t": 173,
+     "op": "recovered"
+    },
+    {
+     "t": 174,
+     "op": "failing"
+    },
+    {
+     "t": 175,
+     "op": "recovered"
+    },
+    {
+     "t": 176,
+     "op": "failing"
+    },
+    {
+     "t": 177,
+     "op": "recovered"
+    },
+    {
+     "t": 178,
+     "op": "failing"
+    },
+    {
+     "t": 179,
+     "op": "recovered"
+    },
+    {
+     "t": 180,
+     "op": "failing"
+    },
+    {
+     "t": 181,
+     "op": "recovered"
+    },
+    {
+     "t": 182,
+     "op": "failing"
+    },
+    {
+     "t": 183,
+     "op": "recovered"
+    },
+    {
+     "t": 184,
+     "op": "failing"
+    },
+    {
+     "t": 185,
+     "op": "recovered"
+    },
+    {
+     "t": 186,
+     "op": "failing"
+    },
+    {
+     "t": 187,
+     "op": "recovered"
+    },
+    {
+     "t": 188,
+     "op": "failing"
+    },
+    {
+     "t": 189,
+     "op": "recovered"
+    },
+    {
+     "t": 190,
+     "op": "failing"
+    },
+    {
+     "t": 191,
+     "op": "recovered"
+    },
+    {
+     "t": 192,
+     "op": "failing"
+    },
+    {
+     "t": 193,
+     "op": "recovered"
+    },
+    {
+     "t": 194,
+     "op": "failing"
+    },
+    {
+     "t": 195,
+     "op": "recovered"
+    },
+    {
+     "t": 196,
+     "op": "failing"
+    },
+    {
+     "t": 197,
+     "op": "recovered"
+    },
+    {
+     "t": 198,
+     "op": "failing"
+    },
+    {
+     "t": 199,
+     "op": "recovered"
+    },
+    {
+     "t": 200,
+     "op": "tick"
+    },
+    {
+     "t": 209,
+     "op": "tick"
+    },
+    {
+     "t": 215,
+     "op": "tick"
+    },
+    {
+     "t": 250,
+     "op": "tick"
+    },
+    {
+     "t": 258,
+     "op": "tick"
+    },
+    {
+     "t": 259,
+     "op": "tick"
+    },
+    {
+     "t": 265,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     4,
+     "FLAPPING"
+    ],
+    [
+     259,
+     "RECOVERED"
+    ]
+   ]
+  },
+  {
+   "name": "the settle fires on a tick with no new reading (the check does not wait for a caller)",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 5,
+     "op": "recovered"
+    },
+    {
+     "t": 15,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     15,
+     "RECOVERED"
+    ]
+   ]
+  },
+  {
+   "name": "a second failure after a settled recovery is a new [FAILING]",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 5,
+     "op": "recovered"
+    },
+    {
+     "t": 15,
+     "op": "tick"
+    },
+    {
+     "t": 100,
+     "op": "failing"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     15,
+     "RECOVERED"
+    ],
+    [
+     100,
+     "FAILING"
+    ]
+   ]
+  },
+  {
+   "name": "transitions older than the flap window do not count towards flapping",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "recovered"
+    },
+    {
+     "t": 11,
+     "op": "tick"
+    },
+    {
+     "t": 70,
+     "op": "failing"
+    },
+    {
+     "t": 71,
+     "op": "recovered"
+    },
+    {
+     "t": 81,
+     "op": "tick"
+    },
+    {
+     "t": 140,
+     "op": "failing"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     11,
+     "RECOVERED"
+    ],
+    [
+     70,
+     "FAILING"
+    ],
+    [
+     81,
+     "RECOVERED"
+    ],
+    [
+     140,
+     "FAILING"
+    ]
+   ]
+  },
+  {
+   "name": "the owner's 2026-09-29 shape: a key flapping with 15-minute gaps (each gap longer than the settle) TRIPS the guard on its 5th transition and is then silent until stable for an hour. Before: every settled recovery reset the count, so it never tripped and emailed every cycle",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "recovered"
+    },
+    {
+     "t": 15,
+     "op": "failing"
+    },
+    {
+     "t": 16,
+     "op": "recovered"
+    },
+    {
+     "t": 30,
+     "op": "failing"
+    },
+    {
+     "t": 31,
+     "op": "recovered"
+    },
+    {
+     "t": 41,
+     "op": "tick"
+    },
+    {
+     "t": 45,
+     "op": "tick"
+    },
+    {
+     "t": 46,
+     "op": "failing"
+    },
+    {
+     "t": 47,
+     "op": "recovered"
+    },
+    {
+     "t": 57,
+     "op": "tick"
+    },
+    {
+     "t": 61,
+     "op": "failing"
+    },
+    {
+     "t": 62,
+     "op": "recovered"
+    },
+    {
+     "t": 72,
+     "op": "tick"
+    },
+    {
+     "t": 100,
+     "op": "tick"
+    },
+    {
+     "t": 121,
+     "op": "tick"
+    },
+    {
+     "t": 122,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     15,
+     "RECOVERED"
+    ],
+    [
+     15,
+     "FAILING"
+    ],
+    [
+     30,
+     "RECOVERED"
+    ],
+    [
+     30,
+     "FLAPPING"
+    ],
+    [
+     122,
+     "RECOVERED"
+    ]
+   ]
+  },
+  {
+   "name": "two senders, ONE state dir: a key flipped every minute for 20 minutes is one [FAILING], one [FLAPPING], silence while it flaps, one [RECOVERED] once the last recovery has held the flap window",
+   "steps": [
+    {
+     "t": 0,
+     "op": "failing"
+    },
+    {
+     "t": 1,
+     "op": "recovered"
+    },
+    {
+     "t": 2,
+     "op": "failing"
+    },
+    {
+     "t": 3,
+     "op": "recovered"
+    },
+    {
+     "t": 4,
+     "op": "failing"
+    },
+    {
+     "t": 5,
+     "op": "recovered"
+    },
+    {
+     "t": 6,
+     "op": "failing"
+    },
+    {
+     "t": 7,
+     "op": "recovered"
+    },
+    {
+     "t": 8,
+     "op": "failing"
+    },
+    {
+     "t": 9,
+     "op": "recovered"
+    },
+    {
+     "t": 10,
+     "op": "failing"
+    },
+    {
+     "t": 11,
+     "op": "recovered"
+    },
+    {
+     "t": 12,
+     "op": "failing"
+    },
+    {
+     "t": 13,
+     "op": "recovered"
+    },
+    {
+     "t": 14,
+     "op": "failing"
+    },
+    {
+     "t": 15,
+     "op": "recovered"
+    },
+    {
+     "t": 16,
+     "op": "failing"
+    },
+    {
+     "t": 17,
+     "op": "recovered"
+    },
+    {
+     "t": 18,
+     "op": "failing"
+    },
+    {
+     "t": 19,
+     "op": "recovered"
+    },
+    {
+     "t": 79,
+     "op": "tick"
+    }
+   ],
+   "expect": [
+    [
+     0,
+     "FAILING"
+    ],
+    [
+     4,
+     "FLAPPING"
+    ],
+    [
+     79,
+     "RECOVERED"
+    ]
+   ],
+   "note": "The seeded project's defect: two senders (a system-scope unit and a user-scope one) wrote this key from TWO state dirs, each saw a fresh condition, and the owner got twenty emails. With one state dir the guard trips at the fifth transition and the rest is silence until the settle. The library resolves the one location itself (ops_alert_state_dir) and refuses to run without it."
+  }
+ ]
+}
