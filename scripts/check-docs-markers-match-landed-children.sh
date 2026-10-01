@@ -24,11 +24,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LANDED="${LANDED_CHILDREN_FILE:-$ROOT/docs/landed-children.txt}"
 DOCS_DEFAULT=("$ROOT/AGENTS.md" "$ROOT/README.md" "$ROOT/docs")
 
-case "${1-}" in
-  '') ;;
-  --self-test|--selftest) SELFTEST=1 ;;
-  *) echo "check-docs-markers-match-landed-children: unknown argument '$1' (usage: [--self-test])" >&2; exit 2 ;;
-esac
+# the shared flag contract (scripts/lib/selftest-flag.sh): a mistyped flag exits 2, never falls through
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/selftest-flag.sh"
+if selftest_is_flag "${1-}"; then SELFTEST=1
+elif [[ -n "${1-}" ]]; then echo "check-docs-markers-match-landed-children: unknown argument '$1' (usage: [--self-test])" >&2; exit 2; fi
 
 # markers_in <file-or-dir>… -> one "file<TAB>line<TAB>child-id" per marker. A marker may wrap across a
 # line break between "arrives with" and the backticked id (prose is wrapped at ~100 columns), so the

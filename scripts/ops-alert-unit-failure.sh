@@ -99,6 +99,7 @@ recovery_note() {
 }
 
 # ── self-test ───────────────────────────────────────────────────────────────────────────────────
+declare -F selftest_reject_typo >/dev/null && selftest_reject_typo "${1:-}"
 if declare -F selftest_is_flag >/dev/null && selftest_is_flag "${1:-}"; then
   fails=0
 

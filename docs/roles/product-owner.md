@@ -18,8 +18,9 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   *"Vera"*. The role is one `jq` away; naming it puts the assumption in the message, where the
   recipient can refuse it. Route explicitly, including *"not you"*. Silence is not a decision.
 - **Completion reads.** When a developer reports a ticket done, read its verification list against
-  the spec's assertions, item by item (`bash scripts/check-verification-items-are-read.sh <id>`
-  *arrives with `feat_harness_self_tests_follow_one_flag_contract_and_a_tier_manifest_that_verify_runs`*; until then by hand). A row can meet a smaller requirement
+  the spec's assertions, item by item — by hand in this template (the seeded project's
+  `check-verification-items-are-read.sh`, which does it at flip time, is not ported: it was still
+  landing there when this was written; port it when it has). A row can meet a smaller requirement
   than it records, and nothing but this read catches it.
 - **A red `main`.** One owner, ahead of everything: whoever reads it first owns it until a repair
   PR is armed ([../runbooks/main-is-red.md](../runbooks/main-is-red.md)). You make sure that

@@ -219,3 +219,23 @@ Three settle ticks between them (12:22, 12:27, 12:32) announced nothing. The scr
 removed. **A finding on the way:** my drive of a mistyped flag (`--slef-test`) against `install-units.sh` fell
 through to the real action and installed `harness-*` units on the box (removed) — the fall-through child 7's
 refusal now closes.
+## 2026-10-01 — Self-tests follow one flag contract and a tier manifest that verify runs (template child 7)
+
+`feat_harness_self_tests_follow_one_flag_contract_and_a_tier_manifest_that_verify_runs`. Ported:
+`scripts/lib/selftest-flag.sh` (already here since child 2) gains `selftest_reject_typo`;
+`scripts/check-selftests-are-invoked.sh` (an actual invocation is evidence, a prose mention never
+counts; `--list` / `--list-stack` feed `verify.sh`); `scripts/check-selftest-flag-contract.sh` with its
+legacy list EMPTIED (the ratchet starts at zero here); `scripts/selftest-tiers.txt` in the seeded
+project's FORMAT with the template's 38 rows (`verify` | `stack` for the ledger's throwaway-Postgres
+arms | `nowhere` with a reason for sourced libraries whose arms run inside a parent's). NEW:
+`scripts/check-steps-invoke-their-scripts.sh` — the generic form of the seeded project's lesson
+(fix_the_progress_freeze_gate_let_four_progress_files_onto_main_after_the_cutover): a `step "… —
+scripts/x.sh"` beneath which only `x.sh --self-test` runs is a broken promise, named; positive and
+negative controls. `verify.sh` now runs EXACTLY the manifest's verify tier (fails on an empty list)
+and then every gate for real as its own step. **Measured on the way, and it is why
+`selftest_reject_typo` exists:** before it, `--slef-test` fell through on 19 of the 35 enrolled
+scripts, 14 of them exiting 0; one of those fall-throughs (`install-units.sh`) INSTALLED units on the
+developer's box during the drive. After: every enrolled script exits 2 on the typo (37 of 37). Three
+template scripts (the marker gate, `verify.sh`, `agent-name.sh`) parsed the flag by hand and now go
+through the contract. Not ported: `check-verify-steps-reach-the-failure-reporter.sh` (it reads a
+CI step the template's workflow does not have).

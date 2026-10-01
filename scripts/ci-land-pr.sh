@@ -40,6 +40,7 @@ land_verdict() {
   esac
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   f=0; _t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"; else printf '  FAIL  %s: want %q got %q\n' "$1" "$2" "$3"; f=1; fi; }
   a="$(printf 'a%.0s' {1..40})"; b="$(printf 'b%.0s' {1..40})"

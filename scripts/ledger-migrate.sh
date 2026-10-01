@@ -128,6 +128,7 @@ applier_note() {
   esac
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   _f=0
   _t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"
