@@ -32,9 +32,19 @@ load-bearing half — what you must not touch. The rules below bind all four rol
 0. **Work in an isolated checkout when more than one agent may run at once.** On one machine:
    `git worktree add --no-track ../<project>-<you> -b <ticket-id> origin/main`, named after YOU.
    Two agents in one checkout corrupt each other, and the silent failure is a wrong name on the
-   ownership record. `init.sh` refuses to start where another agent's live marker already is.
-   *(The machine-wide stack cap and the context publisher arrive with
-   `feat_harness_a_machine_wide_agent_stack_cap_and_each_agents_context_published_for_the_others`.)*
+   ownership record. `init.sh` refuses to start where another agent's live marker already is, and
+   refuses to start a stack past `AGENT_STACK_LIMIT` (it names the holders and stops nothing:
+   `bash scripts/agent-stacks.sh`).
+0a. **Context is a fact you can read, never a reason to do less.** `bash scripts/agent-context.sh`
+   shows every live agent's remaining context and the account's weekly usage (`--me` for yours; the
+   status line publishes one file per session — [docs/context-publisher.md](docs/context-publisher.md)).
+   Use it for four things: write the durable record *before* a compaction; hand a wide read to a
+   subagent when your own context is low; prefer the agent with room when routing, and say so; answer
+   "how much have you got left" with the number. ⚠ **What it is NEVER for: stopping, deferring,
+   narrowing scope, or "leaving this for someone with more context"** (forbidden phrase, quoted here to forbid it).
+   A compaction is a summary, not an ending — a task left undone because a number
+   looked low is a failure, not prudence (owner, 2026-09-28: *"at no point should it be used as a
+   reason to not do more work — this would be a disaster"*).
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;
    check `agent_name_resolved / agent_name_source` prints your name and `session` before anything

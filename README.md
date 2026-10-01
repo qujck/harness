@@ -51,6 +51,8 @@ scripts/
   lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
   ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
+  agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
+  agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)

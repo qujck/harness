@@ -81,7 +81,13 @@ if [[ "${SELFTEST:-0}" == 1 ]]; then
   # POSITIVE CONTROL on the real docs: the markers the template ships today all name ids that exist in
   # the epic (a typo in a marker would never be caught by the landed list)
   n="$(markers_in "${DOCS_DEFAULT[@]}" | wc -l)"
-  if (( n > 0 )); then printf '  ok    the real docs carry %s marker(s) for the check to govern\n' "$n"; else printf '  FAIL  no markers found in the real docs — the check would pass vacuously\n'; fails=1; fi
+  landed_n="$(awk '!/^#/ && NF' "$LANDED" 2>/dev/null | wc -l)"
+  # ⚠ ZERO MARKERS IS VACUOUS ONLY WHILE CHILDREN ARE OUTSTANDING. Once every child is landed
+  # (docs/landed-children.txt names them and no doc promises any), zero is the finished state,
+  # not a hole; the extractor's own reach is proven by the fixture arms above.
+  if (( n > 0 )); then printf '  ok    the real docs carry %s marker(s) for the check to govern\n' "$n"
+  elif (( landed_n > 0 )); then printf '  ok    the real docs carry no marker and %s child(ren) are landed — the finished state, not a vacuous pass\n' "$landed_n"
+  else printf '  FAIL  no markers found in the real docs and nothing landed — the check would pass vacuously\n'; fails=1; fi
   (( fails == 0 )) && { echo "check-docs-markers-match-landed-children: self-test ok"; exit 0; }
   echo "check-docs-markers-match-landed-children: self-test FAILED"; exit 1
 fi
