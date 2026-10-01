@@ -31,19 +31,22 @@ METHOD.md                # how to know your MEASUREMENT is sound — read before
 PROGRESS.md              # FROZEN history — read it, never append (see progress/)
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
-features/                # the work queue: one <id>.json ticket per file
-features/archive/        # completed tickets: one <id>.json per file
+infra/ledger-db/         # the ticket store: ONE Postgres per box (compose, baseline schema, migrations)
+agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name -> role
 progress/                # session records: one file per session
 .gitattributes           # ⚠ sets NO merge driver, deliberately — see the file
 scripts/
   init.sh                # clock in
   verify.sh              # Definition of Done
   handoff.sh             # clock out gate
-  archive-passing.sh     # move passing tickets to features/archive/<id>.json
+  ledger-db.sh           # the ticket verbs: raise · groom · claim · park · amend · flip-passing · archive · release · frontier …
+  ledger-migrate.sh      # apply infra/ledger-db/*.sql to the running ledger, recorded in ledger.schema_migration
+  ledger-db-deploy.sh    # sync infra/ledger-db/ to the deploy dir outside every checkout, write pgpass once
   progress.sh            # write this session's own entry under progress/
   feature-ticket.sh      # claim/park/release — the PUSHED BRANCH is the lock
   lib/agent-name.sh      # who this session is (sourced; parses no arguments)
-  _features.sh           # ledger helper: aggregates features/*.json (sourced)
+  lib/ticket-store.sh    # the store adapter: TICKET_STORE=db|jira behind the one verb set (sourced)
+  lib/harness-env.sh     # reads harness.env; HARNESS_PROJECT names the ledger container/network (sourced)
   _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)
 .claude/
@@ -98,11 +101,14 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
   unless it was touched this session.
 - **`DECISIONS.md`** — append-only log of architectural choices, binding until
   superseded, so the next agent doesn't re-litigate them.
-- **`features/`** — the work queue: **one `features/<id>.json` per ticket** (the
-  entry object alone), each with a status machine (`not_started → in_progress →
-  passing` / `blocked` / `wont_do`), a real `verification_command`, and optional
-  `depends_on` / `solo`. One file per ticket means concurrent branches never
-  conflict on the queue. Schema: [features/README.md](features/README.md).
+- **The ledger** (`infra/ledger-db/`, `scripts/ledger-db.sh`) — the work queue is a **database**,
+  one Postgres per box that every worktree reads: a row per ticket, five statuses (`not_started` →
+  `selected` → `in_progress` → `passing` → `archived`, plus `wont_do`), every requirement change
+  attributed (`amend`), every claim a row AND a pushed lock branch (`feature-ticket.sh claim`).
+  Definition: [docs/ledger-spec.md](docs/ledger-spec.md). Bring it up once per box:
+  `bash scripts/ledger-db-deploy.sh && docker compose -f ~/.local/state/<project>/ledger-db/docker-compose.yml up -d`.
+  Store choice: `TICKET_STORE=db|jira` in `harness.env` (Jira arrives with
+  `feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`).
 - **`feature_list.archive.jsonl`** — completed tickets, one compact entry per line;
   `scripts/archive-passing.sh` moves `passing` tickets here to keep the queue lean.
 - **`.gitattributes`** — `merge=union` on `PROGRESS.md` / `DECISIONS.md` / the
@@ -113,8 +119,6 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 - **`harness.env.example`** — the only per-project file you edit; copy to
   `harness.env` and point the generic scripts at your build / test / e2e / health
   commands (leave any line blank to skip that step).
-- **`scripts/_features.sh`** — sourced helper that aggregates `features/*.json`
-  into the shape `init.sh` / `handoff.sh` read.
 - **`scripts/_stack.sh`** — sourced helper for **local** parallel (several
   worktrees on one machine): a per-worktree compose project, port discovery, and
   `.agent/env`. Inert unless `PER_STREAM_STACKS=1`.
@@ -128,13 +132,13 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 
 1. **Copy the kit into your repo root** (everything except this README):
    ```bash
-   cp -r agent-harness/{scripts,.claude,features,AGENTS.md,PROGRESS.md,DECISIONS.md,OBSERVABILITY.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
+   cp -r agent-harness/{scripts,.claude,infra,agents,docs,AGENTS.md,PROGRESS.md,DECISIONS.md,OBSERVABILITY.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
    ```
 
 2. **Open the repo in Claude Code and run `/configure`.** The skill detects your
    stack, then **asks you to confirm or override every value** (it never assumes a
    command, path, or convention) and writes all of it for you: `harness.env`, the
-   `AGENTS.md` / `DECISIONS.md` placeholders, the first `features/` ticket, and a
+   `AGENTS.md` / `DECISIONS.md` placeholders, `harness.env` (incl. `HARNESS_PROJECT` / `TICKET_STORE`), and a
    starter project-specific `CLAUDE.md`. This replaces steps 2–3 of the manual
    path below.
 
@@ -161,8 +165,8 @@ After step 1 above:
    **Leave any line blank to skip that step.**
 
 3. **Fill the `{{placeholders}}`** in `AGENTS.md` and `DECISIONS.md`, replace
-   `features/example_replace_me.json` with your first real ticket (see
-   `features/README.md` for the schema), and write a project-specific `CLAUDE.md`
+   the roster's example row with your first real agent (`agents/roster.json`), raise your first
+   ticket (`bash scripts/ledger-db.sh raise <json>`), and write a project-specific `CLAUDE.md`
    with your data model / runbook.
 
 4. **Clock in** (installs the pre-commit hook): `bash scripts/init.sh`.
@@ -175,7 +179,7 @@ The paths above assume a fresh adoption. For a repo that already has code, CI,
 docs, and maybe its own agent instructions, adopt **incrementally and
 non-destructively** — merge into what's there, don't overwrite it.
 
-1. **Copy only the non-colliding files first.** `scripts/`, `features/`,
+1. **Copy only the non-colliding files first.** `scripts/`, `infra/ledger-db/`, `agents/`, `docs/`,
    `feature_list.archive.jsonl`, `OBSERVABILITY.md`, and `harness.env.example` are
    almost always new. Copy them in. Hold back the four that commonly collide —
    `AGENTS.md`, `CLAUDE.md`, `.gitattributes`, `.gitignore` — and merge them by
@@ -204,9 +208,9 @@ non-destructively** — merge into what's there, don't overwrite it.
    your saved hook. (It only manages a hook it recognises as its own.)
 
 5. **Seed the ledger from work already in flight — or start clean.** You do *not*
-   need to backfill history. Either add a `features/<id>.json` for each open piece
-   of work (one file per ticket; see `features/README.md`), or leave the queue
-   empty and create tickets going forward. Delete `features/example_replace_me.json`.
+   need to backfill history. Bring the ledger up (one per box), then either `raise` a row for each
+   open piece of work, or leave it empty and raise going forward. The example roster row is retired
+   and cannot claim: add your real agents.
 
 6. **Existing tests already red?** That's fine — `verify.sh` will report it. Adopt
    the rule *"a ticket is `passing` only when verify is green"* from the next
@@ -229,9 +233,9 @@ harness.env
 
 ```
 bash scripts/init.sh            # start of session
-# … add a features/<id>.json ticket (not_started → in_progress) BEFORE coding …
+# … raise a row and claim it (ledger-db.sh raise <json>; feature-ticket.sh claim <id>) BEFORE coding …
 bash scripts/verify.sh          # exit 0 == done; then mark the ticket "passing"
-bash scripts/archive-passing.sh # move passing tickets to the archive
+bash scripts/ledger-db.sh flip-passing <id> <pr> && bash scripts/ledger-db.sh archive <id> "<why>" && bash scripts/feature-ticket.sh release <id>   # after the merge
 bash scripts/handoff.sh         # end of session — must be green to clock out
 ```
 
@@ -265,11 +269,10 @@ in the shared logs/ledger. The harness splits the fix into two halves.
 For agents on **separate clones or machines**. On by default; nothing to switch
 on. It removes every git-level conflict source:
 
-- **Per-ticket ledger.** The work queue is the `features/` directory, **one
-  `features/<id>.json` per ticket**, so two agents adding/flipping different
+- **Per-ticket ledger.** The work queue is a database row per ticket, so two agents raising/flipping different
   tickets never touch the same file. (A single shared JSON array was the conflict
   source — arrays can't union-merge.) `passing` tickets move to
-  **`feature_list.archive.jsonl`** (one line each) via `scripts/archive-passing.sh`.
+  the row's status (`archive` is a verb, not a file move).
 - **`depends_on` + ready frontier.** A ticket may list `depends_on: [ids]`;
   `init.sh` offers the next ticket from the **ready frontier** (deps all
   `passing`). Add `solo: true` to a ticket that must run alone. Pick work from the
@@ -302,7 +305,7 @@ These are GitHub/CI/project-specific, so the kit documents rather than ships the
   this is what actually kills the rebase treadmill when concurrent PRs race `main`.
 - **Ticket → issue mirror.** A small `gh`-based script can open a tracking issue
   when a ticket goes `in_progress` and print a `Closes #N` line for the PR body
-  (the `features/<id>.json` file stays the source of truth; the issue auto-closes
+  (the ledger row stays the source of truth; the PR says `Part of #N`, never `Closes`, so the issue never closes over a live row
   on merge).
 - **Verify fast-lane.** Short-circuit `verify.sh` to the cheap relevant checks when
   a diff touches only frontend/docs/ledger paths that can't affect the backend
@@ -326,7 +329,7 @@ Each part maps to a lecture's driver:
 | `PROGRESS.md`, `.agent/session.active` | **L05** | Long-running tasks lose continuity — carry state across sessions in files, not chat. |
 | `DECISIONS.md`; "the repo *is* the spec" | **L03** | The repo is the single source of record. |
 | `scripts/init.sh` — the bootstrap contract | **L06** | Initialization is its own phase: can start, verify, see progress, pick up next — *before* coding. |
-| `features/` + `_features.sh` + `archive-passing.sh` | **L08** | Feature lists are harness *primitives* — "documents can be ignored; primitives can't be bypassed." Each ticket carries the triple (behaviour, verification command, state). |
+| the ledger (`infra/ledger-db/` + `ledger-db.sh` + `feature-ticket.sh`) | **L08** | Feature lists are harness *primitives* — "documents can be ignored; primitives can't be bypassed." Each ticket carries the triple (behaviour, verification command, state). |
 | WIP nudge + `depends_on` ready-frontier | **L07** | Agents overreach and under-finish — bound work so finite attention isn't split `C/k` across tasks. |
 | `scripts/verify.sh` exit 0 = Definition of Done | **L09** | Agents declare victory too early — only the verifier (not judgement) advances a ticket to `passing`. |
 | `verify.sh` static → unit → **e2e** | **L10** | End-to-end testing changes results — component-boundary defects only surface end-to-end. |
@@ -338,7 +341,7 @@ Each part maps to a lecture's driver:
 *default*, but it assumes a single attention context. Once each agent runs in an
 isolated checkout (own worktree or clone), WIP=1 relaxes to a per-checkout
 *nudge* — finite attention is still one task per agent while the fleet runs many.
-The per-ticket `features/` layout, union-merge logs, and the `depends_on` frontier
+The per-ticket ledger rows, union-merge logs, and the `depends_on` frontier
 are what make that safe: they remove the shared-file conflicts a single JSON
 array created.
 

@@ -48,6 +48,12 @@ start_ts=$(date +%s)
 step "[0/3] Harness — scripts/check-docs-markers-match-landed-children.sh"
 bash scripts/check-docs-markers-match-landed-children.sh --self-test || fail "the marker gate's own self-test failed"
 bash scripts/check-docs-markers-match-landed-children.sh || fail "a doc describes a landed child as still to come"
+# the ticket store: the adapter + the verbs (a throwaway Postgres built from the baseline), the
+# migration runner, and the lifecycle verbs (a stub remote and a stubbed ledger)
+step "[0/3] Harness — the ledger's self-tests (ledger-db.sh, ledger-migrate.sh, feature-ticket.sh)"
+bash scripts/ledger-db.sh --self-test       || fail "ledger-db.sh self-test failed (the verbs or the store adapter)"
+bash scripts/ledger-migrate.sh --self-test  || fail "ledger-migrate.sh self-test failed"
+bash scripts/feature-ticket.sh --self-test  || fail "feature-ticket.sh self-test failed (claim/release/exists)"
 ok "harness checks green"
 
 if [[ -n "$VERIFY_STATIC" ]]; then

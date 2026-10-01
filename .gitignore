@@ -6,3 +6,6 @@ harness.env
 
 # Per-developer Claude Code overrides.
 .claude/settings.local.json
+
+# the ledger password — one per box, never in the repo
+infra/ledger-db/pgpass

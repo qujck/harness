@@ -1,153 +1,107 @@
 #!/usr/bin/env bash
-# scripts/feature-ticket.sh — claim a ticket so no other agent takes it, and let it go when done.
+# feature-ticket.sh — the LIFECYCLE verbs over the ledger: claim · claims · park · release · exists.
 #
-#   bash scripts/feature-ticket.sh claim <id> [<id>…]   # take it: flip + commit + PUSH the lock
-#   bash scripts/feature-ticket.sh claims               # who holds what, right now
-#   bash scripts/feature-ticket.sh park <id> "<why>"    # stop, KEEP the lock, say why
-#   bash scripts/feature-ticket.sh release <id>         # finished: drop the lock
-#   bash scripts/feature-ticket.sh exists <id>          # is this id already taken/used anywhere?
+# The ticket store is the ledger (scripts/ledger-db.sh, behind the adapter in scripts/lib/ticket-store.sh);
+# this script adds the one thing a row cannot be: the ATOMIC LOCK. A claim is a branch named after the
+# ticket pushed to the remote — two agents claiming the same id race on the push and exactly one wins —
+# and the row records WHO holds it (`ledger.claim`). The branch is the lock; the row is the record.
 #
-# ── ⚠ THE PUSHED BRANCH *IS* THE LOCK, AND NOTHING ELSE IS ─────────────────────────────────────
-# A ticket file saying `in_progress` is not a lock: two agents can both read `not_started`, both
-# write `in_progress`, and both start. Checking for an existing branch first is not a lock either —
-# two agents can both look, both see nothing, and both proceed. There is exactly one operation here
-# that is ATOMIC across machines:
+#   claim <id>…        push the lock branch, then record the claim on the row (refused if either exists)
+#   claims             every lock branch on the remote with the row's holder and status
+#   park <id> "<why>"  the row's park (status stays, the lock STAYS UP) — the ask goes on the row
+#   release <id>       delete the lock branch(es) — only for a row already archived / wont_do
+#   exists <id>        row on the ledger? lock branch on the remote? exit 0 yes · 1 no · 2 CANNOT TELL
 #
-#     git push origin <id>          — the remote REJECTS the second pusher.
-#
-# So the claim is the push. First push wins; the loser is told to pick another ticket. Everything
-# else in this file is bookkeeping around that one atomic fact.
-#
-# ⚠ AND THE BRANCH IS BASED ON origin/main, NEVER ON YOUR CURRENT HEAD. Basing a claim on whatever
-# HEAD happens to be is how a claim branch silently absorbs another agent's unmerged commits.
-#
-# ── ⚠ WHY THE LOCK OUTLIVES THE WORK, AND WHAT THAT COSTS ──────────────────────────────────────
-# `delete_branch_on_merge` removes a PR's head branch when it merges — right for a FINISHED ticket
-# and silently wrong for a PARKED one, because the moment the PR merges the id reads as free to
-# everyone while the work is still yours. That is what `park` re-creates and `release` deliberately
-# does not do until the work is actually finished.
-#
-# THIS IS A SUBSET of the tool it was extracted from — no takeover, no batch claims, no issue
-# integration. What is here is the part that makes parallel agents SAFE rather than convenient.
-
-set -uo pipefail
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
-# shellcheck source=scripts/lib/agent-name.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/agent-name.sh"
-FEATURES_DIR="${FEATURES_DIR:-features}"
-ARCHIVE_DIR="${FEATURES_ARCHIVE_DIR:-$FEATURES_DIR/archive}"
+# Raise, groom, amend, flip-passing, archive, wont-do are ledger-db.sh verbs: this file never writes a
+# ticket's CONTENT. (feat_harness_the_ledger_is_a_database_with_raise_groom_claim_amend_flip_archive_and_release_verbs)
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HERE/.." && pwd)"
+. "$HERE/lib/selftest-flag.sh"
+. "$HERE/lib/harness-env.sh"
 REMOTE="${FEATURE_TICKET_REMOTE:-origin}"
+LDB="${LDB:-bash $HERE/ledger-db.sh}"   # overridable so the self-test can stub the ledger
 
 ok()   { printf '  \033[1;32mok\033[0m    %s\n' "$*"; }
 warn() { printf '  \033[1;33mwarn\033[0m  %s\n' "$*"; }
 die()  { printf '  \033[1;31mFAIL\033[0m  %s\n' "$*" >&2; exit 1; }
 
-command -v jq >/dev/null || die "jq not found"
-
-_ticket()  { printf '%s/%s.json' "$FEATURES_DIR" "$1"; }
-_archived(){ [[ -f "$ARCHIVE_DIR/$1.json" ]]; }
-_status()  { jq -r '.status // empty' "$(_ticket "$1")" 2>/dev/null || true; }
-
-# Every remote branch whose name is a ticket id (or a sanctioned variant of one).
-# ⚠ MATCH A PREFIX, NOT AN EXACT NAME: `<id>-pt2` for a multi-PR ticket and `<id>-park` are
-# sanctioned variants, and an exact-match lookup reports a held id as free.
-_lock_branches() { # <id>
-  git ls-remote --heads "$REMOTE" 2>/dev/null \
-    | sed -E 's#.*refs/heads/##' \
+# _lock_branches <id> — the branches on the remote that hold this id (the id itself or <id>-…)
+_lock_branches() {
+  git ls-remote --heads "$REMOTE" 2>/dev/null | sed -E 's#.*refs/heads/##' \
     | awk -v id="$1" '$0 == id || index($0, id "-") == 1'
 }
-
-_require_name() {
-  local n; n="$(agent_name_of "$REPO_ROOT")"
-  [[ -n "$n" ]] || die "no agent name — set it: echo '<you>' > .agent/name  (or export AGENT_NAME)
-⚠ Every claim is stamped with this. Without it the ledger records that SOMEBODY holds the ticket
-and cannot say who, which is the one field nothing downstream can reconstruct."
-  printf '%s' "$n"
-}
+# _row_status <id> — the row's status, or empty when there is no row. Exit 2 = could not read.
+_row_status() { $LDB ticket-row "$1" 2>/dev/null || return 2; }
 
 cmd_claim() {
   [[ $# -ge 1 ]] || die "usage: feature-ticket.sh claim <id> [<id>…]"
-  local me; me="$(_require_name)"
+  local me; me="$($LDB whoami 2>/dev/null || true)"
+  [[ -n "$me" ]] || die "no session identity — GIT_AUTHOR_EMAIL must map to a row in agents/roster.json"
   git fetch -q "$REMOTE" 2>/dev/null || warn "could not fetch $REMOTE — the lock check may be stale"
-  local id f held
+  local id st held
   for id in "$@"; do
-    f="$(_ticket "$id")"
-    [[ -f "$f" ]] || die "no such ticket: $f"
-    _archived "$id" && die "$id is already archived — it is finished, not claimable"
+    st="$(_row_status "$id")" || die "could not read the ledger for $id — CANNOT TELL, not 'free'"
+    [[ -n "$st" ]] || die "no row for $id on the ledger — raise it first (ledger-db.sh raise <json>)"
+    case "$st" in
+      archived|passing|wont_do) die "$id is '$st' — finished, not claimable" ;;
+      selected|in_progress) ;;
+      *) die "$id is '$st' — ask the PO to groom it to selected first" ;;
+    esac
     held="$(_lock_branches "$id")"
     [[ -z "$held" ]] || die "$id is already claimed — branch(es) on $REMOTE: $(tr '\n' ' ' <<<"$held")
-Pick another ticket. (This is the lock; the ticket file's status is not.)"
-
-    # ⚠ BASED ON origin/main, NOT ON HEAD — see the header.
-    git branch -q -f "$id" "$REMOTE/main" 2>/dev/null \
-      || die "could not create branch $id from $REMOTE/main"
-    git checkout -q "$id" || die "could not switch to $id"
-
-    jq --arg s in_progress --arg by "$me" \
-       '.status = $s | .claimed_by = $by' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-    git add "$f"
-    git commit -q --no-verify -m "$id: claim (-> in_progress, $me)" \
-      || die "nothing to commit for $id"
-
-    # THE ATOMIC BIT. A rejected push means somebody claimed it between the check and here.
-    if git push -q "$REMOTE" "$id" 2>/dev/null; then
-      ok "claimed $id for $me — branch pushed (the lock)"
-    else
+Pick another ticket. (The branch is the lock; the row's status is not.)"
+    git branch -q -f "$id" "$REMOTE/main" 2>/dev/null || die "could not create branch $id from $REMOTE/main"
+    if ! git push -q "$REMOTE" "$id" 2>/dev/null; then
+      git branch -q -D "$id" 2>/dev/null || true
       die "push rejected for $id — another agent claimed it first. Pick another ticket.
-⚠ This is the race the branch push exists to lose safely: your local commit stands, but the id is
-theirs. Reset with: git checkout main && git branch -D $id"
+⚠ This is the race the branch push exists to lose safely."
     fi
+    # the lock is up; now the record. A refused record (identity, state) must not leave a silent lock.
+    if ! $LDB claim "$id"; then
+      git push -q "$REMOTE" --delete "$id" 2>/dev/null && warn "lock branch $id removed again — the row refused the claim"
+      die "the ledger refused the claim for $id (see above); nothing is held"
+    fi
+    ok "claimed $id for $me — lock branch pushed, row records the holder. Work on $id-pt1 cut from $REMOTE/main."
   done
 }
 
 cmd_claims() {
   git fetch -q "$REMOTE" 2>/dev/null || true
-  local b id st found=0
+  local b id st who found=0
   while IFS= read -r b; do
     [[ -n "$b" ]] || continue
-    [[ "$b" == "main" || "$b" == "HEAD" ]] && continue
+    [[ "$b" == main || "$b" == HEAD ]] && continue
     id="${b%%-pt*}"; id="${id%-park}"
-    [[ -f "$(_ticket "$id")" ]] || _archived "$id" || continue
+    st="$(_row_status "$id" 2>/dev/null || true)"; [[ -n "$st" ]] || continue
     found=1
-    st="$(_status "$id")"; [[ -n "$st" ]] || st="archived"
-    printf '  %-44s %-12s %s\n' "$b" "$st" \
-      "$(jq -r '.claimed_by // "?"' "$(_ticket "$id")" 2>/dev/null || echo '?')"
+    who="$($LDB ticket-owner "$id" 2>/dev/null || echo '?')"
+    printf '  %-56s %-12s %s\n' "$b" "$st" "${who:-?}"
   done < <(git ls-remote --heads "$REMOTE" 2>/dev/null | sed -E 's#.*refs/heads/##')
   (( found )) || echo "  (no live claims)"
 }
 
 cmd_park() {
-  local id="${1:?usage: feature-ticket.sh park <id> \"<why>\"}" why="${2:-}"
+  local id="${1:?usage: feature-ticket.sh park <id> \"<why>\" [--kind … --condition …]}"; shift
+  local why="${1:-}"; [[ $# -ge 1 ]] && shift
   [[ -n "$why" ]] || die "park needs a reason — the next reader must know WHY without spelunking"
-  local f; f="$(_ticket "$id")"; [[ -f "$f" ]] || die "no such ticket: $f"
-  jq --arg p "$why" '.parked = $p' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-  ok "parked $id — status stays in_progress and the lock STAYS UP"
-  # ⚠ Re-create the lock if a merge already took it. delete_branch_on_merge removes a PR's head
-  # branch, which is right for a finished ticket and wrong for a parked one.
+  $LDB park "$@" "$id" "$why" || die "the ledger refused the park"
+  ok "parked $id — the row carries the ask; the lock STAYS UP"
   if [[ -z "$(_lock_branches "$id")" ]]; then
-    git branch -q -f "$id-park" HEAD 2>/dev/null && git push -q "$REMOTE" "$id-park" 2>/dev/null \
+    git branch -q -f "$id-park" "$REMOTE/main" 2>/dev/null && git push -q "$REMOTE" "$id-park" 2>/dev/null \
       && ok "re-created the lock as $id-park (the merge had taken it)" \
       || warn "could not re-create the lock — the id may read as FREE to other agents"
   fi
-  echo "  ⚠ commit this ticket change, or the marker exists only in your working tree and the"
-  echo "    ticket reads ABANDONED to everyone else."
 }
 
 cmd_release() {
   local id="${1:?usage: feature-ticket.sh release <id>}"
-  local st; st="$(_status "$id")"
-  # ⚠ ONLY FOR FINISHED WORK. Releasing a live claim deletes the lock every other agent depends on.
-  if ! _archived "$id" && [[ "$st" != "wont_do" ]]; then
-    # ⚠ NO BACKTICKS IN THIS MESSAGE. Inside a double-quoted string they are COMMAND SUBSTITUTION,
-    # so a tidy `release` in prose executes `release` and mangles the very error the reader needs.
-    # Found by driving the refusal path — the path least likely to be exercised and most likely to
-    # be read only when something has already gone wrong.
-    die "refusing: $id is '${st:-unknown}' and not archived.
-release is for work already in main. If you are handing it back, flip the status first and say so
-in the ticket — an id that reads as taken by you, forever, is worse than one nobody claimed."
-  fi
+  local st; st="$(_row_status "$id")" || die "could not read the ledger for $id — CANNOT TELL"
+  case "$st" in
+    archived|wont_do|passing) ;;
+    *) die "refusing: $id is '${st:-no row}' and not finished.
+release is for work already in main (flip-passing → archive first). Handing it back is \`ledger-db.sh stand-down <id> <why>\`." ;;
+  esac
   local b n=0
   while IFS= read -r b; do
     [[ -n "$b" ]] || continue
@@ -155,33 +109,44 @@ in the ticket — an id that reads as taken by you, forever, is worse than one n
     else warn "could not delete $b"; fi
   done < <(_lock_branches "$id")
   (( n )) || warn "no lock branch for $id — already released, or the merge deleted it"
+  $LDB release "$id" "lock released by feature-ticket.sh after $st" >/dev/null 2>&1 || true
 }
 
-# ⚠ THE ONE LOOKUP THAT IS NOT KEYED ON A NAME YOU ALREADY KNOW.
-# Grep, `git ls-remote <id>` and an issue search are all keyed on the id, so a ticket raised INSIDE
-# somebody else's branch is invisible to every one of them — and several searches sharing one blind
-# spot agree with each other, which reads as confirmation. This asks every ref for the FILE.
 cmd_exists() {
-  local id="${1:?usage: feature-ticket.sh exists <id>}" hit=0 r
-  [[ -f "$(_ticket "$id")" ]] && { ok "EXISTS live: $(_ticket "$id")"; hit=1; }
-  _archived "$id" && { ok "EXISTS archived: $ARCHIVE_DIR/$id.json"; hit=1; }
-  git fetch -q "$REMOTE" 2>/dev/null || true
-  while IFS= read -r r; do
-    [[ -n "$r" ]] || continue
-    if git cat-file -e "$r:$FEATURES_DIR/$id.json" 2>/dev/null \
-    || git cat-file -e "$r:$ARCHIVE_DIR/$id.json" 2>/dev/null; then
-      # Distinguish "it is on main" from "it is hidden inside somebody's branch". Reporting main as
-      # invisible-to-a-grep is false and would train the reader to discount the message that matters.
-      case "$r" in
-        */main|*/HEAD) ok "EXISTS on $r" ;;
-        *)             ok "EXISTS on $r — raised INSIDE that branch, so a grep of your checkout cannot see it"; ;;
-      esac
-      hit=1
-    fi
-  done < <(git for-each-ref --format='%(refname)' "refs/remotes/$REMOTE" 2>/dev/null)
+  local id="${1:?usage: feature-ticket.sh exists <id>}" hit=0 st held
+  st="$(_row_status "$id")" || { echo "  CANNOT TELL — the ledger could not be read; never raise on this"; exit 2; }
+  [[ -n "$st" ]] && { ok "EXISTS on the ledger: $id ($st)"; hit=1; }
+  git fetch -q "$REMOTE" 2>/dev/null || { echo "  CANNOT TELL — $REMOTE could not be fetched"; exit 2; }
+  held="$(_lock_branches "$id")"
+  [[ -n "$held" ]] && { ok "EXISTS as a lock branch on $REMOTE: $(tr '\n' ' ' <<<"$held")"; hit=1; }
   (( hit )) && exit 0
-  echo "  not found on any ref — safe to raise"; exit 1
+  echo "  not on the ledger, no lock branch — safe to raise"; exit 1
 }
+
+_ft_self_test() {
+  local fails=0 tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/ft-selftest.XXXXXX")"; trap 'rm -rf "$tmp"' RETURN
+  _t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"; else printf '  FAIL  %s (want %q got %q)\n' "$1" "$2" "$3"; fails=1; fi; }
+  # a stub remote with two lock branches; _lock_branches reads it through ls-remote
+  git init -q --bare "$tmp/remote.git"; git init -q "$tmp/w"; ( cd "$tmp/w" && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x \
+    && git branch -q -M main && git remote add origin "$tmp/remote.git" && git push -q origin main && git push -q origin main:refs/heads/abc_x && git push -q origin main:refs/heads/abc_x-pt1 && git push -q origin main:refs/heads/abcd )
+  _t "the id and its -pt branches are the lock, a longer id is not" $'abc_x\nabc_x-pt1' "$(cd "$tmp/w" && _lock_branches abc_x)"
+  _t "an unlocked id has no lock branches" "" "$(cd "$tmp/w" && _lock_branches zzz)"
+  # exists: a stubbed ledger (LDB) returning a status / nothing / failing
+  _t "exists: row on the ledger → 0"    0 "$( (cd "$tmp/w"; LDB='printf selected #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_exists zzz >/dev/null 2>&1'; echo $?) )"
+  _t "exists: no row, no branch → 1"    1 "$( (cd "$tmp/w"; LDB='true #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_exists zzz >/dev/null 2>&1'; echo $?) )"
+  _t "exists: ledger unreadable → 2, never 'safe'" 2 "$( (cd "$tmp/w"; LDB='false #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_exists zzz >/dev/null 2>&1'; echo $?) )"
+  _t "release refuses a row that is not finished" 1 "$( (cd "$tmp/w"; LDB='printf in_progress #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_release abc_x >/dev/null 2>&1'; echo $?) )"
+  _t "claim refuses a finished row"        1 "$( (cd "$tmp/w"; LDB='printf archived #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim abcd >/dev/null 2>&1'; echo $?) )"
+  _t "claim refuses a held lock"           1 "$( (cd "$tmp/w"; LDB='printf selected #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim abc_x >/dev/null 2>&1'; echo $?) )"
+  _t "claim: wins the push, records the row" 0 "$( (cd "$tmp/w"; LDB='printf selected #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim zzz >/dev/null 2>&1'; echo $?) )"
+  _t "…and the lock branch is on the remote" zzz "$(cd "$tmp/w" && _lock_branches zzz)"
+  _t "claim: row refuses → the lock comes down again" "" "$( (cd "$tmp/w"; LDB='bash -c "case \$1 in whoami) echo me;; ticket-row) echo selected;; claim) exit 1;; esac" -- #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim yyy >/dev/null 2>&1; _lock_branches yyy') )"
+  (( fails == 0 )) && echo "feature-ticket --self-test: ok" || echo "feature-ticket --self-test: FAILED" >&2
+  return $fails
+}
+# --self-test-lib: load the functions and return (used by the self-test's subshells to drive one verb with a stubbed ledger)
+[[ "${1:-}" == --self-test-lib ]] && return 0 2>/dev/null
+if selftest_is_flag "${1:-}"; then _ft_self_test; exit $?; fi
 
 case "${1:-}" in
   claim)   shift; cmd_claim "$@" ;;
@@ -189,5 +154,5 @@ case "${1:-}" in
   park)    shift; cmd_park "$@" ;;
   release) shift; cmd_release "$@" ;;
   exists)  shift; cmd_exists "$@" ;;
-  *)       sed -n '3,8p' "$0"; exit 2 ;;
+  *) sed -n '2,16p' "${BASH_SOURCE[0]}"; exit 64 ;;
 esac
