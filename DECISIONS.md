@@ -244,3 +244,27 @@ now sourced by `verify.sh`: `vs_init` at the start, `vs_begin`/`vs_skip` per tie
 exit, and `VERIFY_PLANT_RED=<stage>` plants a red so the library's self-test drives a REAL run (the
 harness step is skipped in a planted run, so it cannot recurse into itself); the verify, repair and
 hourly jobs publish the report on failure (job summary, the "verify stages" check-run the gate reads).
+
+## 2026-10-01 — A machine-wide agent stack cap, and each agent's context published for the others (template child 8)
+
+`feat_harness_a_machine_wide_agent_stack_cap_and_each_agents_context_published_for_the_others`.
+Ported: `scripts/lib/agent-stacks.sh` + `scripts/agent-stacks.sh` (the cap counts live compose
+projects with an override file and a running `STACK_HEALTH_SERVICE`; the listing says why each entry
+is or is not counted; the CI seat `<project>_ci*` is exempt by name; a declared `INFRA_STACK_PROJECTS`
+list is exempt and named — the seeded project's fix for counting its permanent test stack as a
+developer; the self-test keeps the seeded project's real `docker compose ls` shapes as fixtures with
+their config pinned inside the self-test), `init.sh` refuses a stack past the cap and never stops one,
+`scripts/agent-context.sh` (`--me` from the session identity). NEW: `docs/context-publisher.md` (the
+contract), `scripts/examples/statusline-publish.sh` (an example the owner adapts — the real status
+line is his, outside the repo), AGENTS.md rule 0a with the owner's sentence verbatim and dated, and
+`scripts/check-context-is-never-a-reason-to-do-less.sh` (grep for the forbidden shapes, with positive
+and negative controls; the rule's own quotation is exempt by marker).
+
+**Driven on this box (2026-10-01):** two stub agent stacks (`harness_stub-a/b`, an `api` service and
+an override file), a declared infrastructure stack (`my-infra-stack`) and a CI-named stack
+(`harness_ci_forge-box`). The listing showed the CI stack as the reserved seat, the infrastructure
+stack as "NOT counted: declared infrastructure (my-infra-stack in INFRA_STACK_PROJECTS)", and the stubs
+as agents; `agent-stacks.sh --check` from a newcomer's directory with `AGENT_STACK_LIMIT=2` exited 1,
+named every holder (the box's real agents and the stubs), printed "nothing here is killed", and all
+four stub containers were still running afterwards; they were then torn down by hand. The example
+publisher, fed a status-line payload, wrote the contract's JSON and `agent-context.sh` rendered it.

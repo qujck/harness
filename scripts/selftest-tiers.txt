@@ -57,3 +57,6 @@ scripts/verify.sh	nowhere	verify.sh IS the runner: its budget arms run as the fi
 scripts/verify-stages.sh	verify
 scripts/yield-to-repair.sh	verify
 scripts/lib/stale-tool.sh	nowhere	a sourced helper with no self-test of its own (the sweep sees the word); its behaviour is covered by ledger-db.sh's arms
+scripts/agent-stacks.sh	verify
+scripts/agent-context.sh	verify
+scripts/check-context-is-never-a-reason-to-do-less.sh	verify
