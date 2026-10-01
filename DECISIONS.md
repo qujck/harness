@@ -86,3 +86,19 @@ paragraph it was fixing. Both were caught by looking at the output rather than a
 
 **Not included, deliberately:** no takeover verb, no batch claims, no issue-tracker integration.
 Those are conveniences. What is here is the part that makes concurrency SAFE.
+
+## 2026-10-01 — The template catches up with the process it seeded: docs and roles first (child 1 of the template epic)
+
+Owner, 2026-10-01: the template (this repo) is seven weeks and one whole process behind the project
+it was seeded into, and he wants it current — "port the mechanisms too", and "for process it should
+support jira for tickets". This child lands the DOCS: AGENTS.md rewritten to the current lifecycle
+(a database ledger behind one verb set, with a Jira store to follow; identity from the session;
+completion as three row writes after the merge, `Part of #N` never `Closes`; a session entry as a
+row; every self-test invoked through one contract), the four role documents in generic form
+(docs/roles/), the red-main runbook, and four METHOD rules learned since August. **What was
+deliberately left:** the mechanisms themselves — each section that depends on one says "(arrives
+with `<child-id>`)", and `scripts/check-docs-markers-match-landed-children.sh` fails the build if a
+marker outlives its child (`docs/landed-children.txt`). The file ledger under `features/` stands
+until the ticket-store child lands; the docs say so. The template's own `verify.sh` runs the marker
+check (self-test and real) until the tier manifest arrives.
+

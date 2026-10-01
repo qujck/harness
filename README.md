@@ -23,7 +23,10 @@ manual path and still get hard enforcement via the git hook.
 
 ```
 harness.env.example      # ← the only thing you edit per project
-AGENTS.md                # routing file: the rules + the loop, for any agent
+AGENTS.md                # routing file: the rules + the loop, for any agent — names the four roles
+docs/roles/              # the four role prompts + the roster doc: PO · developer · head of testing · process improvement
+docs/runbooks/           # main-is-red: one owner, repair over revert, the repair lane
+docs/landed-children.txt # which template-epic children have landed (governs the "arrives with" markers)
 METHOD.md                # how to know your MEASUREMENT is sound — read before trusting a result
 PROGRESS.md              # FROZEN history — read it, never append (see progress/)
 DECISIONS.md             # append-only architecture log
@@ -83,6 +86,14 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 
 - **`AGENTS.md`** — the single entry point any agent reads first: the hard rules and
   the session loop. Short by design; points to a per-project `CLAUDE.md` for detail.
+- **`docs/roles/`** — four roles exist in every project using this harness, however small
+  the team: product owner (the ledger and the routing), developer (the code, to a terminal
+  state), head of testing (what is true; fixes nothing it finds), process improvement (the
+  path to `main`, the gates, the scheduled jobs). Each prompt says what the role owns and what it
+  must not touch; the roster says who holds which, from the session's identity, never a directory.
+- **Mechanisms that arrive with later children of the template epic are marked "(arrives with
+  `<child-id>`)"** in the docs, and `scripts/check-docs-markers-match-landed-children.sh` fails the
+  build if a marker outlives its child (`docs/landed-children.txt`).
 - **`PROGRESS.md`** — mutable "what's happening right now"; `handoff.sh` won't pass
   unless it was touched this session.
 - **`DECISIONS.md`** — append-only log of architectural choices, binding until

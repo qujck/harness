@@ -41,6 +41,15 @@ fail() { printf '   \033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 start_ts=$(date +%s)
 
 # 1. Static.
+# ── [0/3] The harness's own checks — always, whatever harness.env says ──────────────────────
+# A check is invoked for REAL, after its own self-test: a step that only runs a gate's arms is not
+# a gate (METHOD.md). The tier manifest that enrols every self-test arrives with the self-test
+# child of the template epic; until then the harness's checks are listed here by hand.
+step "[0/3] Harness — scripts/check-docs-markers-match-landed-children.sh"
+bash scripts/check-docs-markers-match-landed-children.sh --self-test || fail "the marker gate's own self-test failed"
+bash scripts/check-docs-markers-match-landed-children.sh || fail "a doc describes a landed child as still to come"
+ok "harness checks green"
+
 if [[ -n "$VERIFY_STATIC" ]]; then
   step "[1/3] Static — $VERIFY_STATIC"
   eval "$VERIFY_STATIC" || fail "static check failed"
