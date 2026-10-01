@@ -1,0 +1,38 @@
+# infra/ledger-db/docker-compose.yml — the ledger: ONE Postgres per box that every worktree of the
+# project reads and writes. It is deliberately NOT a service of the project's own stack: per-worktree
+# stacks would give each agent a private ledger, the opposite of the point; and an `external:` network
+# in the project's compose would make every dev stack refuse to start whenever the ledger was down.
+#
+# Bring it up from the DEPLOY directory (outside every checkout), never from a worktree:
+#     bash scripts/ledger-db-deploy.sh           # syncs this directory to $LEDGER_DEPLOY_DIR, writes pgpass once
+#     docker compose -f $LEDGER_DEPLOY_DIR/docker-compose.yml up -d
+# Names come from harness.env through the environment (scripts/lib/harness-env.sh):
+#     HARNESS_PROJECT  → compose project "<project>-ledger", container "<project>-ledger-db"
+#     LEDGER_PORT      → loopback port (never exposed off the box)
+name: ${HARNESS_PROJECT:-harness}-ledger
+services:
+  ledger-db:
+    image: postgres:16-alpine
+    container_name: ${LEDGER_CONTAINER:-${HARNESS_PROJECT:-harness}-ledger-db}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ledger_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/pw
+      POSTGRES_DB: ledger
+    secrets: [pw]
+    ports: ["127.0.0.1:${LEDGER_PORT:-55432}:5432"]
+    volumes:
+      - ledger_data:/var/lib/postgresql/data
+      # the baseline, the roles and the recorder run once, on first boot (docker-entrypoint-initdb.d);
+      # later migrations are applied by scripts/ledger-migrate.sh and recorded the same way
+      - ./:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger_owner -d ledger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+secrets:
+  pw:
+    file: ./pgpass      # a SECRET, gitignored, one per box: head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 20 > pgpass
+volumes:
+  ledger_data:
