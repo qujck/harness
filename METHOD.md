@@ -74,6 +74,37 @@ off the test for the only case it was about. Drive both branches.
 
 ---
 
+**A negative result inherits every blind spot of the method that produced it.** "I looked and found
+none" and "I looked with a tool that cannot see this" are the same sentence, and only the first
+reads as safety. One board sweep reported "nothing red" from check conclusions, which cannot see a
+CONFLICTING PR at all; one "zero others" came from a count keyed on SHA that reads non-zero for work
+already landed under a rebase. **State the denominator and the method beside the zero, always**, and
+where a population is structurally unreadable say *unmeasurable*, never *clean*. "Unknown" invites a
+detector; "zero" closes the question. *(From a project where four such zeros landed in one shift.)*
+
+**Rank a population by what protects each member — not by what it is called, and not by how many
+there are.** Both intuitive orderings put the SAFE majority first. 127 branches tracked `main`
+(protected, loudly rejected) against 11 tracking a live ticket ref (unguarded, silently
+overwritten); 27 queued jobs of which ONE could clear a red. Ask "what happens to THIS member if it
+goes wrong?", member by member, before any total. *(Three instances in one week, each corrected
+four people at once.)*
+
+**A decision recorded with a reason lapses when the reason does, and nothing re-asks.** A merge
+method armed because the branch carried a merge commit stayed armed after the commit was rebased
+away; a gate's exemption stayed in force after the claim that justified it expired; a seat probe
+alerted on "two runners share a label" after the second seat became the decision. None is caught by
+a check that asserts the decision; all need something that re-checks the REASON. **A control that
+asserts its own justification beats one that asserts its own existence.** When you find a rule
+whose reason has lapsed, re-ask it — do not obey it.
+
+**A check that only runs its own self-test is not a check.** A verify step named "No new
+session-entry files" ran the gate's `--self-test` and nothing else for a while; the inventory asked
+"is the self-test run?" and it was. Ask "is the CHECK invoked, against the thing it judges?" — and
+read a verification list against the test's assertions item by item: a row can meet a smaller
+requirement than it records, and a passing flip cannot see the gap.
+
+---
+
 ## Rules for fixing
 
 **Find the siblings before you close it.** Fix the *pattern*, not the site where you noticed it:

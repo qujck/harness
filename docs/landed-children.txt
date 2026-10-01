@@ -1,0 +1,7 @@
+# docs/landed-children.txt — children of the template epic that have LANDED in this repo, one id
+# per line. Read by scripts/check-docs-markers-match-landed-children.sh: a doc may say a mechanism
+# "(arrives with `<id>`)" only while that id is NOT listed here. The child's own PR adds its id and
+# deletes its markers in the same commit, so the docs cannot describe a shipped mechanism as future.
+#
+# Epic: epic_the_harness_template_repo_catches_up_with_the_strength_process_docs_roles_and_mechanisms
+feat_harness_agents_md_and_method_md_teach_the_current_process_and_the_four_role_documents_are_added
