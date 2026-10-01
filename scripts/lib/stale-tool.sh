@@ -116,3 +116,11 @@ warn_if_stale_tool() { # <path to the running script>
     STALE_TOOL_BEHIND=1; STALE_TOOL_REL="$rel"
   fi
 }
+
+# run DIRECTLY (not sourced): only --self-test means anything; a mistyped flag is refused (exit 2)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+  selftest_reject_typo "${1:-}"
+  if selftest_is_flag "${1:-}"; then echo "stale-tool.sh carries no self-test of its own (its arms run inside ledger-db.sh's); nothing to run" >&2; exit 2; fi
+  echo "stale-tool.sh is a sourced library with no CLI" >&2; exit 2
+fi

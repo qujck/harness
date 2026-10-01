@@ -28,6 +28,7 @@ sweep_unit_failed_keys() { # for each open unit-failed:<unit> key, a healthy uni
   done < <(ops_alert_open_keys)
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   f=0; _t() { [[ "$2" == "$3" ]] && printf '  ok    %s\n' "$1" || { printf '  FAIL  %s (want %s got %s)\n' "$1" "$2" "$3"; f=1; }; }
   _t "active is healthy"            healthy "$(unit_healthy_verdict active)"

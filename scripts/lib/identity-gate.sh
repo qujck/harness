@@ -51,6 +51,7 @@ _identity_gate_self_test() {
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+  selftest_reject_typo "${1:-}"
   if selftest_is_flag "${1:-}"; then _identity_gate_self_test; exit $?; fi
   echo "identity-gate.sh is a sourced library (identity_verdict, checkout_occupancy_kind); only --self-test runs it directly" >&2; exit 64
 fi

@@ -56,6 +56,36 @@ selftest_is_flag() {
 # Note it EXITS rather than returning on a bad argument. That is deliberate: a `return 2` would
 # be a status the caller has to remember to check, and the entire bug being fixed here is a status
 # nobody checked. Sourced into the caller's shell, `exit` ends the script — which is the point.
+# selftest_reject_typo <arg> — a `--` word that LOOKS like an attempt at the self-test flag but is
+# not it exits 2, loudly, instead of falling through to the script's real action. For scripts that
+# take other arguments (so `selftest_requested` would refuse them): call it right after
+# `selftest_is_flag`. Measured 2026-10-01 in the template: `--slef-test` fell through on 19 of 35
+# enrolled scripts and 14 of them exited 0 — a self-test that never ran, reported as a pass.
+selftest_reject_typo() {
+  local a="${1:-}" letters
+  case "$a" in --*) ;; *) return 0 ;; esac
+  case "$a" in --self-test|--selftest) return 0 ;; esac
+  letters="$(printf '%s' "$a" | tr -d -- '-' | tr '[:upper:]' '[:lower:]')"
+  # the same letters as "selftest" in any order, or within two edits of it, is a typo of the flag
+  if python3 - "$letters" <<'PY2'
+import sys
+a, b = sys.argv[1], "selftest"
+if sorted(a) == sorted(b): sys.exit(0)
+d = [[0]*(len(b)+1) for _ in range(len(a)+1)]
+for i in range(len(a)+1): d[i][0] = i
+for j in range(len(b)+1): d[0][j] = j
+for i in range(1, len(a)+1):
+    for j in range(1, len(b)+1):
+        d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1] != b[j-1]))
+sys.exit(0 if d[len(a)][len(b)] <= 2 else 1)
+PY2
+  then
+    printf 'unknown argument: %s — did you mean --self-test? (refused: a mistyped flag must never run the real action)\n' "$a" >&2
+    exit 2
+  fi
+  return 0
+}
+
 selftest_requested() {
   case "${1:-}" in
     '')

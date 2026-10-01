@@ -49,7 +49,9 @@ tier_end() { local name="$1" e=$(( $(date +%s) - _tier_t0 )); case "$(tier_budge
   over) fail "$name took ${e}s, over the per-step budget of ${VERIFY_STEP_BUDGET_S}s (VERIFY_STEP_BUDGET_S) — a check that grows unnoticed is the defect, not the slowness" ;;
   within) ok "$name: ${e}s (budget ${VERIFY_STEP_BUDGET_S}s)" ;;
   *) ok "$name: ${e}s" ;; esac; }
-if [[ "${1:-}" == --self-test ]]; then
+. "$REPO_ROOT/scripts/lib/selftest-flag.sh"
+selftest_reject_typo "${1:-}"
+if selftest_is_flag "${1:-}"; then
   f=0; _t() { [[ "$2" == "$3" ]] && printf '  ok    %s\n' "$1" || { printf '  FAIL  %s (want %s got %s)\n' "$1" "$2" "$3"; f=1; }; }
   _t "budget 0 is unbudgeted"            unbudgeted "$(tier_budget_verdict 999 0)"
   _t "under budget is within"            within     "$(tier_budget_verdict 299 300)"
@@ -71,45 +73,45 @@ start_ts=$(date +%s)
 # a gate (METHOD.md). The tier manifest that enrols every self-test arrives with the self-test
 # child of the template epic; until then the harness's checks are listed here by hand.
 step "[0/3] Harness — scripts/check-docs-markers-match-landed-children.sh"
-bash scripts/check-docs-markers-match-landed-children.sh --self-test || fail "the marker gate's own self-test failed"
 bash scripts/check-docs-markers-match-landed-children.sh || fail "a doc describes a landed child as still to come"
 # the ticket store: the adapter + the verbs (a throwaway Postgres built from the baseline), the
 # migration runner, and the lifecycle verbs (a stub remote and a stubbed ledger)
-step "[0/3] Harness — the ledger's self-tests (ledger-db.sh, ledger-migrate.sh, feature-ticket.sh)"
-bash scripts/ledger-db.sh --self-test       || fail "ledger-db.sh self-test failed (the verbs or the store adapter)"
-bash scripts/ledger-migrate.sh --self-test  || fail "ledger-migrate.sh self-test failed"
-bash scripts/feature-ticket.sh --self-test  || fail "feature-ticket.sh self-test failed (claim/release/exists)"
-# the Jira store: the whole lifecycle against the fixture transport; and no Jira token in any tracked file
-bash scripts/lib/ticket-store-jira.sh --self-test || fail "ticket-store-jira self-test failed (the Jira store behind the same verbs)"
-bash scripts/check-no-committed-jira-token.sh --self-test || fail "the committed-token gate's own self-test failed"
+# ── every self-test the manifest assigns to this tier, and NOTHING hand-listed ─────────────────
+# scripts/selftest-tiers.txt is the one list; `check-selftests-are-invoked.sh --list` prints its verify
+# rows and this step runs EXACTLY those, failing on an empty list (a step that passes having run
+# nothing is the defect). A self-test that needs a stack is the `stack` tier (run with VERIFY_STACK=1).
+step "[0/3] Harness — the self-test tier (scripts/selftest-tiers.txt via check-selftests-are-invoked.sh --list)"
+_st_list="$(bash scripts/check-selftests-are-invoked.sh --list 2>/dev/null)"
+_st_n="$(printf '%s\n' "$_st_list" | awk 'NF' | wc -l)"
+(( _st_n >= 1 )) || fail "the self-test tier list is EMPTY — this step would pass having run nothing"
+_st_ran=0
+while IFS= read -r _s; do
+  [[ -n "$_s" ]] || continue
+  case "$_s" in
+    *.py) python3 "$_s" --self-test >/dev/null 2>&1 || fail "self-test failed: $_s (run: python3 $_s --self-test)" ;;
+    *)    bash "$_s" --self-test >/dev/null 2>&1 || fail "self-test failed: $_s (run: bash $_s --self-test)" ;;
+  esac
+  _st_ran=$((_st_ran+1))
+done <<<"$_st_list"
+ok "$_st_ran of $_st_n self-tests in the verify tier passed (the floor is 1)"
+if [[ "${VERIFY_STACK:-0}" == 1 ]]; then
+  step "[0/3] Harness — the stack tier (needs docker)"
+  while IFS= read -r _s; do [[ -n "$_s" ]] || continue; bash "$_s" --self-test >/dev/null 2>&1 || fail "stack-tier self-test failed: $_s"; done <<<"$(bash scripts/check-selftests-are-invoked.sh --list-stack 2>/dev/null)"
+  ok "stack tier passed"
+fi
+# ── the gates themselves, invoked for REAL (a self-test is not an invocation: check-steps-invoke-their-scripts.sh) ──
+step "[0/3] Harness — scripts/check-selftests-are-invoked.sh"
+bash scripts/check-selftests-are-invoked.sh || fail "a self-test is invoked by nothing and no reason is recorded"
+step "[0/3] Harness — scripts/check-selftest-flag-contract.sh"
+bash scripts/check-selftest-flag-contract.sh || fail "a script parses its self-test flag by hand"
+step "[0/3] Harness — scripts/check-steps-invoke-their-scripts.sh"
+bash scripts/check-steps-invoke-their-scripts.sh || fail "a verify step promises a gate it only self-tests"
+step "[0/3] Harness — scripts/check-no-committed-jira-token.sh"
 bash scripts/check-no-committed-jira-token.sh || fail "a tracked file carries a Jira token — rotate it NOW, then remove it"
-# identity and session entries: the gate's arms, onboarding, progress.sh; and the progress FREEZE
-# invoked for REAL against this diff (not only its self-test — the seeded project once let four files
-# onto main because the step ran the arms and never the gate)
-bash scripts/lib/identity-gate.sh --self-test       || fail "identity-gate self-test failed"
-bash scripts/agent-onboard.sh --self-test           || fail "agent-onboard self-test failed"
-bash scripts/progress.sh --self-test                || fail "progress.sh self-test failed"
-bash scripts/check-no-new-progress-files.sh --self-test || fail "the progress-freeze gate's own self-test failed"
-bash scripts/check-no-new-progress-files.sh         || fail "a session-entry FILE was added under progress/ or PROGRESS.md — entries are ledger rows: bash scripts/progress.sh new"
-# CI: the lanes, the seat, the subset, the gate — their arms; and the workflow's SHAPE for real
-bash scripts/verify.sh --self-test                  || fail "verify.sh's own budget arms failed"
-bash scripts/ci-stack-project.sh --self-test        || fail "ci-stack-project self-test failed"
-bash scripts/ui-relevant-specs.sh --self-test       || fail "ui-relevant-specs self-test failed"
-bash scripts/ci-merge-pr-base.sh --self-test        || fail "ci-merge-pr-base self-test failed"
-bash scripts/ci-land-pr.sh --self-test              || fail "ci-land-pr self-test failed"
-bash scripts/yield-to-repair.sh --self-test         || fail "yield-to-repair self-test failed"
-bash scripts/check-verify-cost-budget.sh --self-test || fail "check-verify-cost-budget self-test failed"
-bash scripts/check-merge-seat-count.sh --self-test  || fail "check-merge-seat-count self-test failed"
-bash scripts/full-suite-gate.sh --self-test         || fail "full-suite-gate self-test failed (270 arms)"
-bash scripts/check-workflow-shape.sh --self-test    || fail "the workflow-shape gate's own self-test failed"
-bash scripts/check-workflow-shape.sh                || fail "the workflow no longer has the shape its header promises"
-# alerts: the condition contract (library + machine against the shared vectors), the queue, the hook, the units
-bash scripts/lib/ops-alert.sh --self-test           || fail "ops-alert library self-test failed"
-python3 scripts/lib/ops_alert_machine.py --self-test || fail "ops-alert machine disagrees with the shared vectors"
-bash scripts/ops-alerts.sh --self-test              || fail "ops-alerts queue reader self-test failed"
-bash scripts/ops-alert-unit-failure.sh --self-test  || fail "unit-failure hook self-test failed"
-bash scripts/ops-alerts-settle.sh --self-test       || fail "ops-alerts-settle self-test failed"
-bash scripts/install-units.sh --self-test           || fail "install-units self-test failed (a placeholder survived, or a service lacks the hook)"
+step "[0/3] Harness — scripts/check-no-new-progress-files.sh"
+bash scripts/check-no-new-progress-files.sh || fail "a session-entry FILE was added under progress/ or PROGRESS.md — entries are ledger rows: bash scripts/progress.sh new"
+step "[0/3] Harness — scripts/check-workflow-shape.sh"
+bash scripts/check-workflow-shape.sh || fail "the workflow no longer has the shape its header promises"
 ok "harness checks green"
 
 if (( UI_ONLY )); then

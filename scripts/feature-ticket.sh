@@ -146,6 +146,7 @@ _ft_self_test() {
 }
 # --self-test-lib: load the functions and return (used by the self-test's subshells to drive one verb with a stubbed ledger)
 [[ "${1:-}" == --self-test-lib ]] && return 0 2>/dev/null
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then _ft_self_test; exit $?; fi
 
 case "${1:-}" in

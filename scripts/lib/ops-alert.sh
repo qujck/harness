@@ -301,6 +301,7 @@ ops_alert_open_keys() { python3 "$OPS_ALERT_MACHINE" open "$(ops_alert_state_dir
 # ⚠ THE SHARED FLAG CONTRACT, AND GUARDED ON BEING EXECUTED: every watcher sources this file with its OWN
 # argv, so `$1` here may be the caller's argument. (chore_unify_selftest_flag_spelling)
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+[[ "${BASH_SOURCE[0]}" == "$0" ]] && selftest_reject_typo "${1-}"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]] && selftest_is_flag "${1-}"; then
   _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   _fails=0

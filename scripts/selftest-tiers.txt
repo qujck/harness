@@ -1,0 +1,59 @@
+# scripts/selftest-tiers.txt — WHERE each self-test runs. One row per script that carries a self-test.
+# (feat_harness_self_tests_follow_one_flag_contract_and_a_tier_manifest_that_verify_runs)
+#
+#   <script path><TAB><tier>[<TAB><reason>]
+#
+#   verify   runs in scripts/verify.sh's self-test step on every PR (the step runs EXACTLY the rows of
+#            this tier — `check-selftests-are-invoked.sh --list` — and fails on an empty list, so the
+#            step can never pass having run nothing)
+#   stack    runs only in a verify that has a stack up (a self-test that needs docker, a database or
+#            the app). It is GATED, not exempt: a narrower promise about WHERE, never a decision not to run.
+#   nowhere  runs in no tier — ONLY with a reason in the third column (an exemption without a reason
+#            is `ungated`, and ungated fails the build). The usual reason: the file is a sourced
+#            library whose arms run inside a parent script's self-test.
+#
+# ⚠ THE MANIFEST RECORDS INTENT; AN ACTUAL INVOCATION IS EVIDENCE. check-selftests-are-invoked.sh
+# credits a script as gated only when something INVOKES it with a self-test flag (comments stripped,
+# the script's own file excluded, a prose mention never counts). A stale `nowhere` row cannot
+# suppress a real gate, and a `verify` row for a script nothing runs is caught the moment the step
+# runs the list. Every script's flag goes through scripts/lib/selftest-flag.sh (selftest_is_flag /
+# selftest_requested): check-selftest-flag-contract.sh refuses a hand-parsed flag, because a
+# mistyped `--slef-test` must exit 2, never fall through to the script's real action.
+scripts/agent-onboard.sh	verify
+scripts/check-docs-markers-match-landed-children.sh	verify
+scripts/check-merge-seat-count.sh	verify
+scripts/check-no-committed-jira-token.sh	verify
+scripts/check-no-new-progress-files.sh	verify
+scripts/check-selftest-flag-contract.sh	verify
+scripts/check-selftests-are-invoked.sh	verify
+scripts/check-steps-invoke-their-scripts.sh	verify
+scripts/check-verify-cost-budget.sh	verify
+scripts/check-workflow-shape.sh	verify
+scripts/ci-land-pr.sh	verify
+scripts/ci-merge-pr-base.sh	verify
+scripts/ci-stack-project.sh	verify
+scripts/feature-ticket.sh	verify
+scripts/full-suite-gate.sh	verify
+scripts/install-units.sh	verify
+scripts/ledger-db.sh	stack	builds a throwaway Postgres from infra/ledger-db: needs a docker daemon
+scripts/ledger-migrate.sh	verify
+scripts/lib/agent-name.sh	verify
+scripts/lib/bounded.sh	verify
+scripts/lib/identity-gate.sh	verify
+scripts/lib/ledger-throwaway-ready.sh	nowhere	a sourced predicate; its arms run inside ledger-db.sh's self-test
+scripts/lib/ops_alert_machine.py	verify
+scripts/lib/ops-alert.sh	verify
+scripts/lib/roster.sh	verify
+scripts/lib/selftest-flag.sh	verify
+scripts/lib/ticket-files.sh	nowhere	a sourced helper of the file-era sync verbs, which the template refuses; its arms run inside ledger-db.sh's self-test
+scripts/lib/ticket-store-jira.sh	verify
+scripts/lib/ticket-store.sh	nowhere	a sourced adapter with no flag of its own; its arms run first inside ledger-db.sh's self-test
+scripts/ops-alerts-settle.sh	verify
+scripts/ops-alerts.sh	verify
+scripts/ops-alert-unit-failure.sh	verify
+scripts/progress.sh	verify
+scripts/ui-relevant-specs.sh	verify
+scripts/verify.sh	nowhere	verify.sh IS the runner: its budget arms run as the first line of its own self-test step
+scripts/verify-stages.sh	verify
+scripts/yield-to-repair.sh	verify
+scripts/lib/stale-tool.sh	nowhere	a sourced helper with no self-test of its own (the sweep sees the word); its behaviour is covered by ledger-db.sh's arms

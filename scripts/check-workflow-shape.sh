@@ -45,6 +45,7 @@ shape_findings() {
   awk '/VERIFY_FULL=1 RUN_UI=1/{f=1} END{exit !f}' "$hourly" || echo "the hourly workflow does not run the FULL suite"
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   fails=0; d="$(mktemp -d)"
   _t() { if [[ "$2" == "$3" ]]; then printf '  ok    %s\n' "$1"; else printf '  FAIL  %s (want %q got %q)\n' "$1" "$2" "$3"; fails=1; fi; }

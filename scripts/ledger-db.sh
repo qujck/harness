@@ -2539,6 +2539,7 @@ print("regenerate: %d ticket(s)%s" % (n, (" -> " + out) if out else ""), file=sy
 PY_REGEN
 }
 
+selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
   # the store adapter's arms first (scripts/lib/ticket-store.sh is sourced, so it has no flag of its own)
   _store_rc=0; ticket_store_self_test || _store_rc=1

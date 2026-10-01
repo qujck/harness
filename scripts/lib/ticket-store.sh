@@ -58,3 +58,11 @@ ticket_store_self_test() {
   (( fails == 0 )) && printf '  ok    ticket-store adapter: %d verbs in the contract\n' "$(wc -w <<<"$TICKET_STORE_VERBS")"
   return $fails
 }
+
+# run DIRECTLY (not sourced): only --self-test means anything; a mistyped flag is refused (exit 2)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+  selftest_reject_typo "${1:-}"
+  if selftest_is_flag "${1:-}"; then ticket_store_self_test; exit $?; fi
+  echo "ticket-store.sh is a sourced library; only --self-test runs it directly" >&2; exit 2
+fi

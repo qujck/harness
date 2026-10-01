@@ -51,6 +51,10 @@ scripts/
   lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
   ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
+  selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
+  check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
+  check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
+  check-steps-invoke-their-scripts.sh  # a verify step that names a gate runs it for real, not only its arms
   progress.sh            # session entries as ledger rows: new · tail · list
   ledger-migrate.sh      # apply infra/ledger-db/*.sql to the running ledger, recorded in ledger.schema_migration
   ledger-db-deploy.sh    # sync infra/ledger-db/ to the deploy dir outside every checkout, write pgpass once
