@@ -1,0 +1,19 @@
+{
+  "_rules": [
+    "A session's identity is GIT_AUTHOR_EMAIL looked up HERE; a name with no row cannot write to the ledger (ledger-db.sh refuses with exit 3).",
+    "Add a row when an agent is onboarded; never delete one — set status to retired with the date, so the ledger's claimed_by stays attributable forever.",
+    "The onboarding script that writes rows here and prints the launch line arrives with feat_harness_identity_comes_from_the_session_via_a_roster_and_session_entries_are_ledger_rows; until then edit this file by hand in a PR.",
+    "role is one of: product-owner, developer, head-of-testing, process-improvement (docs/roles/)."
+  ],
+  "agents": [
+    {
+      "name": "Example",
+      "email": "example@your-project.example",
+      "role": "developer",
+      "status": "retired",
+      "onboarded": "2026-10-01",
+      "offboarded": "2026-10-01",
+      "evidence": "a template row showing the shape; retired so it can never claim — replace it with your first real agent"
+    }
+  ]
+}

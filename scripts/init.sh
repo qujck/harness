@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck source=/dev/null
 [[ -f harness.env ]] && source harness.env
-# Per-stream stack + feature-ledger helpers (dc, stack_port, features_live_json).
+# Per-stream stack helpers (dc, stack_port). The ticket store is the ledger: scripts/ledger-db.sh.
 # shellcheck source=/dev/null
 . "$REPO_ROOT/scripts/_stack.sh"
 
@@ -181,23 +181,15 @@ echo "   can pick up next  : see below"
 #    not terminal (passing/wont_do) AND whose depends_on are all "passing". An
 #    entry with no depends_on (the solo case) is always ready, so this degrades
 #    to plain priority order when dependencies aren't used.
-step "Next feature (highest priority on the ready frontier)"
-NEXT=$(features_live_json | jq -r '
-  (.features // []) as $all
-  | ($all | map({(.id): .status}) | add // {}) as $st
-  | [ $all[]
-      | select(.status != "passing" and .status != "wont_do")
-      | select((.depends_on // []) | all(. as $d | $st[$d] == "passing")) ]
-  | sort_by(.priority)
-  | .[0]
-  | if . == null then "NONE_READY"
-    else "  id      : \(.id)\n  status  : \(.status)\n  priority: \(.priority)\n  title   : \(.title)\n  verify  : \(.verification_command // "(not set)")"
-    end
-' 2>/dev/null || echo "NONE_READY")
+step "Next feature (highest priority on the ready frontier — the ledger's v_frontier)"
+# selected rows whose dependencies are done and that nobody has claimed, from the ledger (not a file):
+# `ledger-db.sh frontier` prints id|area|priority. Empty output = nothing ready; a failure = CANNOT TELL.
+NEXT="$(bash scripts/ledger-db.sh frontier 2>/dev/null | head -1 | awk -F'|' '{ if ($1=="") print "NONE_READY"; else printf "  id      : %s\n  area    : %s\n  priority: %s\n  detail  : bash scripts/ledger-db.sh ticket-row %s\n", $1,$2,$3,$1 }')"
+[[ -n "$NEXT" ]] || NEXT="NONE_READY"
 
 if [[ "$NEXT" == "NONE_READY" ]]; then
   echo "   No ready feature — all entries are passing/wont_do, or the rest is dependency-blocked."
-  echo "   Add one with status=not_started, or unblock a dependency."
+  echo "   Raise one (ledger-db.sh raise <json>), ask the PO to groom it, or unblock a dependency — or the ledger is down: bash scripts/ledger-db.sh ping"
 else
   echo "$NEXT"
 fi

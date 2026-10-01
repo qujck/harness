@@ -6,8 +6,7 @@
 # one machine without corrupting each other (the multi-agent operation L11
 # assumes). Across separate clones you're already isolated and don't need this.
 #
-# It always loads the feature-ledger helpers (scripts/_features.sh), so every
-# harness script that sources it gets features_live_json regardless of mode.
+# The ticket store is the ledger (scripts/ledger-db.sh); nothing here reads ticket files.
 #
 # The per-stream stack machinery only activates when PER_STREAM_STACKS=1 in
 # harness.env. In that mode every git worktree gets its OWN docker-compose
@@ -21,17 +20,12 @@
 # PER_STREAM_STACKS=0 and the harness uses UP_CMD / HEALTH_URL as usual.
 #
 # Provides (PER_STREAM_STACKS=1 only): $COMPOSE_PROJECT_NAME, dc, stack_port, refresh_stack_env.
-# Provides (always):                    $REPO_ROOT, stack_default_proj, features_live_json.
+# Provides (always):                    $REPO_ROOT, stack_default_proj.
 
 if [[ -z "${REPO_ROOT:-}" ]]; then
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
-# Feature-ledger helpers — always available, both modes.
-if [[ -f "$REPO_ROOT/scripts/_features.sh" ]]; then
-  # shellcheck source=/dev/null
-  . "$REPO_ROOT/scripts/_features.sh"
-fi
 
 PER_STREAM_STACKS="${PER_STREAM_STACKS:-0}"
 

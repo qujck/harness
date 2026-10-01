@@ -47,11 +47,11 @@ load-bearing half — what you must not touch. The rules below bind all four rol
    JSON you never commit); `selected` is the PO's move (`groom`); claim before you start
    (`feature-ticket.sh claim <id>` — the pushed branch is the atomic lock, the row holds the claim);
    requirement edits only through `ledger-db.sh amend <id> <field> <value> <why>`. The store is
-   the database (`TICKET_STORE=db`) or Jira (`TICKET_STORE=jira`), same verbs. *(The adapter and
-   the database arrive with
-   `feat_harness_the_ledger_is_a_database_with_raise_groom_claim_amend_flip_archive_and_release_verbs`;
-   Jira with `feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`. Until then the file ledger
-   under `features/` stands, with the same lifecycle words.)*
+   the database (`TICKET_STORE=db`, the default — one Postgres per box, brought up from
+   `infra/ledger-db/`, defined in [docs/ledger-spec.md](docs/ledger-spec.md)) or Jira
+   (`TICKET_STORE=jira`), same verbs; `scripts/lib/ticket-store.sh` is the adapter. A write needs a
+   session identity: `GIT_AUTHOR_EMAIL` must map to a row in `agents/roster.json`, or the ledger
+   refuses (exit 3). *(Jira arrives with `feat_harness_jira_is_a_ticket_store_behind_the_same_verbs`.)*
 3. **Don't self-grade.** The required check on your PR is the definition of done; `passing` is a row
    write after the merge, with the PR number, never a judgement.
 4. **Completion is three row writes AFTER the merge**: `ledger-db.sh flip-passing <id> <pr>` →
