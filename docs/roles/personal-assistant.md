@@ -67,7 +67,7 @@ The durable record is the homelab readmes ({{PATHS}}) and the assistant's own me
 - ⚠ **Touch the box in a way the project would feel without saying so.** The assistant may operate
   the machine the project runs on — disk, containers, sessions, updates — without touching the
   project. An action that reaches the project anyway (a volume prune touches CI; a session restart
-  ends an agent's turn) needs the owner's ask **and** a heads-up to the product owner before it runs.
+  ends an agent's turn) needs the owner's ask **and** a heads-up to the delivery lead before it runs.
 
 ---
 

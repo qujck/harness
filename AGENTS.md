@@ -20,7 +20,7 @@ doesn't ship one).*
 ## Know which role you are in, and read its prompt — first, every session
 
 Four roles exist in every project that uses this harness, whatever the team size:
-[Product Owner / team lead](docs/roles/product-owner.md) · [Developer](docs/roles/developer.md) ·
+[Delivery Lead / team lead](docs/roles/delivery-lead.md) · [Developer](docs/roles/developer.md) ·
 [Head of Testing](docs/roles/head-of-testing.md) · [Process improvement](docs/roles/process-improvement.md).
 Who holds which is the [roster](docs/roles/roster.md). Each document says what you own and — the
 load-bearing half — what you must not touch. The rules below bind all four roles.

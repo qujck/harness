@@ -647,7 +647,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   cat > "$ROSTER_FILE" <<'JSON'
 {"agents":[
   {"name":"Ed","email":"ed@weaversite.co.uk","role":"developer","status":"active"},
-  {"name":"Don","email":"don@weaversite.co.uk","role":"product-owner","status":"active"}
+  {"name":"Don","email":"don@weaversite.co.uk","role":"delivery-lead","status":"active"}
 ]}
 JSON
   mkdir -p "$tmp/donsdir/.agent"; printf 'Don\n' > "$tmp/donsdir/.agent/name"

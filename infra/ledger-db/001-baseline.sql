@@ -535,7 +535,7 @@ DECLARE
 BEGIN
   IF nullif(btrim(coalesce(p_reason,'')),'') IS NULL THEN RETURN 'need-reason'; END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'product-owner' AND active) THEN
+  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'delivery-lead' AND active) THEN
     RETURN 'clearing-a-stamp-is-the-pos-move:'||me;
   END IF;
 
@@ -579,7 +579,7 @@ DECLARE
 BEGIN
   IF nullif(btrim(coalesce(p_reason,'')),'') IS NULL THEN RETURN 'need-reason'; END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'product-owner' AND active) THEN
+  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'delivery-lead' AND active) THEN
     RETURN 'wont-do-is-the-pos-call:'||me;
   END IF;
 
@@ -816,10 +816,10 @@ DECLARE
 BEGIN
   IF nullif(btrim(coalesce(p_reason,'')),'') IS NULL THEN RETURN 'need-reason'; END IF;
 
-  -- ⚠ THE ROLE IS READ FROM THE ROSTER, NEVER HARDCODED. The product-owner role has changed hands,
+  -- ⚠ THE ROLE IS READ FROM THE ROSTER, NEVER HARDCODED. The delivery-lead role has changed hands,
   -- and a name written here would be a fact in two places with the copy in the database winning
   -- silently. Same rule the `po-owner` verb already follows.
-  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'product-owner' AND active) THEN
+  IF NOT EXISTS (SELECT 1 FROM ledger.v_agent WHERE name = me AND role = 'delivery-lead' AND active) THEN
     RETURN 'ready-is-the-pos-move:'||me;
   END IF;
 
@@ -2018,7 +2018,7 @@ CREATE FUNCTION ledger.park_is_adjudicated_to_the_product_owner(p_status ledger.
      AND p_adjudicated_from IS NOT NULL
      AND EXISTS (SELECT 1 FROM ledger.agent
                   WHERE name = p_actor
-                    AND role = 'product-owner'
+                    AND role = 'delivery-lead'
                     AND offboarded IS NULL)
 $$;
 
@@ -2027,7 +2027,7 @@ $$;
 -- Name: FUNCTION park_is_adjudicated_to_the_product_owner(p_status ledger.ticket_status, p_claimed_by text, p_adjudicated_from text, p_actor text); Type: COMMENT; Schema: ledger; Owner: -
 --
 
-COMMENT ON FUNCTION ledger.park_is_adjudicated_to_the_product_owner(p_status ledger.ticket_status, p_claimed_by text, p_adjudicated_from text, p_actor text) IS 'Spec §3(b), for the state migration 107 leaves behind. TRUE only for a parked row with no holder that was adjudicated away from a provably retired one, asked by an ACTIVE product-owner. ⚠ adjudicated_from is what makes this a carve-out rather than a loosening: a mid-claim row and a row whose claimed_by a mirror wiped are both unowned and neither is adjudicated, so neither is reachable through here.';
+COMMENT ON FUNCTION ledger.park_is_adjudicated_to_the_product_owner(p_status ledger.ticket_status, p_claimed_by text, p_adjudicated_from text, p_actor text) IS 'Spec §3(b), for the state migration 107 leaves behind. TRUE only for a parked row with no holder that was adjudicated away from a provably retired one, asked by an ACTIVE delivery-lead. ⚠ adjudicated_from is what makes this a carve-out rather than a loosening: a mid-claim row and a row whose claimed_by a mirror wiped are both unowned and neither is adjudicated, so neither is reachable through here.';
 
 
 --
@@ -2297,7 +2297,7 @@ BEGIN
   v_is_own := (v_actor = 'ledger_owner' AND v_proof = 'connection');
   v_is_po  := (v_proof = 'connection'
                AND EXISTS (SELECT 1 FROM ledger.agent
-                            WHERE name = v_actor AND role = 'product-owner' AND offboarded IS NULL));
+                            WHERE name = v_actor AND role = 'delivery-lead' AND offboarded IS NULL));
 
   IF v_status = 'selected' AND NOT (v_is_po OR v_is_own) THEN
     -- The verdict names the SPEC rule rather than the enum, so the message survives the rename.
@@ -2758,7 +2758,7 @@ BEGIN
   v_is_own := (v_actor = 'ledger_owner' AND v_proof = 'connection');
   v_is_po  := (v_proof = 'connection'
                AND EXISTS (SELECT 1 FROM ledger.agent
-                            WHERE name = v_actor AND role = 'product-owner' AND offboarded IS NULL));
+                            WHERE name = v_actor AND role = 'delivery-lead' AND offboarded IS NULL));
 
   -- ⚠ YOU MAY NOT RETIRE WORK SOMEBODY ELSE HOLDS. A claim is a lock with a person behind it, and
   -- withdrawing it from under them is the "wrong owner just persists" failure class: nothing
@@ -2830,7 +2830,7 @@ END $$;
 -- Name: FUNCTION review_ticket(p_id text); Type: COMMENT; Schema: ledger; Owner: -
 --
 
-COMMENT ON FUNCTION ledger.review_ticket(p_id text) IS 'draft -> reviewed. Granted to ledger_agent as well as ledger_console because the PRODUCT OWNER does the review and the PO is an agent. Refuses anything that is not currently draft.';
+COMMENT ON FUNCTION ledger.review_ticket(p_id text) IS 'draft -> reviewed. Granted to ledger_agent as well as ledger_console because the DELIVERY LEAD does the review and the PO is an agent. Refuses anything that is not currently draft.';
 
 
 --

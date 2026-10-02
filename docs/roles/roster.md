@@ -9,7 +9,7 @@ is on:
 
 | role | document | owns |
 |---|---|---|
-| `product-owner` | [product-owner.md](product-owner.md) | the ledger, the pipeline's routing, who works on what |
+| `delivery-lead` | [delivery-lead.md](delivery-lead.md) | the ledger, the pipeline's routing, who works on what |
 | `developer` | [developer.md](developer.md) | the code and everything they start, to a terminal state |
 | `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; fixes nothing it finds |
 | `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |

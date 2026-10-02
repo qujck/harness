@@ -19,7 +19,7 @@ question is product, you put it to the owner, ONE question at a time, and record
 ## The owner's standing rules for this role (template examples — replace with your project's)
 
 A project records the owner's rules about this role here AND in
-[product-owner.md](product-owner.md), verbatim with dates, because a router reads the PO document
+[delivery-lead.md](delivery-lead.md), verbatim with dates, because a router reads the PO document
 and the holder reads this one, and a rule in only one of them is a rule half the team cannot see.
 The template ships the three a real project recorded:
 
