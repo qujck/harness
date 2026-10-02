@@ -45,7 +45,7 @@ if selftest_is_flag "${1:-}"; then
   t 'two runners sharing the forge-box label get DIFFERENT projects' "$([[ "$a" != "$b" ]] && echo distinct || echo same)" 'distinct'
   t 'uppercase is lowered (compose refuses it)' "$(ci_stack_project Forge-Box)" "${HARNESS_PROJECT:-harness}_ci_forge-box"
   t 'a space or dot becomes _' "$(ci_stack_project 'my runner.2')" "${HARNESS_PROJECT:-harness}_ci_my_runner_2"
-  t 'the strength_ci prefix survives, so the machine cap still exempts it' "$(ci_stack_project x | cut -c1-$(( ${#HARNESS_PROJECT} + 4 )))" "${HARNESS_PROJECT}_ci_"
+  _p="${HARNESS_PROJECT:-harness}"; t 'the <project>_ci prefix survives, so the machine cap still exempts it' "$(ci_stack_project x | cut -c1-$(( ${#_p} + 4 )))" "${_p}_ci_"
   ci_stack_project '' >/dev/null 2>&1; t 'an EMPTY name is refused (rc 2), never named' "$?" '2'
   [[ $f == 0 ]] && echo 'ci-stack-project: self-test ok'
   exit "$f"

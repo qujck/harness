@@ -19,5 +19,6 @@
   "_machines_note": "MACHINES are a third population, in the same file for the same reason as humans: an unattended unit is not an agent (no role prompt, no claims, never routed to) but must prove a SESSION identity, because the ledger refuses every write whose name came from a directory. A machine row's email goes on its unit as Environment=GIT_AUTHOR_EMAIL; its database role is created by a migration that grants exactly what the unit needs (read-only = ledger_console), never by the agent sync. Records, not a rota: a listing helper never returns one.",
   "_assistants_note": "ASSISTANTS are people's helpers that act under a person's authority (an assistant's row names whose). Records, not a rota: never routed to, never listed as active agents.",
   "machines": [],
+  "_assistants_terms_of_reference": "docs/roles/personal-assistant.md",
   "assistants": []
 }
