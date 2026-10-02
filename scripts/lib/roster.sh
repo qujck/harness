@@ -212,8 +212,8 @@ roster_add() {
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_add: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
-    product-owner|head-of-testing|developer|process-improvement) ;;
-    *) printf 'roster_add: unknown role %q — must be one of product-owner, head-of-testing, developer, process-improvement (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
+    delivery-lead|head-of-testing|developer|process-improvement) ;;
+    *) printf 'roster_add: unknown role %q — must be one of delivery-lead, head-of-testing, developer, process-improvement (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
   esac
   if roster_has_name "$name"; then
     printf 'roster_add: %q is already in the roster (status: %s). A name is NEVER reused — a retired one still owns its commits.\n' \
@@ -291,8 +291,8 @@ roster_role() {
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_role: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
-    product-owner|head-of-testing|developer|process-improvement) ;;
-    *) printf 'roster_role: unknown role %q — must be one of product-owner, head-of-testing, developer, process-improvement (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
+    delivery-lead|head-of-testing|developer|process-improvement) ;;
+    *) printf 'roster_role: unknown role %q — must be one of delivery-lead, head-of-testing, developer, process-improvement (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
   esac
   roster_has_name "$name" || { printf 'roster_role: %q is not in the roster\n' "$name" >&2; return 1; }
   [[ "$(roster_lookup_status "$name")" == active ]] \
@@ -550,7 +550,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   if [[ -r "$ROSTER_FILE" ]]; then
     _bad="$(jq -r '(.agents // [])[] | select(
               (.name // "") == "" or (.email // "") == "" or
-              ((.role // "") | IN("product-owner","head-of-testing","developer","process-improvement") | not) or
+              ((.role // "") | IN("delivery-lead","head-of-testing","developer","process-improvement") | not) or
               ((.status // "") | IN("active","retired") | not)
             ) | .name // "<nameless>"' "$ROSTER_FILE" 2>/dev/null)"
     [[ -z "$_bad" ]] && printf '  ok    the shipped roster satisfies its own schema\n' \

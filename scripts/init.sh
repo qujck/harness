@@ -102,7 +102,7 @@ else
 fi
 
 step "Your role — read its document first, every session (all four exist in every project)"
-echo "   Product Owner        : docs/roles/product-owner.md        — the ledger and the routing; grooms; never codes"
+echo "   Delivery Lead        : docs/roles/delivery-lead.md        — the ledger and the routing; grooms; never codes"
 echo "   Developer            : docs/roles/developer.md            — the code, to a terminal state; never grooms"
 echo "   Head of Testing      : docs/roles/head-of-testing.md      — what 'proven' means; the suites; never ships product"
 echo "   Process improvement  : docs/roles/process-improvement.md  — the pipeline, gates, runbooks; never product work"

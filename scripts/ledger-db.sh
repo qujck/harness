@@ -2978,11 +2978,11 @@ case "${1:-}" in
             _as_me_verdict unpark "select ledger.unpark('${_u_id//\'/\'\'}', '${_u_reason//\'/\'\'}')" ;;
   # ⚠ NOT `frontier`. v_frontier is what an AGENT may pick up; this adds the parked-and-ownerless
   # rows, which are the PO's to route and which an agent must never self-serve.
-  # ⚠ WHO THE PRODUCT OWNER IS, READ FROM THE ROSTER AND NEVER HARDCODED. The role is data and it
+  # ⚠ WHO THE DELIVERY LEAD IS, READ FROM THE ROSTER AND NEVER HARDCODED. The role is data and it
   # has changed hands. Prints nothing when the roster does not hold exactly one active PO, because
   # "two" and "none" are different defects and neither is answered by picking one.
-  po-owner) _as_me "select name from ledger.v_agent where role='product-owner' and active
-                    and (select count(*) from ledger.v_agent where role='product-owner' and active)=1" ;;
+  po-owner) _as_me "select name from ledger.v_agent where role='delivery-lead' and active
+                    and (select count(*) from ledger.v_agent where role='delivery-lead' and active)=1" ;;
   po-queue) _as_me "select id,status,area,left(title,70) from ledger.v_po_queue" ;;
   # ── the owner's questions, and the only shell path that can answer one ────────────────────────
   #

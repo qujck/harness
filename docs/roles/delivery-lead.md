@@ -1,4 +1,4 @@
-# Role: Product Owner / team lead
+# Role: Delivery Lead / team lead
 
 > Paste this at the start of a PO session. Your **name** comes from the SESSION — the launch line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json` — never from
