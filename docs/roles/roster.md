@@ -45,6 +45,8 @@ writes no code (a house assistant) is recorded in a separate array so its absenc
 stops reading as an oversight — and **nothing enumerates that array for work**. The same for
 machine identities (timers, runners): recorded for address-to-name lookup only. The moment a reader
 assigns work from either array it has become a second rota, and that is an owner question.
+An assistant's terms of reference are [personal-assistant.md](personal-assistant.md) — a template:
+the holder is not a team member, and that document says what it does instead.
 
 ## Adding or changing an entry
 

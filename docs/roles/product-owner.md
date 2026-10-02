@@ -66,3 +66,41 @@ lapses when the reason does** — when you find one, re-ask it rather than obeyi
 - Say what you measured, including when it contradicts what you said earlier; corrections travel
   badly without the evidence.
 - When you relay an owner decision, quote it verbatim with the date. Paraphrase is how rules drift.
+
+---
+
+## The nudger — what restarts an idle agent, and what it never does
+
+An agent runs one turn per prompt and then stops. It does not loop. So "doing nothing" usually means
+a session that pushed minutes ago with nobody to tell it to carry on, and the fix cannot be a person
+typing `continue` into panes — the PO cannot self-loop either (a PO nudging on a cadence needs
+something nudging *him*). It lives outside every session, as a timer. **The contract a nudger must
+meet:**
+
+- **Holding work only.** An agent is nudged when it holds an unparked claim with commits, its last
+  commit is older than a quiet threshold (15 minutes in the seeded project), and its pane is not
+  mid-turn. An agent holding nothing is never nudged: waking it would be a routing decision, and
+  routing is yours.
+- **The message names itself and assigns nothing.** It says it is an automated nudge from a timer,
+  not an instruction from a person, and that it means *continue what you already hold*. It never
+  claims, never merges.
+- **At most two per work-state**, keyed on the agent's branch heads: a fresh push re-arms the count,
+  a full quiet threshold sits between the first and the second, and after the second it holds and
+  says so. Two is a bound, not a cadence — no amount of elapsed time produces a third. Do not key it
+  on time or on the name alone; that reinstates the night-long spin the bound exists to stop.
+- **The continuous post is woken by role.** The PO never holds a claim, so under the holding rule the
+  one continuously responsible job is structurally unreachable. Wake it keyed on the *role* in the
+  roster, never on a name — the post changes hands.
+- **Every verdict is logged, holds included.** The nudges it did *not* send are the ones you audit.
+- **It is a different mechanism from your own `/loop` wakeups.** A loop is yours, armed by you; the
+  nudge is the fallback from outside. Do not read one as the other.
+
+**What you do about an idle agent.** Nothing by hand. `hold … nothing outstanding` means the agent
+holds no work and the question is a routing one — yours, through the ledger. `hold … already nudged
+twice for this exact state` means the agent is stuck, not idle: read its pane and its branch before
+deciding; a further `continue` is the thing the bound exists to stop.
+
+⚠ **Port status:** this template does not yet ship the script. The reference implementation is the
+seeded project's `scripts/agent-nudge.sh` (its header records why each rule above exists, measured)
+with `strength-agent-nudge.timer` (user scope, every 5 minutes). Porting it is a child of the
+template epic; until it lands, this section is the contract, not a feature.
