@@ -3,11 +3,28 @@ import { authorEmailOf, current, dueWaiting, forget, parseRoster, procStartOf, t
 
 const POLL_MS = 10_000
 
+// Where Claude Code writes `<pid>.json` for every live session: under its config directory, which is
+// `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise.
+//
+// ⚠ NOT RELATIVE TO THE PLUGIN'S OWN DIRECTORY. The first version used `${$.plugin.root}/../../sessions`,
+// which reaches ~/.claude/sessions only when the mod sits two levels under ~/.claude. Installed the way
+// the README says (CLAUDE_CODE_PLUGIN_DIRS=/path/to/harness/mods/waiting-agents) it resolved to
+// /path/to/harness/sessions and every poll in the delivery lead's session logged
+// `$.fs.list(...) failed: ENOENT` (2026-10-15). The tests passed because their fake filesystem answered
+// any path ending in /sessions; they now answer only the real one.
+export async function sessionsDir($: EngineInterface): Promise<string> {
+  const config = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (config) return `${config}/sessions`
+  const home = await $.env.get('HOME')
+  if (!home) throw new Error('neither CLAUDE_CONFIG_DIR nor HOME is set, so the sessions directory cannot be found')
+  return `${home}/.claude/sessions`
+}
+
 // The session files of live Claude processes: a file whose pid has gone, or now belongs to another
 // process, is left out. Each is named by its launch line's GIT_AUTHOR_EMAIL in the roster, or failing
 // that by the session's own name.
 async function sessionFiles($: EngineInterface, roster: Roster): Promise<SessionFile[]> {
-  const dir = `${$.plugin.root}/../../sessions`
+  const dir = await sessionsDir($)
   const live: SessionFile[] = []
   for (const entry of await $.fs.list(dir)) {
     if (!/^\d+\.json$/.test(entry.name)) continue

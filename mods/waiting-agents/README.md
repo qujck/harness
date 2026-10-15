@@ -20,7 +20,10 @@ Install it for every session on the machine by naming its folder in the `env` bl
 { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/mods/waiting-agents" } }
 ```
 
-It takes effect in sessions started after that.
+It takes effect in sessions started after that. The session files are read from Claude Code's config
+directory, `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise, so the mod's folder can live anywhere;
+a poll that cannot find them logs `waiting-agents: …` once per poll in the delivery lead's session and sends
+nothing.
 
 - `hooks/watch.ts` reads the roster and the session files and decides who is due a report;
   `hooks/register.ts` polls and sends; `hooks/waiting.test.ts` holds the tests.
