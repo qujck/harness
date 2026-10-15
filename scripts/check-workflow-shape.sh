@@ -18,6 +18,9 @@
 #   5. land merges by REBASE (gh pr merge --rebase); the hourly workflow has a schedule, its own
 #      concurrency group with cancel-in-progress false, and yields to a repair PR
 #   6. the header carries the replace-never-rerun rule (a re-run executes the OLD definition)
+#   7. every runs-on in both workflows falls back to a GitHub-hosted runner (ubuntu-latest) when no label
+#      variable is set — a job that demands a self-hosted label on a repo with no runner sits queued for
+#      ever (the template's own `route` did, 2026-10-15, and read as "needs a rebase")
 set -uo pipefail
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/selftest-flag.sh"
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/harness-env.sh"
@@ -38,7 +41,9 @@ shape_findings() {
   awk '/FULL_SUITE_CALLER: verify/{g=1} g && /full-suite-gate\.sh/{c=1} g && c && /2\) .*(proceeding|CANNOT TELL)/{p=1} END{exit !(g&&c&&p)}' "$ci" || echo "the full-suite gate is not called with the proceed-on-2 policy written beside it"
   awk '/if gh pr merge .* --rebase --delete-branch/{f=1} END{exit !f}' "$ci" || echo "land does not merge by rebase"
   awk '/REPLACE, NEVER RE-RUN/{f=1} END{exit !f}' "$ci" || echo "the header no longer states replace-never-rerun"
+  awk '/^\s*runs-on:/ && !/ubuntu-latest/{bad=1} END{exit bad}' "$ci" || echo "a runs-on in ci.yml has no GitHub-hosted fallback (ubuntu-latest): with no runner registered that job queues for ever"
   [[ -r "$hourly" ]] || { echo "hourly workflow missing: $hourly"; return 0; }
+  awk '/^\s*runs-on:/ && !/ubuntu-latest/{bad=1} END{exit bad}' "$hourly" || echo "a runs-on in the hourly workflow has no GitHub-hosted fallback (ubuntu-latest)"
   awk '/^\s*schedule:/{f=1} END{exit !f}' "$hourly" || echo "the hourly workflow has no schedule"
   awk '/cancel-in-progress: false/{f=1} END{exit !f}' "$hourly" || echo "the hourly workflow cancels in progress (a scheduled run must never cancel another)"
   awk '/yield-to-repair\.sh --hourly/{f=1} END{exit !f}' "$hourly" || echo "the hourly workflow does not yield to a repair PR"
@@ -61,6 +66,10 @@ if selftest_is_flag "${1:-}"; then
   sed 's/cancel-in-progress: false/cancel-in-progress: true/' "$ROOT/.github/workflows/hourly-full-suite.yml" > "$d/h.yml"
   _t "an hourly that cancels in progress is a finding" "the hourly workflow cancels in progress (a scheduled run must never cancel another)" "$(shape_findings "$ROOT/.github/workflows/ci.yml" "$d/h.yml")"
   _t "a missing workflow is a finding, not a pass" "ci workflow missing: $d/none.yml" "$(shape_findings "$d/none.yml" "$d/h.yml")"
+  sed "0,/runs-on: .*/s//runs-on: [self-hosted, route-box]/" "$ROOT/.github/workflows/ci.yml" > "$d/ci5.yml"
+  _t "a job pinned to a self-hosted label with no hosted fallback is a finding" "a runs-on in ci.yml has no GitHub-hosted fallback (ubuntu-latest): with no runner registered that job queues for ever" "$(shape_findings "$d/ci5.yml" "$ROOT/.github/workflows/hourly-full-suite.yml")"
+  sed "s/runs-on: .*/runs-on: [self-hosted, canary-box]/" "$ROOT/.github/workflows/hourly-full-suite.yml" > "$d/h2.yml"
+  _t "the same in the hourly workflow" "a runs-on in the hourly workflow has no GitHub-hosted fallback (ubuntu-latest)" "$(shape_findings "$ROOT/.github/workflows/ci.yml" "$d/h2.yml")"
   rm -rf "$d"
   (( fails == 0 )) && echo "check-workflow-shape: self-test ok" || { echo "check-workflow-shape: self-test FAILED" >&2; exit 1; }
   exit 0

@@ -19,7 +19,8 @@ permissions:
 jobs:
   hourly-full-suite:
     name: hourly full suite
-    runs-on: [self-hosted, "${{ vars.CANARY_LABEL || 'canary-box' }}"]
+    # GitHub-hosted unless the CANARY_LABEL repository variable names a self-hosted runner (ci.yml's header).
+    runs-on: ${{ vars.CANARY_LABEL && fromJSON(format('["self-hosted","{0}"]', vars.CANARY_LABEL)) || 'ubuntu-latest' }}
     timeout-minutes: 90
     env:
       GH_TOKEN: ${{ github.token }}
@@ -27,6 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { ref: main, fetch-depth: 0 }
+      - name: Claude Code, for the mods' tests, when this runner has none
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
+        run: |
+          if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
+          curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version
       - name: Yield to an open repair PR, and clear the doomed verifies ahead of it
         run: |
           bash scripts/yield-to-repair.sh --doomed || true
