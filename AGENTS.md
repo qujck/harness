@@ -22,7 +22,9 @@ doesn't ship one).*
 Four roles exist in every project that uses this harness, whatever the team size:
 [Delivery Lead / team lead](docs/roles/delivery-lead.md) · [Developer](docs/roles/developer.md) ·
 [Head of Testing](docs/roles/head-of-testing.md) · [Process improvement](docs/roles/process-improvement.md).
-Who holds which is the [roster](docs/roles/roster.md). Each document says what you own and — the
+Two optional roles join them where a project wants them: [Code reviewer](docs/roles/code-reviewer.md)
+(reviews every PR, on the PR, and talks only to the delivery lead) and [Tester](docs/roles/tester.md)
+(runs what the head of testing defines). Who holds which is the [roster](docs/roles/roster.md). Each document says what you own and — the
 load-bearing half — what you must not touch. The rules below bind all four roles.
 An assistant beside the team (a house or personal assistant) is **not a role here**: it is recorded,
 never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assistant.md).

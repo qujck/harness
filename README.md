@@ -110,7 +110,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 - **`docs/roles/`** — four roles exist in every project using this harness, however small
   the team: delivery lead (the ledger and the routing), developer (the code, to a terminal
   state), head of testing (what is true; fixes nothing it finds), process improvement (the
-  path to `main`, the gates, the scheduled jobs). Each prompt says what the role owns and what it
+  path to `main`, the gates, the scheduled jobs). Two optional roles join them where wanted: a code
+  reviewer (every PR, reviewed on the PR) and a tester (runs what the head of testing defines). Each prompt says what the role owns and what it
   must not touch; the roster says who holds which, from the session's identity, never a directory.
 - **Mechanisms that arrive with later children of the template epic are marked "(arrives with
   `<child-id>`)"** in the docs, and `scripts/check-docs-markers-match-landed-children.sh` fails the

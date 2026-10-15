@@ -10,6 +10,9 @@
 # <project>-<template name>. The OnFailure hook <project>-unit-failure@.service turns any unit's failure
 # into a CONDITION (scripts/ops-alert-unit-failure.sh): one email when it fails, one when the settle
 # tick finds it healthy again. ⚠ Edit the template and re-run this; never the installed copy.
+# ⚠ Never check a unit with `systemd-analyze --user verify` on a machine whose user manager is running: it
+# starts a throwaway manager that replaces $XDG_RUNTIME_DIR/systemd/private, and every `systemctl --user`
+# then fails ("Failed to connect to bus") until the user manager restarts. `--render` and a read are enough.
 set -uo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/selftest-flag.sh"

@@ -13,6 +13,8 @@ is on:
 | `developer` | [developer.md](developer.md) | the code and everything they start, to a terminal state |
 | `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; fixes nothing it finds |
 | `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |
+| `code-reviewer` *(optional)* | [code-reviewer.md](code-reviewer.md) | a review of every PR, posted on the PR; talks only to the delivery lead |
+| `tester` *(optional)* | [tester.md](tester.md) | running what the head of testing defines; fixes nothing it finds |
 
 ## What a name IS comes from the session, not from a directory
 

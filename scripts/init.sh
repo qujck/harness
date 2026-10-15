@@ -106,6 +106,8 @@ echo "   Delivery Lead        : docs/roles/delivery-lead.md        — the ledge
 echo "   Developer            : docs/roles/developer.md            — the code, to a terminal state; never grooms"
 echo "   Head of Testing      : docs/roles/head-of-testing.md      — what 'proven' means; the suites; never ships product"
 echo "   Process improvement  : docs/roles/process-improvement.md  — the pipeline, gates, runbooks; never product work"
+echo "   Code reviewer (opt.) : docs/roles/code-reviewer.md        — reviews every PR on the PR; fixes and merges nothing"
+echo "   Tester (opt.)        : docs/roles/tester.md               — runs what the head of testing defines; fixes nothing"
 echo "   Who holds which      : docs/roles/roster.md"
 
 # 2. .env present (if the project ships a .env.example template).
