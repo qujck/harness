@@ -25,5 +25,6 @@ It takes effect in sessions started after that.
 - `hooks/watch.ts` reads the roster and the session files and decides who is due a report;
   `hooks/register.ts` polls and sends; `hooks/waiting.test.ts` holds the tests.
 - `claude plugin validate mods/waiting-agents` and `claude plugin test mods/waiting-agents` check it.
+  `scripts/verify.sh` runs the tests on every PR through `scripts/check-mods-tests-pass.sh`.
   `.claude-plugin/types/`, which `tsconfig.json` extends, is written by Claude Code when it loads the mod
   and is not committed.

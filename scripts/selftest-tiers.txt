@@ -22,6 +22,7 @@
 scripts/agent-onboard.sh	verify
 scripts/check-docs-markers-match-landed-children.sh	verify
 scripts/check-merge-seat-count.sh	verify
+scripts/check-mods-tests-pass.sh	verify
 scripts/check-no-committed-jira-token.sh	verify
 scripts/check-no-new-progress-files.sh	verify
 scripts/check-selftest-flag-contract.sh	verify
