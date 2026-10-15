@@ -11,9 +11,17 @@
 #                         while the gate is closed (docs/runbooks/main-is-red.md)
 #
 # Required status checks on the ruleset: `route` and `verify` (REQUIRED_CHECKS in harness.env; the
-# ruleset is set in GitHub by hand, once). Runner labels are GitHub repository VARIABLES mirroring the
-# same keys in harness.env (a workflow cannot read harness.env): MERGE_SEAT_LABEL, LEDGER_LANE_LABEL,
-# CANARY_LABEL, ROUTE_LABEL. Defaults below match harness.env.example.
+# ruleset is set in GitHub by hand, once).
+#
+# RUNNERS. With no repository variables set, EVERY job runs on GitHub-hosted `ubuntu-latest`: a fresh
+# project (and this template) has a working pipeline from its first PR and needs no runner of its own.
+# Setting the variables MERGE_SEAT_LABEL, LEDGER_LANE_LABEL, CANARY_LABEL, ROUTE_LABEL (the keys in
+# harness.env; a workflow cannot read that file) pins each job to [self-hosted, <label>]. A job that
+# needs the Claude Code CLI (the mods' tests) installs it when the runner has none; CLAUDE_CODE_VERSION
+# pins the version. ⚠ A hosted runner is a fresh VM: a project whose verify needs a stack must set the
+# labels and register the runners (docs/runbooks/ci-lanes.md). Before 2026-10-15 every job demanded a
+# self-hosted label, and on a repo with no runner the `route` check sat queued for ever — read as "needs
+# a rebase" and merged past by hand.
 #
 # ⚠ REPLACE, NEVER RE-RUN, AFTER A CHANGE TO THIS FILE. A re-run executes the workflow definition the
 # run was CREATED with, so a re-run of an old run tests the old pipeline and reports it on the new tip.
@@ -48,7 +56,7 @@ permissions:
 jobs:
   route:
     name: route
-    runs-on: [self-hosted, "${{ vars.ROUTE_LABEL || 'route-box' }}"]
+    runs-on: ${{ vars.ROUTE_LABEL && fromJSON(format('["self-hosted","{0}"]', vars.ROUTE_LABEL)) || 'ubuntu-latest' }}
     if: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 5
     outputs:
@@ -65,22 +73,24 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGE_SEAT_LABEL: ${{ vars.MERGE_SEAT_LABEL || 'forge-box' }}
-          LEDGER_LANE_LABEL: ${{ vars.LEDGER_LANE_LABEL || 'ledger-lane' }}
+          # Empty = no self-hosted runner for that lane: verify runs on GitHub-hosted ubuntu-latest.
+          MERGE_SEAT_LABEL: ${{ vars.MERGE_SEAT_LABEL }}
+          LEDGER_LANE_LABEL: ${{ vars.LEDGER_LANE_LABEL }}
           LEDGER_LANE_PATHS_RE: ${{ vars.LEDGER_LANE_PATHS_RE || '^(docs/|infra/ledger-db/|agents/|([^/]+/)*[^/]+\.md$)' }}
         run: |
           set -uo pipefail
+          seat="${MERGE_SEAT_LABEL:-GitHub-hosted ubuntu-latest}"; lane="${LEDGER_LANE_LABEL:-GitHub-hosted ubuntu-latest}"
           changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" 2>/dev/null || true)"
           if [[ -z "$changed" ]]; then
             printf 'runner=%s\nlane=full\n' "$MERGE_SEAT_LABEL" >> "$GITHUB_OUTPUT"
-            echo "could not read the diff — routing to the merge seat (the safe default)"; exit 0
+            echo "could not read the diff — routing to the merge seat ($seat, the safe default)"; exit 0
           fi
           if printf '%s\n' "$changed" | awk -v re="$LEDGER_LANE_PATHS_RE" '$0 !~ re {found=1} END {exit !found}'; then
             printf 'runner=%s\nlane=full\n' "$MERGE_SEAT_LABEL" >> "$GITHUB_OUTPUT"
-            echo "touches code — the merge seat ($MERGE_SEAT_LABEL):"; printf '%s\n' "$changed" | awk -v re="$LEDGER_LANE_PATHS_RE" '$0 !~ re' | head -20
+            echo "touches code — the merge seat ($seat):"; printf '%s\n' "$changed" | awk -v re="$LEDGER_LANE_PATHS_RE" '$0 !~ re' | head -20
           else
             printf 'runner=%s\nlane=ledger\n' "$LEDGER_LANE_LABEL" >> "$GITHUB_OUTPUT"
-            echo "ledger/docs only ($(wc -l <<<"$changed") files) — $LEDGER_LANE_LABEL, leaving the merge seat free"
+            echo "ledger/docs only ($(wc -l <<<"$changed") files) — $lane, leaving the merge seat free"
           fi
       - id: main_state
         name: is main's full suite red — if so this PR must prove the FULL suite
@@ -126,7 +136,7 @@ jobs:
   verify:
     name: verify
     needs: route
-    runs-on: [self-hosted, "${{ needs.route.outputs.runner }}"]
+    runs-on: ${{ needs.route.outputs.runner && fromJSON(format('["self-hosted","{0}"]', needs.route.outputs.runner)) || 'ubuntu-latest' }}
     if: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 90
     env:
@@ -138,6 +148,13 @@ jobs:
         run: echo "::error::a draft must never satisfy the gate"; exit 1
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Claude Code, for the mods' tests, when this runner has none (a self-hosted box carries its own)
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
+        run: |
+          if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
+          curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version
       - name: Key this job's stack on the runner that took it, not the route label
         run: |
           p="$(bash scripts/ci-stack-project.sh "${RUNNER_NAME:-}")" || { echo "::error::cannot name the CI stack: this runner has no RUNNER_NAME"; exit 1; }
@@ -207,7 +224,7 @@ jobs:
   land:
     name: land
     needs: [route, verify]
-    runs-on: [self-hosted, "${{ vars.ROUTE_LABEL || 'route-box' }}"]
+    runs-on: ${{ vars.ROUTE_LABEL && fromJSON(format('["self-hosted","{0}"]', vars.ROUTE_LABEL)) || 'ubuntu-latest' }}
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.verify.result == 'success' }}
     timeout-minutes: 10
     env:
@@ -225,7 +242,7 @@ jobs:
 
   repair:
     name: repair full suite (main is red)
-    runs-on: [self-hosted, "${{ vars.CANARY_LABEL || 'canary-box' }}"]
+    runs-on: ${{ vars.CANARY_LABEL && fromJSON(format('["self-hosted","{0}"]', vars.CANARY_LABEL)) || 'ubuntu-latest' }}
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'repair-main') }}
     timeout-minutes: 90
     env:
@@ -234,6 +251,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Claude Code, for the mods' tests, when this runner has none
+        env:
+          CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
+        run: |
+          if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
+          curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version
       - name: Clear the doomed verifies queued ahead of this PR's own
         run: bash scripts/yield-to-repair.sh --doomed || true
       - name: Merge the PR's base branch into this branch, or stop

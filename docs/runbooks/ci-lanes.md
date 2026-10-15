@@ -7,9 +7,18 @@
 are ALSO GitHub repository variables of the same names (a workflow cannot read `harness.env`).
 **Required contexts on the ruleset:** `route` and `verify` (`REQUIRED_CHECKS`), set in GitHub by hand once.
 
+**Runners.** With no label variable set on the repository, every job runs on GitHub-hosted
+`ubuntu-latest`, so a fresh project (and the template itself) has a working pipeline from its first PR.
+A label variable pins its job to `[self-hosted, <label>]`. A hosted runner is a fresh VM: it carries
+the harness's own checks and any stackless tier, and installs the Claude Code CLI for the mods' tests
+(`CLAUDE_CODE_VERSION` pins it); a project whose verify needs a stack, a browser or one merge seat sets
+the labels and registers the runners. `scripts/check-workflow-shape.sh` refuses a `runs-on` with no
+hosted fallback: before 2026-10-15 every job demanded a self-hosted label, and on a repo with no
+runner `route` sat queued for ever, read as "needs a rebase", and was merged past by hand.
+
 ## The lanes
 
-| job | runner label | what it does |
+| job | runner label (hosted `ubuntu-latest` when unset) | what it does |
 |---|---|---|
 | `route` | `ROUTE_LABEL` | reads the diff: entirely inside `LEDGER_LANE_PATHS_RE` → the **ledger lane** (`LEDGER_LANE_LABEL`, never the seat); otherwise the **merge seat** (`MERGE_SEAT_LABEL`). Asks `full-suite-gate.sh` whether `main` is red (rc 1 → this PR runs the FULL suite). Turns the changed paths into the browser subset (`ui-relevant-specs.sh`): no surface path → no browser run; an unmapped surface path → everything. |
 | `verify` | the runner route chose | merges the base branch in (`ci-merge-pr-base.sh`) or stops; keys its compose project on **the runner name** (`ci-stack-project.sh` — two runners can share a label, and the seeded project found that out with two verifies on one project); runs `scripts/verify.sh` (tiers under `VERIFY_STEP_BUDGET_S`), then the browser subset (`UI_GREP`), the cost budget, then the gate. |
@@ -59,7 +68,8 @@ the map is a hole.
 
 ## Wiring a project (once)
 
-1. Register runners with the labels in `harness.env`; set the same names as repository variables.
+1. Nothing, for a stackless project: the pipeline runs hosted. When the project needs its own runners,
+   register them with the labels in `harness.env` and set the same names as repository variables.
 2. Ruleset on `main`: required status checks `route` and `verify`; linear history; auto-merge on.
 3. `gh workflow run hourly-full-suite.yml` once, so the gate has a run to judge.
 4. Open a docs-only PR (ledger lane) and a page PR (subset) and read the route log — the row's
