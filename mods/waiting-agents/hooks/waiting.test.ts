@@ -1,7 +1,9 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-const SESSIONS = /\/sessions$/
+// The ONE directory the mod may list. The first tests matched any path ending in /sessions, which is
+// how a path built from the plugin's own directory passed them while failing on every real install.
+const SESSIONS = '/home/me/.claude/sessions'
 const ROSTER = JSON.stringify({
   agents: [
     { name: 'Lead', email: 'lead@example.test', role: 'delivery-lead', status: 'active' },
@@ -14,19 +16,32 @@ const ROSTER = JSON.stringify({
 const v = (value: unknown) => ({ value }) as never
 const stat = (start: string) => `1 (claude) S ${'0 '.repeat(18)}${start} 0 0`
 
-type World = { files: Record<string, object>; procs: Record<string, string>; env?: Record<string, string> }
+type World = {
+  files: Record<string, object>
+  procs: Record<string, string>
+  env?: Record<string, string>
+  /** The process environment the mod reads; HOME=/home/me unless a test says otherwise. */
+  vars?: Record<string, string>
+  /** Where the session files live; the default is what HOME=/home/me implies. */
+  sessions?: string
+}
 
 function stage(on: On, world: World, sent: string[], logged: string[], status: string[] = []) {
+  const sessions = world.sessions ?? SESSIONS
+  mock.env(on, world.vars ?? { HOME: '/home/me' })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.root', () => v('/home/me/dev'))
   on('ui.log', ($, e) => { logged.push(e.text); return v(undefined) })
   on('ui.status', ($, e) => { status.push(e.text ?? ''); return v(undefined) })
   on('session.id', () => v('lead-sid'))
-  on('fs.list', ($, e) => v(SESSIONS.test(e.path)
-    ? Object.keys(world.files).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false }))
-    : []))
+  // Only the real directory answers; any other path is ENOENT, as on a real box.
+  on('fs.list', ($, e) => {
+    if (e.path !== sessions) throw new Error(`ENOENT: ${e.path}`)
+    return v(Object.keys(world.files).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })))
+  })
   on('fs.read', ($, e) => {
     if (e.path.endsWith('/agents/roster.json')) return v(ROSTER)
+    if (e.path.endsWith('.json') && !e.path.startsWith(`${sessions}/`)) throw new Error(`ENOENT: ${e.path}`)
     const env = e.path.match(/^\/proc\/(\d+)\/environ$/)?.[1]
     if (env !== undefined) {
       const email = world.env?.[env]
@@ -182,4 +197,47 @@ test('a session is known by its launch line email when it has no name', async ($
   expect(sent.length).toBe(1)
   expect(sent[0]).toContain('Dev waiting: permission prompt (proj:@1.%2)')
   expect(sent[0]).not.toContain('Gone')
+})
+
+// The sessions directory comes from the Claude config directory, never from where the mod is
+// installed. `claude plugin test` runs this file with the mod at its real path (a harness checkout,
+// nowhere near ~/.claude), so a plugin-relative path would be ENOENT in every test below.
+test('the session files are read under $CLAUDE_CONFIG_DIR when it is set', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const logged: string[] = []
+  const w: World = { ...world(), vars: { HOME: '/home/me', CLAUDE_CONFIG_DIR: '/srv/claude-cfg' }, sessions: '/srv/claude-cfg/sessions' }
+  stage(on, w, sent, logged)
+  await $.session.start(START)
+  wait(w, clock.now())
+  await clock.advance(30_000)
+  expect(sent.length).toBe(1)
+  expect(logged).toEqual([])
+})
+
+test('without CLAUDE_CONFIG_DIR the session files are read under $HOME/.claude', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const logged: string[] = []
+  const w: World = { ...world(), vars: { HOME: '/home/other' }, sessions: '/home/other/.claude/sessions' }
+  stage(on, w, sent, logged)
+  await $.session.start(START)
+  wait(w, clock.now())
+  await clock.advance(30_000)
+  expect(sent.length).toBe(1)
+  expect(logged).toEqual([])
+})
+
+test('with neither variable set every poll logs one line naming the cause and sends nothing', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const logged: string[] = []
+  const w: World = { ...world(), vars: {} }
+  stage(on, w, sent, logged)
+  await $.session.start(START)
+  wait(w, clock.now())
+  await clock.advance(30_000)
+  expect(sent).toEqual([])
+  expect(logged.length).toBe(3)
+  expect(logged[0]).toContain('neither CLAUDE_CONFIG_DIR nor HOME is set')
 })
