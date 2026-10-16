@@ -264,3 +264,31 @@ test('roster roles, settings, row freshness and the bound, unit by unit', async 
   expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 899_000 }, T0, 900).send).toBe(false)
   expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 900_000 }, T0, 900)).toEqual({ send: true, count: 2 })
 })
+
+test('once the team has been active, the same agents idling again are nudged afresh', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  await clock.advance(900_000)
+  expect(sent.length).toBe(2)
+  await clock.advance(900_000)
+  expect(sent.length).toBe(2)
+  expect(verdicts(log).at(-1)).toContain('hold: already nudged 2 times for this exact state')
+
+  // Dev works for a while: the bound covered one idle spell, not the agent for good.
+  w.agents.Dev = { activity: 'working', idleAtT0: 0 }
+  await clock.advance(300_000)
+  expect(verdicts(log).at(-1)).toBe('hold: no team agent idle for 900s or more')
+
+  w.agents.Dev = { activity: 'idle', idleAtT0: 1000 }
+  await clock.advance(300_000)
+  expect(sent.length).toBe(3)
+  expect(sent[2]).toContain('nudge 1 of 2')
+  expect(sent[2]).toContain('Dev, developer idle')
+})

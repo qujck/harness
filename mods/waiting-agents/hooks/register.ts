@@ -133,7 +133,13 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
     try { if (typeof text === 'string') rows.push(JSON.parse(text) as ContextRow) } catch { continue }
   }
   const idle = idleAgents(roster.roleOf, freshRows(rows, now), thresholdS)
-  if (idle.length === 0) { await logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`); return }
+  if (idle.length === 0) {
+    // The team is active, so the bound has covered one idle spell: the next spell, of the same agents
+    // or others, starts afresh. Without this a set nudged twice stayed held for good.
+    if ((await $.store.get(NUDGE_STATE)) !== undefined) await $.store.delete(NUDGE_STATE)
+    await logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`)
+    return
+  }
   if (!isFree) { await logVerdict($, paths.log, now, `hold: delivery lead is mid-turn; idle: ${describe(idle)}`); return }
   const key = stateKey(idle)
   const prev = (await $.store.get(NUDGE_STATE)) as NudgeState | undefined

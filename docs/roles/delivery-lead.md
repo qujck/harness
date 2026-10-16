@@ -89,7 +89,8 @@ ensure the team remain active". **The contract:**
 - **At most two per state.** The state is the set of team agents idle: the same set is nudged at most
   twice, a full quiet threshold apart, and after the second it holds and says so. A different set is a
   new state. Two is a bound, not a cadence — no amount of elapsed time produces a third. The count
-  survives a restart of your session (the mod's store).
+  survives a restart of your session (the mod's store) and is cleared once nobody is idle: the bound
+  covers one idle spell, and the same agents idling again after working are nudged afresh.
 - **Delivered as a queued prompt, never typed.** A queued prompt runs as a turn of its own once your
   session is idle and never touches the prompt box, so nothing the owner is typing in your pane is
   disturbed. The earlier design typed the text into the pane with `tmux send-keys` and could land in
