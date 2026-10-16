@@ -43,7 +43,7 @@ CACHE="${AGENTS_DASH_CACHE:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/dash}
 INTERVAL="${AGENTS_DASH_INTERVAL:-8}"
 W="${AGENTS_DASH_WIDTH:-32}"
 SPARK_MINS="${AGENTS_DASH_SPARK_MINS:-15}"
-CTX_ALERT="${AGENTS_DASH_CTX_ALERT:-85}"   # context used (%) at which a row is flagged
+CTX_ALERT="${AGENTS_DASH_CTX_ALERT:-85}"   # context used (%) at which the gauge turns red
 WAIT_ALERT="${AGENTS_DASH_WAIT_ALERT:-60}" # seconds waiting before a row is flagged
 
 # The clock, overridable so the self-test can pin a frame to a known second.
@@ -334,10 +334,8 @@ frame() {
       fi
     fi
 
-    # Flags: the reasons a row is worth looking at.
-    if [ -n "$pct" ] && [ "$pct" -ge "$CTX_ALERT" ] 2>/dev/null; then flag="${RED}!${R}"; namecol="$BOLD$RED"
-    elif [ "$status" = waiting ] && [ "$held" -ge "$WAIT_ALERT" ]; then flag="${AMBER}?${R}"; namecol="$BOLD$AMBER"
-    fi
+    # A long wait flags the row; high context shows only in the gauge's colour.
+    if [ "$status" = waiting ] && [ "$held" -ge "$WAIT_ALERT" ]; then flag="${AMBER}?${R}"; namecol="$BOLD$AMBER"; fi
 
     local mem=""
     [ -n "${RSS[$pid]:-}" ] && mem=$(printf '%d.%dG' $(( RSS[$pid] / 1048576 )) $(( RSS[$pid] % 1048576 * 10 / 1048576 )))
