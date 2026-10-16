@@ -5,7 +5,8 @@ permission prompt, so nobody has to watch every pane.
 
 It loads in every session on the machine and acts only in the one whose identity the roster gives the
 `delivery-lead` role. A session whose root holds no `agents/roster.json` (the house assistant's, or one started
-outside a checkout) has nothing to watch: its status bar says so and nothing is logged. Every ten seconds it reads each live session's `~/.claude/sessions/<pid>.json` (a file
+outside a checkout), or whose identity is not the delivery lead's, has nothing to watch: it shows no status
+line at all and logs nothing. The line exists only in the session that watches. Every ten seconds it reads each live session's `~/.claude/sessions/<pid>.json` (a file
 whose process has gone, or whose pid now belongs to another process, is skipped). Each session is named by
 the `GIT_AUTHOR_EMAIL` its launch line set, looked up in `agents/roster.json`, or failing that by its session
 name. An active agent of any other role that has been waiting for 25 seconds is reported once, e.g.
