@@ -27,15 +27,24 @@ if [ -n "$used" ] && [ -n "$last_out" ] && { [ "$used" != "$prev_used" ] || [ "$
   out_total=$(( ${out_total:-0} + ${last_out%.*} ))
   printf '%s %s %s\n' "$used" "$last_out" "$out_total" > "$tok.tmp" && mv -f "$tok.tmp" "$tok"
 fi
+# The window the gauge is measured against. The payload's context_window_size is always the model's
+# full window, but /autocompact caps where compaction fires, saved per model in settings.json
+# (modelSettings.<model id>.autoCompactWindow, else autoCompactWindow). When that cap is positive and
+# below the model's window it IS the window: 257k of a 500k cap is 51% full, not 25% of 1M.
+model_id="$(jq -r '.model.id // empty' <<<"$payload")"; model_id=${model_id%%\[*}
+cw="$(jq -r '.context_window.context_window_size // empty' <<<"$payload")"
+cap="$(jq -r --arg m "$model_id" '.modelSettings[$m].autoCompactWindow // .autoCompactWindow // empty' \
+        "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" 2>/dev/null)"
+window="${cw:-null}"
+if [ -n "$cap" ] && [ "$cap" -gt 0 ] 2>/dev/null && [ -n "$cw" ] && [ "$cap" -lt "$cw" ] 2>/dev/null; then window=$cap; fi
 jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%TZ)" --arg cwd "$(pwd)" \
    --arg wt "$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename)" \
-   --arg activity "${CLAUDE_ACTIVITY:-working}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" '
+   --arg activity "${CLAUDE_ACTIVITY:-working}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
+   --argjson window "$window" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
-    # window: a publisher whose gauge re-measures against an /autocompact cap should publish the cap;
-    # this example knows no cap and publishes the model'"'"'s size.
     context: { remaining_pct: (.context_window.remaining_percentage // null),
-               window: (.context_window.context_window_size // null),
+               window: $window,
                used: (.context_window.total_input_tokens // null) },
     tokens:  { output_total: (if $has_tokens == "1" then $total else null end) },
     week:    { used_pct: (.rate_limits.seven_day.used_percentage // null) },
