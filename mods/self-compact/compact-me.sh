@@ -69,14 +69,27 @@ the row")" == "{\"instructions\": \"keep the \\\"plan\\\", and\\nthe row\"}" ]]'
   _t "the write is atomic and parses" 'write_request "x" "$p" && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$p" && [[ -z "$(ls -A "$d/self-compact" | grep -v "^sid.json$")" ]]'
   _t "a second write replaces, not appends" 'write_request "y" "$p" && [[ "$(cat "$p")" == "{\"instructions\": \"y\"}" ]]'
   rm -rf "$d"
-  _t "the real env refuses without CLAUDE_CODE_SESSION_ID" '[[ $(env -u CLAUDE_CODE_SESSION_ID bash "$HERE/compact-me.sh" "x" >/dev/null 2>&1; echo $?) == 2 ]]'
+  # the real entry point, both ways: the refusal names ITS reason (not some other exit 2), and a call
+  # with an id and a state dir leaves the file where the mod reads it, with the text inside
+  local err rc=0
+  err="$(env -u CLAUDE_CODE_SESSION_ID bash "$HERE/compact-me.sh" "x" 2>&1 >/dev/null)" || rc=$?   # || so set -e lets the refusal through
+  _t "the real env refuses without CLAUDE_CODE_SESSION_ID, naming it" '[[ $rc == 2 && "$err" == *"CLAUDE_CODE_SESSION_ID is not set"* ]]'
+  d="$(mktemp -d)"
+  _t "the real entry point writes the request for a given id under XDG_STATE_HOME" 'CLAUDE_CODE_SESSION_ID=test-0000 XDG_STATE_HOME="$d" bash "$HERE/compact-me.sh" "keep run 8" >/dev/null 2>&1 && [[ "$(cat "$d/self-compact/test-0000.json")" == "{\"instructions\": \"keep run 8\"}" ]]'
+  _t "the real entry point with no text refuses (exit 2), writes nothing" '[[ $(CLAUDE_CODE_SESSION_ID=test-0001 XDG_STATE_HOME="$d" bash "$HERE/compact-me.sh" >/dev/null 2>&1; echo $?) == 2 && ! -e "$d/self-compact/test-0001.json" ]]'
+  rm -rf "$d"
   if (( fails == 0 )); then echo "compact-me --self-test: ok"; else echo "compact-me --self-test: $fails FAILED"; return 1; fi
 }
 
 # ── main ─────────────────────────────────────────────────────────────────────────────────────────
 
 selftest_reject_typo "${1:-}"
-if selftest_requested "$@"; then self_test; exit $?; fi
+# ⚠ selftest_is_flag, NOT selftest_requested: the latter is for scripts whose ONLY argument is the
+# flag, and its catch-all branch exits 2 on any other first argument, which here is the instructions
+# text itself. At b0b2feb every real call exited 2 "unknown argument" and wrote nothing, and the
+# self-test stayed green because its refusal arm asserted only the exit code, which the wrong
+# rejection also produced (Alfred, 2026-10-16). Both arms below now assert the reason and the file.
+if selftest_is_flag "${1:-}"; then self_test; exit $?; fi
 
 TEXT="${1:-}"
 if [[ -z "$TEXT" ]]; then
