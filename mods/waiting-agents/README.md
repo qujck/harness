@@ -13,7 +13,7 @@ name. An active agent of any other role that has been waiting for 25 seconds is 
 `Wren waiting: permission prompt (proj:@1.%2)`, in a message marked as coming from the mod and not the owner;
 it is reported again only after it has moved on and starts waiting afresh. Nothing is sent while the
 delivery lead is mid-turn, so a wait that ends meanwhile is never reported. The delivery lead's status bar
-shows `waiting-agents: watching N, M waiting`.
+shows `watching N, M waiting` (the engine prefixes every mod's line with the mod's name).
 
 Install it for every session on the machine by naming the `mods` folder in the `env` block of
 `~/.claude/settings.json` (each subfolder holding `.claude-plugin/plugin.json` loads as a mod, so every
@@ -25,7 +25,7 @@ mod in this repo installs with the one line; naming this mod's own folder still 
 
 It takes effect in sessions started after that. The session files are read from Claude Code's config
 directory, `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise, so the mod's folder can live anywhere;
-a poll that cannot find them logs `waiting-agents: …` once per poll in the delivery lead's session and sends
+a poll that cannot find them logs the error once per poll in the delivery lead's session and sends
 nothing.
 
 - `hooks/watch.ts` reads the roster and the session files and decides who is due a report;

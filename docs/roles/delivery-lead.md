@@ -95,6 +95,13 @@ meet:**
 - **It is a different mechanism from your own `/loop` wakeups.** A loop is yours, armed by you; the
   nudge is the fallback from outside. Do not read one as the other.
 
+**An agent at a permission prompt is a different case from an idle one**, and it is reported to you,
+not watched for: the `waiting-agents` mod (`mods/waiting-agents/`, loaded in every session on the box,
+acting only in the one whose roster identity holds `delivery-lead`) sends your session one message,
+marked `[waiting-agents mod, not the owner]`, when a team agent has sat waiting for 25 seconds, and your
+status bar shows `watching N, M waiting`. Read that agent's pane and answer the prompt it is stuck on;
+the mod never does (it types into nothing).
+
 **What you do about an idle agent.** Nothing by hand. `hold … nothing outstanding` means the agent
 holds no work and the question is a routing one — yours, through the ledger. `hold … already nudged
 twice for this exact state` means the agent is stuck, not idle: read its pane and its branch before

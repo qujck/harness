@@ -175,8 +175,15 @@ Tell the user the remaining manual steps (do not do these silently):
    confirm they're present in this repo's `.gitignore`).
 2. **Clock in:** `bash scripts/init.sh` (also installs the pre-commit hook).
    Offer to run it.
-3. **Restart Claude Code** so it picks up `.claude/settings.json` (the Stop /
-   UserPromptSubmit hooks). Hooks loaded at startup won't activate mid-session.
+3. **Load the mods, once per box.** Offer to add
+   `"CLAUDE_CODE_PLUGIN_DIRS": "<this repo's absolute path>/mods"` to the `env` block of
+   `~/.claude/settings.json` (the USER file: the mods act per session on the box, not per repo —
+   read it first and merge, never overwrite; if the key already names other folders, append this
+   one after a `:`), and to write `~/.config/self-compact/compact-after.json` as
+   `{ "default": 200000, "agents": {} }` when it does not exist (the token count at which
+   `self-compact` nudges an agent to compact itself; `mods/self-compact/README.md`).
+4. **Restart Claude Code** so it picks up `.claude/settings.json` (the Stop /
+   UserPromptSubmit hooks) and the mods. Hooks and mods loaded at startup won't activate mid-session.
 
 Do not mark anything "done" by judgement — the harness's own rule is that
 `scripts/verify.sh` is the only Definition of Done.

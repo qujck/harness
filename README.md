@@ -72,6 +72,9 @@ scripts/
   hooks/stop-check.sh        # per-turn lenient handoff warning
   hooks/user-prompt-check.sh # nudge to run init.sh
   skills/configure/SKILL.md  # /configure — fills every placeholder for you (Claude Code)
+mods/                      # Claude Code mods: one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
+  self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
+  waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt; shows nothing in any other session
 ```
 
 **The three scripts are the harness.** They map onto a session's lifecycle:
@@ -144,6 +147,14 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 - **`.claude/settings.json`** — wires the two hooks into Claude Code.
 - **`.claude/skills/configure/SKILL.md`** — the `/configure` skill: detects your
   stack and fills every placeholder for you (Claude Code only).
+- **`mods/`** — two Claude Code mods, installed per *box* rather than per repo: `self-compact`
+  ([mods/self-compact/README.md](mods/self-compact/README.md)) nudges an agent whose compaction
+  window is nearly full to reach a stopping point, bring its durable record up to date and ask to
+  be compacted (`bash mods/self-compact/compact-me.sh "<what the summary must keep>"`); auto-compact at
+  the window stays as the backstop. `waiting-agents` ([mods/waiting-agents/README.md](mods/waiting-agents/README.md))
+  tells the delivery lead's session when a team agent has sat at a permission prompt for 25 seconds, so
+  nobody watches every pane. Both load in every session the box starts and act only where they belong;
+  neither types into a pane. `scripts/check-mods-tests-pass.sh` runs their tests on every PR.
 
 ## Setup
 
@@ -151,7 +162,7 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 
 1. **Copy the kit into your repo root** (everything except this README):
    ```bash
-   cp -r agent-harness/{scripts,.claude,infra,agents,docs,AGENTS.md,PROGRESS.md,DECISIONS.md,OBSERVABILITY.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
+   cp -r agent-harness/{scripts,.claude,mods,infra,agents,docs,AGENTS.md,PROGRESS.md,DECISIONS.md,OBSERVABILITY.md,feature_list.archive.jsonl,.gitattributes,harness.env.example} /path/to/your-repo/
    ```
 
 2. **Open the repo in Claude Code and run `/configure`.** The skill detects your
@@ -166,8 +177,18 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    bash scripts/init.sh   # also installs the git pre-commit hook
    ```
 
-4. **Restart Claude Code** so it picks up `.claude/settings.json` (the hooks load
-   at startup, not mid-session).
+4. **Load the mods, once per box** (`/configure` offers this too). Name the `mods` folder in the
+   `env` block of `~/.claude/settings.json` — the user file, not the repo's, because the mods act
+   per session on the box rather than per repo — and set the self-compact soft point:
+   ```bash
+   # ~/.claude/settings.json → { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/your-repo/mods" } }
+   mkdir -p ~/.config/self-compact && echo '{ "default": 200000, "agents": {} }' > ~/.config/self-compact/compact-after.json
+   ```
+   `default` is the token count at which an agent is nudged to compact itself (200k against a
+   300k `autoCompactWindow`); `agents` overrides it by launch-line name. Each mod's README has the rest.
+
+5. **Restart Claude Code** so it picks up `.claude/settings.json` and the mods (hooks and
+   mods load at startup, not mid-session).
 
 ### The manual path (other agents, or no Claude Code)
 
@@ -190,7 +211,8 @@ After step 1 above:
 
 4. **Clock in** (installs the pre-commit hook): `bash scripts/init.sh`.
 
-5. **Restart your agent** so it picks up `.claude/settings.json`.
+5. **Restart your agent** so it picks up `.claude/settings.json`. (The `mods/` folder is Claude
+   Code only; another agent ignores it.)
 
 ### Integrate into an existing project
 
@@ -198,7 +220,7 @@ The paths above assume a fresh adoption. For a repo that already has code, CI,
 docs, and maybe its own agent instructions, adopt **incrementally and
 non-destructively** — merge into what's there, don't overwrite it.
 
-1. **Copy only the non-colliding files first.** `scripts/`, `infra/ledger-db/`, `agents/`, `docs/`,
+1. **Copy only the non-colliding files first.** `scripts/`, `mods/`, `infra/ledger-db/`, `agents/`, `docs/`,
    `feature_list.archive.jsonl`, `OBSERVABILITY.md`, and `harness.env.example` are
    almost always new. Copy them in. Hold back the four that commonly collide —
    `AGENTS.md`, `CLAUDE.md`, `.gitattributes`, `.gitignore` — and merge them by
@@ -235,7 +257,7 @@ non-destructively** — merge into what's there, don't overwrite it.
    the rule *"a ticket is `passing` only when verify is green"* from the next
    ticket onward; you don't have to make the whole suite pass on day one.
 
-7. **Clock in and restart your agent** — steps 4–5 of the paths above. In Claude
+7. **Clock in, load the mods, and restart your agent** — steps 3–5 of the paths above. In Claude
    Code, `/configure` automates most of this: it detects your stack, asks before
    reconfiguring an existing `harness.env`, and prefers merging `CLAUDE.md`.
 
@@ -246,6 +268,7 @@ The kit's `.gitignore` already lists these; confirm they're in your repo's:
 .agent/
 harness.env
 .claude/settings.local.json
+mods/*/.claude-plugin/types/
 ```
 
 ## The loop, once configured
