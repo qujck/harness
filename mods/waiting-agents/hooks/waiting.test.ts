@@ -244,7 +244,7 @@ test('with neither variable set every poll logs one line naming the cause and se
   expect(logged[0]).toContain('neither CLAUDE_CONFIG_DIR nor HOME is set')
 })
 
-test('a session whose root has no agents/roster.json says so in the status bar and logs nothing, every poll', async ($, on) => {
+test('a session whose root has no agents/roster.json shows NO status line and logs nothing, every poll', async ($, on) => {
   const clock = mock.clock(on)
   const sent: string[] = []
   const logged: string[] = []
@@ -258,5 +258,6 @@ test('a session whose root has no agents/roster.json says so in the status bar a
   await clock.advance(10_000)
   expect(sent).toEqual([])
   expect(logged).toEqual([])
-  expect(status.at(-1)).toBe('waiting-agents: no agents/roster.json under this session, nothing to watch')
+  // every poll clears the line (undefined), so nothing is ever drawn there
+  expect(status.filter(t => t !== '')).toEqual([])
 })
