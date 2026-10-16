@@ -188,9 +188,37 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    ```
    `default` is the token count at which an agent is nudged to compact itself (200k against a
    300k `autoCompactWindow`); `agents` overrides it by launch-line name. Each mod's README has the rest.
+   ⚠ `autoCompactWindow` in `settings.json` reaches only sessions started afterwards. A running
+   session keeps the window it started with until `/autocompact <n>` is typed into it (the argument
+   form applies at once, no picker), and auto-compact fires about 33k short of whatever window the
+   session holds. Measured 2026-10-16: after the file went 300k→250k every running agent still
+   compacted at ~267k; the soft point above assumes the 300k window.
 
-5. **Restart Claude Code** so it picks up `.claude/settings.json` and the mods (hooks and
-   mods load at startup, not mid-session).
+5. **Restart Claude Code once** so it picks up `.claude/settings.json` and loads the mods:
+   `CLAUDE_CODE_PLUGIN_DIRS` is read at start, so the FIRST load needs a restart. After that a loaded mod
+   hot-reloads when its files change: a `git pull` that brings a mod fix shows
+   `● waiting-agents: reloaded (1 hook: session.start)` in the running session and the mod runs
+   its next check at once (seen 2026-10-16 in the delivery lead's session, which had been started
+   before the fix existed). Deploying a mod fix is a pull, not a restart.
+
+6. **Put the team panel beside the delivery lead** (optional, tmux). `scripts/agents-dash.sh` draws
+   every rostered agent's state, context used against its window, token burn, CPU and memory, with the
+   account's limits on top:
+   ```bash
+   tmux split-window -h -l 32 -t <lead's tmux session> "bash /path/to/your-repo/scripts/agents-dash.sh"
+   ```
+   Run from outside the project checkout it needs `ROSTER_FILE=/path/to/your-repo/agents/roster.json`
+   and `CONTEXT_DIR` (where the status line publishes; see step 7) in its environment. A restore script
+   that re-creates the panes should add the panel only when the lead's session has ONE pane, or a re-run
+   stacks a second panel beside the first.
+
+7. **A custom status line must publish the panel's fields.** The panel, `agent-context.sh` and the
+   nudger read the rows the status line writes ([docs/context-publisher.md](docs/context-publisher.md)).
+   A team with its own status line, instead of the kit's `statusline-publish.sh`, shows `no reading yet`
+   and a blank burn column until it writes `context.used`, `context.window` (the `/autocompact` cap when
+   one applies), `tokens.output_total` (a running total, kept with its last pair in `.<session_id>.tokens`
+   beside the row) and `five_hour.used_pct`. The field table and the example publisher in that document
+   are the reference.
 
 ### The manual path (other agents, or no Claude Code)
 
