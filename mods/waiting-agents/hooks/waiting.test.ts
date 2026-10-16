@@ -65,6 +65,7 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
   })
   // The nudger's log; the nudger itself is covered in nudge.test.ts.
   on('fs.write', () => v(undefined))
+  mock.store(on)
   on('prompt.submit', ($, e) => { sent.push(e.text); return { text: e.text } as never })
 }
 

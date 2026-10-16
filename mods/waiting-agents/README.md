@@ -28,8 +28,9 @@ session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the
 Team agents idle for 15 minutes or more: Wren, developer idle 19m. As delivery lead, check each one and keep
 the team active.` A queued prompt runs as a turn of its own once the session is idle and never touches the
 prompt box, so nothing the owner is typing there is disturbed. The same set of idle agents is nudged at most
-twice, a full threshold apart, and the count survives a restart through the mod's store; a different set is a
-new state. It never prods the idle agents and assigns nothing. Every verdict, holds included, is appended to
+twice, a full threshold apart; the count survives a restart through the mod's store and is cleared once nobody
+is idle, so the bound covers one idle spell and the next starts afresh; a different set is a new state. It never
+prods the idle agents and assigns nothing. Every verdict, holds included, is appended to
 `lead-nudge.log` beside the context directory.
 
 Install it for every session on the machine by naming the `mods` folder in the `env` block of
