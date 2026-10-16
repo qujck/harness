@@ -1,0 +1,1 @@
+{ "name": "self-compact", "version": "0.1.0", "description": "Lets an agent compact its own session at a stopping point of its choosing, and nudges it to find one when the compaction window is nearly full" }
