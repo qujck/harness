@@ -36,8 +36,11 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
   on('ui.log', ($, e) => { logged.push(e.text); return v(undefined) })
   on('ui.status', ($, e) => { status.push(e.text ?? ''); return v(undefined) })
   on('session.id', () => v('lead-sid'))
-  // Only the real directory answers; any other path is ENOENT, as on a real box.
+  // Only the real directories answer; any other path is ENOENT, as on a real box. The publisher's
+  // context directory exists and is empty here: the nudger is covered in nudge.test.ts, and a
+  // missing directory is a reported problem there, not a quiet one.
   on('fs.list', ($, e) => {
+    if (e.path.endsWith('/.local/state/dev/context')) return v([])
     if (e.path !== sessions) throw new Error(`ENOENT: ${e.path}`)
     return v(Object.keys(world.files).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })))
   })

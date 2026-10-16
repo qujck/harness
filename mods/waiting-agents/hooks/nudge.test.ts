@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { decide, envFileValue, freshRows, roleWords, statePaths } from './nudge.ts'
+import { decide, envFileValue, freshRows, mainCheckoutOf, roleWords, statePaths } from './nudge.ts'
 import { parseRoster } from './watch.ts'
 
 const ROSTER = JSON.stringify({
@@ -30,27 +30,35 @@ type World = {
   /** Where the publisher writes and the nudger logs; the defaults follow from HOME and the root. */
   context?: string
   log?: string
+  /** The session root; a main checkout unless `gitFile` names the worktree's main checkout. */
+  root?: string
+  /** The text of `<root>/.git` when the root is a linked worktree (a main checkout's is a directory). */
+  gitFile?: string
+  /** The context directory has never been created: the publisher never ran, or the path is wrong. */
+  contextMissing?: boolean
+  /** Every status line shown, in order. */
+  status?: string[]
 }
 
 function stage(on: On, w: World, clock: { now: () => number }, sent: string[], log: string[]) {
   const context = w.context ?? CONTEXT
   const logPath = w.log ?? LOG
+  const root = w.root ?? '/home/me/dev'
   mock.env(on, { HOME: '/home/me' })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('session.root', () => v('/home/me/dev'))
+  on('session.root', () => v(root))
   on('session.id', () => v(w.leadSid))
   on('ui.log', () => v(undefined))
-  on('ui.status', () => v(undefined))
-  on('fs.list', ($, e) => v(
-    e.path === '/home/me/.claude/sessions'
-      ? [{ name: '1.json', kind: 'file', size: 1, mtimeMs: 0, isLink: false }]
-      : e.path === context
-        ? Object.keys(w.agents).map(a => ({ name: `${a}.json`, kind: 'file', size: 1, mtimeMs: 0, isLink: false }))
-        : [],
-  ))
+  on('ui.status', ($, e) => { w.status?.push(e.text ?? ''); return v(undefined) })
+  on('fs.list', ($, e) => {
+    if (e.path === '/home/me/.claude/sessions') return v([{ name: '1.json', kind: 'file', size: 1, mtimeMs: 0, isLink: false }])
+    if (e.path === context && !w.contextMissing) return v(Object.keys(w.agents).map(a => ({ name: `${a}.json`, kind: 'file', size: 1, mtimeMs: 0, isLink: false })))
+    throw new Error(`ENOENT: ${e.path}`)
+  })
   on('fs.read', ($, e) => {
     if (e.path.endsWith('/agents/roster.json')) return v(ROSTER)
-    if (e.path === '/home/me/dev/harness.env') { if (w.envFile === undefined) throw new Error('ENOENT'); return v(w.envFile) }
+    if (e.path === `${root}/harness.env`) { if (w.envFile === undefined) throw new Error('ENOENT'); return v(w.envFile) }
+    if (e.path === `${root}/.git`) { if (w.gitFile === undefined) throw new Error('EISDIR'); return v(w.gitFile) }
     if (e.path === '/proc/1/stat') return v(stat('100'))
     if (e.path === '/home/me/.claude/sessions/1.json') {
       return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: 'Lead', status: w.leadStatus, updatedAt: 5 }))
@@ -73,6 +81,10 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
 }
 
 const START = { cwd: '/home/me/dev', surface: 'terminal', isInteractive: true } as const
+// A delivery lead's checkout as AGENTS.md rule 0 makes it: a linked worktree named after the agent,
+// whose `.git` is a file pointing into the main checkout.
+const WORKTREE = '/home/me/dev/strength-lead'
+const GIT_FILE = 'gitdir: /home/me/dev/strength/.git/worktrees/strength-lead\n'
 const world = (): World => ({
   leadSid: 'lead-sid',
   leadStatus: 'idle',
@@ -159,6 +171,56 @@ test('a session that is not the delivery lead sends and logs nothing', async ($,
   await clock.advance(1_000_000)
   expect(sent).toEqual([])
   expect(log).toEqual([])
+})
+
+test('a lead in a linked worktree reads the rows of the main checkout, not of a project named after the worktree', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.root = WORKTREE
+  w.gitFile = GIT_FILE
+  w.context = '/home/me/.local/state/strength/context'
+  w.log = '/home/me/.local/state/strength/lead-nudge.log'
+  stage(on, w, clock, sent, log)
+  await $.session.start({ ...START, cwd: WORKTREE })
+
+  await clock.advance(10_000)
+  expect(sent.length).toBe(1)
+  expect(sent[0]).toContain('Dev, developer idle 16m')
+  expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
+
+  expect(mainCheckoutOf(GIT_FILE)).toBe('/home/me/dev/strength')
+  expect(mainCheckoutOf(undefined)).toBe(undefined)
+  expect(mainCheckoutOf('gitdir: /home/me/dev/strength/.git')).toBe(undefined)
+  expect(statePaths('/home/me', WORKTREE, {}, undefined, GIT_FILE).contextDir).toBe('/home/me/.local/state/strength/context')
+  expect(statePaths('/home/me', WORKTREE, {}, 'HARNESS_PROJECT=forge\n', GIT_FILE).contextDir).toBe('/home/me/.local/state/forge/context')
+  expect(statePaths('/home/me', WORKTREE, {}, undefined, undefined).contextDir).toBe('/home/me/.local/state/strength-lead/context')
+})
+
+test('a missing context directory is shown in the status line and logged, never a silent hold', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.contextMissing = true
+  w.status = []
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(w.status.at(-1)).toBe('watching 2, 0 waiting')
+  await clock.advance(10_000)
+  expect(w.status.at(-1)).toBe(`watching 2, 0 waiting; context dir missing: ${CONTEXT}`)
+  expect(sent).toEqual([])
+  expect(log).toEqual([])
+
+  w.contextMissing = false
+  await clock.advance(300_000)
+  expect(sent.length).toBe(1)
+  expect(w.status.at(-1)).toBe('watching 2, 0 waiting')
 })
 
 test('harness.env names the project, the context directory and the threshold, as the scripts read them', async ($, on) => {

@@ -18,8 +18,11 @@ shows `watching N, M waiting` (the engine prefixes every mod's line with the mod
 
 It is also the nudger. Every five minutes, in the delivery lead's session, it reads the rows the context
 publisher writes (docs/context-publisher.md: `CONTEXT_DIR`, else `~/.local/state/<HARNESS_PROJECT>/context`,
-resolved from the environment and `harness.env` as `scripts/lib/harness-env.sh` does, ignoring any row older
-than two minutes). When active agents of any other role have been idle for fifteen minutes or more
+resolved from the environment and `harness.env` as `scripts/lib/harness-env.sh` does, the project defaulting
+to the name of the MAIN checkout even when the lead's session root is a linked worktree such as
+`strength-carl`; ignoring any row older than two minutes). When that directory does not exist the status
+bar says `context dir missing: <path>` beside the watch count and the debug log names the two settings
+to check, because a silent hold on a wrong path looks exactly like a quiet team. When active agents of any other role have been idle for fifteen minutes or more
 (`LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into the delivery lead's
 session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.]
 Team agents idle for 15 minutes or more: Wren, developer idle 19m. As delivery lead, check each one and keep
