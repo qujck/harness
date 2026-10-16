@@ -31,6 +31,16 @@ mods_verdict() {
   for m in "${mods[@]}"; do
     if claude plugin test "$m" >/dev/null 2>&1; then printf '  ok    %s\n' "$m"; n=$((n+1))
     else printf '  FAIL  %s  (run: claude plugin test %s)\n' "$m" "$m"; failed+=("$m"); fi
+    # A mod's shell helpers (mods/<mod>/*.sh) carry their own --self-test, and THIS is what runs it:
+    # check-selftests-are-invoked.sh sweeps scripts/ and infra/ only, so a selftest-tiers.txt row for
+    # a path under mods/ is dead and verify's tier step would never run it (found 2026-10-16 when
+    # self-compact/compact-me.sh was added). A red helper fails its mod.
+    local h
+    for h in "$m"/*.sh; do
+      [[ -f "$h" ]] || continue
+      if bash "$h" --self-test >/dev/null 2>&1; then printf '  ok    %s --self-test\n' "$h"
+      else printf '  FAIL  %s --self-test\n' "$h"; failed+=("$h"); fi
+    done
   done
   (( ${#failed[@]} )) && { printf 'failed:%s\n' "${failed[*]}"; return 0; }
   printf 'ok:%s\n' "$n"
@@ -54,6 +64,10 @@ if selftest_is_flag "${1:-}"; then
     # the remedy: fix the test
     printf "import { expect, test } from 'claude-code/testing'\ntest('planted green', () => { expect(1).toBe(1) })\n" > "$t/mods/planted/hooks/planted.test.ts"
     _t "the same mod passes once its test is fixed"  "ok:1" "$(mods_verdict "$t/mods" | tail -1)"
+    printf '#!/usr/bin/env bash\n[[ "${1:-}" == --self-test ]] && exit 1\n' > "$t/mods/planted/helper.sh"
+    _t "a mod whose shell helper's --self-test is red is named as failed"  "failed:$t/mods/planted/helper.sh" "$(mods_verdict "$t/mods" | tail -1)"
+    printf '#!/usr/bin/env bash\n[[ "${1:-}" == --self-test ]] && exit 0\n' > "$t/mods/planted/helper.sh"
+    _t "the same mod passes once its helper is green"  "ok:1" "$(mods_verdict "$t/mods" | tail -1)"
   else
     mkdir -p "$t/mods/x/.claude-plugin"; echo '{}' > "$t/mods/x/.claude-plugin/plugin.json"
     _t "no claude CLI with a mod present is CANNOT LOOK"  cannot-look:no-claude-cli "$(mods_verdict "$t/mods" | tail -1)"
