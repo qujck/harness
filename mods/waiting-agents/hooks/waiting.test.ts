@@ -24,6 +24,8 @@ type World = {
   vars?: Record<string, string>
   /** Where the session files live; the default is what HOME=/home/me implies. */
   sessions?: string
+  /** The session root holds no agents/roster.json (a session started outside a checkout). */
+  noRoster?: boolean
 }
 
 function stage(on: On, world: World, sent: string[], logged: string[], status: string[] = []) {
@@ -40,7 +42,7 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
     return v(Object.keys(world.files).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })))
   })
   on('fs.read', ($, e) => {
-    if (e.path.endsWith('/agents/roster.json')) return v(ROSTER)
+    if (e.path.endsWith('/agents/roster.json')) { if (world.noRoster) throw new Error('ENOENT'); return v(ROSTER) }
     if (e.path.endsWith('.json') && !e.path.startsWith(`${sessions}/`)) throw new Error(`ENOENT: ${e.path}`)
     const env = e.path.match(/^\/proc\/(\d+)\/environ$/)?.[1]
     if (env !== undefined) {
@@ -240,4 +242,21 @@ test('with neither variable set every poll logs one line naming the cause and se
   expect(sent).toEqual([])
   expect(logged.length).toBe(3)
   expect(logged[0]).toContain('neither CLAUDE_CONFIG_DIR nor HOME is set')
+})
+
+test('a session whose root has no agents/roster.json says so in the status bar and logs nothing, every poll', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const logged: string[] = []
+  const status: string[] = []
+  // the house assistant's session, or a developer's started in ~/dev: no strength checkout here
+  const w = { ...world(), noRoster: true }
+  stage(on, w, sent, logged, status)
+  await $.session.start(START)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(logged).toEqual([])
+  expect(status.at(-1)).toBe('waiting-agents: no agents/roster.json under this session, nothing to watch')
 })

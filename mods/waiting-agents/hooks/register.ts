@@ -49,7 +49,17 @@ async function sessionFiles($: EngineInterface, roster: Roster): Promise<Session
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
 async function poll($: EngineInterface, told: Set<string>): Promise<void> {
-  const roster = parseRoster(await $.fs.read(`${await $.session.root()}/agents/roster.json`) as string)
+  // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
+  // including ones whose root is not a strength checkout: the house assistant's, or a developer's
+  // started in ~/dev. There is no roster to read there, so there is nothing to watch: say so in the
+  // status bar and return, rather than logging an ENOENT every ten seconds (Alfred, 2026-10-16).
+  const rosterPath = `${await $.session.root()}/agents/roster.json`
+  const rosterText = await $.fs.read(rosterPath).catch(() => undefined)
+  if (typeof rosterText !== 'string') {
+    $.ui.status('waiting-agents: no agents/roster.json under this session, nothing to watch')
+    return
+  }
+  const roster = parseRoster(rosterText)
   const files = await sessionFiles($, roster)
   const id = await $.session.id()
   const mine = files.find(f => f.sessionId === id)
