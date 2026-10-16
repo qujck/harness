@@ -15,9 +15,11 @@ turn (a subagent's or fork's turns are passed through) it does one of two things
   file that is not a JSON object compacts nothing and is named once in the log. A hook's veto is reported,
   not retried. The agent may write the file at any time, not only when nudged: an early compaction after
   a milestone is the agent's call.
-- **No request, and 20% or less of the compaction window remains.** The window is `autoCompactWindow`
-  from the merged settings (the model's window when unset); the count is the session's own usage, as the
-  status line has it. The mod submits one prompt, marked `[self-compact mod, not the owner]`, naming the
+- **No request, and 20% or less of the room remains.** The room is the *effective* window: `autoCompactWindow`
+  from the merged settings (the model's window when unset) less the ~33k tokens auto-compact keeps back, since
+  it fires that far short of the window (measured 2026-10-16: 266.7k–269.3k on 300k, so ~217k on 250k, where
+  the nudge comes at 173.6k used and leaves ~43k to finish and save). The count is the session's own usage, as
+  the status line has it. The mod submits one prompt, marked `[self-compact mod, not the owner]`, naming the
   figures and the exact path to write: finish at a natural stopping point, bring the durable record up to
   date, then write the file and end the turn. One nudge per fill: it re-arms only once the count has
   dropped, that is, after a compaction.
@@ -36,7 +38,9 @@ folders are separated by `:`):
 { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/mods" } }
 ```
 
-It takes effect in sessions started after that.
+It takes effect in sessions started after that. A running session does not reload `autoCompactWindow` from
+settings either; `/autocompact 250000` in that session brings it onto the new window, and `claude --settings`
+does not override it.
 
 - `hooks/compact.ts` is the pure part: the request path, the window arithmetic, the nudge text and the
   request parser. `hooks/register.ts` reads and acts after each turn. `hooks/compact.test.ts` holds the

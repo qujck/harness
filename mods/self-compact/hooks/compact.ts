@@ -1,8 +1,16 @@
 // The pure part of self-compact: where the request file lives, when a nudge is due, and what a
 // request file means. Nothing here touches the engine; register.ts does the reading and acting.
 
-// A nudge is due once this fraction of the compaction window remains, or less.
+// A nudge is due once this fraction of the EFFECTIVE window remains, or less.
 export const NUDGE_AT_REMAINING = 0.20
+
+// Auto-compact does not fire at the window: it fires this many tokens short of it. Measured by
+// Alfred on 2026-10-16 from compact_boundary entries (compactMetadata.preTokens) in every agent
+// transcript on a 300k window: 266.7k–269.3k, so ~33k early; on 250k that is ~217k. The first
+// version measured "remaining" against the nominal window, which on 250k nudged at 200k used and
+// left the agent ~17k to finish and save, one large read's worth — the exact case the mod exists
+// to prevent. Remaining is now measured against the effective threshold.
+export const AUTO_COMPACT_RESERVE = 33_000
 
 export type Window = {
   /** Input tokens the last response was answered over. */
@@ -11,10 +19,16 @@ export type Window = {
   compactWindow: number
 }
 
-// The fraction of the compaction window still free, 0..1; a window of 0 or less is read as full.
+// Where auto-compact actually fires: the window less the reserve (never under 0).
+export function effectiveWindow(w: Window): number {
+  return Math.max(0, w.compactWindow - AUTO_COMPACT_RESERVE)
+}
+
+// The fraction of the EFFECTIVE window still free, 0..1; an effective window of 0 is read as full.
 export function remainingFraction(w: Window): number {
-  if (w.compactWindow <= 0) return 0
-  return Math.max(0, Math.min(1, (w.compactWindow - w.tokens) / w.compactWindow))
+  const eff = effectiveWindow(w)
+  if (eff <= 0) return 0
+  return Math.max(0, Math.min(1, (eff - w.tokens) / eff))
 }
 
 // The compaction window: the merged settings' `autoCompactWindow` when it is a positive number,
@@ -58,7 +72,7 @@ export function nudgeDue(w: Window, nudgedAtTokens: number | undefined): boolean
 export function nudgeText(w: Window, path: string): string {
   const pct = Math.round(remainingFraction(w) * 100)
   return [
-    `[self-compact mod, not the owner] ${pct}% of your ${w.compactWindow.toLocaleString('en-GB')}-token compaction window remains (${w.tokens.toLocaleString('en-GB')} used); auto-compact fires at the window.`,
+    `[self-compact mod, not the owner] ${pct}% of your room remains: ${w.tokens.toLocaleString('en-GB')} tokens used, and auto-compact fires at about ${effectiveWindow(w).toLocaleString('en-GB')} (your ${w.compactWindow.toLocaleString('en-GB')}-token window less the ~${AUTO_COMPACT_RESERVE.toLocaleString('en-GB')} it keeps back).`,
     'Finish at a natural stopping point and bring your durable record up to date (session entry, row notes, memory) before anything else.',
     `Then write {"instructions":"<what the summary must keep>"} to ${path} and end your turn: this mod compacts the session between turns, with those instructions, and clears the request. Do not start new work first.`,
   ].join('\n')

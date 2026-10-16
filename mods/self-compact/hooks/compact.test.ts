@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { compactWindowOf, nudgeDue, parseRequest, remainingFraction, requestPath } from './compact.ts'
+import { compactWindowOf, effectiveWindow, nudgeDue, parseRequest, remainingFraction, requestPath } from './compact.ts'
 
 const v = (value: unknown) => ({ value }) as never
 const SID = 'sid-1'
@@ -78,7 +78,7 @@ test('at 20% remaining ONE nudge goes out, naming the path and the mod; later tu
   await turn($ as never)
   expect(s.sent.length).toBe(1)
   expect(s.sent[0]).toContain('[self-compact mod, not the owner]')
-  expect(s.sent[0]).toContain('20% of your 250,000-token compaction window remains')
+  expect(s.sent[0]).toContain('8% of your room remains: 200,000 tokens used, and auto-compact fires at about 217,000')
   expect(s.sent[0]).toContain(HOME_PATH)
   w.tokens = 215_000
   await turn($ as never)
@@ -162,14 +162,20 @@ test('with neither HOME nor XDG_STATE_HOME the turn logs one line and does nothi
 })
 
 test('pure parts: window arithmetic, settings fallback, request parsing', async () => {
-  expect(remainingFraction({ tokens: 200_000, compactWindow: 250_000 })).toBe(0.2)
+  // the effective window is 250k − 33k = 217k: remaining is measured against THAT, not the nominal window
+  expect(effectiveWindow({ tokens: 0, compactWindow: 250_000 })).toBe(217_000)
+  expect(effectiveWindow({ tokens: 0, compactWindow: 20_000 })).toBe(0)
+  expect(remainingFraction({ tokens: 173_600, compactWindow: 250_000 })).toBe(0.2)
   expect(remainingFraction({ tokens: 300_000, compactWindow: 250_000 })).toBe(0)
   expect(remainingFraction({ tokens: 1, compactWindow: 0 })).toBe(0)
   expect(compactWindowOf({ autoCompactWindow: 250_000 }, 1_000_000)).toBe(250_000)
   expect(compactWindowOf({}, 1_000_000)).toBe(1_000_000)
   expect(compactWindowOf({ autoCompactWindow: 'big' }, 1_000_000)).toBe(1_000_000)
-  expect(nudgeDue({ tokens: 199_999, compactWindow: 250_000 }, undefined)).toBe(false)
-  expect(nudgeDue({ tokens: 200_000, compactWindow: 250_000 }, undefined)).toBe(true)
+  // on 250k the nudge is due at 173,600 used (20% of 217k left), which leaves ~43k before auto-compact
+  expect(nudgeDue({ tokens: 173_599, compactWindow: 250_000 }, undefined)).toBe(false)
+  expect(nudgeDue({ tokens: 173_600, compactWindow: 250_000 }, undefined)).toBe(true)
+  // the old threshold, 200k used, is now far past due: Anthony's pilot restarts at ~184k and must be nudged at once
+  expect(nudgeDue({ tokens: 184_000, compactWindow: 250_000 }, undefined)).toBe(true)
   expect(nudgeDue({ tokens: 210_000, compactWindow: 250_000 }, 200_000)).toBe(false)
   expect(parseRequest('{}')).toEqual({ request: {} })
   expect(parseRequest('{"instructions":"x"}')).toEqual({ request: { instructions: 'x' } })
