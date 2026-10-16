@@ -69,45 +69,46 @@ lapses when the reason does** — when you find one, re-ask it rather than obeyi
 
 ---
 
-## The nudger — what restarts an idle agent, and what it never does
+## The nudger — what wakes you about an idle team agent, and what it never does
 
 An agent runs one turn per prompt and then stops. It does not loop. So "doing nothing" usually means
-a session that pushed minutes ago with nobody to tell it to carry on, and the fix cannot be a person
-typing `continue` into panes — the PO cannot self-loop either (a PO nudging on a cadence needs
-something nudging *him*). It lives outside every session, as a timer. **The contract a nudger must
-meet:**
+a session that finished minutes ago with nobody to tell it to carry on, and the fix cannot be a person
+typing `continue` into panes. The nudger is a duty of the `waiting-agents` mod (`mods/waiting-agents/`),
+running inside YOUR session: every five minutes it reads the rows the context publisher writes
+(docs/context-publisher.md) and, when team agents have been idle for the quiet threshold (15 minutes by
+default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into your
+session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns
+nothing.] Team agents idle for 15 minutes or more: Wren, developer idle 19m. As delivery lead, check
+each one and keep the team active.` The owner, 2026-10-02: "I only want you to have a nudger so you
+ensure the team remain active". **The contract:**
 
-- **Holding work only.** An agent is nudged when it holds an unparked claim with commits, its last
-  commit is older than a quiet threshold (15 minutes in the seeded project), and its pane is not
-  mid-turn. An agent holding nothing is never nudged: waking it would be a routing decision, and
-  routing is yours.
-- **The message names itself and assigns nothing.** It says it is an automated nudge from a timer,
-  not an instruction from a person, and that it means *continue what you already hold*. It never
-  claims, never merges.
-- **At most two per work-state**, keyed on the agent's branch heads: a fresh push re-arms the count,
-  a full quiet threshold sits between the first and the second, and after the second it holds and
-  says so. Two is a bound, not a cadence — no amount of elapsed time produces a third. Do not key it
-  on time or on the name alone; that reinstates the night-long spin the bound exists to stop.
-- **The continuous post is woken by role.** The PO never holds a claim, so under the holding rule the
-  one continuously responsible job is structurally unreachable. Wake it keyed on the *role* in the
-  roster, never on a name — the post changes hands.
-- **Every verdict is logged, holds included.** The nudges it did *not* send are the ones you audit.
+- **It tells you; it never prods the agents.** Waking an idle agent is a routing decision, and routing
+  is yours: read the agent's pane and its branch, then route through the ledger or tell it to carry on.
+- **The message names itself and assigns nothing.** It says it is an automated nudge from the mod, not
+  an instruction from a person. It never claims, never merges.
+- **At most two per state.** The state is the set of team agents idle: the same set is nudged at most
+  twice, a full quiet threshold apart, and after the second it holds and says so. A different set is a
+  new state. Two is a bound, not a cadence — no amount of elapsed time produces a third. The count
+  survives a restart of your session (the mod's store).
+- **Delivered as a queued prompt, never typed.** A queued prompt runs as a turn of its own once your
+  session is idle and never touches the prompt box, so nothing the owner is typing in your pane is
+  disturbed. The earlier design typed the text into the pane with `tmux send-keys` and could land in
+  the middle of a message the owner was writing (owner, 2026-10-16).
+- **Every verdict is logged, holds included**, to `lead-nudge.log` beside the context directory
+  (`~/.local/state/<project>/lead-nudge.log` by default). The nudges it did *not* send are the ones you
+  audit.
 - **It is a different mechanism from your own `/loop` wakeups.** A loop is yours, armed by you; the
-  nudge is the fallback from outside. Do not read one as the other.
+  nudge is the fallback from the mod. Do not read one as the other.
+- **It runs only while your session is up.** With no delivery-lead session there is nobody to tell, so
+  nothing is lost.
 
-**An agent at a permission prompt is a different case from an idle one**, and it is reported to you,
-not watched for: the `waiting-agents` mod (`mods/waiting-agents/`, loaded in every session on the box,
-acting only in the one whose roster identity holds `delivery-lead`) sends your session one message,
-marked `[waiting-agents mod, not the owner]`, when a team agent has sat waiting for 25 seconds, and your
-status bar shows `watching N, M waiting`. Read that agent's pane and answer the prompt it is stuck on;
-the mod never does (it types into nothing).
+**An agent at a permission prompt is a different case from an idle one**, and the same mod reports it
+at once: one message marked `[waiting-agents mod, not the owner]` when a team agent has sat waiting for
+25 seconds, and your status bar shows `watching N, M waiting`. Read that agent's pane and answer the
+prompt it is stuck on; the mod never does (it types into nothing).
 
-**What you do about an idle agent.** Nothing by hand. `hold … nothing outstanding` means the agent
-holds no work and the question is a routing one — yours, through the ledger. `hold … already nudged
-twice for this exact state` means the agent is stuck, not idle: read its pane and its branch before
-deciding; a further `continue` is the thing the bound exists to stop.
-
-⚠ **Port status:** this template does not yet ship the script. The reference implementation is the
-seeded project's `scripts/agent-nudge.sh` (its header records why each rule above exists, measured)
-with `strength-agent-nudge.timer` (user scope, every 5 minutes). Porting it is a child of the
-template epic; until it lands, this section is the contract, not a feature.
+**What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs
+you. A nudge means read each named agent's pane and branch before deciding: an agent holding a claim is
+told to carry on; an agent holding nothing is a routing question — yours, through the ledger. `hold …
+already nudged 2 times for this exact state` means the same agents are stuck, not idle, and a further
+`continue` is the thing the bound exists to stop.

@@ -1,1 +1,1 @@
-{ "name": "waiting-agents", "version": "0.1.0", "description": "Tells the delivery lead's session when a team agent is waiting for input" }
+{ "name": "waiting-agents", "version": "0.2.0", "description": "Tells the delivery lead's session when a team agent is waiting for input, and nudges it when team agents have been idle 15 minutes or more" }

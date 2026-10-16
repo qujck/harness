@@ -6,6 +6,8 @@ export type Roster = {
   team: ReadonlySet<string>
   // GIT_AUTHOR_EMAIL -> name: the launch line's identity, as agents/roster.json records it.
   byEmail: ReadonlyMap<string, string>
+  // name -> role id, for every team agent (the roles the nudger names), in roster order.
+  roleOf: ReadonlyMap<string, string>
 }
 
 export type SessionFile = {
@@ -26,14 +28,15 @@ export function parseRoster(json: string): Roster {
   const lead = new Set<string>()
   const team = new Set<string>()
   const byEmail = new Map<string, string>()
+  const roleOf = new Map<string, string>()
   const doc = JSON.parse(json) as { agents?: { name?: string; email?: string; role?: string; status?: string }[] }
   for (const a of doc.agents ?? []) {
     if (a.status !== 'active' || !a.name) continue
     if (a.email) byEmail.set(a.email, a.name)
     if (a.role === 'delivery-lead') lead.add(a.name)
-    else team.add(a.name)
+    else { team.add(a.name); roleOf.set(a.name, a.role ?? 'agent') }
   }
-  return { lead, team, byEmail }
+  return { lead, team, byEmail, roleOf }
 }
 
 // The GIT_AUTHOR_EMAIL in a process's NUL-separated /proc/<pid>/environ, if it has one.
