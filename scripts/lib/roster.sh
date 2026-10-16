@@ -160,6 +160,14 @@ roster_active() {
          | sort_by(.name) | .[] | "\(.name)\t\(.role)"' 2>/dev/null
 }
 
+# roster_panel_rows  ← json on stdin → one "name<TAB>role<TAB>kind" line per ACTIVE agent in FILE ORDER,
+# then one per assistant (role `assistant`, kind `assistant`). For a display, not for routing: file
+# order is the owner's chosen order, and an assistant is shown because a person watches the panel.
+roster_panel_rows() {
+  jq -r '((.agents // []) | map(select(.status == "active")) | .[] | "\(.name)\t\(.role)\tagent"),
+         ((.assistants // []) | .[] | select(.name != null) | "\(.name)\tassistant\tassistant")' 2>/dev/null
+}
+
 # roster_email_for_name <name>  ← json on stdin → the address, or empty.
 roster_email_for_name() {
   local name="${1:-}"
@@ -437,6 +445,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   # roster_active is the ONE reader that filters — routing must not route to a leaver.
   t $'Ed\tdeveloper\nVera\thead-of-testing' 'active listing excludes the retired, and is sorted' \
     "$(printf '%s' "$FX" | roster_active)"
+
+  # roster_panel_rows keeps the file's order (the owner's), and lists assistants after the agents.
+  t $'Ed\tdeveloper\tagent\nVera\thead-of-testing\tagent\nAda\tassistant\tassistant' \
+    'panel rows: active agents in file order, retired left out, assistants last' \
+    "$(printf '%s' "$FX" | jq -c '. + {assistants: [{name: "Ada"}]}' | roster_panel_rows)"
 
   # ── who may AUTHOR a commit: agents AND humans ────────────────────────────
   FXH='{"agents":[{"name":"Ed","email":"ed@weaversite.co.uk","role":"developer","status":"active"},
