@@ -175,8 +175,11 @@ rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
 # yet`.
 
 # limits -> "<five-hour used %>\t<weekly used %>" from the freshest row holding either; -1 for unknown
+# rows -> every readable row as one JSON value per line; a file that is not JSON is dropped, not fatal.
+rows() { cat "$CONTEXT_DIR"/*.json 2>/dev/null | jq -cR 'fromjson? // empty' 2>/dev/null; }
+
 limits() {
-  cat "$CONTEXT_DIR"/*.json 2>/dev/null | jq -rs '
+  rows | jq -rs '
     map(select(.five_hour.used_pct != null or .week.used_pct != null))
     | map([((.ts | fromdateiso8601?) // 0), (.five_hour.used_pct // -1), (.week.used_pct // -1)])
     | max_by(.[0]) // [0, -1, -1] | .[1:] | @tsv' 2>/dev/null
@@ -189,7 +192,7 @@ readings() {
   local state="$CACHE/burn.json" out
   mkdir -p "$CACHE" 2>/dev/null
   [ -s "$state" ] || printf '{}\n' > "$state" 2>/dev/null
-  out=$(cat "$CONTEXT_DIR"/*.json 2>/dev/null | jq -rs --argjson now "$(now_s)" --argjson mins "$SPARK_MINS" --slurpfile st "$state" '
+  out=$(rows | jq -rs --argjson now "$(now_s)" --argjson mins "$SPARK_MINS" --slurpfile st "$state" '
     (($st[0] // {}) | if type == "object" then . else {} end) as $prev
     | ($now / 60 | floor) as $cur
     | map(select(.session_id != null) | {
@@ -406,6 +409,9 @@ selftest() {
   printf '{"agent":"Vera","session_id":"s2","ts":"%s","context":{"remaining_pct":50},"activity":"idle"}\n' "$(date -u -d "@$((NOW-5))" +%FT%TZ)" > "$CONTEXT_DIR/s2.json"
   t $'s2\x1f\x1f0\x1f\x1f' 'readings: a row without the figures keeps its empty fields in place' "$(readings | grep '^s2')"
   t $'9\t70' 'limits: five-hour and weekly from the freshest row that has them' "$(limits)"
+  printf 'not json at all\n' > "$CONTEXT_DIR/junk.json"
+  t $'9\t70' 'limits: a file that is not JSON is dropped, not fatal to the frame' "$(limits)"
+  t 1 'readings: the good rows survive a bad file beside them' "$(readings | grep -c '^s1')"
 
   # Live sessions: a child of this shell launched with a GIT_AUTHOR_EMAIL stands for Ed's session;
   # a dead pid and a record without a socket are both left out.
