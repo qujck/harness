@@ -44,6 +44,13 @@ line says so, naming whether the hard point was read from this session or estima
 `/autocompact <window>` in that session, or a lower `COMPACT_AFTER`. That is the silent miss made loud: settings
 raised while a running session kept its old window, or a soft point set too close.
 
+**Writing the request in one command.** `bash mods/self-compact/compact-me.sh "<what the summary must keep>"`
+writes `{"instructions": …}` to this session's own request path and tells you to end your turn. The session id
+is `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every Bash an agent runs; without it, or with one that
+is not a plain token, or with no state directory, the script refuses (exit 2, one line) rather than guess, since
+a guessed id could only name a file no session reads. The write is atomic and the text is JSON-escaped.
+`--self-test` runs its pure arms; `scripts/check-mods-tests-pass.sh` runs every mod's `*.sh --self-test` on every PR.
+
 What it cannot do, by construction rather than by rule: it never types into any pane (the engine call is
 not a keystroke, so nothing it does can be mistaken for the owner's typing or answer a prompt), and it
 cannot reach another session (the only id in the path is its own, and the compact call takes no target).
