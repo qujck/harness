@@ -90,7 +90,7 @@ test('one message per wait once it has lasted 25 seconds, and again for the next
 
   await clock.advance(10_000)
   expect(sent).toEqual([])
-  expect(status.at(-1)).toBe('waiting-agents: watching 2, 0 waiting')
+  expect(status.at(-1)).toBe('watching 2, 0 waiting')
 
   wait(w, clock.now())
   await clock.advance(20_000)
@@ -101,7 +101,7 @@ test('one message per wait once it has lasted 25 seconds, and again for the next
   expect(sent.length).toBe(1)
   expect(sent[0]).toContain('Dev waiting: permission prompt (Devs:@1.%3)')
   expect(sent[0]).toContain('not the owner')
-  expect(status.at(-1)).toBe('waiting-agents: watching 2, 1 waiting')
+  expect(status.at(-1)).toBe('watching 2, 1 waiting')
 
   leave(w, clock.now())
   await clock.advance(10_000)

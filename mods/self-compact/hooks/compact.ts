@@ -147,14 +147,16 @@ export function guard(w: Window): { room: number; warning?: string } {
   const how = w.hardAt !== undefined ? `read from this session (${w.hardSource ?? 'unknown'})` : 'estimated from the settings window'
   return {
     room,
-    warning: `self-compact: only ${n(room)} tokens between the nudge at ${n(softPoint(w))} and auto-compact at ${n(hardPoint(w))} (${how}); ${n(MIN_FINISH_ROOM)} is the minimum. Raise this session's window with /autocompact, or lower COMPACT_AFTER.`,
+    warning: `only ${n(room)} tokens between the nudge at ${n(softPoint(w))} and auto-compact at ${n(hardPoint(w))} (${how}); ${n(MIN_FINISH_ROOM)} is the minimum. Raise this session's window with /autocompact, or lower COMPACT_AFTER.`,
   }
 }
 
 // The status line, every turn: both points and the room, so a drift is visible before it bites.
+// No mod-name prefix here or in any ui line: the engine prefixes every status and log line with
+// "⚠ <mod name>: " itself, so a prefix of our own showed the name twice (owner, 2026-10-16).
 export function statusText(w: Window): string {
   const g = guard(w)
-  return `self-compact: ${n(w.tokens)} used, nudge at ${n(softPoint(w))}, auto-compact at ${n(hardPoint(w))}, room ${n(g.room)}${g.warning ? ' ⚠' : ''}`
+  return `${n(w.tokens)} used, nudge at ${n(softPoint(w))}, auto-compact at ${n(hardPoint(w))}, room ${n(g.room)}${g.warning ? ' ⚠' : ''}`
 }
 
 // The nudge, marked as the mod's and not the owner's, carrying the exact path to write.

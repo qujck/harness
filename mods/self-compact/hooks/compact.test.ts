@@ -86,7 +86,7 @@ test('under the threshold nothing is sent and nothing compacts; the status line 
   stage(on, w, s)
   await turn($ as never)
   expect(s.sent).toEqual([]); expect(s.compacted).toEqual([]); expect(s.logged).toEqual([])
-  expect(s.status).toEqual(['self-compact: 150,000 used, nudge at 173,600, auto-compact at 217,000, room 43,400'])
+  expect(s.status).toEqual(['150,000 used, nudge at 173,600, auto-compact at 217,000, room 43,400'])
 })
 
 test('with no COMPACT_AFTER, at 20% of the room ONE nudge goes out, naming the path and the mod; later turns do not repeat it', async ($, on) => {
@@ -121,7 +121,7 @@ test('COMPACT_AFTER from the config file is the nudge point: default 200k on a l
   stage(on, w, s)
   await turn($ as never)
   expect(s.sent).toEqual([])
-  expect(s.status.at(-1)).toBe('self-compact: 199,999 used, nudge at 200,000, auto-compact at 267,000, room 67,000')
+  expect(s.status.at(-1)).toBe('199,999 used, nudge at 200,000, auto-compact at 267,000, room 67,000')
   w.tokens = 200_000
   await turn($ as never)
   expect(s.sent.length).toBe(1)
@@ -153,12 +153,12 @@ test('the GUARD: a session still on its old 250k window with COMPACT_AFTER 200k 
   stage(on, w, s)
   await turn($ as never)
   await turn($ as never)
-  expect(s.status.at(-1)).toBe('self-compact: 100,000 used, nudge at 200,000, auto-compact at 217,000, room 17,000 ⚠')
-  expect(s.logged).toEqual(['self-compact: only 17,000 tokens between the nudge at 200,000 and auto-compact at 217,000 (read from this session (settings)); 40,000 is the minimum. Raise this session\'s window with /autocompact, or lower COMPACT_AFTER.'])
+  expect(s.status.at(-1)).toBe('100,000 used, nudge at 200,000, auto-compact at 217,000, room 17,000 ⚠')
+  expect(s.logged).toEqual(['only 17,000 tokens between the nudge at 200,000 and auto-compact at 217,000 (read from this session (settings)); 40,000 is the minimum. Raise this session\'s window with /autocompact, or lower COMPACT_AFTER.'])
   // /autocompact 300000 in that session clears it
   w.breakdown = LIVE_300K
   await turn($ as never)
-  expect(s.status.at(-1)).toBe('self-compact: 100,000 used, nudge at 200,000, auto-compact at 267,000, room 67,000')
+  expect(s.status.at(-1)).toBe('100,000 used, nudge at 200,000, auto-compact at 267,000, room 67,000')
   expect(s.logged.length).toBe(1)
 })
 
@@ -168,8 +168,8 @@ test('a garbled COMPACT_AFTER file changes nothing and is named once; the 20% ru
   await turn($ as never)
   await turn($ as never)
   expect(s.sent).toEqual([])
-  expect(s.logged).toEqual([`self-compact: ${CONFIG_PATH} ignored — "default" is not a positive number`])
-  expect(s.status.at(-1)).toBe('self-compact: 150,000 used, nudge at 213,600, auto-compact at 267,000, room 53,400')
+  expect(s.logged).toEqual([`${CONFIG_PATH} ignored — "default" is not a positive number`])
+  expect(s.status.at(-1)).toBe('150,000 used, nudge at 213,600, auto-compact at 267,000, room 53,400')
 })
 
 test('the live breakdown beats the settings estimate: a session the engine says is on 300k is not nudged at the 250k point', async ($, on) => {
@@ -188,7 +188,7 @@ test('a request file compacts the session with its instructions, once, and no nu
   await turn($ as never)
   expect(s.compacted).toEqual([{ instructions: 'keep the plan' }])
   expect(s.sent).toEqual([])
-  expect(s.logged).toEqual(["self-compact: compacted at the agent's request"])
+  expect(s.logged).toEqual(["compacted at the agent's request"])
   // the same file, unchanged, is not acted on again; a rewritten one is
   w.tokens = 40_000
   await turn($ as never)
@@ -205,7 +205,7 @@ test('a garbled request compacts nothing and says why once (the NEGATIVE CONTROL
   await turn($ as never)
   await turn($ as never)
   expect(s.compacted).toEqual([])
-  expect(s.logged).toEqual([`self-compact: ${HOME_PATH} ignored — the request file is not JSON`])
+  expect(s.logged).toEqual([`${HOME_PATH} ignored — the request file is not JSON`])
 })
 
 test('a vetoed compaction is reported, not retried', async ($, on) => {
@@ -214,7 +214,7 @@ test('a vetoed compaction is reported, not retried', async ($, on) => {
   await turn($ as never)
   await turn($ as never)
   expect(s.compacted).toEqual([])
-  expect(s.logged).toEqual(['self-compact: a hook vetoed the compaction — off'])
+  expect(s.logged).toEqual(['a hook vetoed the compaction — off'])
 })
 
 test("a subagent's turn is passed through untouched", async ($, on) => {
