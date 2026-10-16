@@ -34,10 +34,13 @@ the channel, not an escalation.
 - **Siblings.** Before you close a defect, find the other places the same defect lives — the other
   callers, the other copies of the constant, the sibling script for another surface — and fix
   them in the same PR or name them in the ticket. One project was bitten by one defect three times.
-- **The durable record, at all times.** You cannot compact yourself; compaction happens when your
-  context fills. A session entry is a ledger row (`bash scripts/progress.sh new "<title>"
-  --body-file <file>` — a row, never a file: `progress/` is frozen history), written before
-  a block boundary, and at that boundary say so out loud.
+- **The durable record, at all times.** Compact yourself at a stopping point you choose: the
+  `self-compact` mod nudges you once when your window is nearly full (a prompt marked `[self-compact
+  mod, not the owner]`); finish at a natural stopping point, bring the record up to date, then run
+  `bash mods/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn. Ignore the
+  nudge and your context is still summarised when it fills, without asking. A session entry is a
+  ledger row (`bash scripts/progress.sh new "<title>" --body-file <file>` — a row, never a file:
+  `progress/` is frozen history), written before a block boundary, and at that boundary say so out loud.
 
 ## What you do not do
 

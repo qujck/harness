@@ -44,7 +44,13 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    status line publishes one file per session — [docs/context-publisher.md](docs/context-publisher.md)).
    Use it for four things: write the durable record *before* a compaction; hand a wide read to a
    subagent when your own context is low; prefer the agent with room when routing, and say so; answer
-   "how much have you got left" with the number. ⚠ **What it is NEVER for: stopping, deferring,
+   "how much have you got left" with the number. **Compact yourself at a stopping point you choose:**
+   the `self-compact` mod (`mods/self-compact/`, loaded in every session on the box) nudges you once
+   when your window is nearly full with a prompt marked `[self-compact mod, not the owner]`; finish at
+   a natural stopping point, bring the durable record up to date, then run
+   `bash mods/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn — the mod
+   compacts between turns with those instructions. You may run it after any milestone. Auto-compact at
+   the window is still the backstop. ⚠ **What it is NEVER for: stopping, deferring,
    narrowing scope, or "leaving this for someone with more context"** (forbidden phrase, quoted here to forbid it).
    A compaction is a summary, not an ending — a task left undone because a number
    looked low is a failure, not prudence (owner, 2026-09-28: *"at no point should it be used as a
