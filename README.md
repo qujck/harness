@@ -74,7 +74,7 @@ scripts/
   skills/configure/SKILL.md  # /configure — fills every placeholder for you (Claude Code)
 mods/                      # Claude Code mods: one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
   self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
-  waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt; shows nothing in any other session
+  waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt or the team has gone idle; shows nothing in any other session
 ```
 
 **The three scripts are the harness.** They map onto a session's lifecycle:
@@ -153,7 +153,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
   be compacted (`bash mods/self-compact/compact-me.sh "<what the summary must keep>"`); auto-compact at
   the window stays as the backstop. `waiting-agents` ([mods/waiting-agents/README.md](mods/waiting-agents/README.md))
   tells the delivery lead's session when a team agent has sat at a permission prompt for 25 seconds, so
-  nobody watches every pane. Both load in every session the box starts and act only where they belong;
+  nobody watches every pane, and nudges it when team agents have been idle for fifteen minutes, so the
+  team stays active. Both load in every session the box starts and act only where they belong;
   neither types into a pane. `scripts/check-mods-tests-pass.sh` runs their tests on every PR.
 
 ## Setup

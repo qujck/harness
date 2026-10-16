@@ -1,7 +1,12 @@
 import type { EngineInterface, Register } from 'claude-code'
+import { type ContextRow, DEFAULT_THRESHOLD_S, MAX_NUDGES, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, stateKey, statePaths } from './nudge.ts'
 import { authorEmailOf, current, dueWaiting, forget, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
+// How often the nudger looks at the team, in the delivery lead's session.
+const NUDGE_EVERY_MS = 300_000
+// The store key holding the NudgeState, so the two-nudge bound survives a session restart.
+const NUDGE_STATE = 'nudgeState'
 
 // Where Claude Code writes `<pid>.json` for every live session: under its config directory, which is
 // `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise.
@@ -48,7 +53,7 @@ async function sessionFiles($: EngineInterface, roster: Roster): Promise<Session
 // are sent only while that session is not mid-turn, so a message is never
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
-async function poll($: EngineInterface, told: Set<string>): Promise<void> {
+async function poll($: EngineInterface, told: Set<string>, nudger: { nextAt: number }): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
   // including ones whose root is not a strength checkout: the house assistant's, or a developer's
   // started in ~/dev. There is no roster to read there, so there is nothing to watch, and nothing
@@ -69,16 +74,67 @@ async function poll($: EngineInterface, told: Set<string>): Promise<void> {
   const lines = isFree ? dueWaiting(agents, roster.team, told, await $.clock.now()) : []
   const waiting = [...roster.team].filter(n => agents.get(n)?.status === 'waiting').length
   $.ui.status(`watching ${roster.team.size}, ${waiting} waiting`)
-  if (lines.length === 0) return
-  await $.prompt.submit({
-    text: ['[waiting-agents mod, not the owner] A team agent is waiting for input:', ...lines].join('\n'),
-  })
+  if (lines.length > 0) {
+    await $.prompt.submit({
+      text: ['[waiting-agents mod, not the owner] A team agent is waiting for input:', ...lines].join('\n'),
+    })
+    return
+  }
+  const now = await $.clock.now()
+  if (now < nudger.nextAt) return
+  nudger.nextAt = now + NUDGE_EVERY_MS
+  await nudge($, roster, isFree, now)
+}
+
+// One line, prefixed with the local time, appended to the nudger's log. Every verdict is logged,
+// holds included, so "did the nudger fire" is answered from the file.
+async function logVerdict($: EngineInterface, path: string, nowMs: number, text: string): Promise<void> {
+  const d = new Date(nowMs)
+  const p = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  const before = await $.fs.read(path).catch(() => '')
+  await $.fs.write(path, `${typeof before === 'string' ? before : ''}${stamp} ${text}\n`)
+}
+
+// The nudger: tells the delivery lead, as a queued prompt of its own, which team agents have been idle
+// for the threshold or more. A queued prompt never touches the prompt box, so nothing the owner is
+// typing in this session is disturbed. Idleness comes from the rows the context publisher writes
+// (docs/context-publisher.md); where they live, and the threshold, come from the environment or
+// harness.env as the harness scripts read them.
+async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: number): Promise<void> {
+  const root = await $.session.root()
+  const envFileText = await $.fs.read(`${root}/harness.env`).catch(() => undefined)
+  const envFile = typeof envFileText === 'string' ? envFileText : undefined
+  const home = (await $.env.get('HOME')) ?? ''
+  const paths = statePaths(home, root, {
+    CONTEXT_DIR: (await $.env.get('CONTEXT_DIR')) || undefined,
+    HARNESS_PROJECT: (await $.env.get('HARNESS_PROJECT')) || undefined,
+  }, envFile)
+  const thresholdS = Number((await $.env.get('LEAD_NUDGE_THRESHOLD_S')) || envFileValue(envFile, 'LEAD_NUDGE_THRESHOLD_S')) || DEFAULT_THRESHOLD_S
+  const rows: ContextRow[] = []
+  for (const entry of await $.fs.list(paths.contextDir).catch(() => [])) {
+    if (!entry.name.endsWith('.json')) continue
+    const text = await $.fs.read(`${paths.contextDir}/${entry.name}`).catch(() => undefined)
+    try { if (typeof text === 'string') rows.push(JSON.parse(text) as ContextRow) } catch { continue }
+  }
+  const idle = idleAgents(roster.roleOf, freshRows(rows, now), thresholdS)
+  if (idle.length === 0) return logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`)
+  if (!isFree) return logVerdict($, paths.log, now, `hold: delivery lead is mid-turn; idle: ${describe(idle)}`)
+  const key = stateKey(idle)
+  const prev = (await $.store.get(NUDGE_STATE)) as NudgeState | undefined
+  const verdict = decide(key, prev, now, thresholdS)
+  if (!verdict.send) return logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`)
+  await $.prompt.submit({ text: nudgeText(verdict.count, idle, thresholdS) })
+  await $.store.set(NUDGE_STATE, { key, count: verdict.count, lastMs: now } satisfies NudgeState)
+  await logVerdict($, paths.log, now, `sent nudge ${verdict.count} of ${MAX_NUDGES}; idle: ${describe(idle)}`)
 }
 
 // Loaded into every session, it acts only in the one the roster names as the
-// delivery lead, polling ~/.claude/sessions every ten seconds.
+// delivery lead, polling ~/.claude/sessions every ten seconds and looking for
+// idle team agents every five minutes.
 export const register: Register = on => {
   const told = new Set<string>()
+  const nudger = { nextAt: 0 }
   let timer: { cancel: () => void } | undefined
   let busy = false
 
@@ -87,7 +143,7 @@ export const register: Register = on => {
     timer = $.clock.every(POLL_MS, () => {
       if (busy) return
       busy = true
-      poll($, told)
+      poll($, told, nudger)
         .catch(err => $.ui.log(String(err)))
         .finally(() => { busy = false })
     })

@@ -60,6 +60,8 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
     if (name in world.files) return v(JSON.stringify(world.files[name]))
     throw new Error('ENOENT')
   })
+  // The nudger's log; the nudger itself is covered in nudge.test.ts.
+  on('fs.write', () => v(undefined))
   on('prompt.submit', ($, e) => { sent.push(e.text); return { text: e.text } as never })
 }
 
