@@ -16,13 +16,30 @@ sid="$(jq -r '.session_id // "unknown"' <<<"$payload")"
 # the agent's NAME comes from the session (GIT_AUTHOR_EMAIL -> roster), the same source every write uses
 name="$(cd "$(dirname -- "${BASH_SOURCE[0]}")/../.." && source scripts/lib/agent-name.sh 2>/dev/null && agent_name_resolved 2>/dev/null || true)"
 mkdir -p "$DIR"
+# A running total of output tokens, for the panel's burn sparkline (scripts/agents-dash.sh). The payload
+# gives only the LAST response's output, so each refresh whose (used, output) pair differs from the
+# previous refresh's is taken as a new response and added; two responses between refreshes count as one.
+used="$(jq -r '.context_window.total_input_tokens // empty' <<<"$payload")"
+last_out="$(jq -r '.context_window.total_output_tokens // empty' <<<"$payload")"
+tok="$DIR/.$sid.tokens"; prev_used=""; prev_out=""; out_total=0
+[ -r "$tok" ] && read -r prev_used prev_out out_total < "$tok"
+if [ -n "$used" ] && [ -n "$last_out" ] && { [ "$used" != "$prev_used" ] || [ "$last_out" != "$prev_out" ]; }; then
+  out_total=$(( ${out_total:-0} + ${last_out%.*} ))
+  printf '%s %s %s\n' "$used" "$last_out" "$out_total" > "$tok.tmp" && mv -f "$tok.tmp" "$tok"
+fi
 jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%TZ)" --arg cwd "$(pwd)" \
    --arg wt "$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename)" \
-   --arg activity "${CLAUDE_ACTIVITY:-working}" '
+   --arg activity "${CLAUDE_ACTIVITY:-working}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
-    context: { remaining_pct: (.context_window.remaining_percentage // null) },
+    # window: a publisher whose gauge re-measures against an /autocompact cap should publish the cap;
+    # this example knows no cap and publishes the model'"'"'s size.
+    context: { remaining_pct: (.context_window.remaining_percentage // null),
+               window: (.context_window.context_window_size // null),
+               used: (.context_window.total_input_tokens // null) },
+    tokens:  { output_total: (if $has_tokens == "1" then $total else null end) },
     week:    { used_pct: (.rate_limits.seven_day.used_percentage // null) },
-    activity: $activity }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv "$DIR/$sid.json.tmp" "$DIR/$sid.json"
+    five_hour: { used_pct: (.rate_limits.five_hour.used_percentage // null) },
+    activity: $activity }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv -f "$DIR/$sid.json.tmp" "$DIR/$sid.json"
 # the status line itself: what the person sees
 printf '%s · ctx %s%% left · week %s%%\n' "${name:-unnamed}" "$(jq -r '.context_window.remaining_percentage // "?"' <<<"$payload")" "$(jq -r '.rate_limits.seven_day.used_percentage // "?"' <<<"$payload")"

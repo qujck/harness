@@ -26,8 +26,16 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 | `context.remaining_pct` | what the model has left in its window |
 | `week.used_pct` | the account's weekly usage — the owner's to spend |
 | `activity` / `idle_s` | `working` or `idle` (+ seconds idle), from the publisher |
+| `five_hour.used_pct` | the account's five-hour usage, when the payload carries it |
+| `context.used` | the tokens in the window now (the payload's `total_input_tokens`) |
+| `context.window` | the window the publisher's own gauge is measured against: an `/autocompact` cap when one applies, else the model's `context_window_size` |
+| `tokens.output_total` | output tokens added up across responses: the payload gives only the last response's, so the publisher adds it whenever the (used, output) pair changes, keeping the pair and the total in `.<session_id>.tokens` beside the row |
 
 `bash scripts/agent-context.sh` renders every row, freshest first (`--me` for yours, `--json` raw).
+`bash scripts/agents-dash.sh` draws the team panel from the same rows: per agent its state and how long,
+context used against its window, a fifteen-minute token-burn sparkline and CPU and memory, with the
+account's limits on top. The last four fields feed the panel; a row without them shows `no reading yet`
+there rather than a guess, and the panel never opens a transcript.
 
 ## What it is for — and only for
 

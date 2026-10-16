@@ -53,6 +53,7 @@ scripts/
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
+  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent; the account's limits on top
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
