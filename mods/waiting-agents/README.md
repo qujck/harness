@@ -13,11 +13,12 @@ it is reported again only after it has moved on and starts waiting afresh. Nothi
 delivery lead is mid-turn, so a wait that ends meanwhile is never reported. The delivery lead's status bar
 shows `waiting-agents: watching N, M waiting`.
 
-Install it for every session on the machine by naming its folder in the `env` block of
-`~/.claude/settings.json`:
+Install it for every session on the machine by naming the `mods` folder in the `env` block of
+`~/.claude/settings.json` (each subfolder holding `.claude-plugin/plugin.json` loads as a mod, so every
+mod in this repo installs with the one line; naming this mod's own folder still works):
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/mods/waiting-agents" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/mods" } }
 ```
 
 It takes effect in sessions started after that. The session files are read from Claude Code's config
