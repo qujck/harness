@@ -112,8 +112,8 @@ prompt it is stuck on; the mod never does (it types into nothing).
 -h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`) shows every agent in the roster's
 order: whether it is working, waiting, in a shell command or idle and for how long, context used against
 its own window, a fifteen-minute token-burn sparkline on a scale shared by every row, and its CPU and
-memory, with the account's five-hour and weekly usage on top. A row flags itself at 85% context or a
-minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
+memory, with the account's five-hour and weekly usage on top. The context gauge turns amber at 60% and
+red at 85%; a row flags itself after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
 records, never a transcript, and types into nothing.
 
 **What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs
