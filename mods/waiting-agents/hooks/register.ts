@@ -68,7 +68,7 @@ async function poll($: EngineInterface, told: Set<string>): Promise<void> {
   const isFree = mine.status !== 'busy' && mine.status !== 'waiting'
   const lines = isFree ? dueWaiting(agents, roster.team, told, await $.clock.now()) : []
   const waiting = [...roster.team].filter(n => agents.get(n)?.status === 'waiting').length
-  $.ui.status(`waiting-agents: watching ${roster.team.size}, ${waiting} waiting`)
+  $.ui.status(`watching ${roster.team.size}, ${waiting} waiting`)
   if (lines.length === 0) return
   await $.prompt.submit({
     text: ['[waiting-agents mod, not the owner] A team agent is waiting for input:', ...lines].join('\n'),
@@ -88,7 +88,7 @@ export const register: Register = on => {
       if (busy) return
       busy = true
       poll($, told)
-        .catch(err => $.ui.log(`waiting-agents: ${String(err)}`))
+        .catch(err => $.ui.log(String(err)))
         .finally(() => { busy = false })
     })
     return next(e)

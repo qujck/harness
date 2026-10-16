@@ -31,7 +31,7 @@ async function compactAfterOf($: EngineInterface): Promise<number | undefined> {
   if (!path || !(await $.fs.exists(path))) return undefined
   const parsed = parseCompactAfter(await $.fs.read(path), await $.env.get('GIT_AUTHOR_NAME'))
   if ('refuse' in parsed) {
-    const line = `self-compact: ${path} ignored — ${parsed.refuse}`
+    const line = `${path} ignored — ${parsed.refuse}`
     if ((await $.store.get(REFUSED)) !== line) { await $.store.set(REFUSED, line); $.ui.log(line) }
     return undefined
   }
@@ -67,12 +67,12 @@ async function actOnRequest($: EngineInterface, path: string): Promise<boolean> 
   await $.store.set(HANDLED_MTIME, mtimeMs)
   const parsed = parseRequest(await $.fs.read(path))
   if ('refuse' in parsed) {
-    $.ui.log(`self-compact: ${path} ignored — ${parsed.refuse}`)
+    $.ui.log(`${path} ignored — ${parsed.refuse}`)
     return false
   }
   const result = await $.session.compact(parsed.request.instructions === undefined ? {} : { instructions: parsed.request.instructions })
-  if ('skip' in result && result.skip) $.ui.log(`self-compact: a hook vetoed the compaction — ${result.skip}`)
-  else $.ui.log('self-compact: compacted at the agent\'s request')
+  if ('skip' in result && result.skip) $.ui.log(`a hook vetoed the compaction — ${result.skip}`)
+  else $.ui.log('compacted at the agent\'s request')
   return true
 }
 
@@ -106,7 +106,7 @@ export const register: Register = on => {
       const path = await ownRequestPath($)
       if (!(await actOnRequest($, path))) await reportAndNudge($, path)
     } catch (err) {
-      $.ui.log(`self-compact: ${String(err)}`)
+      $.ui.log(String(err))
     }
     return result
   })

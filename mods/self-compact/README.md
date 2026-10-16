@@ -38,7 +38,7 @@ the launch line's `GIT_AUTHOR_NAME` (more room for an agent that runs big suites
 this agent, means the 20% rule. A malformed file changes nothing and is named once in the log. The owner sets
 the numbers (2026-10-16: default 200k, `autoCompactWindow` 300k, so auto-compact at ~267k and ~67k of room).
 
-**The guard.** Every turn the status line shows `self-compact: <used> used, nudge at <soft>, auto-compact at
+**The guard.** Every turn the status line shows `<used> used, nudge at <soft>, auto-compact at
 <hard>, room <hard − soft>`. When the room is under 40,000 (`MIN_FINISH_ROOM`) the line ends in ⚠ and one log
 line says so, naming whether the hard point was read from this session or estimated, and the remedy:
 `/autocompact <window>` in that session, or a lower `COMPACT_AFTER`. That is the silent miss made loud: settings
