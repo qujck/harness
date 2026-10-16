@@ -34,16 +34,33 @@ export function envFileValue(text: string | undefined, key: string): string | un
   return undefined
 }
 
+// The main checkout a linked worktree belongs to, from the one-line `.git` FILE git leaves in the
+// worktree (`gitdir: /path/to/project/.git/worktrees/<name>`); undefined for a main checkout, where
+// `.git` is a directory and there is no such text.
+export function mainCheckoutOf(gitFile: string | undefined): string | undefined {
+  const m = (gitFile ?? '').match(/^\s*gitdir:\s*(.+?)\/\.git\/worktrees\/[^/\s]+\/?\s*$/m)
+  return m?.[1]
+}
+
 // Where the publisher writes the rows and where the nudger logs, from the same settings the harness
 // scripts read: `CONTEXT_DIR`, else `~/.local/state/<HARNESS_PROJECT>/context` with the project
 // defaulting to the checkout's directory name. The log sits beside the context directory.
+//
+// ⚠ The checkout is the MAIN one, not the session's worktree. The delivery lead works in a linked
+// worktree named after themself (AGENTS.md rule 0: `../<project>-<you>`), so the session root's
+// basename is `strength-carl` while the publisher writes under `strength`. The first version took
+// the root's basename, found no rows, and logged "hold: no team agent idle" on every tick, in a log
+// directory that did not exist either (Alfred's review, 2026-10-16). `gitFile` is the text of
+// `<root>/.git` when the root is a linked worktree.
 export function statePaths(
   home: string,
   root: string,
   vars: { CONTEXT_DIR?: string; HARNESS_PROJECT?: string },
   envFile: string | undefined,
+  gitFile?: string,
 ): { contextDir: string; log: string } {
-  const project = vars.HARNESS_PROJECT ?? envFileValue(envFile, 'HARNESS_PROJECT') ?? root.slice(root.lastIndexOf('/') + 1)
+  const checkout = mainCheckoutOf(gitFile) ?? root
+  const project = vars.HARNESS_PROJECT ?? envFileValue(envFile, 'HARNESS_PROJECT') ?? checkout.slice(checkout.lastIndexOf('/') + 1)
   const contextDir = vars.CONTEXT_DIR ?? envFileValue(envFile, 'CONTEXT_DIR') ?? `${home}/.local/state/${project}/context`
   return { contextDir, log: `${contextDir.slice(0, contextDir.lastIndexOf('/'))}/lead-nudge.log` }
 }

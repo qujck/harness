@@ -53,7 +53,9 @@ async function sessionFiles($: EngineInterface, roster: Roster): Promise<Session
 // are sent only while that session is not mid-turn, so a message is never
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
-async function poll($: EngineInterface, told: Set<string>, nudger: { nextAt: number }): Promise<void> {
+type Nudger = { nextAt: number; problem?: string }
+
+async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
   // including ones whose root is not a strength checkout: the house assistant's, or a developer's
   // started in ~/dev. There is no roster to read there, so there is nothing to watch, and nothing
@@ -73,7 +75,8 @@ async function poll($: EngineInterface, told: Set<string>, nudger: { nextAt: num
   const isFree = mine.status !== 'busy' && mine.status !== 'waiting'
   const lines = isFree ? dueWaiting(agents, roster.team, told, await $.clock.now()) : []
   const waiting = [...roster.team].filter(n => agents.get(n)?.status === 'waiting').length
-  $.ui.status(`watching ${roster.team.size}, ${waiting} waiting`)
+  // The nudger's standing problem, when it has one, rides on the same line so it is never silent.
+  $.ui.status(`watching ${roster.team.size}, ${waiting} waiting${nudger.problem ? `; ${nudger.problem}` : ''}`)
   if (lines.length > 0) {
     await $.prompt.submit({
       text: ['[waiting-agents mod, not the owner] A team agent is waiting for input:', ...lines].join('\n'),
@@ -83,7 +86,7 @@ async function poll($: EngineInterface, told: Set<string>, nudger: { nextAt: num
   const now = await $.clock.now()
   if (now < nudger.nextAt) return
   nudger.nextAt = now + NUDGE_EVERY_MS
-  await nudge($, roster, isFree, now)
+  nudger.problem = await nudge($, roster, isFree, now)
 }
 
 // One line, prefixed with the local time, appended to the nudger's log. Every verdict is logged,
@@ -101,32 +104,45 @@ async function logVerdict($: EngineInterface, path: string, nowMs: number, text:
 // typing in this session is disturbed. Idleness comes from the rows the context publisher writes
 // (docs/context-publisher.md); where they live, and the threshold, come from the environment or
 // harness.env as the harness scripts read them.
-async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: number): Promise<void> {
+//
+// Returns the problem that stops it reading the rows at all (the context directory is missing), so
+// the status line can show it; a silent hold on a misconfigured path looks exactly like a quiet team.
+async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: number): Promise<string | undefined> {
   const root = await $.session.root()
   const envFileText = await $.fs.read(`${root}/harness.env`).catch(() => undefined)
   const envFile = typeof envFileText === 'string' ? envFileText : undefined
+  // A linked worktree's `.git` is a one-line file naming the main checkout; a main checkout's is a
+  // directory, and the read fails.
+  const gitFileText = await $.fs.read(`${root}/.git`).catch(() => undefined)
   const home = (await $.env.get('HOME')) ?? ''
   const paths = statePaths(home, root, {
     CONTEXT_DIR: (await $.env.get('CONTEXT_DIR')) || undefined,
     HARNESS_PROJECT: (await $.env.get('HARNESS_PROJECT')) || undefined,
-  }, envFile)
+  }, envFile, typeof gitFileText === 'string' ? gitFileText : undefined)
   const thresholdS = Number((await $.env.get('LEAD_NUDGE_THRESHOLD_S')) || envFileValue(envFile, 'LEAD_NUDGE_THRESHOLD_S')) || DEFAULT_THRESHOLD_S
+  const entries = await $.fs.list(paths.contextDir).catch(() => undefined)
+  if (entries === undefined) {
+    const problem = `context dir missing: ${paths.contextDir}`
+    $.ui.log(`${problem} (set CONTEXT_DIR or HARNESS_PROJECT; see docs/context-publisher.md)`)
+    return problem
+  }
   const rows: ContextRow[] = []
-  for (const entry of await $.fs.list(paths.contextDir).catch(() => [])) {
+  for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue
     const text = await $.fs.read(`${paths.contextDir}/${entry.name}`).catch(() => undefined)
     try { if (typeof text === 'string') rows.push(JSON.parse(text) as ContextRow) } catch { continue }
   }
   const idle = idleAgents(roster.roleOf, freshRows(rows, now), thresholdS)
-  if (idle.length === 0) return logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`)
-  if (!isFree) return logVerdict($, paths.log, now, `hold: delivery lead is mid-turn; idle: ${describe(idle)}`)
+  if (idle.length === 0) { await logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`); return }
+  if (!isFree) { await logVerdict($, paths.log, now, `hold: delivery lead is mid-turn; idle: ${describe(idle)}`); return }
   const key = stateKey(idle)
   const prev = (await $.store.get(NUDGE_STATE)) as NudgeState | undefined
   const verdict = decide(key, prev, now, thresholdS)
-  if (!verdict.send) return logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`)
+  if (!verdict.send) { await logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`); return }
   await $.prompt.submit({ text: nudgeText(verdict.count, idle, thresholdS) })
   await $.store.set(NUDGE_STATE, { key, count: verdict.count, lastMs: now } satisfies NudgeState)
   await logVerdict($, paths.log, now, `sent nudge ${verdict.count} of ${MAX_NUDGES}; idle: ${describe(idle)}`)
+  return
 }
 
 // Loaded into every session, it acts only in the one the roster names as the
@@ -134,7 +150,7 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
 // idle team agents every five minutes.
 export const register: Register = on => {
   const told = new Set<string>()
-  const nudger = { nextAt: 0 }
+  const nudger: Nudger = { nextAt: 0 }
   let timer: { cancel: () => void } | undefined
   let busy = false
 
