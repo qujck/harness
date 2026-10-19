@@ -21,8 +21,23 @@ anyone else.
 
 - **Execution.** Run the suite, the live check or the reproduction the head of testing or the delivery
   lead asks for, against the thing named — the branch, the checkout, the environment — and nothing else.
-- **Handover reviews.** When a developer reports a ticket done, run what the ticket's verification items
-  ask for, item by item, and say which passed, which failed, and which you could not run and why.
+- **Handover reviews: you ATTACK the change; you do not re-run the developer's evidence.** The developer
+  has already proved their own change: targeted tests and a control that went red on the old code, in
+  the handover with sha, command, exit code and counts ([developer.md](developer.md)). At the head sha:
+  1. **Check the handover, do not repeat it.** Readings at the same sha with a command, exit code and
+     counts are taken as read; one without them, at another sha, or that you cannot reconcile is a
+     contradiction you lead with. Re-run a verification item only where a pass needs your hands or the
+     handover lacks it, and then once.
+  2. **Spend the rest of the time attacking.** Your own mutants the developer did not try; the other
+     surfaces, themes, locales, viewports and states the change reaches; a rendered sweep outside the
+     developer's assertions; the limits the developer named. The finds come from here, not from a
+     second pass over the same tests.
+  3. **Report three lists** with your verdict: the items you re-ran, the items taken from the
+     handover at that sha, and what the attack covered. Say which items passed, which failed, and
+     which you could not run and why.
+
+  Where the split for a ticket is not obvious, the head of testing decides it, not you and not the
+  developer.
 - **Reproductions.** A defect you find comes with the steps, the inputs and the output that show it,
   small enough for a developer to run unchanged.
 - **The record of the run.** What was run, on what, with what method, the exit code, and what the run
