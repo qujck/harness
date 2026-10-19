@@ -26,6 +26,11 @@ independent measurement to stop being independent.
   budgets that can gate a PR, hardware-dependent timings that report only — raised as rows for
   the PO to groom and developers to build.
 - **The reading of any measurement that will drive a decision**, including other people's.
+- **The split between developer and tester.** The developer proves their own change (targeted tests,
+  a control red on the old code, readings in the handover); the tester does not re-run that evidence
+  but checks it, runs once only the items that need their hands, and attacks the change
+  ([tester.md](tester.md), [developer.md](developer.md)). Where a ticket's split is not obvious, you
+  decide it on the row before the tester starts.
 
 ## What you do not do
 

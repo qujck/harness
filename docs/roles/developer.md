@@ -28,6 +28,12 @@ the channel, not an escalation.
 - **Tests for what you changed.** Unit tests for what you wrote (enforced); the e2e script for API
   behaviour you changed; the journeys doc when navigation changes. Targeted runs while developing;
   the full gate is CI's, on the PR.
+- **Proving your own change, in a handover a tester can rely on.** Targeted tests while you build,
+  and a **control that goes red on the old code**. For each reading the handover names the full head
+  sha, the command, its exit code and the counts, and which control went red on which old sha. A
+  tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
+  attack the change. A reading without sha, command, exit code and counts is one they must run again.
+  Name what your tests do NOT cover; that list is where the attack starts.
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
   --abandon`). A dangling unverified PR is unfinished work.

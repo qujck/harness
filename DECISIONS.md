@@ -268,3 +268,18 @@ as agents; `agent-stacks.sh --check` from a newcomer's directory with `AGENT_STA
 named every holder (the box's real agents and the stubs), printed "nothing here is killed", and all
 four stub containers were still running afterwards; they were then torn down by hand. The example
 publisher, fed a status-line payload, wrote the contract's JSON and `agent-context.sh` rendered it.
+
+## 2026-10-19 — The developer proves their change; the tester attacks it instead of re-running the developer's evidence (ported from the seeded project)
+
+The seeded project's owner asked (2026-10-18) *"is there a clear separation between what a dev tests and
+what a tester tests?"*: nothing separated them, so at the end of a ticket the tester re-ran the developer's
+specs, budgets and gates. The defects on the incident ticket came from different eyes (the tester's own
+mutants and a rendered sweep of every page; the reviewer's code read), not from the repeat. Ported into
+`docs/roles/tester.md`, `docs/roles/developer.md` and `docs/roles/head-of-testing.md`: (1) the developer
+proves their own change, with each handover reading as full sha, command, exit code and counts, a control
+red on the old code, and what the tests do not cover; (2) the tester checks the handover, re-runs once only
+the items that need their hands or that the handover lacks, and spends the rest attacking the change
+(own mutants, other surfaces and states, a rendered sweep, the named limits); (3) the tester's report lists
+the items re-run, the items taken from the handover and what the attack covered; (4) the head of testing
+decides the split where it is not obvious. The seeded project gates a PR on a ledger sign-off verb; this
+template has no such verb, so the rule is stated for the tester's report, not a verdict row.
