@@ -15,7 +15,8 @@
 #
 # Where each number comes from:
 #   roster          agents/roster.json through scripts/lib/roster.sh (roster_panel_rows): the active
-#                   agents in the file's order, which is the owner's order, then the assistants
+#                   agents in the file's order, which is the owner's order, then the assistants. A
+#                   developer or tester with no running session is on the bench and is left out
 #   working/idle    ~/.claude/sessions/<pid>.json, Claude Code's own record (status, statusUpdatedAt).
 #                   A session is known by the GIT_AUTHOR_EMAIL its launch line set, read from
 #                   /proc/<pid>/environ where /proc exists and looked up in the roster, or failing that
@@ -271,6 +272,9 @@ frame() {
   local names=() roles=() ctxs=() rates=() series=() ceil=1
   while IFS=$'\t' read -r name role kind; do
     [ -n "$name" ] || continue
+    # A developer or tester with no running session is on the bench (scripts/agent-bench.sh) until it is
+    # spawned for its next ticket: not shown. Every other role reads "not started" when it is down.
+    case "$role" in developer|tester) [ -n "${L_PID[$name]:-}" ] || continue ;; esac
     local ctx="" rate="" ser=""
     if [ -n "${L_SID[$name]:-}" ]; then
       sid=${L_SID[$name]}
@@ -386,10 +390,11 @@ selftest() {
   # The roster: file order, retired left out, assistants last.
   printf '%s' '{"agents":[{"name":"Ed","email":"ed@example.test","role":"developer","status":"active"},
     {"name":"Vera","email":"vera@example.test","role":"head-of-testing","status":"active"},
-    {"name":"Old","email":"old@example.test","role":"developer","status":"retired"}],
+    {"name":"Old","email":"old@example.test","role":"developer","status":"retired"},
+    {"name":"Ben","email":"ben@example.test","role":"tester","status":"active"}],
     "assistants":[{"name":"Ada"}]}' > "$T/roster.json"
   ROSTER="$T/roster.json"
-  t $'Ed\tdeveloper\tagent\nVera\thead-of-testing\tagent\nAda\tassistant\tassistant' \
+  t $'Ed\tdeveloper\tagent\nVera\thead-of-testing\tagent\nBen\ttester\tagent\nAda\tassistant\tassistant' \
     'roster: active agents in file order, then the assistant' "$(roster)"
 
   # Readings: a pinned clock on a minute boundary, so the buckets are predictable.
@@ -428,6 +433,8 @@ selftest() {
     t 1 'frame: Ed is idle for five minutes at 40% of a 500k window' "$(printf '%s\n' "$out" | grep -c ' ○ idle 5m   40% 202k')"
     t 1 'frame: the five-hour gauge reads 9%' "$(printf '%s\n' "$out" | grep -c ' 5h  ░░░░░░░░░░ 9%')"
     t 2 'frame: the agents without a session read not started' "$(printf '%s\n' "$out" | grep -c 'not started')"
+    t 0 'frame: a tester with no session is on the bench and not shown' "$(printf '%s\n' "$out" | grep -c 'Ben')"
+    t 1 'frame: a developer with a session is shown' "$(printf '%s\n' "$out" | grep -c '^ Ed ')"
     t 1 'frame: the shared scale is printed' "$(printf '%s\n' "$out" | grep -c 'full bar = 600 tok/min')"
   else
     echo "  skipped  the live-session arms need python3 to make a socket — said, not silently passed"

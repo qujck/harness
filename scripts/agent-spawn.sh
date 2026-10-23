@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# scripts/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
+#
+#   bash scripts/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--dry-run]
+#   bash scripts/agent-spawn.sh --self-test
+#
+# The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
+# team"). Its partner is scripts/agent-bench.sh, which stops the session once the ticket has merged.
+#
+# THE POOL IS THE ROSTER. A name is free when its row in agents/roster.json is ACTIVE, holds this role, and
+# has no running session (scripts/lib/agent-session.sh: its tmux session, or a live Claude Code record
+# carrying its address). Without --name one free name is picked at random, a dry run included, so start
+# exactly the name a dry run printed with --name. A --name that is not free is refused, and with no name
+# free it refuses and says so: onboard another (agent-onboard.sh) or bench a finished one.
+#
+# SPAWNING NEVER WRITES agents/roster.json. The name, its identity and its worktree are the onboarded
+# agent's own and stay theirs on the bench; only onboarding and retiring change the roster.
+#
+# What it starts, in a detached tmux session `<project>-<name>` (watch it with `tmux attach -t =<that>`):
+#
+#   env <roster_launch_env> claude --worktree <project>-<name> --name <Name> [--model M] "<first prompt>"
+#
+#   identity     roster_launch_env: the same four GIT_* variables as the launch line agent-onboard.sh prints
+#   model        --model, else AGENT_MODEL_DEV / AGENT_MODEL_TESTER (harness.env), else the account default
+#   first prompt Claude Code's positional prompt: read the role document and AGENTS.md, run
+#                `bash scripts/init.sh`, then a developer CLAIMS THE TICKET ITSELF (feature-ticket.sh claim):
+#                a claim is stamped with the session's identity, so nobody can claim on its behalf. A tester
+#                claims nothing; it tells the delivery lead it is ready to test the ticket.
+#
+# Exit: 0 started (or a dry run said what it would start) · 1 refused · 2 a usage error.
+set -uo pipefail
+_here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
+# shellcheck source=lib/selftest-flag.sh
+. "$_here/lib/selftest-flag.sh"
+# shellcheck source=lib/harness-env.sh
+. "$_here/lib/harness-env.sh"
+export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
+# shellcheck source=lib/roster.sh
+. "$_here/lib/roster.sh"
+# shellcheck source=lib/agent-session.sh
+. "$_here/lib/agent-session.sh"
+
+USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--dry-run]"
+
+# PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
+spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+)$ ]]; }
+# PURE: is this a model name Claude Code could take (an alias, a full id, a [1m]-style suffix)?
+spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$ ]]; }
+
+# The first prompt. $1 name · $2 role · $3 ticket (may be empty)
+spawn_prompt() {
+  local n="$1" r="$2" t="${3:-}" p
+  p="You are $n, a $r on this project's agent team, started by scripts/agent-spawn.sh"
+  [[ -n "$t" ]] && p+=" for ticket $t. That ticket is yours and you hold no other." || p+="."
+  p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
+  if [[ -z "$t" ]]; then
+    p+=" Then tell the delivery lead you are ready and ask which ticket is yours."
+  elif [[ "$r" == developer ]]; then
+    p+=" Then claim it yourself, \`bash scripts/feature-ticket.sh claim $t\`, and tell the delivery lead you have it."
+  else
+    p+=" A tester claims nothing: tell the delivery lead you are ready to test $t."
+  fi
+  printf '%s' "$p"
+}
+
+# The free names for a role, one per line, in roster order.
+spawn_free_names() { # <role>
+  local n r
+  while IFS=$'\t' read -r n r; do
+    [[ -n "$n" && "$r" == "$1" ]] || continue
+    agent_session_running "$n" || printf '%s\n' "$n"
+  done < <(roster_list_active)
+}
+
+spawn_self_test() {
+  local fails=0 T out rc child=""
+  _t() { if [[ "$2" == "$3" ]]; then printf '  ok   %s\n' "$1"
+         else printf '  FAIL %s\n       want %q\n       got  %q\n' "$1" "$3" "$2"; fails=$((fails+1)); fi; }
+  _has() { if grep -qF -- "$3" <<<"$2"; then printf '  ok   %s\n' "$1"
+           else printf '  FAIL %s\n       no %q in:\n%s\n' "$1" "$3" "$2"; fails=$((fails+1)); fi; }
+  T="$(mktemp -d)" || return 2
+  trap '[[ -n "$child" ]] && kill "$child" 2>/dev/null; rm -rf "$T"' RETURN
+
+  # PURE arms
+  spawn_ticket_ok feat_some_ticket && _t "a ledger id is a ticket" 0 0 || _t "a ledger id is a ticket" 1 0
+  spawn_ticket_ok HAR-12 && _t "a Jira key is a ticket" 0 0 || _t "a Jira key is a ticket" 1 0
+  spawn_ticket_ok Har-12 && _t "a mixed-case key is no ticket" 0 1 || _t "a mixed-case key is no ticket" 1 1
+  spawn_ticket_ok 'x;rm' && _t "a shell metacharacter is no ticket" 0 1 || _t "a shell metacharacter is no ticket" 1 1
+  spawn_model_ok 'opus;rm' && _t "a model with ; is refused" 0 1 || _t "a model with ; is refused" 1 1
+  spawn_model_ok 'opus[1m]' && _t "a [1m] model suffix is accepted" 0 0 || _t "a [1m] model suffix is accepted" 1 0
+
+  # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
+  # throwaway config dir. Nothing here can start a real session: the only tmux on PATH is the stand-in.
+  mkdir -p "$T/repo/agents" "$T/bin" "$T/claude/sessions"
+  cat > "$T/repo/agents/roster.json" <<'JSON'
+{"agents":[
+ {"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"active"},
+ {"name":"Ada","email":"ada@proj.local","role":"developer","status":"active"},
+ {"name":"Ben","email":"ben@proj.local","role":"developer","status":"active"},
+ {"name":"Cy","email":"cy@proj.local","role":"developer","status":"retired"},
+ {"name":"Tess","email":"tess@proj.local","role":"tester","status":"active"}]}
+JSON
+  cat > "$T/bin/tmux" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$T/tmux.log"
+case "\$1" in
+  has-session) grep -qxF -- "\${3#=}" "$T/tmux.sessions" 2>/dev/null ;;
+  new-session) printf '%s\n' "\$4" >> "$T/tmux.sessions" ;;
+esac
+EOF
+  printf '#!/usr/bin/env bash\necho "stand-in claude: never run by the self-test" >&2; exit 1\n' > "$T/bin/claude"
+  chmod +x "$T/bin/tmux" "$T/bin/claude"
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
+  local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
+  run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local \
+            ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" \
+            bash "$SELF" "$@" 2>&1; }
+
+  # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
+  out=""; for _ in 1 2 3 4 5 6; do out+="$(run developer --ticket HAR-12 --dry-run)"$'\n'; done
+  _t "a dry run picks only the free developer" "$(grep -c '^would start ' <<<"$out")" 6
+  _t "a running name is never picked" "$(grep -c 'would start Ben' <<<"$out")" 0
+  _t "a retired name is never picked" "$(grep -c 'would start Cy' <<<"$out")" 0
+  _has "the dry run names the name to start with --name" "$out" "would start Ada (developer) for HAR-12"
+  _t "a dry run starts nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  _t "a dry run writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
+
+  out="$(run developer --name ben --dry-run)"; rc=$?
+  _t "--name of a running agent is refused" "$rc" 1
+  _has "  and the refusal lists the free names" "$out" "ben is not a free developer (free: Ada)"
+  out="$(run developer --name Tess --dry-run)"; rc=$?
+  _t "--name of another role's agent is refused" "$rc" 1
+  out="$(run developer --name Cy --dry-run)"; rc=$?
+  _t "--name of a retired agent is refused" "$rc" 1
+  out="$(run developer --name ada --dry-run)"
+  _has "--name takes the roster's spelling" "$out" "would start Ada (developer)"
+
+  out="$(run developer --model 'opus;rm' --dry-run)"; rc=$?
+  _t "a malformed model is refused as usage" "$rc" 2
+  out="$(run developer --ticket 'x y' --dry-run)"; rc=$?
+  _t "a malformed ticket is refused as usage" "$rc" 2
+  out="$(run head-of-testing --dry-run)"; rc=$?
+  _t "a role other than developer or tester is refused" "$rc" 2
+  out="$(run developer --frobnicate)"; rc=$?
+  _t "an unknown argument is refused" "$rc" 2
+  out="$(run --slef-test)"; rc=$?
+  _t "a mistyped self-test flag exits 2, never runs" "$rc" 2
+
+  # a real start, with the role's model from harness.env
+  printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a spawn exits 0" "$rc" 0
+  _has "  and says how to watch it" "$out" "tmux attach -t =proj-ada"
+  local line; line="$(grep '^new-session' "$T/tmux.log")"
+  _has "it starts a detached tmux session named for the agent, in the project root" "$line" "new-session -d -s proj-ada -c $T/repo env"
+  _has "  with the roster identity" "$line" "GIT_AUTHOR_NAME=Ada GIT_AUTHOR_EMAIL=ada@proj.local GIT_COMMITTER_NAME=Ada GIT_COMMITTER_EMAIL=ada@proj.local"
+  _has "  in the agent's own worktree, named in the session" "$line" "claude --worktree proj-ada --name Ada"
+  _has "  on the role's model (AGENT_MODEL_DEV)" "$line" "--model sonnet"
+  _has "  told to read its role and init" "$line" "Read docs/roles/developer.md and AGENTS.md first, then run \`bash scripts/init.sh\`"
+  _has "  and to claim the ticket itself" "$line" "bash scripts/feature-ticket.sh claim HAR-12"
+  _t "a spawn writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
+
+  # now every developer is running: refused, with the way out
+  out="$(run developer --dry-run)"; rc=$?
+  _t "with every developer running it refuses" "$rc" 1
+  _has "  and says to onboard another or bench one" "$out" "onboard another"
+  printf '{"agents":[{"name":"Old","email":"old@proj.local","role":"developer","status":"retired"}]}\n' > "$T/none.json"
+  out="$(RF="$T/none.json" run developer --dry-run)"; rc=$?
+  _t "with no active developer onboarded it refuses" "$rc" 1
+  _has "  and says nobody is onboarded, not that all are running" "$out" "no active developer is onboarded"
+
+  # a tester: --model overrides the role's model, and a tester claims nothing
+  printf 'AGENT_MODEL_TESTER=sonnet\n' > "$T/repo/harness.env"
+  : > "$T/tmux.log"
+  run tester --ticket feat_some_ticket --model opus >/dev/null; rc=$?
+  line="$(grep '^new-session' "$T/tmux.log")"
+  _t "a tester spawn exits 0" "$rc" 0
+  _has "--model overrides the role's model" "$line" "--model opus"
+  _t "  and the role's model is not also passed" "$(grep -c -- '--model sonnet' <<<"$line")" 0
+  _has "a tester is told it claims nothing" "$line" "A tester claims nothing: tell the delivery lead you are ready to test feat_some_ticket."
+  _t "  and is not told to claim" "$(grep -c 'feature-ticket.sh claim' <<<"$line")" 0
+
+  # no model anywhere: no --model at all, so the account default applies
+  : > "$T/repo/harness.env"; printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
+  run developer >/dev/null
+  line="$(grep '^new-session' "$T/tmux.log")"
+  _t "with no model set, no --model is passed" "$(grep -c -- '--model' <<<"$line")" 0
+  _has "with no ticket, it asks the lead for one" "$line" "ask which ticket is yours"
+
+  # a session started by hand from the launch line (no tmux session of ours) still counts as running
+  : > "$T/tmux.sessions"
+  GIT_AUTHOR_EMAIL=ada@proj.local sleep 60 & child=$!
+  printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":1}\n' "$child" > "$T/claude/sessions/$child.json"
+  out="$(run developer --name Ada --dry-run)"; rc=$?
+  _t "a live Claude Code record carrying the agent's address makes it running" "$rc" 1
+  printf '{"pid":4194300,"sessionId":"dead","name":"Ben","status":"idle"}\n' > "$T/claude/sessions/4194300.json"
+  out="$(run developer --name Ben --dry-run)"; rc=$?
+  _t "a record whose pid is dead does not" "$rc" 0
+
+  if (( fails == 0 )); then echo "agent-spawn --self-test: PASS"; return 0; fi
+  echo "agent-spawn --self-test: FAIL ($fails)"; return 1
+}
+
+selftest_reject_typo "${1:-}"
+if selftest_is_flag "${1:-}"; then
+  [[ $# -eq 1 ]] || { printf 'unknown argument: %s\n' "$2" >&2; exit 2; }
+  spawn_self_test; exit $?
+fi
+
+ROLE="" WANT="" TICKET="" MODEL="" DRY=0
+while (( $# )); do
+  case "$1" in
+    developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
+    --name)   [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; WANT=$2; shift ;;
+    --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=$2; shift ;;
+    --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
+    --dry-run) DRY=1 ;;
+    *) printf 'agent-spawn: unknown argument: %s\n%s\n' "$1" "$USAGE" >&2; exit 2 ;;
+  esac
+  shift
+done
+[[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
+[[ -z "$TICKET" ]] || spawn_ticket_ok "$TICKET" \
+  || { printf 'agent-spawn: %q is not a ticket id (a ledger id like feat_x_y, or a Jira key like HAR-12)\n' "$TICKET" >&2; exit 2; }
+if [[ -z "$MODEL" ]]; then
+  [[ "$ROLE" == developer ]] && MODEL="${AGENT_MODEL_DEV:-}" || MODEL="${AGENT_MODEL_TESTER:-}"
+fi
+[[ -z "$MODEL" ]] || spawn_model_ok "$MODEL" || { printf 'agent-spawn: %q is not a model name\n' "$MODEL" >&2; exit 2; }
+[[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
+
+mapfile -t FREE < <(spawn_free_names "$ROLE")
+if [[ -n "$WANT" ]]; then
+  NAME=""; for n in "${FREE[@]}"; do [[ "${n,,}" == "${WANT,,}" ]] && NAME=$n; done
+  [[ -n "$NAME" ]] || { printf 'agent-spawn: %s is not a free %s (free: %s)\n' "$WANT" "$ROLE" "${FREE[*]:-none}" >&2; exit 1; }
+else
+  if (( ${#FREE[@]} == 0 )); then
+    if roster_list_active | awk -F'\t' -v r="$ROLE" '$2 == r { f = 1 } END { exit !f }'; then
+      printf 'agent-spawn: every %s on the roster is running, so none is free.\n' "$ROLE" >&2
+    else
+      printf 'agent-spawn: no active %s is onboarded, so there is nobody to start.\n' "$ROLE" >&2
+    fi
+    printf '  Bench one whose ticket has merged (bash scripts/agent-bench.sh <Name>), or onboard another\n' >&2
+    printf '  (bash scripts/agent-onboard.sh <Name> %s) and commit the roster.\n' "$ROLE" >&2
+    exit 1
+  fi
+  NAME=${FREE[RANDOM % ${#FREE[@]}]}
+fi
+
+SESSION="$(agent_session_name "$NAME")"
+PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET")"
+mapfile -t IDENT < <(roster_launch_env "$NAME")
+CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
+[[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
+CMD+=("$PROMPT")
+WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}"
+
+if (( DRY )); then
+  printf 'would start %s in tmux session %s, on %s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
+  printf '  start exactly this one with: bash scripts/agent-spawn.sh %s --name %s%s%s\n' \
+    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}"
+  printf '  first prompt: %s\n' "$PROMPT"
+  exit 0
+fi
+
+command -v tmux >/dev/null 2>&1 || { echo "agent-spawn: tmux is not on PATH" >&2; exit 1; }
+command -v claude >/dev/null 2>&1 || { echo "agent-spawn: claude is not on PATH" >&2; exit 1; }
+tmux new-session -d -s "$SESSION" -c "$HARNESS_ROOT" "${CMD[@]}" \
+  || { echo "agent-spawn: tmux could not start session $SESSION for $NAME" >&2; exit 1; }
+tmux has-session -t "=$SESSION" 2>/dev/null \
+  || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
+printf 'started %s in tmux session %s, on %s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
+printf '  watch it: tmux attach -t =%s\n' "$SESSION"

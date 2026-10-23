@@ -43,6 +43,9 @@ scripts/
   handoff.sh             # clock out gate
   ledger-db.sh           # the ticket verbs: raise · groom · claim · park · amend · flip-passing · archive · release · frontier …
   agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
+  agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree)
+  agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
+  lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   full-suite-gate.sh     # is main's hourly full suite red? judges on the newest concluded run, names it; exit 0/1/2
   ui-relevant-specs.sh   # changed paths -> the browser subset (scripts/ui-map.txt), or __ALL__
   ci-stack-project.sh    # the CI compose project, keyed on the RUNNER NAME (never a label two runners can share)
@@ -53,7 +56,7 @@ scripts/
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
-  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent; the account's limits on top
+  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent (benched ones hidden); the account's limits on top
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
@@ -116,7 +119,7 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
   the team: delivery lead (the ledger and the routing), developer (the code, to a terminal
   state), head of testing (what is true; fixes nothing it finds), process improvement (the
   path to `main`, the gates, the scheduled jobs). Two optional roles join them where wanted: a code
-  reviewer (every PR, reviewed on the PR) and a tester (runs what the head of testing defines). Each prompt says what the role owns and what it
+  reviewer (every PR, reviewed on the PR) and a tester (started for one ticket, and owns what is true about it). Each prompt says what the role owns and what it
   must not touch; the roster says who holds which, from the session's identity, never a directory.
 - **Mechanisms that arrive with later children of the template epic are marked "(arrives with
   `<child-id>`)"** in the docs, and `scripts/check-docs-markers-match-landed-children.sh` fails the

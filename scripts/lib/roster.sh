@@ -376,6 +376,15 @@ roster_launch_line() { # $1 name
     "$n" "$e" "$n" "$e" "${n,,}"
 }
 
+# roster_launch_env <name>  ->  the same four identity variables as roster_launch_line, one
+# NAME=value per line, for a script that starts the session itself (agent-spawn.sh hands them to
+# `env`). Same derivation, so a spawned session and a hand-started one carry the same identity.
+roster_launch_env() { # $1 name
+  local n="${1:?roster_launch_env <name>}" e
+  e="$(roster_email_of_name "$n")"
+  printf 'GIT_AUTHOR_NAME=%s\nGIT_AUTHOR_EMAIL=%s\nGIT_COMMITTER_NAME=%s\nGIT_COMMITTER_EMAIL=%s\n' "$n" "$e" "$n" "$e"
+}
+
 # ── self-test ───────────────────────────────────────────────────────────────────────────────────
 # ⚠ AND THE OTHER HALF OF THE CONTRACT: REFUSE AN UNRECOGNISED ARGUMENT. Sourcing the library
 # satisfies the ratchet — it asks only whether the library is sourced — but `selftest_is_flag`
