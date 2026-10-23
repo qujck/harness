@@ -331,3 +331,23 @@ milliseconds, is there in Claude Code 2.1's records).
 pane grid, PR-comment and merge-gate tooling, that owner's own process settings and per-box settings file,
 the Test Lead merge (the head of testing stays), a context-trimming settings example, the other panel extras
 (ticket, effort, role colours, disk), and verbatim owner quotes: the rules are stated plainly.
+
+## 2026-10-23 — A weekly budget decides whether the lead asks before starting an agent (ported from the seeded project)
+
+**Decision.** `scripts/agents-budget.sh` answers one question for the delivery lead: is the account's week inside
+the owner's budget so far? The budget is `AGENT_WEEK_PCT_PER_HOUR` percent of the weekly allowance for every
+working hour (`AGENT_WORK_DAYS`, `AGENT_WORK_HOURS`) since the week reset (`AGENT_WEEK_RESET`), in local time: at 2
+an hour over 08:00-17:00 Monday to Friday, by Wednesday 12:00 that is 44%, and a full working week spends 90%,
+leaving 10% in hand. Exit 0 on budget, 1 over, 2 cannot tell (no budget, a malformed setting, no reading since the
+reset). On budget the lead starts the agent and tells the owner in one line; over it, or when it cannot tell, the
+lead asks first. A spawn's dry run prints the line. The budget never picks the model: the work does
+(`docs/roles/delivery-lead.md`). With no rate set nothing changes: the lead asks every time.
+
+**The week's reading** is in one place, `scripts/lib/week-usage.sh`, for the budget and the panel alike: the
+highest `week.used_pct` among the context rows written within a minute of the freshest, because each session's
+figure is as of its own last request. A reading from before the reset is no reading.
+
+**The panel's top line** becomes one week bar: filled to the use, a `│` at the budget's allowance for now, both
+figures (`week ████│███░░░ 70% of 44%`), green inside the allowance and red past it; with no budget, the plain
+bar. The five-hour bar goes, so the top line shows the one figure the budget is about.
+`five_hour.used_pct` stays in the publisher contract.

@@ -8,9 +8,10 @@
 #
 # It answers one question: is anything going awol. Per agent it shows whether the session is
 # working, waiting, in a shell command or idle and for how long, how much of its context window it
-# has used, how fast it is generating tokens, and what it costs the machine. The account's five-hour
-# and weekly headroom sit at the top, because those limits are account-wide and cannot be attributed
-# to one agent. Put it in a pane beside the delivery lead's session, e.g.
+# has used, how fast it is generating tokens, and what it costs the machine. The account's week sits at
+# the top - what it has used against the owner's budget so far (scripts/agents-budget.sh) - because the
+# limit is account-wide and cannot be attributed to one agent. Put it in a pane beside the delivery
+# lead's session, e.g.
 # `tmux split-window -h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`.
 #
 # Where each number comes from:
@@ -22,7 +23,7 @@
 #                   /proc/<pid>/environ where /proc exists and looked up in the roster, or failing that
 #                   by its own session name
 #   context, burn,  the rows the context publisher writes to CONTEXT_DIR (docs/context-publisher.md):
-#   window, limits  context.used, context.window, tokens.output_total, five_hour and week
+#   window, week    context.used, context.window, tokens.output_total; week through scripts/lib/week-usage.sh
 #   cpu, memory     ps
 #
 # Nothing here reads a transcript: they run to hundreds of MB, and the status line already receives
@@ -36,6 +37,8 @@ _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "$_here/lib/harness-env.sh" 2>/dev/null || true
 # shellcheck source=lib/roster.sh
 . "$_here/lib/roster.sh"
+# shellcheck source=lib/week-usage.sh
+. "$_here/lib/week-usage.sh"
 
 ROSTER="${ROSTER_FILE:-${HARNESS_ROOT:-$_here/..}/agents/roster.json}"
 SESSIONS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
@@ -165,6 +168,30 @@ colour_for() { # colour_for <pct>
 
 rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
 
+# week_line <used %> -> the week's use as a bar, with a │ at the allowance scripts/agents-budget.sh gives for
+# this point in the week, and both figures: green while the use is inside the allowance, red once past it.
+# With no budget set, the plain bar, coloured by the use.
+BUDGET="${AGENTS_DASH_BUDGET:-$_here/agents-budget.sh}"
+week_line() {
+  local used=$1 plan="" out i bar="" col fill mark
+  if ! [ "$used" -ge 0 ] 2>/dev/null; then printf ' %sweek no reading yet%s\n' "$DIM" "$R"; return 0; fi
+  out=$(bash "$BUDGET" 2>/dev/null)
+  [ $? -le 1 ] && plan=$(sed -n 's/.* of \([0-9]*\)% planned.*/\1/p' <<<"$out")
+  if [ -z "$plan" ]; then
+    printf ' %sweek%s %s%s%s %s%s%%%s\n' "$DIM" "$R" "$(colour_for "$used")" "$(bar "$used" 10)" "$R" "$BOLD" "$used" "$R"
+    return 0
+  fi
+  col=$GREEN; [ "$used" -gt "$plan" ] && col="$BOLD$RED"
+  fill=$(( (used + 5) / 10 )); mark=$(( (plan + 5) / 10 ))
+  [ "$fill" -gt 10 ] && fill=10; [ "$mark" -gt 10 ] && mark=10
+  for (( i = 0; i <= 10; i++ )); do
+    [ "$i" -eq "$mark" ] && bar+="$R$DIM│$R"
+    [ "$i" -lt 10 ] || break
+    if [ "$i" -lt "$fill" ]; then bar+="$col█$R"; else bar+="$DIM░$R"; fi
+  done
+  printf ' %sweek%s %s %s%s%%%s %sof%s %s%%\n' "$DIM" "$R" "$bar" "$col" "$used" "$R" "$DIM" "$R" "$plan"
+}
+
 # ── what the status line publishes ────────────────────────────────────────────
 # The publisher writes one JSON row per session to CONTEXT_DIR on every refresh. Besides the
 # percentages agent-context.sh shows, a row may carry what the panel needs: `context.used`, the
@@ -175,16 +202,8 @@ rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
 # Without a figure the panel says so rather than guess: tokens without a percentage, or `no reading
 # yet`.
 
-# limits -> "<five-hour used %>\t<weekly used %>" from the freshest row holding either; -1 for unknown
 # rows -> every readable row as one JSON value per line; a file that is not JSON is dropped, not fatal.
 rows() { cat "$CONTEXT_DIR"/*.json 2>/dev/null | jq -cR 'fromjson? // empty' 2>/dev/null; }
-
-limits() {
-  rows | jq -rs '
-    map(select(.five_hour.used_pct != null or .week.used_pct != null))
-    | map([((.ts | fromdateiso8601?) // 0), (.five_hour.used_pct // -1), (.week.used_pct // -1)])
-    | max_by(.[0]) // [0, -1, -1] | .[1:] | @tsv' 2>/dev/null
-}
 
 # readings -> one line per session, "<sid> <used> <window> <tokens in the last minute> <series>" with
 # the fields separated by \x1f (a tab would be swallowed by `read` where a field is empty), the last
@@ -232,14 +251,9 @@ readings() {
 
 # ── one frame ─────────────────────────────────────────────────────────────────
 frame() {
-  local now limits_sess limits_wk
+  local now week
   now=$(now_s)
-
-  local lim
-  lim=$(limits)
-  limits_sess=${lim%%$'\t'*}; limits_wk=${lim##*$'\t'}
-  [ -n "${limits_sess:-}" ] || limits_sess=-1
-  [ -n "${limits_wk:-}" ] || limits_wk=-1
+  week=$(week_used); week=${week%% *}
 
   # Everything about the live sessions, keyed by agent name.
   declare -A L_PID L_SID L_STATUS L_SINCE
@@ -289,16 +303,7 @@ frame() {
   # ── header
   printf '%s%-*s%s%s\n' "$BOLD$CYAN" $(( W - 6 )) " TEAM" "$(TZ=${TZ:-} date -d "@$now" '+%H:%M' 2>/dev/null || date '+%H:%M')" "$R"
   rule
-  local p
-  for p in "5h:$limits_sess" "wk:$limits_wk"; do
-    local lab=${p%%:*} val=${p##*:}
-    if [ "${val%%.*}" -ge 0 ] 2>/dev/null; then
-      printf ' %s%-3s%s %s%s%s %s%s%%%s\n' "$DIM" "$lab" "$R" \
-        "$(colour_for "${val%%.*}")" "$(bar "${val%%.*}" 10)" "$R" "$BOLD" "${val%%.*}" "$R"
-    else
-      printf ' %s%-3s  no reading yet%s\n' "$DIM" "$lab" "$R"
-    fi
-  done
+  week_line "${week:--1}"
   rule
 
   # ── one agent per three lines
@@ -411,9 +416,18 @@ selftest() {
   t $'s1\x1f202000\x1f500000\x1f300\x1f0,0,600,300,0' 'readings: an unchanged row adds nothing' "$(readings)"
   printf '{"agent":"Vera","session_id":"s2","ts":"%s","context":{"remaining_pct":50},"activity":"idle"}\n' "$(date -u -d "@$((NOW-5))" +%FT%TZ)" > "$CONTEXT_DIR/s2.json"
   t $'s2\x1f\x1f0\x1f\x1f' 'readings: a row without the figures keeps its empty fields in place' "$(readings | grep '^s2')"
-  t $'9\t70' 'limits: five-hour and weekly from the freshest row that has them' "$(limits)"
+  t 70 'week: the weekly figure from the rows' "$(w=$(week_used); echo "${w%% *}")"
   printf 'not json at all\n' > "$CONTEXT_DIR/junk.json"
-  t $'9\t70' 'limits: a file that is not JSON is dropped, not fatal to the frame' "$(limits)"
+  t 70 'week: a file that is not JSON is dropped, not fatal to the frame' "$(w=$(week_used); echo "${w%% *}")"
+
+  # The week line, against a stand-in budget script.
+  printf '#!/usr/bin/env bash\necho "budget  none set"; exit 2\n' > "$T/budget"; BUDGET="$T/budget"
+  t ' week ███████░░░ 70%' 'week line: with no budget, the plain bar' "$(week_line 70)"
+  printf '#!/usr/bin/env bash\necho "budget  on: week 40%% used of 44%% planned so far"; exit 0\n' > "$T/budget"
+  t ' week ████│░░░░░░ 40% of 44%' 'week line: on budget, the bar to the use and the mark at the allowance' "$(week_line 40)"
+  printf '#!/usr/bin/env bash\necho "budget  over: week 70%% used of 44%% planned so far: ask the owner"; exit 1\n' > "$T/budget"
+  t ' week ████│███░░░ 70% of 44%' 'week line: over budget, the bar runs past the mark' "$(week_line 70)"
+  t ' week no reading yet' 'week line: no reading says so' "$(week_line -1)"
   t 1 'readings: the good rows survive a bad file beside them' "$(readings | grep -c '^s1')"
 
   # Live sessions: a child of this shell launched with a GIT_AUTHOR_EMAIL stands for Ed's session;
@@ -431,7 +445,8 @@ selftest() {
     # A whole frame against the fixtures: Ed's row from the live child, Vera not started, Ada not started.
     local out; out=$(frame)
     t 1 'frame: Ed is idle for five minutes at 40% of a 500k window' "$(printf '%s\n' "$out" | grep -c ' ○ idle 5m   40% 202k')"
-    t 1 'frame: the five-hour gauge reads 9%' "$(printf '%s\n' "$out" | grep -c ' 5h  ░░░░░░░░░░ 9%')"
+    t 1 'frame: the week line reads 70% against the budget' "$(printf '%s\n' "$out" | grep -c '^ week ████│███░░░ 70% of 44%$')"
+    t 0 'frame: no five-hour line' "$(printf '%s\n' "$out" | grep -c ' 5h ')"
     t 2 'frame: the agents without a session read not started' "$(printf '%s\n' "$out" | grep -c 'not started')"
     t 0 'frame: a tester with no session is on the bench and not shown' "$(printf '%s\n' "$out" | grep -c 'Ben')"
     t 1 'frame: a developer with a session is shown' "$(printf '%s\n' "$out" | grep -c '^ Ed ')"

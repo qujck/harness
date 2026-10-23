@@ -34,7 +34,7 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 `bash scripts/agent-context.sh` renders every row, freshest first (`--me` for yours, `--json` raw).
 `bash scripts/agents-dash.sh` draws the team panel from the same rows: per agent its state and how long,
 context used against its window, a fifteen-minute token-burn sparkline and CPU and memory, with the
-account's limits on top. The last four fields feed the panel; a row without them shows `no reading yet`
+account's week on top, marked against the owner's budget (`scripts/agents-budget.sh`). The last four fields feed the panel; a row without them shows `no reading yet`
 there rather than a guess, and the panel never opens a transcript.
 
 ## What it is for — and only for

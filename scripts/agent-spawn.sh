@@ -27,6 +27,9 @@
 #                a claim is stamped with the session's identity, so nobody can claim on its behalf. A tester
 #                claims nothing; it tells the delivery lead it is ready to test the ticket.
 #
+# A dry run ends with scripts/agents-budget.sh's line: on budget the lead starts the agent and tells the owner,
+# otherwise it asks first. The budget never picks the model.
+#
 # Exit: 0 started (or a dry run said what it would start) · 1 refused · 2 a usage error.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -115,7 +118,7 @@ EOF
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local \
-            ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" \
+            ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
             bash "$SELF" "$@" 2>&1; }
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
@@ -124,6 +127,7 @@ EOF
   _t "a running name is never picked" "$(grep -c 'would start Ben' <<<"$out")" 0
   _t "a retired name is never picked" "$(grep -c 'would start Cy' <<<"$out")" 0
   _has "the dry run names the name to start with --name" "$out" "would start Ada (developer) for HAR-12"
+  _has "a dry run prints the budget line, to decide whether to ask the owner" "$out" "budget  none set"
   _t "a dry run starts nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
   _t "a dry run writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
 
@@ -277,6 +281,7 @@ if (( DRY )); then
   printf '  start exactly this one with: bash scripts/agent-spawn.sh %s --name %s%s%s\n' \
     "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}"
   printf '  first prompt: %s\n' "$PROMPT"
+  bash "$_here/agents-budget.sh"   # the lead's test of whether to ask the owner first; its exit is not ours
   exit 0
 fi
 

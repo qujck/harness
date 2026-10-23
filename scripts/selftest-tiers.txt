@@ -20,6 +20,7 @@
 # selftest_requested): check-selftest-flag-contract.sh refuses a hand-parsed flag, because a
 # mistyped `--slef-test` must exit 2, never fall through to the script's real action.
 scripts/agent-onboard.sh	verify
+scripts/agents-budget.sh	verify
 scripts/check-docs-markers-match-landed-children.sh	verify
 scripts/check-merge-seat-count.sh	verify
 scripts/check-mods-tests-pass.sh	verify
@@ -65,3 +66,4 @@ scripts/check-context-is-never-a-reason-to-do-less.sh	verify
 scripts/agent-spawn.sh	verify
 scripts/agent-bench.sh	verify
 scripts/lib/agent-session.sh	nowhere	a sourced helper with no flag of its own; its arms run inside agent-spawn.sh's and agent-bench.sh's self-tests
+scripts/lib/week-usage.sh	nowhere	a sourced library: its arms run in scripts/agents-budget.sh --self-test and the panel's

@@ -45,6 +45,7 @@ scripts/
   agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
   agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree)
   agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
+  agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the agent and tell the owner), over or cannot tell (ask first)
   lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   full-suite-gate.sh     # is main's hourly full suite red? judges on the newest concluded run, names it; exit 0/1/2
   ui-relevant-specs.sh   # changed paths -> the browser subset (scripts/ui-map.txt), or __ALL__
@@ -56,7 +57,7 @@ scripts/
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
-  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent (benched ones hidden); the account's limits on top
+  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent (benched ones hidden); the account's week on top, marked against the budget
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
