@@ -351,3 +351,24 @@ figure is as of its own last request. A reading from before the reset is no read
 figures (`week ████│███░░░ 70% of 44%`), green inside the allowance and red past it; with no budget, the plain
 bar. The five-hour bar goes, so the top line shows the one figure the budget is about.
 `five_hour.used_pct` stays in the publisher contract.
+
+## 2026-10-23 — The panel shows each agent's ticket, model and effort, in its role's colour (ported from the seeded project)
+
+**Decision.** Each row of `scripts/agents-dash.sh` now carries what the delivery lead routes by, in place of the
+process's CPU and memory:
+
+- **The ticket** the agent holds, from the claims board (`ledger-db.sh board`). A board read is a database call,
+  so the frame never waits for one: the panel keeps the last answer in its cache and, once it is a minute old
+  (`AGENTS_DASH_BOARD_EVERY`), starts one read in the background for the next frame. A failed read keeps the
+  last answer.
+- **The model and reasoning effort**, e.g. `O5.5 x`: the model from the publisher's row, and `effort`, a new
+  publisher field from the payload's `effort.level` (`docs/context-publisher.md`; the example publisher writes it).
+  `xhigh` and `max` show in amber, as the two levels that spend the most tokens.
+- **The name in its role's colour**, black on the colour as Claude Code draws a name after `/color`:
+  `AGENT_COLOUR_<ROLE>` in `harness.env`, defaulting to lead red, developer blue, tester yellow, head of testing
+  purple, code reviewer cyan, process improvement pink, assistant green. A long wait turns the box amber.
+- **Free disk space** under the week bar, only for a path set in `AGENT_DISK_WATCH`: amber under 40G, red under
+  20G, for a box where a full disk stops every session.
+
+**Not ported:** the seeded project's `/color` at spawn (the spawn's one positional prompt is the agent's
+first prompt) and its waiting pulse.

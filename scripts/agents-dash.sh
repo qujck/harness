@@ -6,9 +6,10 @@
 #   bash scripts/agents-dash.sh --plain    no colour (for a pipe or a log)
 #   bash scripts/agents-dash.sh --self-test
 #
-# It answers one question: is anything going awol. Per agent it shows whether the session is
-# working, waiting, in a shell command or idle and for how long, how much of its context window it
-# has used, how fast it is generating tokens, and what it costs the machine. The account's week sits at
+# It answers one question: is anything going awol. Per agent it shows its name in its role's colour,
+# the ticket it holds, whether the session is working, waiting, in a shell command or idle and for how
+# long, how much of its context window it has used, how fast it is generating tokens, and its model and
+# reasoning effort. The account's week sits at
 # the top - what it has used against the owner's budget so far (scripts/agents-budget.sh) - because the
 # limit is account-wide and cannot be attributed to one agent. Put it in a pane beside the delivery
 # lead's session, e.g.
@@ -24,7 +25,9 @@
 #                   by its own session name
 #   context, burn,  the rows the context publisher writes to CONTEXT_DIR (docs/context-publisher.md):
 #   window, week    context.used, context.window, tokens.output_total; week through scripts/lib/week-usage.sh
-#   cpu, memory     ps
+#   model, effort   the same rows: model, effort
+#   ticket          the claims board, `ledger-db.sh board`, read in the background at most once a minute
+#   disk            df, for AGENT_DISK_WATCH only
 #
 # Nothing here reads a transcript: they run to hundreds of MB, and the status line already receives
 # every figure the panel shows. A frame is one jq pass over the context rows, one over the live
@@ -168,6 +171,59 @@ colour_for() { # colour_for <pct>
 
 rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
 
+# role_colour <role id> -> black on the role's colour, as Claude Code draws a session's name after /color, or
+# nothing without colour. The colour is AGENT_COLOUR_<ROLE> in harness.env (AGENT_COLOUR_DELIVERY_LEAD=red,
+# ...), one of Claude Code's /color names; blank leaves the name plain bold. Purple and orange are the nearest
+# 256-colour shades; the others match Claude Code's own.
+role_colour() {
+  [ -n "$R" ] || return 0
+  local key def bg
+  key=AGENT_COLOUR_${1^^}; key=${key//-/_}
+  case "$1" in
+    delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
+    code-reviewer) def=cyan ;; process-improvement) def=pink ;; assistant) def=green ;; *) def="" ;;
+  esac
+  case "${!key-$def}" in
+    red) bg=167 ;; green) bg=35 ;; yellow) bg=178 ;; blue) bg=110 ;; cyan) bg=37 ;; pink) bg=175 ;;
+    purple) bg=141 ;; orange) bg=209 ;; *) return 0 ;;
+  esac
+  printf '\033[38;5;16;48;5;%sm' "$bg"
+}
+
+# claims -> "<lower-case name>\t<ticket id>" for the first ticket each agent holds on the claims board
+# (`ledger-db.sh board`: id|area|claimed_by). The board is a database read, so the frame never waits for
+# it: the panel keeps the last answer in $CACHE/board and, once that is BOARD_EVERY seconds old, starts one
+# read in the background for the next frame. A read that fails leaves the last answer in place.
+BOARD_EVERY="${AGENTS_DASH_BOARD_EVERY:-60}"
+LEDGER="${AGENTS_DASH_LEDGER:-$_here/ledger-db.sh}"
+claims() {
+  local f="$CACHE/board" at
+  mkdir -p "$CACHE" 2>/dev/null
+  at=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+  if [ $(( $(date +%s) - at )) -ge "$BOARD_EVERY" ]; then
+    touch "$f" 2>/dev/null   # one read at a time
+    ( out=$(bash "$LEDGER" board 2>/dev/null) && printf '%s\n' "$out" > "$f.tmp" && mv -f "$f.tmp" "$f" ) \
+      </dev/null >/dev/null 2>&1 &
+  fi
+  awk -F'|' '{ split($3, a, " "); n = tolower(a[1])
+               if (n != "" && n != "-" && !(n in seen)) { seen[n] = 1; print n "\t" $1 } }' "$f" 2>/dev/null
+}
+
+# disk_line -> the free space on AGENT_DISK_WATCH (a path; blank watches nothing), dim, amber under
+# AGENTS_DASH_DISK_WARN GB, red under AGENTS_DASH_DISK_ALERT GB. For a box where a full disk stops everything.
+DISK="${AGENT_DISK_WATCH:-}"
+DISK_WARN="${AGENTS_DASH_DISK_WARN:-40}"
+DISK_ALERT="${AGENTS_DASH_DISK_ALERT:-20}"
+disk_line() {
+  [ -n "$DISK" ] || return 0
+  local free col
+  # POSIX df (-P, 1K blocks), so GNU and BSD df agree; column 4 is the space available.
+  free=$(df -Pk "$DISK" 2>/dev/null | awk 'NR == 2 { printf "%d", $4 / 1048576 }')
+  if [ -z "$free" ]; then printf ' %sdisk %s unreadable%s\n' "$AMBER" "$DISK" "$R"; return 0; fi
+  col=$DIM; [ "$free" -lt "$DISK_WARN" ] && col=$AMBER; [ "$free" -lt "$DISK_ALERT" ] && col="$BOLD$RED"
+  printf ' %sdisk%s %s%sG free%s %s%s%s\n' "$DIM" "$R" "$col" "$free" "$R" "$DIM" "$DISK" "$R"
+}
+
 # week_line <used %> -> the week's use as a bar, with a │ at the allowance scripts/agents-budget.sh gives for
 # this point in the week, and both figures: green while the use is inside the allowance, red once past it.
 # With no budget set, the plain bar, coloured by the use.
@@ -205,9 +261,9 @@ week_line() {
 # rows -> every readable row as one JSON value per line; a file that is not JSON is dropped, not fatal.
 rows() { cat "$CONTEXT_DIR"/*.json 2>/dev/null | jq -cR 'fromjson? // empty' 2>/dev/null; }
 
-# readings -> one line per session, "<sid> <used> <window> <tokens in the last minute> <series>" with
-# the fields separated by \x1f (a tab would be swallowed by `read` where a field is empty), the last
-# two empty where no row has ever carried a total; and the new $CACHE/burn.json.
+# readings -> one line per session, "<sid> <used> <window> <tokens in the last minute> <series> <model>
+# <effort>" with the fields separated by \x1f (a tab would be swallowed by `read` where a field is empty),
+# the rate and series empty where no row has ever carried a total; and the new $CACHE/burn.json.
 readings() {
   local state="$CACHE/burn.json" out
   mkdir -p "$CACHE" 2>/dev/null
@@ -220,6 +276,7 @@ readings() {
         ts: ((.ts | fromdateiso8601?) // 0),
         used: (.context.used // null),
         window: (.context.window // 0),
+        model: (.model // ""), effort: (.effort // ""),
         total: (.tokens.output_total // null) })
     | map(. as $r | ($prev[$r.sid] // {total: null, at: 0, buckets: {}}) as $p
         # Growth since the last sample goes into the minute the row was written, not the minute it
@@ -230,7 +287,7 @@ readings() {
              | $p.buckets + {($m): (($p.buckets[$m] // 0) + $r.total - $p.total)}
            else $p.buckets end
            | with_entries(select((.key | tonumber) > $cur - $mins - 1))) as $b
-        | {sid: $r.sid, used: $r.used, window: $r.window, buckets: $b,
+        | {sid: $r.sid, used: $r.used, window: $r.window, model: $r.model, effort: $r.effort, buckets: $b,
            has: ($r.total != null or $p.total != null),
            next: {total: (if $r.total != null and $r.ts >= $p.at then $r.total else $p.total end),
                   at: ([$r.ts, $p.at] | max), buckets: $b}})
@@ -240,7 +297,8 @@ readings() {
                (((($e.buckets[$cur | tostring]) // 0)
                  + ((($e.buckets[($cur - 1) | tostring]) // 0) * (60 - ($now % 60)) / 60)) | floor | tostring)
                + "\u001f" + ([range(0; $mins) | ($cur - $mins + 1 + .) | tostring | ($e.buckets[.] // 0) | tostring] | join(","))
-             else "\u001f" end))
+             else "\u001f" end)
+          + "\u001f\($e.model)\u001f\($e.effort)")
        | .[]),
       (map({key: .sid, value: .next}) | from_entries | tojson)
   ' 2>/dev/null)
@@ -264,59 +322,61 @@ frame() {
     L_SINCE[$n]=$(( since / 1000 ))
   done < <(live)
 
-  # cpu and resident memory for every agent pid in one call
-  declare -A CPU RSS
-  local pids=""
-  for n in "${!L_PID[@]}"; do pids+="${pids:+,}${L_PID[$n]}"; done
-  if [ -n "$pids" ]; then
-    while read -r p c r; do [ -n "${p:-}" ] && { CPU[$p]=$c; RSS[$p]=$r; }; done \
-      < <(ps -o pid=,%cpu=,rss= -p "$pids" 2>/dev/null)
-  fi
+  # The ticket each agent holds, from the claims board.
+  declare -A TICKET
+  local tid tname
+  while IFS=$'\t' read -r tname tid; do [ -n "$tname" ] && TICKET[$tname]=$tid; done < <(claims)
 
   # What the publisher wrote for every session, keyed by session id.
-  declare -A C_USED C_WIN C_RATE C_SER
-  local used win rate ser
-  while IFS=$'\x1f' read -r sid used win rate ser; do
+  declare -A C_USED C_WIN C_RATE C_SER C_MODEL C_EFF
+  local used win rate ser model eff
+  while IFS=$'\x1f' read -r sid used win rate ser model eff; do
     [ -n "$sid" ] || continue
     C_USED[$sid]=$used; C_WIN[$sid]=$win; C_RATE[$sid]=$rate; C_SER[$sid]=$ser
+    C_MODEL[$sid]=$model; C_EFF[$sid]=$eff
   done < <(readings)
 
   # Collect each agent's numbers first: the sparkline ceiling has to be shared across agents for the
   # heights to mean anything side by side.
-  local names=() roles=() ctxs=() rates=() series=() ceil=1
+  local names=() roles=() ctxs=() rates=() series=() models=() effs=() ceil=1
   while IFS=$'\t' read -r name role kind; do
     [ -n "$name" ] || continue
     # A developer or tester with no running session is on the bench (scripts/agent-bench.sh) until it is
     # spawned for its next ticket: not shown. Every other role reads "not started" when it is down.
     case "$role" in developer|tester) [ -n "${L_PID[$name]:-}" ] || continue ;; esac
-    local ctx="" rate="" ser=""
+    local ctx="" rate="" ser="" model="" eff=""
     if [ -n "${L_SID[$name]:-}" ]; then
       sid=${L_SID[$name]}
       ctx=${C_USED[$sid]:-}; rate=${C_RATE[$sid]:-}; ser=${C_SER[$sid]:-}
+      model=${C_MODEL[$sid]:-}; eff=${C_EFF[$sid]:-}
       local v
       for v in ${ser//,/ }; do [ "${v:-0}" -gt "$ceil" ] 2>/dev/null && ceil=$v; done
     fi
-    names+=("$name"); roles+=("$(short_role "$role")")
-    ctxs+=("${ctx:-}"); rates+=("${rate:-}"); series+=("${ser:-}")
+    names+=("$name"); roles+=("$role")
+    ctxs+=("${ctx:-}"); rates+=("${rate:-}"); series+=("${ser:-}"); models+=("$model"); effs+=("$eff")
   done < <(roster)
 
   # ── header
   printf '%s%-*s%s%s\n' "$BOLD$CYAN" $(( W - 6 )) " TEAM" "$(TZ=${TZ:-} date -d "@$now" '+%H:%M' 2>/dev/null || date '+%H:%M')" "$R"
   rule
   week_line "${week:--1}"
+  disk_line
   rule
 
   # ── one agent per three lines
   local i
   for i in "${!names[@]}"; do
-    local name=${names[$i]} role=${roles[$i]}
-    local ctx=${ctxs[$i]} rate=${rates[$i]} ser=${series[$i]}
+    local name=${names[$i]} role id=${roles[$i]} ticket=${TICKET[${names[$i],,}]:-}
+    role=$(short_role "$id")
+    local ctx=${ctxs[$i]} rate=${rates[$i]} ser=${series[$i]} model=${models[$i]} eff=${effs[$i]}
     local pid=${L_PID[$name]:-} status=${L_STATUS[$name]:-} since=${L_SINCE[$name]:-0}
-    local flag=" " namecol="$BOLD" dot state
+    local flag=" " namecol dot state nm line1
+    namecol=$(role_colour "$id"); [ -n "$namecol" ] || namecol=$BOLD
 
     if [ -z "$pid" ]; then
       # On the roster but not running.
-      printf '%s %-9s %s%s\n' "$GREY" "${name:0:9}" "$role" "$R"
+      line1=$(printf '%s %-11s %-7s %s' "$GREY" "${name:0:9}" "$role" "$ticket")
+      printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
       printf '%s   not started%s\n' "$GREY" "$R"
       rule
       continue
@@ -343,22 +403,39 @@ frame() {
       fi
     fi
 
-    # A long wait flags the row; high context shows only in the gauge's colour.
-    if [ "$status" = waiting ] && [ "$held" -ge "$WAIT_ALERT" ]; then flag="${AMBER}?${R}"; namecol="$BOLD$AMBER"; fi
+    # The model as its family's initial and version ("Opus 5.5" -> O5.5), and the session's reasoning
+    # effort as one letter (l m h x X), the two levels that spend the most tokens in amber. A model the
+    # status line gives no effort level for shows none.
+    local fam ver modeltxt="" efftxt=""
+    read -r fam ver _ <<<"$model"
+    [ -n "$fam" ] && [ "$fam" != "?" ] && modeltxt="${DIM}${fam:0:1}${ver}${R}"
+    case "$eff" in
+      low) efftxt="${DIM}l${R}" ;; medium) efftxt="${DIM}m${R}" ;; high) efftxt="${DIM}h${R}" ;;
+      xhigh) efftxt="${AMBER}x${R}" ;; max) efftxt="${AMBER}X${R}" ;;
+      ?*) efftxt="${DIM}${eff:0:1}${R}" ;;
+    esac
 
-    local mem=""
-    [ -n "${RSS[$pid]:-}" ] && mem=$(printf '%d.%dG' $(( RSS[$pid] / 1048576 )) $(( RSS[$pid] % 1048576 * 10 / 1048576 )))
-    printf '%s%s%-9s%s %s%-7s%s %s%6s %4s%%%s\n' "$flag" "$namecol" "${name:0:9}" "$R" \
-      "$DIM" "$role" "$R" "$GREY" "$mem" "${CPU[$pid]:-0}" "$R"
+    # A long wait flags the row and turns the name's box amber; high context shows only in the gauge's colour.
+    if [ "$status" = waiting ] && [ "$held" -ge "$WAIT_ALERT" ]; then
+      flag="${AMBER}?${R}"; [ -n "$R" ] && namecol=$'\033[38;5;16;48;5;214m' || namecol=""
+    fi
+
+    # A coloured name is a box, its width plus a space each side as Claude Code draws it; padding follows it.
+    nm=${name:0:9}; [ -n "$R" ] && [ "$namecol" != "$BOLD" ] && nm=" $nm "
+    line1=$(printf '%s%s%s%s%*s %s%-7s%s %s%s%s' "$flag" "$namecol" "$nm" "$R" $(( 11 - ${#nm} )) "" \
+      "$DIM" "$role" "$R" "$CYAN" "$ticket" "$R")
+    printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
     local line2
     line2=$(printf ' %s %-9s %s' "$dot" "$state $(ago "$held")" "$ctxtxt")
     printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+    local line3
     if [ -n "$ser" ]; then
-      printf ' %s %s%s/m%s\n' "$(spark "$ser" "$ceil")" "$DIM" "$(compact "${rate:-0}")" "$R"
+      line3=$(printf ' %s %s%s/m%s %s %s' "$(spark "$ser" "$ceil")" "$DIM" "$(compact "${rate:-0}")" "$R" "$modeltxt" "$efftxt")
     else
       # Live, but no row has carried a token total yet: the publisher has not refreshed with one.
-      printf ' %sno reading yet%s\n' "$DIM" "$R"
+      line3=$(printf ' %sno reading yet%s %s %s' "$DIM" "$R" "$modeltxt" "$efftxt")
     fi
+    printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"
     rule
   done
 
@@ -405,20 +482,44 @@ selftest() {
   # Readings: a pinned clock on a minute boundary, so the buckets are predictable.
   local NOW=1792156800; AGENTS_DASH_NOW=$NOW; export AGENTS_DASH_NOW
   CONTEXT_DIR="$T/ctx"; CACHE="$T/cache"; SPARK_MINS=5; mkdir -p "$CONTEXT_DIR"
-  row() { printf '{"agent":"Ed","session_id":"s1","ts":"%s","context":{"remaining_pct":50,"window":500000,"used":%s},"tokens":{"output_total":%s},"activity":"working","five_hour":{"used_pct":9},"week":{"used_pct":70}}\n' \
+  row() { printf '{"agent":"Ed","session_id":"s1","ts":"%s","context":{"remaining_pct":50,"window":500000,"used":%s},"tokens":{"output_total":%s},"activity":"working","model":"Opus 5.5","effort":"xhigh","five_hour":{"used_pct":9},"week":{"used_pct":70}}\n' \
             "$(date -u -d "@$1" +%FT%TZ)" "$2" "$3" > "$CONTEXT_DIR/s1.json"; }
   row $((NOW-200)) 200000 1000
-  t $'s1\x1f200000\x1f500000\x1f0\x1f0,0,0,0,0' 'readings: the first sample sets the total and draws nothing' "$(readings)"
+  t $'s1\x1f200000\x1f500000\x1f0\x1f0,0,0,0,0\x1fOpus 5.5\x1fxhigh' 'readings: the first sample sets the total and draws nothing' "$(readings)"
   row $((NOW-100)) 201000 1600
-  t $'s1\x1f201000\x1f500000\x1f0\x1f0,0,600,0,0' 'readings: growth lands in the minute the row was written' "$(readings)"
+  t $'s1\x1f201000\x1f500000\x1f0\x1f0,0,600,0,0\x1fOpus 5.5\x1fxhigh' 'readings: growth lands in the minute the row was written' "$(readings)"
   row $((NOW-5)) 202000 1900
-  t $'s1\x1f202000\x1f500000\x1f300\x1f0,0,600,300,0' 'readings: a second sample adds its own bucket and the last-minute rate' "$(readings)"
-  t $'s1\x1f202000\x1f500000\x1f300\x1f0,0,600,300,0' 'readings: an unchanged row adds nothing' "$(readings)"
+  t $'s1\x1f202000\x1f500000\x1f300\x1f0,0,600,300,0\x1fOpus 5.5\x1fxhigh' 'readings: a second sample adds its own bucket and the last-minute rate' "$(readings)"
+  t $'s1\x1f202000\x1f500000\x1f300\x1f0,0,600,300,0\x1fOpus 5.5\x1fxhigh' 'readings: an unchanged row adds nothing' "$(readings)"
   printf '{"agent":"Vera","session_id":"s2","ts":"%s","context":{"remaining_pct":50},"activity":"idle"}\n' "$(date -u -d "@$((NOW-5))" +%FT%TZ)" > "$CONTEXT_DIR/s2.json"
-  t $'s2\x1f\x1f0\x1f\x1f' 'readings: a row without the figures keeps its empty fields in place' "$(readings | grep '^s2')"
+  t $'s2\x1f\x1f0\x1f\x1f\x1f\x1f' 'readings: a row without the figures keeps its empty fields in place' "$(readings | grep '^s2')"
   t 70 'week: the weekly figure from the rows' "$(w=$(week_used); echo "${w%% *}")"
   printf 'not json at all\n' > "$CONTEXT_DIR/junk.json"
   t 70 'week: a file that is not JSON is dropped, not fatal to the frame' "$(w=$(week_used); echo "${w%% *}")"
+
+  # The claims board: read from the panel's cache, refreshed in the background once it is old.
+  printf 'feat_old|backend|Ed\n' > "$CACHE/board"
+  printf '#!/usr/bin/env bash\n[ "$1" = board ] && printf "feat_x|backend|Ed\\nfeat_y|docs|Ed\\nfeat_z|docs|-\\nfeat_w|ci|Ben  <= DEPARTED, NOBODY IS COMING BACK\\n"\n' > "$T/ledger"
+  LEDGER="$T/ledger"
+  t $'ed\tfeat_old' 'claims: a fresh cache is read as it is, without a database read' "$(claims)"
+  touch -d '2 hours ago' "$CACHE/board"
+  claims > /dev/null; sleep 1
+  t $'ed\tfeat_x\nben\tfeat_w' 'claims: an old cache is read again in the background; first claim per agent, unclaimed rows skipped' "$(claims)"
+  printf '#!/usr/bin/env bash\nexit 3\n' > "$T/ledger"; touch -d '2 hours ago' "$CACHE/board"
+  claims > /dev/null; sleep 1
+  t $'ed\tfeat_x\nben\tfeat_w' 'claims: a failed read keeps the last answer' "$(claims)"
+  touch "$CACHE/board"
+
+  # Role colours, as Claude Code draws a name after /color; none without colour.
+  t '' 'role colour: none without colour' "$(role_colour developer)"
+  t $'\033[38;5;16;48;5;110m' 'role colour: a developer is black on blue by default' "$(R=x role_colour developer)"
+  t $'\033[38;5;16;48;5;35m' 'role colour: AGENT_COLOUR_<ROLE> overrides it' "$(R=x AGENT_COLOUR_DEVELOPER=green role_colour developer)"
+  t '' 'role colour: a blank setting leaves the name plain' "$(R=x AGENT_COLOUR_DEVELOPER= role_colour developer)"
+
+  # The disk line.
+  t '' 'disk: nothing is watched by default' "$(DISK='' disk_line)"
+  t 1 'disk: a watched path shows its free space' "$(DISK=/ disk_line | grep -c '^ disk [0-9]*G free /$')"
+  t ' disk /no/such/disk unreadable' 'disk: a path df cannot read says so' "$(DISK=/no/such/disk disk_line)"
 
   # The week line, against a stand-in budget script.
   printf '#!/usr/bin/env bash\necho "budget  none set"; exit 2\n' > "$T/budget"; BUDGET="$T/budget"
@@ -447,6 +548,10 @@ selftest() {
     t 1 'frame: Ed is idle for five minutes at 40% of a 500k window' "$(printf '%s\n' "$out" | grep -c ' ○ idle 5m   40% 202k')"
     t 1 'frame: the week line reads 70% against the budget' "$(printf '%s\n' "$out" | grep -c '^ week ████│███░░░ 70% of 44%$')"
     t 0 'frame: no five-hour line' "$(printf '%s\n' "$out" | grep -c ' 5h ')"
+    t 1 'frame: the first line is the name, role and ticket' "$(printf '%s\n' "$out" | grep -c '^ Ed          dev     feat_x$')"
+    t 1 'frame: the model and effort follow the token rate' "$(printf '%s\n' "$out" | grep -c '/m O5.5 x$')"
+    t 0 'frame: no cpu or memory' "$(printf '%s\n' "$out" | grep -cE '[0-9]G +[0-9.]+%$')"
+    t 1 'frame: a row not started lines its role up with a running one' "$(printf '%s\n' "$out" | grep -c '^ Vera        test$')"
     t 2 'frame: the agents without a session read not started' "$(printf '%s\n' "$out" | grep -c 'not started')"
     t 0 'frame: a tester with no session is on the bench and not shown' "$(printf '%s\n' "$out" | grep -c 'Ben')"
     t 1 'frame: a developer with a session is shown' "$(printf '%s\n' "$out" | grep -c '^ Ed ')"

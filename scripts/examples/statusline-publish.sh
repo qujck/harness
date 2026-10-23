@@ -43,6 +43,7 @@ jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%T
    --argjson window "$window" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
+    effort: ((.effort | objects | .level) // null),
     context: { remaining_pct: (.context_window.remaining_percentage // null),
                window: $window,
                used: (.context_window.total_input_tokens // null) },
