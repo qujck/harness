@@ -93,6 +93,7 @@ spawn_self_test() {
   # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
   # throwaway config dir. Nothing here can start a real session: the only tmux on PATH is the stand-in.
   mkdir -p "$T/repo/agents" "$T/bin" "$T/claude/sessions"
+  jq -n --arg r "$T/repo" '{projects: {($r): {hasTrustDialogAccepted: true}}}' > "$T/claude/.claude.json"
   cat > "$T/repo/agents/roster.json" <<'JSON'
 {"agents":[
  {"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"active"},
@@ -161,6 +162,15 @@ EOF
   _has "  and to claim the ticket itself" "$line" "bash scripts/feature-ticket.sh claim HAR-12"
   _t "a spawn writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
 
+  # a project root Claude Code has not been trusted in: refused before anything starts
+  cp "$T/claude/.claude.json" "$T/trusted.json"; printf '{"projects":{}}\n' > "$T/claude/.claude.json"
+  : > "$T/tmux.log"
+  out="$(run developer --dry-run)"; rc=$?
+  _t "an untrusted project root is refused" "$rc" 1
+  _has "  and says how to trust it" "$out" "accept the trust prompt"
+  _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  mv "$T/trusted.json" "$T/claude/.claude.json"
+
   # now every developer is running: refused, with the way out
   out="$(run developer --dry-run)"; rc=$?
   _t "with every developer running it refuses" "$rc" 1
@@ -228,6 +238,13 @@ if [[ -z "$MODEL" ]]; then
 fi
 [[ -z "$MODEL" ]] || spawn_model_ok "$MODEL" || { printf 'agent-spawn: %q is not a model name\n' "$MODEL" >&2; exit 2; }
 [[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
+# `claude --worktree` exits at once in a folder whose trust dialog was never accepted, so the session would die
+# unseen behind tmux. Claude Code records the acceptance in .claude.json, per exact folder.
+CLAUDE_STATE="${CLAUDE_CONFIG_DIR:+$CLAUDE_CONFIG_DIR/.claude.json}"; CLAUDE_STATE="${CLAUDE_STATE:-$HOME/.claude.json}"
+jq -e --arg r "$HARNESS_ROOT" '.projects[$r].hasTrustDialogAccepted == true' "$CLAUDE_STATE" >/dev/null 2>&1 || {
+  printf 'agent-spawn: Claude Code has not been trusted in %s, so `claude --worktree` would exit at once.\n' "$HARNESS_ROOT" >&2
+  printf '  Run `claude` there once, accept the trust prompt, and spawn again.\n' >&2
+  exit 1; }
 
 mapfile -t FREE < <(spawn_free_names "$ROLE")
 if [[ -n "$WANT" ]]; then
