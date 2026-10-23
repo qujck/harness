@@ -318,11 +318,14 @@ the same identity as the printed launch line, but spawn owns the tmux session in
 because `--tmux` expects a terminal to attach and spawn runs from the lead's session, which has none. The
 first prompt is Claude Code's positional prompt rather than text typed once the session is idle.
 
-**Not yet driven on a real box.** Neither script has started or stopped a real Claude Code session: the
-positional first prompt, `--worktree` re-entering a benched agent's existing worktree, any first-run trust
-prompt in a new worktree, and a real session's environment and record being read as these scripts read them
-(the record's `startedAt`, in milliseconds, is there in Claude Code 2.1's records) are all unproven until the
-first real spawn and bench. Prove them there before relying on them.
+**Driven on a real box (Claude Code 2.1, 23 Oct 2026), and what is still unproven.** A positional first
+prompt in a detached tmux session is submitted and answered, and the session stays open for the next prompt.
+`claude --worktree` refuses to start ("Workspace trust not yet accepted") in a folder whose trust dialog was
+never accepted there - trust in a parent folder does not count - so spawn checks `.claude.json` for the
+project root first and says how to fix it, rather than report a session that dies at once. Still unproven
+until the first real spawn and bench: `--worktree` re-entering a benched agent's existing worktree, and a
+real session's environment and record being read as these scripts read them (the record's `startedAt`, in
+milliseconds, is there in Claude Code 2.1's records).
 
 **Deliberately not ported:** the weekly budget and its panel bar, the seeded project's restore script and
 pane grid, PR-comment and merge-gate tooling, that owner's own process settings and per-box settings file,
