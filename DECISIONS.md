@@ -283,3 +283,48 @@ the items that need their hands or that the handover lacks, and spends the rest 
 the items re-run, the items taken from the handover and what the attack covered; (4) the head of testing
 decides the split where it is not obvious. The seeded project gates a PR on a ledger sign-off verb; this
 template has no such verb, so the rule is stated for the tester's report, not a verdict row.
+
+## 2026-10-23 — The team grows and shrinks per ticket: spawn and bench, and a tester per ticket (ported from the seeded project)
+
+**Decision.** Developers and testers live by four steps, and only the first and last write the roster:
+**onboard** (`agent-onboard.sh`, unchanged: the row and identity, committed on `main`), **spawn**
+(`scripts/agent-spawn.sh`: an onboarded, active developer or tester with no running session starts for one
+ticket), **bench** (`scripts/agent-bench.sh`: once that ticket's PR merges, its session stops; name, identity
+and worktree stay), **retire** (permanent, unchanged; a retired name is still never reused). The onboarded
+developers and testers ARE the pool: there is no name-pool setting, and a benched agent coming back is the
+same identity, not a reuse, so the never-reuse rule stands. One agent per ticket, one ticket per agent; bench
+at the merge, not at a release; the work picks the model, never the cost (`docs/roles/delivery-lead.md`,
+"The size of the team").
+
+**Testers.** A tester is no longer under the head of testing: the delivery lead starts one per ticket and
+routes it, it owns what is true about that ticket and decides the split between the developer's proof and its
+attack. The head of testing stays a required role owning what is true about the system (the capacity and
+performance record, pre-prod, new testing requirements, reading measurements that drive decisions), and runs
+no tests and directs no testers.
+
+**Ported** (behaviour and test cases, not code) from the seeded project's `agent-spawn` / `agent-bench`: the
+random pick with `--name` to start exactly the dry run's name, `--ticket` and `--model` validation (a ticket id
+is a ledger id or a Jira key), `--dry-run`, and bench's refusals mapped onto harness facts: a claim on the
+board instead of a ticket file, the agent's own `<project>-<name>` worktree (exact name, not a substring), and
+a session entry since the session started (`ledger-db.sh session-entries`) instead of a closing line in a
+record. A board or entry list that cannot be read refuses. `harness.env.example` gains `AGENT_MODEL_DEV` /
+`AGENT_MODEL_TESTER`; the panel hides a developer or tester with no running session. Self-tests in-script
+with stand-in `tmux`, `claude` and ledger on PATH and a fixture roster (`selftest-tiers.txt`: both scripts
+`verify`; `scripts/lib/agent-session.sh`, the shared "is it running" helper, `nowhere` with its reason).
+
+**How a session is started, and why not `--tmux`.** Spawn runs `tmux new-session -d -s <project>-<name>`
+with `env <roster_launch_env> claude --worktree <project>-<name> --name <Name> [--model M] "<first prompt>"`:
+the same identity as the printed launch line, but spawn owns the tmux session instead of passing `--tmux`,
+because `--tmux` expects a terminal to attach and spawn runs from the lead's session, which has none. The
+first prompt is Claude Code's positional prompt rather than text typed once the session is idle.
+
+**Not yet driven on a real box.** Neither script has started or stopped a real Claude Code session: the
+positional first prompt, `--worktree` re-entering a benched agent's existing worktree, any first-run trust
+prompt in a new worktree, and a real session's environment and record being read as these scripts read them
+(the record's `startedAt`, in milliseconds, is there in Claude Code 2.1's records) are all unproven until the
+first real spawn and bench. Prove them there before relying on them.
+
+**Deliberately not ported:** the weekly budget and its panel bar, the seeded project's restore script and
+pane grid, PR-comment and merge-gate tooling, that owner's own process settings and per-box settings file,
+the Test Lead merge (the head of testing stays), a context-trimming settings example, the other panel extras
+(ticket, effort, role colours, disk), and verbatim owner quotes: the rules are stated plainly.

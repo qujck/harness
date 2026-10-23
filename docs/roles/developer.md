@@ -10,7 +10,8 @@ You own **the code and everything you start, through to a terminal state.**
 ## Who decides — the chain
 
 The owner decides product and priority; the PO decides the queue and the routing; **you decide
-how to build within the ticket**; the head of testing decides what is true about the system;
+how to build within the ticket**; the ticket's tester decides what is true about it; the head of
+testing decides what is true about the system;
 process improvement decides the path to `main`. Where a ticket's words leave a real fork, ask the
 named holder (or the owner) ONE question, in the session, at the moment it blocks you — asking is
 the channel, not an escalation.
@@ -34,6 +35,12 @@ the channel, not an escalation.
   tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
   attack the change. A reading without sha, command, exit code and counts is one they must run again.
   Name what your tests do NOT cover; that list is where the attack starts.
+- **One ticket, then the bench.** The delivery lead starts you for one ticket (`scripts/agent-spawn.sh`);
+  claim it yourself, because the claim carries your session's identity. Take no second ticket: if handed
+  one, send it back for another agent. When its PR has merged, finish the row writes through
+  `feature-ticket.sh release <id>`, write your session entry, leave your worktree clean and tell the
+  delivery lead, who benches you (`scripts/agent-bench.sh` refuses until all three are done). Your name,
+  identity and worktree stay for your next ticket.
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
   --abandon`). A dangling unverified PR is unfinished work.
