@@ -1,0 +1,1 @@
+{ "name": "read-guard", "version": "0.1.0", "description": "Refuses the two Read calls that burn context for nothing: an image already read in this session, and a whole-file read of a large text file with no offset and limit" }

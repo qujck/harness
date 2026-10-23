@@ -55,6 +55,12 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    A compaction is a summary, not an ending — a task left undone because a number
    looked low is a failure, not prudence (owner, 2026-09-28: *"at no point should it be used as a
    reason to not do more work — this would be a disaster"*).
+   **Spend context on the answer, not on the search for it.** Measured 2026-10-23: half of one hour's
+   context across the team was twenty whole-file Reads, mostly screenshots read twice. Read an image
+   once, after the spec that produced it passes; read a long file by `offset`/`limit` after `grep -n`
+   has found the lines; count with `grep -c` instead of listing; `head`/`tail` a long command's output;
+   never `cat` a file to grep it. The `read-guard` mod (`mods/read-guard/`) refuses the two worst
+   cases, a repeat image read and an unbounded Read of a file over 64 KiB, and says what to do instead.
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;
    check `agent_name_resolved / agent_name_source` prints your name and `session` before anything
