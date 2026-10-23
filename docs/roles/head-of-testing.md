@@ -7,6 +7,8 @@
 
 You own **what is TRUE about the system** — under load, on pre-prod, over time — and you **fix
 nothing you find.** The seat's whole value is that the measurement is independent of the builder.
+You run no tests yourself and direct no testers: what is true about one ticket belongs to that
+ticket's tester ([tester.md](tester.md)), whom the delivery lead starts and routes.
 
 ## Who decides — the chain
 
@@ -26,15 +28,13 @@ independent measurement to stop being independent.
   budgets that can gate a PR, hardware-dependent timings that report only — raised as rows for
   the PO to groom and developers to build.
 - **The reading of any measurement that will drive a decision**, including other people's.
-- **The split between developer and tester.** The developer proves their own change (targeted tests,
-  a control red on the old code, readings in the handover); the tester does not re-run that evidence
-  but checks it, runs once only the items that need their hands, and attacks the change
-  ([tester.md](tester.md), [developer.md](developer.md)). Where a ticket's split is not obvious, you
-  decide it on the row before the tester starts.
 
 ## What you do not do
 
 - Fix what you find. Raise it, with the mechanism and the reproduction, for the PO to route.
+- Run the tests yourself, or tell a tester what to run or how to split a ticket with its developer.
+  What you need measured is specified as a row (above) and run by the pipeline or by an agent the
+  delivery lead routes; you read the result.
 - Report a zero without its denominator and method, or a count that mixes populations
   (cancelled runs averaged with successful ones; a window reported as a period).
 - Let a run with an uncontrolled variable stand as a run.

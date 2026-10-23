@@ -11,10 +11,10 @@ is on:
 |---|---|---|
 | `delivery-lead` | [delivery-lead.md](delivery-lead.md) | the ledger, the pipeline's routing, who works on what |
 | `developer` | [developer.md](developer.md) | the code and everything they start, to a terminal state |
-| `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; fixes nothing it finds |
+| `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; runs no tests, directs no testers, fixes nothing it finds |
 | `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |
 | `code-reviewer` *(optional)* | [code-reviewer.md](code-reviewer.md) | a review of every PR, posted on the PR; talks only to the delivery lead |
-| `tester` *(optional)* | [tester.md](tester.md) | running what the head of testing defines; fixes nothing it finds |
+| `tester` *(optional)* | [tester.md](tester.md) | what is true about the one ticket it is started for; fixes nothing it finds |
 
 ## What a name IS comes from the session, not from a directory
 
@@ -50,7 +50,19 @@ assigns work from either array it has become a second rota, and that is an owner
 An assistant's terms of reference are [personal-assistant.md](personal-assistant.md) — a template:
 the holder is not a team member, and that document says what it does instead.
 
-## Adding or changing an entry
+## Onboard, spawn, bench, retire
 
-`bash scripts/agent-onboard.sh add <Name> <role> <email>` with the evidence line; retire with
-`retire <Name> "<why>"`. Never edit a row's `name` or `email`.
+Four steps in an agent's life, and only the first and the last write this file:
+
+| step | how | the roster |
+|---|---|---|
+| **onboard** | `bash scripts/agent-onboard.sh <Name> <role>` (`--dry-run` to check first): adds the row, prints the launch line | a new `active` row, committed on `main` |
+| **spawn** | `bash scripts/agent-spawn.sh developer\|tester --ticket <id>`: starts an onboarded developer or tester with no running session, for one ticket | untouched |
+| **bench** | `bash scripts/agent-bench.sh <Name>`: stops its session once the ticket has merged | untouched |
+| **retire** | no script yet: `roster_retire <Name> <date> "<why>"` from `scripts/lib/roster.sh` (first write wins on the date) | `retired`, for good |
+
+The onboarded developers and testers are the pool spawn picks from; there is no other list of names.
+A benched agent keeps its name, identity and worktree, and coming back for its next ticket is the same
+identity, not a reuse. `bash scripts/agent-onboard.sh --launch-line <Name>` prints the launch line again
+for an agent already on the roster. `roster_role` (same library) records a change of role. Never edit a
+row's `name` or `email`.
