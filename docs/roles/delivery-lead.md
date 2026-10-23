@@ -165,9 +165,10 @@ prompt it is stuck on; the mod never does (it types into nothing).
 
 **The panel.** `bash scripts/agents-dash.sh` in a 32-column pane beside your session (`tmux split-window
 -h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`) shows every agent in the roster's
-order (developers and testers on the bench left out): whether it is working, waiting, in a shell command or idle and for how long, context used against
-its own window, a fifteen-minute token-burn sparkline on a scale shared by every row, and its CPU and
-memory, with the account's five-hour and weekly usage on top. The context gauge turns amber at 60% and
+order (developers and testers on the bench left out), each name in its role's colour with the ticket it
+holds: whether it is working, waiting, in a shell command or idle and for how long, context used against
+its own window, a fifteen-minute token-burn sparkline on a scale shared by every row, and its model and
+reasoning effort, with the account's week on top, marked against the budget (`scripts/agents-budget.sh`). The context gauge turns amber at 60% and
 red at 85%; a row flags itself after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
 records, never a transcript, and types into nothing.
 

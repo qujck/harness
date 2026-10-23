@@ -27,14 +27,17 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 | `week.used_pct` | the account's weekly usage — the owner's to spend |
 | `activity` / `idle_s` | `working` or `idle` (+ seconds idle), from the publisher |
 | `five_hour.used_pct` | the account's five-hour usage, when the payload carries it |
+| `model` | the model's display name (`Opus 5.5`); the panel shows `O5.5` |
+| `effort` | the session's reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`) from the payload's `effort.level`; null for a model without one. The panel shows its first letter, `X` for max |
 | `context.used` | the tokens in the window now (the payload's `total_input_tokens`) |
 | `context.window` | the window the publisher's own gauge is measured against: an `/autocompact` cap when one applies, else the model's `context_window_size` |
 | `tokens.output_total` | output tokens added up across responses: the payload gives only the last response's, so the publisher adds it whenever the (used, output) pair changes, keeping the pair and the total in `.<session_id>.tokens` beside the row |
 
 `bash scripts/agent-context.sh` renders every row, freshest first (`--me` for yours, `--json` raw).
 `bash scripts/agents-dash.sh` draws the team panel from the same rows: per agent its state and how long,
-context used against its window, a fifteen-minute token-burn sparkline and CPU and memory, with the
-account's week on top, marked against the owner's budget (`scripts/agents-budget.sh`). The last four fields feed the panel; a row without them shows `no reading yet`
+context used against its window, a fifteen-minute token-burn sparkline, model and effort, with the
+account's week on top, marked against the owner's budget (`scripts/agents-budget.sh`). The fields from
+`model` down feed the panel; a row without them shows `no reading yet`
 there rather than a guess, and the panel never opens a transcript.
 
 ## What it is for — and only for

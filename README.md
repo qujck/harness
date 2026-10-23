@@ -57,7 +57,7 @@ scripts/
   install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
-  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, token burn, cpu and memory per agent (benched ones hidden); the account's week on top, marked against the budget
+  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
@@ -210,8 +210,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    before the fix existed). Deploying a mod fix is a pull, not a restart.
 
 6. **Put the team panel beside the delivery lead** (optional, tmux). `scripts/agents-dash.sh` draws
-   every rostered agent's state, context used against its window, token burn, CPU and memory, with the
-   account's limits on top:
+   every rostered agent's ticket, state, context used against its window, token burn, model and effort,
+   with the account's week on top:
    ```bash
    tmux split-window -h -l 32 -t <lead's tmux session> "bash /path/to/your-repo/scripts/agents-dash.sh"
    ```
