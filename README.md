@@ -76,6 +76,7 @@ scripts/
 mods/                      # Claude Code mods: one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
   self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
   waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt or the team has gone idle; shows nothing in any other session
+  read-guard/              # refuses a repeat Read of an image already in the context, and a whole-file Read of a large text file with no offset/limit
 ```
 
 **The three scripts are the harness.** They map onto a session's lifecycle:
@@ -148,15 +149,18 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 - **`.claude/settings.json`** — wires the two hooks into Claude Code.
 - **`.claude/skills/configure/SKILL.md`** — the `/configure` skill: detects your
   stack and fills every placeholder for you (Claude Code only).
-- **`mods/`** — two Claude Code mods, installed per *box* rather than per repo: `self-compact`
+- **`mods/`** — three Claude Code mods, installed per *box* rather than per repo: `self-compact`
   ([mods/self-compact/README.md](mods/self-compact/README.md)) nudges an agent whose compaction
   window is nearly full to reach a stopping point, bring its durable record up to date and ask to
   be compacted (`bash mods/self-compact/compact-me.sh "<what the summary must keep>"`); auto-compact at
   the window stays as the backstop. `waiting-agents` ([mods/waiting-agents/README.md](mods/waiting-agents/README.md))
   tells the delivery lead's session when a team agent has sat at a permission prompt for 25 seconds, so
   nobody watches every pane, and nudges it when team agents have been idle for fifteen minutes, so the
-  team stays active. Both load in every session the box starts and act only where they belong;
-  neither types into a pane. `scripts/check-mods-tests-pass.sh` runs their tests on every PR.
+  team stays active. `read-guard` ([mods/read-guard/README.md](mods/read-guard/README.md)) refuses a
+  repeat `Read` of an image already in the context and a whole-file `Read` of a large text file with no
+  offset and limit, the two reads that were half of one measured hour's context (2026-10-23). All three
+  load in every session the box starts and act only where they belong; none types into a pane.
+  `scripts/check-mods-tests-pass.sh` runs their tests on every PR.
 
 ## Setup
 
