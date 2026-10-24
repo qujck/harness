@@ -15,6 +15,10 @@
 # lead's session, e.g.
 # `tmux split-window -h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`.
 #
+# The frame fits the pane's height. The full layout is three lines and a rule per agent; when that would
+# run past the bottom the frame steps down (fit_level): no rule, then the sparkline folded onto the state
+# line, then one line per agent. The height is the terminal's own (tput lines), or AGENTS_DASH_LINES.
+#
 # Where each number comes from:
 #   roster          agents/roster.json through scripts/lib/roster.sh (roster_panel_rows): the active
 #                   agents in the file's order, which is the owner's order, then the assistants. A
@@ -52,9 +56,18 @@ W="${AGENTS_DASH_WIDTH:-32}"
 SPARK_MINS="${AGENTS_DASH_SPARK_MINS:-15}"
 CTX_ALERT="${AGENTS_DASH_CTX_ALERT:-85}"   # context used (%) at which the gauge turns red
 WAIT_ALERT="${AGENTS_DASH_WAIT_ALERT:-60}" # seconds waiting before a row is flagged
+PANE_LINES="${AGENTS_DASH_LINES:-0}"       # the pane's height; 0 = unknown, and the full layout is drawn
 
 # The clock, overridable so the self-test can pin a frame to a known second.
 now_s() { printf '%s' "${AGENTS_DASH_NOW:-$(date -u +%s)}"; }
+
+# The pane's height: AGENTS_DASH_LINES when set, else what the terminal reports. Read in the main
+# process, where stdout is the terminal: inside `$(frame)` it is a pipe and tput cannot see the pane.
+pane_lines() {
+  if [ -n "${AGENTS_DASH_LINES:-}" ]; then printf '%s' "$AGENTS_DASH_LINES"; return; fi
+  local l; l=$(tput lines 2>/dev/null) && [ "${l:-0}" -gt 0 ] 2>/dev/null && { printf '%s' "$l"; return; }
+  printf '%s' "${LINES:-0}"
+}
 
 ONCE=0; PLAIN=0
 colours() {
@@ -146,9 +159,11 @@ bar() { # bar <pct> <cells> -> filled/empty blocks
 
 # spark <csv series> <ceiling> -> one block per minute, scaled to a ceiling shared by every agent so
 # the heights are comparable between rows.
+# A third argument keeps only the last that many minutes, for a layout with less room.
 spark() {
-  local csv=$1 ceil=${2:-1} v i out=""
+  local csv=$1 ceil=${2:-1} cells=${3:-0} v i out=""
   IFS=',' read -r -a vals <<<"$csv"
+  if [ "$cells" -gt 0 ] 2>/dev/null && [ "${#vals[@]}" -gt "$cells" ]; then vals=("${vals[@]: -$cells}"); fi
   for v in "${vals[@]:-0}"; do
     v=${v:-0}
     case "$v" in ''|*[!0-9]*) v=0 ;; esac
@@ -170,6 +185,24 @@ colour_for() { # colour_for <pct>
 }
 
 rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
+plain() { printf '%s' "$1" | sed $'s/\e\\[[0-9;]*m//g'; } # the text without its colour codes, to measure it
+
+# fit_level <running> <not started> <fixed lines> <pane lines> -> 4 3 2 1: how many lines each running
+# agent may take so the whole frame fits the pane. 4 is the full layout (three lines and a rule), 3 drops
+# the rule, 2 folds the sparkline onto the state line, 1 is one line per agent. The first that fits wins,
+# so the layout only shrinks when it has to and grows back when the team does. A row not started takes a
+# line fewer than a running one at 4 and 3, and one line at 2 and 1. The frame must stay one line short of
+# the pane, or printing the last line scrolls the header off the top. An unknown height (0) draws the
+# full layout: a pane that cannot be measured is not made smaller on a guess.
+fit_level() {
+  local run=$1 down=$2 fixed=$3 pane=$4 lvl per_down
+  [ "${pane:-0}" -gt 0 ] 2>/dev/null || { printf 4; return; }
+  for lvl in 4 3 2; do
+    per_down=$(( lvl >= 3 ? lvl - 1 : 1 ))
+    [ $(( fixed + run * lvl + down * per_down )) -le $(( pane - 1 )) ] && { printf '%s' "$lvl"; return; }
+  done
+  printf 1
+}
 
 # role_colour <role id> -> black on the role's colour, as Claude Code draws a session's name after /color, or
 # nothing without colour. The colour is AGENT_COLOUR_<ROLE> in harness.env (AGENT_COLOUR_DELIVERY_LEAD=red,
@@ -356,14 +389,24 @@ frame() {
     ctxs+=("${ctx:-}"); rates+=("${rate:-}"); series+=("${ser:-}"); models+=("$model"); effs+=("$eff")
   done < <(roster)
 
-  # ── header
-  printf '%s%-*s%s%s\n' "$BOLD$CYAN" $(( W - 6 )) " TEAM" "$(TZ=${TZ:-} date -d "@$now" '+%H:%M' 2>/dev/null || date '+%H:%M')" "$R"
-  rule
-  week_line "${week:--1}"
-  disk_line
-  rule
+  # ── header, drawn into a variable first so its height is known before the layout is chosen
+  local header
+  header=$(
+    printf '%s%-*s%s%s\n' "$BOLD$CYAN" $(( W - 6 )) " TEAM" "$(TZ=${TZ:-} date -d "@$now" '+%H:%M' 2>/dev/null || date '+%H:%M')" "$R"
+    rule
+    week_line "${week:--1}"
+    disk_line
+    rule
+  )
+  printf '%s\n' "$header"
 
-  # ── one agent per three lines
+  # ── the layout that fits: lines per running agent, 4 down to 1
+  local run=0 down=0 footer=0 lvl
+  for name in "${names[@]}"; do if [ -n "${L_PID[$name]:-}" ]; then run=$(( run + 1 )); else down=$(( down + 1 )); fi; done
+  [ "$ceil" -gt 1 ] && footer=1
+  lvl=$(fit_level "$run" "$down" "$(( $(printf '%s\n' "$header" | wc -l) + footer ))" "${PANE_LINES:-0}")
+
+  # ── one agent per three lines, or fewer when the pane is short
   local i
   for i in "${!names[@]}"; do
     local name=${names[$i]} role id=${roles[$i]} ticket=${TICKET[${names[$i],,}]:-}
@@ -375,10 +418,15 @@ frame() {
 
     if [ -z "$pid" ]; then
       # On the roster but not running.
-      line1=$(printf '%s %-11s %-7s %s' "$GREY" "${name:0:9}" "$role" "$ticket")
-      printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
-      printf '%s   not started%s\n' "$GREY" "$R"
-      rule
+      if [ "$lvl" -ge 3 ]; then
+        line1=$(printf '%s %-11s %-7s %s' "$GREY" "${name:0:9}" "$role" "$ticket")
+        printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
+        printf '%s   not started%s\n' "$GREY" "$R"
+        [ "$lvl" -eq 4 ] && rule
+      else
+        line1=$(printf '%s %-11s %-7s not started' "$GREY" "${name:0:9}" "$role")
+        printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
+      fi
       continue
     fi
 
@@ -424,19 +472,46 @@ frame() {
     nm=${name:0:9}; [ -n "$R" ] && [ "$namecol" != "$BOLD" ] && nm=" $nm "
     line1=$(printf '%s%s%s%s%*s %s%-7s%s %s%s%s' "$flag" "$namecol" "$nm" "$R" $(( 11 - ${#nm} )) "" \
       "$DIM" "$role" "$R" "$CYAN" "$ticket" "$R")
-    printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
-    local line2
-    line2=$(printf ' %s %-9s %s' "$dot" "$state $(ago "$held")" "$ctxtxt")
-    printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
-    local line3
-    if [ -n "$ser" ]; then
-      line3=$(printf ' %s %s%s/m%s %s %s' "$(spark "$ser" "$ceil")" "$DIM" "$(compact "${rate:-0}")" "$R" "$modeltxt" "$efftxt")
-    else
-      # Live, but no row has carried a token total yet: the publisher has not refreshed with one.
-      line3=$(printf ' %sno reading yet%s %s %s' "$DIM" "$R" "$modeltxt" "$efftxt")
-    fi
-    printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"
-    rule
+    local line2 line3
+    case "$lvl" in
+      4|3)
+        printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
+        line2=$(printf ' %s %-9s %s' "$dot" "$state $(ago "$held")" "$ctxtxt")
+        printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+        if [ -n "$ser" ]; then
+          line3=$(printf ' %s %s%s/m%s %s %s' "$(spark "$ser" "$ceil")" "$DIM" "$(compact "${rate:-0}")" "$R" "$modeltxt" "$efftxt")
+        else
+          # Live, but no row has carried a token total yet: the publisher has not refreshed with one.
+          line3=$(printf ' %sno reading yet%s %s %s' "$DIM" "$R" "$modeltxt" "$efftxt")
+        fi
+        printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"
+        [ "$lvl" -eq 4 ] && rule
+        ;;
+      *)
+        # Short layouts: the context as a percentage alone, and the sparkline's last minutes in whatever
+        # width is left, padded columns so the bars line up down the panel. The token rate goes: the
+        # sparkline carries it.
+        local pctpad head tail hp tp cells sp=""
+        if [ -n "$pct" ]; then pctpad="$(colour_for "$pct")$(printf '%4s' "${pct}%")${R}"
+        elif [ -n "$ctx" ]; then pctpad="${DIM}$(printf '%4s' "$(compact "$ctx")")${R}"
+        else pctpad=$(printf '%4s' ""); fi
+        tail=$(printf ' %s%s' "${modeltxt:+$modeltxt }" "${efftxt:-$(printf ' ')}")
+        if [ "$lvl" -eq 2 ]; then
+          printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
+          head=$(printf ' %s %-7s %3s %s ' "$dot" "${state/in shell/shell}" "$(ago "$held")" "$pctpad")
+        else
+          # One line: the name, then the state. The ticket and role have no room at this height.
+          nm=${name:0:7}; [ -n "$R" ] && [ "$namecol" != "$BOLD" ] && nm=" $nm "
+          head=$(printf '%s%s%s%s%*s%s %3s %s ' "$flag" "$namecol" "$nm" "$R" $(( 9 - ${#nm} )) "" "$dot" "$(ago "$held")" "$pctpad")
+          tail=""
+        fi
+        hp=$(plain "$head"); tp=$(plain "$tail")
+        cells=$(( W - ${#hp} - ${#tp} )); [ "$cells" -lt 3 ] && cells=3
+        [ -n "$ser" ] && sp=$(spark "$ser" "$ceil" "$cells")
+        line2="${head}${sp}${tail}"
+        printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+        ;;
+    esac
   done
 
   [ "$ceil" -gt 1 ] && printf '%s full bar = %s tok/min%s\n' "$DIM" "$(compact "$ceil")" "$R"
@@ -467,6 +542,13 @@ selftest() {
   t '██████████' 'bar: full draws no empty cell' "$(bar 100 10)"
   t '███████░░░' 'bar: 73% is seven of ten' "$(bar 73 10)"
   t lead 'short_role: the role ids shorten to the column' "$(short_role delivery-lead)"
+  t 4 'fit_level: an unknown height draws the full layout' "$(fit_level 13 0 5 0)"
+  t 4 'fit_level: the full layout when it ends one line short of the pane' "$(fit_level 2 1 5 17)"
+  t 3 'fit_level: thirteen running agents in 51 lines lose the rule' "$(fit_level 13 0 5 51)"
+  t 2 'fit_level: twenty running agents in 51 lines fold the sparkline in' "$(fit_level 20 0 5 51)"
+  t 1 'fit_level: thirty running agents in 51 lines take one line each' "$(fit_level 30 0 5 51)"
+  t 4 'fit_level: agents down count one line fewer at the full layout' "$(fit_level 0 10 5 36)"
+  t 57 'spark: a cell count keeps the last minutes' "$(SPARK=(0 1 2 3 4 5 6 7); spark 1,2,5,7 7 2)"
   t test 'short_role: head-of-testing' "$(short_role head-of-testing)"
 
   # The roster: file order, retired left out, assistants last.
@@ -556,6 +638,24 @@ selftest() {
     t 0 'frame: a tester with no session is on the bench and not shown' "$(printf '%s\n' "$out" | grep -c 'Ben')"
     t 1 'frame: a developer with a session is shown' "$(printf '%s\n' "$out" | grep -c '^ Ed ')"
     t 1 'frame: the shared scale is printed' "$(printf '%s\n' "$out" | grep -c 'full bar = 600 tok/min')"
+    t 15 'frame: the full layout is three lines and a rule per running agent, two and a rule per agent down' "$(printf '%s\n' "$out" | wc -l)"
+
+    # The frame fits a short pane: the same fixtures, four header lines and the scale line fixed, so
+    # 15 lines in full. A 12-line pane gets the two-line layout; an 8-line pane one line per agent,
+    # which is the floor even though 8 lines still do not fit.
+    out=$(PANE_LINES=12 frame)
+    t 9 'fit: a 12-line pane gets two lines per running agent and one per agent down' "$(printf '%s\n' "$out" | wc -l)"
+    t 1 'fit: two-line layout keeps the name, role and ticket line' "$(printf '%s\n' "$out" | grep -c '^ Ed          dev     feat_x$')"
+    t 1 'fit: two-line layout folds the state, wait, context and sparkline onto one line' "$(printf '%s\n' "$out" | grep -c '^ ○ idle     5m  40% ▁▁█▄▁ O5.5 x$')"
+    t 1 'fit: a row down takes one line with its role' "$(printf '%s\n' "$out" | grep -c '^ Vera        test    not started$')"
+    out=$(PANE_LINES=8 frame)
+    t 8 'fit: an 8-line pane gets one line per agent, the floor' "$(printf '%s\n' "$out" | wc -l)"
+    t 1 'fit: one-line layout is the name, state, wait, context and sparkline' "$(printf '%s\n' "$out" | grep -c '^ Ed       ○  5m  40% ▁▁█▄▁$')"
+    out=$(PANE_LINES=13 frame)
+    t 12 'fit: a 13-line pane drops the rules and keeps three lines per running agent' "$(printf '%s\n' "$out" | wc -l)"
+    t 0 'fit: no rule between agents at three lines' "$(printf '%s\n' "$out" | sed '1,5d' | grep -c '^─')"
+    out=$(PANE_LINES=16 frame)
+    t 15 'fit: a pane one line taller than the frame keeps the full layout' "$(printf '%s\n' "$out" | wc -l)"
   else
     echo "  skipped  the live-session arms need python3 to make a socket — said, not silently passed"
   fi
@@ -577,6 +677,7 @@ done
 colours
 
 if [ "$ONCE" = 1 ]; then
+  PANE_LINES=$(pane_lines)
   frame
   exit 0
 fi
@@ -584,6 +685,7 @@ fi
 trap 'tput cnorm 2>/dev/null; exit 0' INT TERM
 tput civis 2>/dev/null
 while :; do
+  PANE_LINES=$(pane_lines)   # every frame: the pane may have been resized
   out=$(frame)
   tput clear 2>/dev/null || printf '\033[2J\033[H'
   printf '%s\n' "$out"
