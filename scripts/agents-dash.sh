@@ -72,9 +72,9 @@ pane_lines() {
 ONCE=0; PLAIN=0
 colours() {
   if [ "$PLAIN" = 1 ] || [ ! -t 1 ]; then
-    R=""; DIM=""; BOLD=""; GREEN=""; AMBER=""; RED=""; CYAN=""; GREY=""
+    R=""; DIM=""; BOLD=""; GREEN=""; AMBER=""; RED=""; CYAN=""; GREY=""; INV=""; NOINV=""
   else
-    R=$'\033[0m'; DIM=$'\033[2m'; BOLD=$'\033[1m'
+    R=$'\033[0m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; INV=$'\033[7m'; NOINV=$'\033[27m'
     GREEN=$'\033[32m'; AMBER=$'\033[33m'; RED=$'\033[31m'; CYAN=$'\033[36m'; GREY=$'\033[90m'
   fi
   RULE=$(printf '─%.0s' $(seq 1 "$W"))
@@ -160,6 +160,10 @@ bar() { # bar <pct> <cells> -> filled/empty blocks
 # spark <csv series> <ceiling> -> one block per minute, scaled to a ceiling shared by every agent so
 # the heights are comparable between rows.
 # A third argument keeps only the last that many minutes, for a layout with less room.
+# The bars hang from the top of the line (owner, 2026-10-24): a bar rising from the bottom runs into the
+# name box on the line below. Unicode has no set of top-anchored blocks, so a bar k/8 tall is the lower
+# block (8-k)/8 in reverse video, which fills the top k/8 of the cell; a full bar is █ and a zero minute a
+# grey ▔. Plain output has no reverse video and keeps the rising blocks, where the order still reads.
 spark() {
   local csv=$1 ceil=${2:-1} cells=${3:-0} v i out=""
   IFS=',' read -r -a vals <<<"$csv"
@@ -167,11 +171,12 @@ spark() {
   for v in "${vals[@]:-0}"; do
     v=${v:-0}
     case "$v" in ''|*[!0-9]*) v=0 ;; esac
-    if [ "$v" -le 0 ]; then out+="${GREY}▁${R}"
+    if [ "$v" -le 0 ]; then if [ -n "$INV" ]; then out+="${GREY}▔${R}"; else out+="${GREY}▁${R}"; fi
     else
       i=$(( v * 7 / (ceil > 0 ? ceil : 1) ))
       [ "$i" -gt 7 ] && i=7
-      out+="${SPARK[$i]}"
+      if [ -z "$INV" ] || [ "$i" -eq 7 ]; then out+="${SPARK[$i]}"
+      else out+="${INV}${SPARK[$(( 6 - i ))]}${NOINV}"; fi
     fi
   done
   printf '%s' "$out"
@@ -549,6 +554,8 @@ selftest() {
   t 1 'fit_level: thirty running agents in 51 lines take one line each' "$(fit_level 30 0 5 51)"
   t 4 'fit_level: agents down count one line fewer at the full layout' "$(fit_level 0 10 5 36)"
   t 57 'spark: a cell count keeps the last minutes' "$(SPARK=(0 1 2 3 4 5 6 7); spark 1,2,5,7 7 2)"
+  t $'\033[90m▔\033[0m\033[7m▆\033[27m\033[7m▃\033[27m█' 'spark: in colour the bars hang from the top: a zero is a grey top line, a part bar (2/8, 5/8) the complementary lower block (6/8, 3/8) in reverse video, a full bar █' \
+    "$(R=$'\033[0m' GREY=$'\033[90m' INV=$'\033[7m' NOINV=$'\033[27m'; spark 0,1,4,7 7)"
   t test 'short_role: head-of-testing' "$(short_role head-of-testing)"
 
   # The roster: file order, retired left out, assistants last.
