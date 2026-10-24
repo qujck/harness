@@ -216,7 +216,10 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    tmux split-window -h -l 32 -t <lead's tmux session> "bash /path/to/your-repo/scripts/agents-dash.sh"
    ```
    Run from outside the project checkout it needs `ROSTER_FILE=/path/to/your-repo/agents/roster.json`
-   and `CONTEXT_DIR` (where the status line publishes; see step 7) in its environment. A restore script
+   and `CONTEXT_DIR` (where the status line publishes; see step 7) in its environment. The frame fits the
+   pane's height on its own: three lines and a rule per agent while that fits, then no rule, then the
+   sparkline folded onto the state line, then one line per agent as the team grows
+   (`AGENTS_DASH_LINES` overrides the measured height). A restore script
    that re-creates the panes should add the panel only when the lead's session has ONE pane, or a re-run
    stacks a second panel beside the first.
 
