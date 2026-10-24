@@ -18,6 +18,8 @@
 # The frame fits the pane's height. The full layout is three lines and a rule per agent; when that would
 # run past the bottom the frame steps down (fit_level): no rule, then the sparkline folded onto the state
 # line, then one line per agent. The height is the terminal's own (tput lines), or AGENTS_DASH_LINES.
+# Without the rule, each agent's last line is underlined across the pane, a one-pixel gap that costs no
+# height.
 #
 # Where each number comes from:
 #   roster          agents/roster.json through scripts/lib/roster.sh (roster_panel_rows): the active
@@ -72,9 +74,9 @@ pane_lines() {
 ONCE=0; PLAIN=0
 colours() {
   if [ "$PLAIN" = 1 ] || [ ! -t 1 ]; then
-    R=""; DIM=""; BOLD=""; GREEN=""; AMBER=""; RED=""; CYAN=""; GREY=""
+    R=""; DIM=""; BOLD=""; GREEN=""; AMBER=""; RED=""; CYAN=""; GREY=""; UL=""
   else
-    R=$'\033[0m'; DIM=$'\033[2m'; BOLD=$'\033[1m'
+    R=$'\033[0m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; UL=$'\033[4;58;5;240m'
     GREEN=$'\033[32m'; AMBER=$'\033[33m'; RED=$'\033[31m'; CYAN=$'\033[36m'; GREY=$'\033[90m'
   fi
   RULE=$(printf '─%.0s' $(seq 1 "$W"))
@@ -186,6 +188,17 @@ colour_for() { # colour_for <pct>
 
 rule() { printf '%s%s%s\n' "$DIM" "$RULE" "$R"; }
 plain() { printf '%s' "$1" | sed $'s/\e\\[[0-9;]*m//g'; } # the text without its colour codes, to measure it
+
+# last <line>: an agent's last line in the layouts without a rule, underlined across the pane's width so a
+# one-pixel line parts it from the next agent at no cost in height. The underline is grey where the
+# terminal colours underlines (SGR 58), the text's own colour elsewhere; every colour reset inside the line
+# re-arms it so it runs unbroken, and the padding to the right edge is dim. Plain output is left alone.
+last() {
+  local l=${1%"${1##*[![:space:]]}"}
+  if [ -z "$UL" ]; then printf '%s\n' "$l"; return; fi
+  local p pad; p=$(plain "$l"); pad=$(( W - ${#p} )); [ "$pad" -lt 0 ] && pad=0
+  printf '%s%s%s%s%*s%s\n' "$UL" "${l//"$R"/$R$UL}" "$DIM" "$UL" "$pad" "" "$R"
+}
 
 # fit_level <running> <not started> <fixed lines> <pane lines> -> 4 3 2 1: how many lines each running
 # agent may take so the whole frame fits the pane. 4 is the full layout (three lines and a rule), 3 drops
@@ -421,11 +434,10 @@ frame() {
       if [ "$lvl" -ge 3 ]; then
         line1=$(printf '%s %-11s %-7s %s' "$GREY" "${name:0:9}" "$role" "$ticket")
         printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
-        printf '%s   not started%s\n' "$GREY" "$R"
-        [ "$lvl" -eq 4 ] && rule
+        if [ "$lvl" -eq 4 ]; then printf '%s   not started%s\n' "$GREY" "$R"; rule
+        else last "$(printf '%s   not started%s' "$GREY" "$R")"; fi
       else
-        line1=$(printf '%s %-11s %-7s not started' "$GREY" "${name:0:9}" "$role")
-        printf '%s%s\n' "${line1%"${line1##*[![:space:]]}"}" "$R"
+        last "$(printf '%s %-11s %-7s not started%s' "$GREY" "${name:0:9}" "$role" "$R")"
       fi
       continue
     fi
@@ -484,8 +496,8 @@ frame() {
           # Live, but no row has carried a token total yet: the publisher has not refreshed with one.
           line3=$(printf ' %sno reading yet%s %s %s' "$DIM" "$R" "$modeltxt" "$efftxt")
         fi
-        printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"
-        [ "$lvl" -eq 4 ] && rule
+        if [ "$lvl" -eq 4 ]; then printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"; rule
+        else last "$line3"; fi
         ;;
       *)
         # Short layouts: the context as a percentage alone, and the sparkline's last minutes in whatever
@@ -508,8 +520,7 @@ frame() {
         hp=$(plain "$head"); tp=$(plain "$tail")
         cells=$(( W - ${#hp} - ${#tp} )); [ "$cells" -lt 3 ] && cells=3
         [ -n "$ser" ] && sp=$(spark "$ser" "$ceil" "$cells")
-        line2="${head}${sp}${tail}"
-        printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+        last "${head}${sp}${tail}"
         ;;
     esac
   done
@@ -656,6 +667,23 @@ selftest() {
     t 0 'fit: no rule between agents at three lines' "$(printf '%s\n' "$out" | sed '1,5d' | grep -c '^─')"
     out=$(PANE_LINES=16 frame)
     t 15 'fit: a pane one line taller than the frame keeps the full layout' "$(printf '%s\n' "$out" | wc -l)"
+
+    # The gap between agents in colour: a rule at the full layout, an underline across the pane's width
+    # on each agent's last line below it, with the resets inside the line re-arming it. The sequences
+    # hold '[', so they are matched as fixed strings.
+    local ul=$'\033[4;58;5;240m' r=$'\033[0m' d=$'\033[2m' tail3
+    starts_ul() { awk -v u="$ul" 'index($0, u) == 1' ; }
+    out=$(R=$r DIM=$d UL=$ul PANE_LINES=16 frame)
+    t 0 'gap: the full layout has rules and no underline' "$(printf '%s\n' "$out" | grep -cF "$ul")"
+    out=$(R=$r DIM=$d UL=$ul PANE_LINES=13 frame)
+    t 3 'gap: without rules every agent ends with an underlined line' "$(printf '%s\n' "$out" | starts_ul | wc -l)"
+    tail3=$(printf '%s\n' "$out" | starts_ul | grep -F '/m' | head -n 1)
+    t "$W" 'gap: the underlined line is padded to the pane width' "$(printf '%s' "$(plain "$tail3")" | wc -m)"
+    t 1 'gap: the underline is re-armed after each colour reset' "$(printf '%s' "$tail3" | grep -cF "${r}${ul}")"
+    t 1 'gap: the padding is dim and underlined, and the line ends with a reset' "$(printf '%s' "$tail3" | grep -cF "${d}${ul}" | sed "s/1/$([[ $tail3 == *"$r" ]] && echo 1 || echo 0)/")"
+    t 2 'gap: the rows not started are underlined too' "$(printf '%s\n' "$out" | starts_ul | grep -cF 'not started')"
+    out=$(R=$r DIM=$d UL=$ul PANE_LINES=8 frame)
+    t 3 'gap: one line per agent, each underlined' "$(printf '%s\n' "$out" | starts_ul | wc -l)"
   else
     echo "  skipped  the live-session arms need python3 to make a socket — said, not silently passed"
   fi
