@@ -45,7 +45,7 @@ scripts/
   agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
   agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree, Remote Control on); the budget gates developers only, --owner-ok "<words>" records the owner's yes off budget
   agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
-  agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated
+  agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
   lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   full-suite-gate.sh     # is main's hourly full suite red? judges on the newest concluded run, names it; exit 0/1/2
   ui-relevant-specs.sh   # changed paths -> the browser subset (scripts/ui-map.txt), or __ALL__
