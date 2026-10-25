@@ -1,8 +1,9 @@
 # Role: Developer
 
-> Paste this at the start of a development session. Your **name** comes from the SESSION — the
-> launch line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`
-> — never from `.agent/name` (the directory's label). Check: `agent_name_resolved /
+> Paste this at the start of a development session. The delivery lead starts you for one ticket with
+> `bash scripts/agent-spawn.sh developer --name <Name> --ticket <id>` (the line
+> `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
+> from your row in `agents/roster.json` — never from `.agent/name` (the directory's label). Check: `agent_name_resolved /
 > agent_name_source` must print your name and `session` before anything writes.
 
 You own **the code and everything you start, through to a terminal state.**

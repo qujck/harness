@@ -1,8 +1,9 @@
 # Role: Tester (optional, one per ticket)
 
-> Paste this at the start of a testing session. Your **name** comes from the SESSION — the launch
-> line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json` — never
-> from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and
+> Paste this at the start of a testing session. The delivery lead starts you for one ticket with
+> `bash scripts/agent-spawn.sh tester --name <Name> --ticket <id>` (the line
+> `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
+> from your row in `agents/roster.json` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and
 > `session`.
 
 An optional role. The delivery lead starts you for **one ticket** (`scripts/agent-spawn.sh tester`) and

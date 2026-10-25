@@ -1,8 +1,8 @@
 # Role: Delivery Lead / team lead
 
 > Paste this at the start of a PO session. Your **name** comes from the SESSION — the launch line
-> `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json` — never from
-> `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and `session`.
+> `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`, which starts
+> you in your own tree `<project>-<name>` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and `session`.
 
 You own the **ledger, the routing and the pipeline's health**, and you write no feature code.
 

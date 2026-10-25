@@ -345,7 +345,7 @@ roster_remit() {
      ' "$f" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
 }
 
-# roster_launch_line <name>  ->  the ONE command that starts a session with an identity.
+# roster_launch_line <name>  ->  the ONE command that starts a session with an identity, or a refusal.
 #
 # ⚠ THIS IS THE SWITCH THAT TURNS THE WHOLE IDENTITY CHAIN ON, AND IT LIVES IN EXACTLY ONE PLACE.
 #
@@ -359,21 +359,90 @@ roster_remit() {
 # these variables belong to the process and are read at launch. Which is exactly why the deliverable
 # is A LINE A HUMAN RUNS, and not a script that tries to set them.
 #
-# It was already written twice and the two copies disagreed — check-commit-authorship.sh set
-# GIT_COMMITTER_* and feature-ticket.sh did not. Both now derive from here, because a launch line
-# that differs depending on which file you happen to read is how half a fleet ends up half
-# configured.
-#
 # COMMITTER IS SET TOO, EVEN THOUGH THE GATE DOES NOT CHECK IT. That gate reads %ae/%an only, so
 # author alone would pass — but leaving the committer as the shared box identity produces a commit
 # whose two halves name different people, which is the precise shape that gate's own header objects
 # to. One identity, one spelling, in every field that carries it.
 # (feat_agent_onboarding_and_offboarding)
+#
+# ⚠ TWO SHAPES, BY ROLE (backported from strength's infra_the_launch_line_still_starts_claude_worktree_tmux_
+# which_the_spawn_bench_wrapper_replaced, 2026-10-25). A developer or tester is started per ticket by the
+# delivery lead's `scripts/agent-spawn.sh`, which sets the identity from the row itself, so for those roles
+# the line IS that command. Every other role starts `claude` in its own sibling tree,
+# `<parent of the shared checkout>/<project>-<name>`, with the row's address. The old line,
+# `claude --worktree <project>-<name> --tmux`, put the session in Claude Code's own worktree location and
+# is printed by nothing any more.
+#
+# ⚠ IT REFUSES RATHER THAN GUESSES: rc 1, the reason on stderr, NOTHING on stdout, for a name that is not
+# rostered, a retired name, an empty address on the row, and a missing tree. The address is the ROW's
+# (roster_email_for_name), never the derived one: a row whose address differs from the naming rule would
+# otherwise launch under an identity the register does not hold. For a missing tree it prints the one
+# `git worktree add` that makes it and creates nothing, because a tree made as a side effect of printing
+# a line is a tree nobody decided to make. The shared checkout is read with git, so a caller inside a git
+# hook (GIT_DIR set) would be answered for the committer's repo: no hook sources this file today.
+ROSTER_SPAWNED_ROLES="developer tester"
+roster_role_is_spawned() { local r; for r in $ROSTER_SPAWNED_ROLES; do [[ "${1:-}" == "$r" ]] && return 0; done; return 1; }
+
+# roster_spelling_for_name <name>  ← json on stdin → the name as the row spells it, or empty.
+roster_spelling_for_name() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || return 0
+  jq -r --arg n "${name,,}" '
+    (.agents // []) | map(select((.name // "" | ascii_downcase) == $n)) | .[0].name // ""
+  ' 2>/dev/null
+}
+
+# The shared checkout, absolute, so a printed line never resolves against the caller's `../`. The project
+# name is HARNESS_PROJECT, else the shared checkout's basename (the same rule init.sh prints for a new tree).
+# ROSTER_TREES_DIR is the fixture seam: the shared checkout is then $ROSTER_TREES_DIR/<project>.
+roster_shared_checkout() {
+  if [[ -n "${ROSTER_TREES_DIR:-}" ]]; then printf '%s/%s\n' "$ROSTER_TREES_DIR" "${HARNESS_PROJECT:?ROSTER_TREES_DIR needs HARNESS_PROJECT}"; return 0; fi
+  local c
+  c="$(git -C "${REPO_ROOT:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [[ -n "$c" ]] || return 1
+  printf '%s\n' "${c%/.git}"
+}
+roster_project_name() { local s; s="$(roster_shared_checkout)" || return 1; printf '%s\n' "${HARNESS_PROJECT:-${s##*/}}"; }
+
+# roster_sibling_tree <name>  → the tree's path (rc 0), or rc 1 with the reason and the one command
+# that makes it on stderr. A tree is a directory whose git common dir is the shared checkout's: a
+# file, an empty directory or another repository's clone under the same name are all missing.
+roster_sibling_tree() {
+  local n="${1:?roster_sibling_tree <name>}" shared dir want got
+  shared="$(roster_shared_checkout)" || { printf 'roster: cannot find the shared checkout from %s\n' "${REPO_ROOT:-.}" >&2; return 1; }
+  dir="${shared%/*}/$(roster_project_name)-${n,,}"
+  want="$(git -C "$shared" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  got=""
+  [[ -d "$dir" ]] && got="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  if [[ -n "$want" && "$got" == "$want" ]]; then printf '%s\n' "$dir"; return 0; fi
+  printf 'roster: %s has no tree: %s is not a worktree of %s. Nothing was created. Make it with:\n' "$n" "$dir" "$shared" >&2
+  printf 'git -C %q worktree add --detach %q origin/main\n' "$shared" "$dir" >&2
+  return 1
+}
+
+# roster_launch_line_for <name> <role> <email>  → the line for those facts, or a refusal. The facts
+# are arguments, so onboarding can print the line for a row it has not written yet; the one thing
+# read here is the tree, for a role that starts in one.
+roster_launch_line_for() {
+  local n="${1:?roster_launch_line_for <name> <role> <email>}" role="${2-}" e="${3-}" dir
+  [[ -n "$e" ]] || { printf 'roster: %s has an empty email on the row: no launch line without the address the register holds\n' "$n" >&2; return 1; }
+  if roster_role_is_spawned "$role"; then
+    printf 'bash scripts/agent-spawn.sh %s --name %s --ticket <ticket-id>\n' "$role" "$n"
+    return 0
+  fi
+  dir="$(roster_sibling_tree "$n")" || return 1
+  printf 'cd %q && \\\n  GIT_AUTHOR_NAME="%s" GIT_AUTHOR_EMAIL="%s" \\\n  GIT_COMMITTER_NAME="%s" GIT_COMMITTER_EMAIL="%s" \\\n  claude\n' \
+    "$dir" "$n" "$e" "$n" "$e"
+}
+
 roster_launch_line() { # $1 name
-  local n="${1:?roster_launch_line <name>}" e
-  e="$(roster_email_of_name "$n")"
-  printf 'GIT_AUTHOR_NAME="%s" GIT_AUTHOR_EMAIL="%s" \\\n  GIT_COMMITTER_NAME="%s" GIT_COMMITTER_EMAIL="%s" \\\n  claude --worktree ${HARNESS_PROJECT}-%s --tmux\n' \
-    "$n" "$e" "$n" "$e" "${n,,}"
+  local q="${1:?roster_launch_line <name>}" json n status
+  json="$(_roster_json)"
+  n="$(printf '%s' "$json" | roster_spelling_for_name "$q")"
+  [[ -n "$n" ]] || { printf 'roster: %s is not in %s\n' "$q" "$(roster_file)" >&2; return 1; }
+  status="$(printf '%s' "$json" | roster_status_for_name "$n")"
+  [[ "$status" == "active" ]] || { printf 'roster: %s is %s, not active: a retired name is taken, and starts nothing\n' "$n" "${status:-of no status}" >&2; return 1; }
+  roster_launch_line_for "$n" "$(printf '%s' "$json" | roster_role_for_name "$n")" "$(printf '%s' "$json" | roster_email_for_name "$n")"
 }
 
 # roster_launch_env <name>  ->  the same four identity variables as roster_launch_line, one
@@ -600,6 +669,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     [[ -z "$_own" ]] && printf '  ok    the roster carries NO ownership field\n' \
       || { printf '  FAIL  the roster grew an ownership field (%s) — identity is not ownership\n' "$_own"; fails=1; }
   fi
+
+  # ── the launch line's two shapes, from the facts alone (the tree-reading shape is driven in agent-onboard.sh) ──
+  t 'bash scripts/agent-spawn.sh developer --name Cara --ticket <ticket-id>' "a developer's line is the delivery lead's spawn command" \
+    "$(roster_launch_line_for Cara developer cara@weaversite.co.uk)"
+  t 'bash scripts/agent-spawn.sh tester --name Tom --ticket <ticket-id>' "a tester's line is the spawn command too" \
+    "$(roster_launch_line_for Tom tester t.qa@example.test)"
+  t '' 'an empty address on the row prints no line, never a derived one' "$(roster_launch_line_for Zed delivery-lead '' 2>/dev/null)"
+  roster_launch_line_for Zed delivery-lead '' >/dev/null 2>&1; t 1 '…and is rc 1' "$?"
+  t 'yes' 'developer and tester are the spawned roles' "$(roster_role_is_spawned developer && roster_role_is_spawned tester && ! roster_role_is_spawned head-of-testing && echo yes)"
 
   (( fails == 0 )) && { printf 'roster selftest ok\n'; exit 0; }
   printf 'roster selftest FAILURES\n'; exit 1
