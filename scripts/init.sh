@@ -86,7 +86,11 @@ case "$(identity_verdict "$_id_name" "$_id_src")" in
     exit 1 ;;
 esac
 _id_incumbent="$(cat "$REPO_ROOT/.agent/name" 2>/dev/null || true)"
-_id_marker=0; [[ -f "$REPO_ROOT/.agent/session.active" ]] && _id_marker=1
+_id_marker=0; [[ -s "$REPO_ROOT/.agent/session.active" ]] && _id_marker=1
+# A marker naming a session PROVEN not running does not occupy: agent_marker_occupies is the one liveness
+# reader (agent-name.sh), and every doubt keeps the marker live. Without it a benched agent's old marker
+# held its own tree against its respawn. The presence test above is the fallback if the library did not load.
+declare -F agent_marker_occupies >/dev/null 2>&1 && _id_marker="$(agent_marker_occupies "$REPO_ROOT")"
 if [[ "$(checkout_occupancy_kind "$([[ "${ALLOW_SHARED_CHECKOUT:-0}" == 1 ]] && echo 1 || echo 0)" "$_id_marker" "$_id_name" "$_id_incumbent")" == occupied ]]; then
   echo "   ✗ this checkout is OCCUPIED: $_id_incumbent has a live session here (.agent/session.active) and you are $_id_name." >&2
   echo "     Two agents in one checkout corrupt each other. Make your own:  git worktree add --no-track ../${HARNESS_PROJECT:-$(basename "$REPO_ROOT")}-$(tr '[:upper:]' '[:lower:]' <<<"$_id_name") -b <ticket-id> origin/main" >&2

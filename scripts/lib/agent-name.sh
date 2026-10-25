@@ -402,6 +402,79 @@ agent_name_conflict_kind() {
 # special-cased: a peer is only considered when IT is live. Whoever legitimately holds the name keeps
 # working; only the newcomer — the one who never ran init.sh, and so has no marker of their own — is
 # asked to choose. Backwards, this would evict the working agent, which is worse than the bug.
+# ── IS THE SESSION A MARKER NAMES STILL RUNNING? ──────────────────────────────────────────────────
+# (strength fix_init_refuses_a_spawned_session_because_it_reads_agent_name_and_never_the_session_identity_the_spawn_sets,
+#  backported 2026-10-25)
+#
+# ⚠ THE SPAWN MODEL BREAKS THE SCAN BY CONSTRUCTION WITHOUT THIS. agent-bench.sh stops the session
+# and leaves its session.active behind, and every respawn (agent-spawn.sh) is a NEW session id, so
+# the respawn reads its own old worktree as `other` = a live rival and is refused its own name. Measured 2026-10-24: Anthony was
+# refused five times over, by strength-anthony2/3/5/6/-ew, every marker naming one dead session
+# (2abadc11…) and no claude process standing in any of them.
+#
+# ⚠ STILL NOT A STALENESS HEURISTIC (see agent_name_conflict_kind). The age of a marker is never
+# read. The question is whether the session it names is RUNNING, asked of Claude Code's own
+# per-process registry, ~/.claude/sessions/<pid>.json: {pid, sessionId, procStart, …}, written at
+# (scripts/lib/agent-session.sh reads the same files to ask WHICH agent a record belongs to; this asks
+# only whether ONE session id is still running, and trusts nothing it cannot verify against /proc.)
+# start and removed at exit. A session is live iff an entry names it AND that pid is a `claude`
+# whose kernel start time (/proc/<pid>/stat field 22) equals procStart, so a recycled pid or a file
+# left by a kill -9 reads dead. A resume keeps its session id (measured: Carl's marker of 2026-09-18
+# names the session his 2026-10-23 process runs), so a resumed agent stays live.
+#
+# ⚠⚠ THAT REGISTRY IS CLAUDE CODE'S INTERNAL FORMAT, NOT A CONTRACT, so every doubt answers
+# `unknown`, and `unknown` is treated exactly as before this existed (marker present = live). The
+# direction matters: a reader that turned a renamed field into "every session is dead" would wave
+# two agents through onto one name, silently. So `dead` needs ALL of: the registry is readable,
+# every file in it parses with pid+sessionId+procStart, and — when the reader is itself a Claude
+# session — the reader finds ITS OWN session live in it. That last one is the control: a registry
+# that cannot see the session asking is not a registry this code understands.
+agent_session_registry_dir() { printf '%s' "${AGENT_SESSION_REGISTRY:-$HOME/.claude/sessions}"; }
+
+# Is <pid> the process that started at <procStart>, and is it a claude? 0 yes · 1 no.
+agent_pid_is_session() { # <pid> <procStart>
+  local pid="${1:-}" ps="${2:-}" st
+  [[ "$pid" =~ ^[0-9]+$ && -n "$ps" ]] || return 1
+  [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == claude ]] || return 1
+  # Field 22, counted after the LAST ')' so a comm holding spaces or parens cannot shift it.
+  st="$(sed 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | awk '{print $20}')"
+  [[ "$st" == "$ps" ]]
+}
+
+# An `unknown` with a reason: the reason goes to stderr, because it is the one verdict that means
+# "this guard is running on the old rule" and nobody should have to guess that it is.
+_agent_liveness_unknown() { # <session id> <why>
+  printf 'agent-name: cannot tell whether session %s is running (%s), so its marker counts as LIVE, the rule before the registry was read.\n' "$1" "$2" >&2
+  printf 'unknown\n'
+}
+
+# live | dead | unknown, for a session id.
+agent_session_liveness() { # <session id>
+  local sid="${1:-}" dir f row pid id ps parsed=0 bad=0 self_seen=0 me
+  me="$(agent_session_id)"
+  [[ -n "$sid" ]] || { printf 'unknown\n'; return 0; }
+  dir="$(agent_session_registry_dir)"
+  # No registry is not a Claude host (CI, automation): nothing to read, nothing to warn about.
+  [[ -d "$dir" && -r "$dir" ]] || { printf 'unknown\n'; return 0; }
+  command -v jq >/dev/null 2>&1 || { _agent_liveness_unknown "$sid" "no jq to read $dir"; return 0; }
+  [[ -r /proc/self/stat ]] || { _agent_liveness_unknown "$sid" "no /proc"; return 0; }
+  for f in "$dir"/*.json; do
+    [[ -f "$f" ]] || continue
+    row="$(jq -r 'select((.pid|type)=="number" and (.sessionId|type)=="string" and .procStart != null)
+                  | "\(.pid)\t\(.sessionId)\t\(.procStart)"' "$f" 2>/dev/null)"
+    [[ -n "$row" ]] || { bad=$((bad + 1)); continue; }
+    parsed=$((parsed + 1))
+    IFS=$'\t' read -r pid id ps <<<"$row"
+    if [[ "$id" == "$sid" ]] && agent_pid_is_session "$pid" "$ps"; then printf 'live\n'; return 0; fi
+    [[ -n "$me" && "$id" == "$me" ]] && agent_pid_is_session "$pid" "$ps" && self_seen=1
+  done
+  (( bad == 0 ))    || { _agent_liveness_unknown "$sid" "$bad file(s) in $dir do not parse as {pid, sessionId, procStart}: has the format changed?"; return 0; }
+  (( parsed > 0 ))  || { _agent_liveness_unknown "$sid" "$dir holds no session entries"; return 0; }
+  [[ -z "$me" || "$self_seen" == 1 ]] \
+    || { _agent_liveness_unknown "$sid" "this session ($me) is not live in $dir, so the registry is not being read right"; return 0; }
+  printf 'dead\n'
+}
+
 agent_name_taken_by() {
   local root="$1" mine="$2" n nroot
   [[ -n "$mine" ]] || return 1
@@ -410,6 +483,13 @@ agent_name_taken_by() {
     nroot="${n%/.agent/name}"
     [[ "$(cd "$nroot" 2>/dev/null && pwd)" == "$root" ]] && continue
     local live=0; [[ -f "$nroot/.agent/session.active" ]] && live=1
+    # ⚠ ONLY A MARKER THAT NAMES A SESSION CAN BE PROVEN DEAD. An id-less (legacy) marker keeps
+    # blocking, and so does every `unknown` above. Only `dead`, which needs the registry read cleanly,
+    # releases the name.
+    if [[ "$live" == 1 && "$(agent_directory_identity "$nroot")" == other \
+          && "$(agent_session_liveness "$(agent_session_of "$nroot")")" == dead ]]; then
+      live=0
+    fi
     # ⚠ READ THE MARKER, DO NOT MERELY NOTICE IT. `agent_directory_identity` is the SAME reader
     # `agent_name_trust` already uses ten lines up — this scan was the one place that tested the
     # filename instead of the file, so the fix is to call the existing reader rather than to add one.
@@ -421,6 +501,21 @@ agent_name_taken_by() {
     fi
   done
   return 1
+}
+
+# Does this directory's session.active hold it against an entrant? 1 | 0.
+#
+# The reader is agent_session_liveness, the same rule agent_name_taken_by uses: only a marker naming
+# ANOTHER session that is proven NOT RUNNING stops holding the tree. `unknown`, a legacy id-less marker
+# and a marker this process cannot compare all hold it, which is the rule before the registry was read.
+agent_marker_occupies() { # <repo root>
+  local root="${1:-${REPO_ROOT:-.}}"
+  [[ -s "$root/.agent/session.active" ]] || { printf '0\n'; return 0; }
+  if [[ "$(agent_directory_identity "$root")" == other \
+        && "$(agent_session_liveness "$(agent_session_of "$root")")" == dead ]]; then
+    printf '0\n'; return 0
+  fi
+  printf '1\n'
 }
 
 # Run DIRECTLY, the self-test flag is the only argument — anything else fell past the guard below
@@ -446,6 +541,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   # test would outrank every fixture below and the whole file would assert against the tester's
   # identity instead of the fixtures'. Restored at the end for the rung-0 cases.
   unset GIT_AUTHOR_EMAIL
+  # ⚠ AND THE BOX'S REAL SESSION REGISTRY IS NEVER READ: a missing one is the old rule (marker = live),
+  # which every case above the liveness section asserts. That section points it at its own fixture.
+  AGENT_SESSION_REGISTRY="$tmp/no-registry"
   mkdir -p "$tmp/withname/.agent" "$tmp/noname/.agent" "$tmp/blank/.agent"
   printf 'sophie\n' > "$tmp/withname/.agent/name"
   printf '   \n'    > "$tmp/blank/.agent/name"
@@ -724,6 +822,121 @@ JSON
            agent_name_identity_warning "$tmp/hasroster")" ]] \
     || t_fail "a correctly resolved identity must be SILENT"
   unset GIT_AUTHOR_EMAIL
+
+  # 9. ── A MARKER WHOSE SESSION IS NOT RUNNING IS NOT A RIVAL ─────────────────────────────────────
+  # (backported from strength, 2026-10-25)
+  # The live shape: a respawned Anthony refused his own name by five old worktrees, each marker naming
+  # one dead session. The fixture sessions are REAL processes whose executable is called `claude` (a
+  # #!/bin/bash script, whose comm is the script's name, blocked on a fifo with no external child to
+  # orphan), so agent_pid_is_session runs unmodified.
+  mkdir -p "$tmp/bin" "$tmp/reg" "$tmp/lv/strength-me/.agent" "$tmp/lv/strength-old/.agent"
+  mkfifo "$tmp/never" || t_fail "fixture: cannot make a fifo"
+  printf '#!/bin/bash\nread -r -t 300 <> "$1"\n' > "$tmp/bin/claude" && chmod +x "$tmp/bin/claude" \
+    || t_fail "fixture: cannot make a process called claude"
+  "$tmp/bin/claude" "$tmp/never" & _pa=$!
+  "$tmp/bin/claude" "$tmp/never" & _pb=$!
+  trap 'kill "$_pa" "$_pb" 2>/dev/null; rm -rf "$tmp"' EXIT
+  _ps() { sed 's/^.*) //' "/proc/$1/stat" | awk '{print $20}'; }
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [[ "$(cat "/proc/$_pb/comm" 2>/dev/null)" == claude ]] && break; sleep 0.1; done
+  [[ "$(cat "/proc/$_pa/comm")" == claude && "$(cat "/proc/$_pb/comm")" == claude ]] \
+    || t_fail "fixture: the stand-in sessions do not read as claude in /proc"
+  _reg() { # <file> <pid> <session id> <procStart>
+    printf '{"pid":%s,"sessionId":"%s","procStart":"%s","kind":"interactive"}\n' "$2" "$3" "$4" > "$tmp/reg/$1"; }
+  _reset_reg() { rm -f "$tmp/reg/"*; _reg "$_pa.json" "$_pa" me-session "$(_ps "$_pa")"
+                 _reg "$_pb.json" "$_pb" rival-session "$(_ps "$_pb")"; }
+  _lv() { # <expected live|dead|unknown> <session id> <what>
+    local got; got="$(agent_session_liveness "$2" 2>/dev/null)"
+    [[ "$got" == "$1" ]] || t_fail "liveness($2): expected $1, got $got: $3"; }
+  _tk() { # <expected taken|free> <what>: does strength-old hold the name Anthony against strength-me?
+    local got=free; agent_name_taken_by "$tmp/lv/strength-me" Anthony >/dev/null 2>&1 && got=taken
+    [[ "$got" == "$1" ]] || t_fail "taken_by: expected $1, got $got: $2"; }
+  printf 'Anthony\n' > "$tmp/lv/strength-me/.agent/name"
+  printf 'Anthony\n' > "$tmp/lv/strength-old/.agent/name"
+  _old_marker() { printf '2026-10-01T23:48:26Z\nsession %s\n' "$1" > "$tmp/lv/strength-old/.agent/session.active"; }
+  AGENT_SESSION_REGISTRY="$tmp/reg"; CLAUDE_CODE_SESSION_ID=me-session; _reset_reg
+
+  _lv live    me-session    "my own running session"
+  _lv live    rival-session "another running session"
+  _lv dead    gone-session  "a session with no entry is not running"
+  _lv unknown ''            "no id to look up"
+
+  # THE FIX: the stale-other marker releases the name. Red on the code before this ticket.
+  _old_marker gone-session;  _tk free  "a marker naming a session that is NOT RUNNING is not a rival"
+  # ⚠ NEGATIVE CONTROL: the same layout naming a RUNNING session must still take the name.
+  _old_marker rival-session; _tk taken "a marker naming a RUNNING other session still takes the name"
+  # Mine: unchanged, my own marker elsewhere never holds my name against me.
+  _old_marker me-session;    _tk free  "my own marker in a tree I left"
+
+  # A file left by a kill -9, or a recycled pid: the entry is there, the process is not that session.
+  _reg gone.json "$$" gone-session "$(_ps "$$")"                   # running, but not a claude
+  _lv dead gone-session "an entry whose pid is not a claude"
+  _reg gone.json "$_pb" gone-session 1                              # a claude, but another start time
+  _lv dead gone-session "an entry whose pid started at a different time (recycled pid)"
+  _old_marker gone-session; _tk free "a leftover entry does not keep a dead session's name"
+  _reset_reg
+
+  # ⚠⚠ EVERY DOUBT IS `unknown`, AND `unknown` IS THE OLD RULE (the marker takes the name). Each arm
+  # below is a way the registry can stop meaning what this code thinks, and in each one reading
+  # `dead` would wave two agents onto one name in silence.
+  _old_marker gone-session
+  rm -f "$tmp/reg/"*                                                # schema drift: fields renamed
+  printf '{"processId":%s,"session":"me-session","started":"%s"}\n' "$_pa" "$(_ps "$_pa")" > "$tmp/reg/$_pa.json"
+  printf '{"processId":%s,"session":"rival-session","started":"%s"}\n' "$_pb" "$(_ps "$_pb")" > "$tmp/reg/$_pb.json"
+  _lv unknown gone-session "files present, fields renamed"
+  _tk taken "SCHEMA DRIFT must fall back to the old rule, never read every session as dead"
+  _w="$(agent_session_liveness gone-session 2>&1 >/dev/null)"
+  [[ "$_w" == *"do not parse"* && "$_w" == *LIVE* ]] || t_fail "schema drift must SAY why it fell back, got: $_w"
+  _reset_reg; printf '{"pid":' > "$tmp/reg/torn.json"               # one torn file among good ones
+  _lv unknown gone-session "one file that does not parse"
+  _tk taken "an unparseable file must fall back to the old rule"
+  _reset_reg; rm -f "$tmp/reg/$_pa.json"                            # the registry cannot see ME
+  _lv unknown gone-session "this session is not in the registry"
+  _tk taken "a registry that cannot see the session asking is not trusted"
+  rm -f "$tmp/reg/"*                                                # an empty registry
+  _lv unknown gone-session "an empty registry"
+  _tk taken "an empty registry is not proof of anything"
+  _reset_reg; AGENT_SESSION_REGISTRY="$tmp/nowhere"                 # no registry (CI, automation)
+  _lv unknown gone-session "no registry directory"
+  _tk taken "no registry is the old rule"
+  AGENT_SESSION_REGISTRY="$tmp/reg"
+  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/strength-old/.agent/session.active"  # legacy: no id
+  _tk taken "an id-less marker still takes the name: it cannot be proven dead"
+  # Not a Claude session at all (no id of mine to self-check): a clean registry is believed.
+  _old_marker gone-session; CLAUDE_CODE_SESSION_ID=''
+  _lv dead gone-session "a reader with no session id believes a registry that parses"
+  _keep="$(mktemp -d)"; mv "$tmp/reg/"* "$_keep/"                    # …but never an EMPTY one: with no
+  _lv unknown gone-session "a reader with no id and an empty registry"   # self-check, it proves nothing
+  mv "$_keep/"* "$tmp/reg/"; rmdir "$_keep"
+  # …but the SCAN still blocks for it: with no id of its own every marker reads `legacy`, never
+  # `other`, and only `other` is ever asked about liveness. Unchanged by this ticket, and the safe way.
+  _tk taken "a reader with no session id keeps the old rule in the scan (legacy, not other)"
+
+  # 9b. ── THE SAME READER DECIDES WHETHER A MARKER OCCUPIES init.sh's OWN TREE ──────────────────
+  _oc() { # <expected 1|0> <what>
+    local got; got="$(agent_marker_occupies "$tmp/lv/strength-old" 2>/dev/null)"
+    [[ "$got" == "$1" ]] || t_fail "occupies: expected $1, got $got: $2"; }
+  CLAUDE_CODE_SESSION_ID=me-session; _reset_reg
+  _old_marker rival-session; _oc 1 "a marker naming a RUNNING other session occupies the tree"
+  _old_marker gone-session;  _oc 0 "a marker naming a session that is NOT RUNNING does not"
+  _old_marker me-session;    _oc 1 "my own marker is not proven dead, so it is read as before (the name decides)"
+  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/strength-old/.agent/session.active"
+  _oc 1 "an id-less (legacy) marker occupies: it cannot be proven dead"
+  _old_marker gone-session; AGENT_SESSION_REGISTRY="$tmp/nowhere"
+  _oc 1 "no registry is unknown, and unknown occupies"
+  AGENT_SESSION_REGISTRY="$tmp/reg"; _reset_reg; rm -f "$tmp/reg/$_pa.json"
+  _oc 1 "a registry that cannot see the session asking is unknown, and occupies"
+  rm -f "$tmp/lv/strength-old/.agent/session.active"; _oc 0 "no marker, nobody here"
+  : > "$tmp/lv/strength-old/.agent/session.active";   _oc 0 "an empty marker is no marker (the guard's own -s rule)"
+  # A reader with no session id of its own: the registry parses, so liveness answers `dead` for a
+  # missing session, but every marker reads `legacy`, never `other`, so it keeps the old rule and
+  # occupies, as section 9 pins for the scan. Only `other` is ever asked about liveness.
+  AGENT_SESSION_REGISTRY="$tmp/reg"; _reset_reg; _old_marker gone-session; CLAUDE_CODE_SESSION_ID=''
+  _lv dead gone-session "fixture: the no-id reader does believe this registry"
+  _oc 1 "a reader with no session id keeps the old rule for occupancy (legacy, not other)"
+  CLAUDE_CODE_SESSION_ID=me-session
+  unset -f _oc
+  kill "$_pa" "$_pb" 2>/dev/null; wait "$_pa" "$_pb" 2>/dev/null
+  unset CLAUDE_CODE_SESSION_ID; AGENT_SESSION_REGISTRY="$tmp/no-registry"; unset -f _reg _reset_reg _lv _tk _old_marker _ps
 
   printf 'agent-name selftest ok\n'
   exit 0
