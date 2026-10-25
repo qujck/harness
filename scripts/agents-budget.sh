@@ -3,8 +3,10 @@
 # starts another agent (docs/roles/delivery-lead.md, "The size of the team").
 #
 #   bash scripts/agents-budget.sh                          one line, and the exit code
-#   bash scripts/agents-budget.sh approve <pct> "<words>"  OWNER: today's plan, at close of day, becomes <pct>
-#   bash scripts/agents-budget.sh adjust <+N|-N> "<words>" OWNER: add or take back N points, from now
+#   HARNESS_PROJECT=<project> bash scripts/agents-budget.sh approve <pct> "<words>"
+#                                                          OWNER: today's plan, at close of day, becomes <pct>
+#   HARNESS_PROJECT=<project> bash scripts/agents-budget.sh adjust <+N|-N> "<words>"
+#                                                          OWNER: add or take back N points, from now
 #   bash scripts/agents-budget.sh adjustments              this week's entries and their sum
 #   bash scripts/agents-budget.sh --self-test
 #
@@ -33,12 +35,21 @@
 # owner's words (no blank, no `<placeholder>`), and the budget line shows the sum: "of 60% planned so far
 # (owner +7.4)". The panel's mark and agent-spawn.sh read that line as before.
 #
+# A verb that WRITES needs HARNESS_PROJECT (owner, 2026-10-25, after Alfred found the trap): the file is per
+# project, and an entry written under the default "harness" is never read by strength's spawn gate or panel,
+# so the owner's adjustment would silently do nothing. Cannot tell which project: refuses, exit 2, nothing
+# written. HARNESS_PROJECT must be in the environment: the name lib/harness-env.sh derives from the repo
+# directory does not count, since the owner runs this from the harness checkout, where it says "harness". The
+# read-only forms keep the default, as the budget line always has. AGENT_BUDGET_ADJUST names the file outright
+# and needs no project (the self-test's seam).
+#
 # AGENT_BUDGET_NOW (epoch seconds) pins the clock for the self-test.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
 . "$_here/lib/selftest-flag.sh"
+PROJECT_GIVEN="${HARNESS_PROJECT:-}"   # before harness-env.sh derives one from the repo directory's name
 # shellcheck source=lib/harness-env.sh
 . "$_here/lib/harness-env.sh"
 # shellcheck source=lib/week-usage.sh
@@ -118,6 +129,34 @@ budget_self_test() {
   local before; before=$(rows)
   verb "blank words are refused" 2 "words" "2026-10-21 12:00" 41 "2026-10-21 11:59" approve 60 ""
   verb "a placeholder is refused" 2 "words" "2026-10-21 12:00" 41 "2026-10-21 11:59" approve 60 "<your words>"
+
+  # Without HARNESS_PROJECT and without AGENT_BUDGET_ADJUST naming the file, a write is refused and writes nowhere.
+  bare() { # <args...> -> runs the script with neither (PROJ=<name> gives HARNESS_PROJECT), HOME in the fixture
+    env -u AGENT_WEEK_PCT_PER_HOUR -u AGENT_WEEK_RESET -u AGENT_WORK_DAYS -u AGENT_WORK_HOURS -u HARNESS_PROJECT -u AGENT_BUDGET_ADJUST \
+        ${PROJ:+HARNESS_PROJECT=$PROJ} GIT_AUTHOR_NAME=Owner TZ=Europe/London HOME="$T/home" HARNESS_ROOT="$T/repo" CONTEXT_DIR="$T/ctx" \
+        AGENT_BUDGET_NOW="$(TZ=Europe/London date -d '2026-10-21 12:00' +%s)" bash "$SELF" "$@" 2>&1; }
+  mkdir -p "$T/home"; rm -f "$T/ctx/"*.json
+  printf '{"ts":"%s","week":{"used_pct":41}}\n' "$(date -u -d '2026-10-21 11:59' +%FT%TZ)" > "$T/ctx/a.json"
+  out=$(bare approve 60 "words"); rc=$?
+  if [[ $rc == 2 ]] && grep -qF 'needs HARNESS_PROJECT' <<<"$out" && [[ -z "$(find "$T/home" -name 'agents-budget-adjust.tsv' 2>/dev/null)" ]]
+  then printf '  ok   approve without HARNESS_PROJECT is refused, exit 2, and writes nowhere\n'
+  else printf '  FAIL approve without HARNESS_PROJECT: exit %s: %s\n' "$rc" "$out"; fails=$((fails+1)); fi
+  out=$(bare adjust +5 "words"); rc=$?
+  if [[ $rc == 2 ]] && grep -qF 'needs HARNESS_PROJECT' <<<"$out" && [[ -z "$(find "$T/home" -name 'agents-budget-adjust.tsv' 2>/dev/null)" ]]
+  then printf '  ok   adjust without HARNESS_PROJECT is refused, exit 2, and writes nowhere\n'
+  else printf '  FAIL adjust without HARNESS_PROJECT: exit %s: %s\n' "$rc" "$out"; fails=$((fails+1)); fi
+  out=$(PROJ=proj bare adjust +5 "words"); rc=$?
+  if [[ $rc == 0 ]] && [[ -s "$T/home/.local/state/proj/agents-budget-adjust.tsv" ]]
+  then printf '  ok   with HARNESS_PROJECT=proj the entry goes to ~/.local/state/proj/\n'
+  else printf '  FAIL with HARNESS_PROJECT=proj: exit %s: %s\n' "$rc" "$out"; fails=$((fails+1)); fi
+  out=$(bare); rc=$?
+  if [[ $rc == 0 ]] && grep -qF 'of ' <<<"$out"
+  then printf '  ok   the read-only budget line still answers without HARNESS_PROJECT\n'
+  else printf '  FAIL read-only line without HARNESS_PROJECT: exit %s: %s\n' "$rc" "$out"; fails=$((fails+1)); fi
+  out=$(bare adjustments); rc=$?
+  if [[ $rc == 0 ]] && grep -qF 'sum' <<<"$out"
+  then printf '  ok   adjustments still lists without HARNESS_PROJECT\n'
+  else printf '  FAIL adjustments without HARNESS_PROJECT: exit %s: %s\n' "$rc" "$out"; fails=$((fails+1)); fi
   verb "no words at all is a usage error" 2 "usage" "2026-10-21 12:00" 41 "2026-10-21 11:59" approve 60
   verb "a percentage that is not a number is refused" 2 "not a percentage" "2026-10-21 12:00" 41 "2026-10-21 11:59" approve sixty "words"
   verb "a delta without a sign is refused" 2 "like +5 or -5" "2026-10-21 12:00" 41 "2026-10-21 11:59" adjust 5 "words"
@@ -222,6 +261,9 @@ record() { # <delta> <words>
   read -r plan plan_close reset_epoch sum cnt <<<"$(budget_calc)"
 }
 case "$VERB" in
+  approve|adjust)
+    [[ -n "${AGENT_BUDGET_ADJUST:-}" || -n "$PROJECT_GIVEN" ]] \
+      || { printf 'budget  %s needs HARNESS_PROJECT=<project>: the entry goes to that project'"'"'s file and no other reads it; refused rather than defaulting to "harness"\n' "$VERB" >&2; exit 2; } ;;&
   approve)
     [[ $# -ge 3 ]] || { printf 'usage: agents-budget.sh approve <pct> "<the owner'"'"'s words>"\n' >&2; exit 2; }
     [[ $2 =~ ^[0-9]+([.][0-9]+)?$ ]] && awk -v p="$2" 'BEGIN{exit !(p<=100)}' || { printf 'budget  %q is not a percentage (0-100)\n' "$2" >&2; exit 2; }
