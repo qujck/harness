@@ -198,7 +198,7 @@ budget_calc() {
       k = split(days, d, " "); for (i = 1; i <= k; i++) work[dn[d[i]]] = 1
       since = now - rs; if (since < 0) since += 10080           # minutes since the reset
       from = now - since                                        # the reset, possibly last week (negative)
-      cl = int(now / 1440) * 1440 + shut   # today's close; after it, no working minutes separate close from now
+      cl = int(now / 1440) * 1440 + shut   # the close of today; after it no working minutes separate it from now
       reset_epoch = nows - (nows % 60) - since * 60
       sum = 0
       while ((getline line < adjust) > 0) {
