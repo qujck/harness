@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   bash scripts/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--dry-run]
+#   bash scripts/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok "<words>"] [--dry-run]
 #   bash scripts/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -18,7 +18,7 @@
 #
 # What it starts, in a detached tmux session `<project>-<name>` (watch it with `tmux attach -t =<that>`):
 #
-#   env <roster_launch_env> claude --worktree <project>-<name> --name <Name> [--model M] "<first prompt>"
+#   env <roster_launch_env> claude --worktree <project>-<name> --name <Name> [--model M] --remote-control <project>-<name> "<first prompt>"
 #
 #   identity     roster_launch_env: the same four GIT_* variables as the launch line agent-onboard.sh prints
 #   model        --model, else AGENT_MODEL_DEV / AGENT_MODEL_TESTER (harness.env), else the account default
@@ -27,8 +27,21 @@
 #                a claim is stamped with the session's identity, so nobody can claim on its behalf. A tester
 #                claims nothing; it tells the delivery lead it is ready to test the ticket.
 #
-# A dry run ends with scripts/agents-budget.sh's line: on budget the lead starts the agent and tells the owner,
-# otherwise it asks first. The budget never picks the model.
+#   remote       --remote-control <session>: every spawned session can be reached from claude.ai/code and the
+#                Claude mobile app under its tmux session's name (owner, 2026-10-25)
+#
+# THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints scripts/agents-budget.sh's line:
+#   developer  `budget  on` → start it and tell the owner in one line. `over`, or no budget / no reading →
+#              ASK THE OWNER FIRST; a real spawn then needs their answer on the line, --owner-ok "<their words>",
+#              and is refused without it. Never a flat refusal: the owner's OK is the way through.
+#   tester     started whatever the line says; the line is information. Testers are not budget-gated.
+# The budget never picks the model.
+#
+# EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
+# time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line. That is
+# where an off-budget start shows who said yes; the start line prints the same.
+#
+# AGENT_SPAWN_BUDGET names a stand-in for agents-budget.sh (the self-test's hook, like agents-dash.sh's).
 #
 # Exit: 0 started (or a dry run said what it would start) · 1 refused · 2 a usage error.
 set -uo pipefail
@@ -44,7 +57,14 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--dry-run]"
+USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok \"<the owner's words>\"] [--dry-run]"
+SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
+BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
+
+# PURE: what the budget line means for this role. $1 role · $2 agents-budget.sh's exit -> start | ask | info
+spawn_budget_rule() {
+  if [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
+}
 
 # PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
 spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+)$ ]]; }
@@ -92,6 +112,11 @@ spawn_self_test() {
   spawn_ticket_ok 'x;rm' && _t "a shell metacharacter is no ticket" 0 1 || _t "a shell metacharacter is no ticket" 1 1
   spawn_model_ok 'opus;rm' && _t "a model with ; is refused" 0 1 || _t "a model with ; is refused" 1 1
   spawn_model_ok 'opus[1m]' && _t "a [1m] model suffix is accepted" 0 0 || _t "a [1m] model suffix is accepted" 1 0
+  _t "rule: a developer on budget starts" "$(spawn_budget_rule developer 0)" start
+  _t "rule: a developer over budget asks" "$(spawn_budget_rule developer 1)" ask
+  _t "rule: a developer with no budget reading asks" "$(spawn_budget_rule developer 2)" ask
+  _t "rule: a tester over budget is information only" "$(spawn_budget_rule tester 1)" info
+  _t "rule: a tester with no reading is information only" "$(spawn_budget_rule tester 2)" info
 
   # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
   # throwaway config dir. Nothing here can start a real session: the only tmux on PATH is the stand-in.
@@ -114,11 +139,21 @@ case "\$1" in
 esac
 EOF
   printf '#!/usr/bin/env bash\necho "stand-in claude: never run by the self-test" >&2; exit 1\n' > "$T/bin/claude"
-  chmod +x "$T/bin/tmux" "$T/bin/claude"
+  # a stand-in agents-budget.sh, steered by $T/budget.mode: on / over / (absent) none set
+  cat > "$T/bin/budget" <<EOF
+#!/usr/bin/env bash
+case "\$(cat "$T/budget.mode" 2>/dev/null)" in
+  on)   echo "budget  on: week 30% used of 44% planned so far"; exit 0 ;;
+  over) echo "budget  over: week 61% used of 44% planned so far: ask the owner"; exit 1 ;;
+  *)    echo "budget  none set (AGENT_WEEK_PCT_PER_HOUR in harness.env): ask the owner"; exit 2 ;;
+esac
+EOF
+  chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
+            AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="$T/spawns.tsv" \
             bash "$SELF" "$@" 2>&1; }
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
@@ -128,6 +163,9 @@ EOF
   _t "a retired name is never picked" "$(grep -c 'would start Cy' <<<"$out")" 0
   _has "the dry run names the name to start with --name" "$out" "would start Ada (developer) for HAR-12"
   _has "a dry run prints the budget line, to decide whether to ask the owner" "$out" "budget  none set"
+  _has "  with no budget a developer dry run says to ask the owner first" "$out" "ask the owner first, in one line; start it with their words on --owner-ok"
+  _has "  and the start line it prints carries the --owner-ok slot" "$out" '--owner-ok "<the owner'"'"'s words>"'
+  _has "a dry run says Remote Control will be on" "$out" "with Remote Control on"
   _t "a dry run starts nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
   _t "a dry run writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
 
@@ -152,12 +190,41 @@ EOF
   out="$(run --slef-test)"; rc=$?
   _t "a mistyped self-test flag exits 2, never runs" "$rc" 2
 
-  # a real start, with the role's model from harness.env
+  # ── THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25) ──
   printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"
+  printf 'over\n' > "$T/budget.mode"; : > "$T/tmux.log"; rm -f "$T/spawns.tsv"
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a developer spawn off budget without the owner's OK is refused" "$rc" 1
+  _has "  and says how to ask and how to pass the answer" "$out" '--owner-ok "<their words>"'
+  _has "  and that a tester would not be gated" "$out" "a tester is not budget-gated"
+  _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  _t "  recording nothing" "$([[ -e "$T/spawns.tsv" ]] && echo written || echo nothing)" nothing
+  out="$(run developer --ticket HAR-12 --dry-run)"
+  _has "a developer dry run off budget says to ask the owner first" "$out" "developer, off budget (or no reading): ask the owner first"
+  out="$(run tester --ticket HAR-12 --dry-run)"
+  _has "a tester dry run off budget says to start it regardless" "$out" "testers are not budget-gated"
+  _has "  and still prints the budget line" "$out" "budget  over"
+  out="$(run tester --ticket HAR-12)"; rc=$?
+  _t "a tester spawn off budget starts without any OK" "$rc" 0
+  _t "  and is recorded with no owner words" "$(awk -F'\t' '$2=="Tess"{print $3"|"$6"|"$7}' "$T/spawns.tsv")" 'tester|over|-'
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run developer --ticket HAR-12 --owner-ok 'yes, start her, Peter')"; rc=$?
+  _t "a developer spawn off budget WITH the owner's OK starts" "$rc" 0
+  _has "  and the start line quotes the OK" "$out" 'owner OK: "yes, start her, Peter"'
+  _t "  and the record holds who was started, on which verdict, on whose words" "$(awk -F'\t' '$2=="Ada"{print $3"|"$4"|"$5"|"$6"|"$7}' "$T/spawns.tsv")" 'developer|HAR-12|sonnet|over|yes, start her, Peter'
+  _has "  and the budget line itself" "$(tail -1 "$T/spawns.tsv")" "budget  over: week 61%"
+  out="$(run developer --owner-ok '' --dry-run)"; rc=$?
+  _t "--owner-ok with no words is a usage error" "$rc" 2
+
+  # a real start, on budget, with the role's model from harness.env
+  printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12)"; rc=$?
   _t "a spawn exits 0" "$rc" 0
   _has "  and says how to watch it" "$out" "tmux attach -t =proj-ada"
+  _has "  and that Remote Control is on" "$out" "with Remote Control on"
+  _t "  on budget, recorded with no owner words" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'on|-'
   local line; line="$(grep '^new-session' "$T/tmux.log")"
+  _has "  the session starts claude with Remote Control on, named for the tmux session" "$line" "--remote-control proj-ada"
   _has "it starts a detached tmux session named for the agent, in the project root" "$line" "new-session -d -s proj-ada -c $T/repo env"
   _has "  with the roster identity" "$line" "GIT_AUTHOR_NAME=Ada GIT_AUTHOR_EMAIL=ada@proj.local GIT_COMMITTER_NAME=Ada GIT_COMMITTER_EMAIL=ada@proj.local"
   _has "  in the agent's own worktree, named in the session" "$line" "claude --worktree proj-ada --name Ada"
@@ -222,11 +289,12 @@ if selftest_is_flag "${1:-}"; then
   spawn_self_test; exit $?
 fi
 
-ROLE="" WANT="" TICKET="" MODEL="" DRY=0
+ROLE="" WANT="" TICKET="" MODEL="" OWNER_OK="" DRY=0
 while (( $# )); do
   case "$1" in
     developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
     --name)   [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; WANT=$2; shift ;;
+    --owner-ok) [[ $# -ge 2 && -n "${2// /}" ]] || { echo "agent-spawn: --owner-ok needs the owner's words" >&2; echo "$USAGE" >&2; exit 2; }; OWNER_OK=$2; shift ;;
     --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=$2; shift ;;
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
     --dry-run) DRY=1 ;;
@@ -273,16 +341,34 @@ PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET")"
 mapfile -t IDENT < <(roster_launch_env "$NAME")
 CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
-CMD+=("$PROMPT")
+CMD+=(--remote-control "$SESSION" "$PROMPT")
 WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}"
 
+# The budget line, and what it means for THIS role (header: developers are gated, testers are not).
+BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?
+RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
+case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
+
 if (( DRY )); then
-  printf 'would start %s in tmux session %s, on %s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
-  printf '  start exactly this one with: bash scripts/agent-spawn.sh %s --name %s%s%s\n' \
-    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}"
+  printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
+  printf '  start exactly this one with: bash scripts/agent-spawn.sh %s --name %s%s%s%s\n' \
+    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   printf '  first prompt: %s\n' "$PROMPT"
-  bash "$_here/agents-budget.sh"   # the lead's test of whether to ask the owner first; its exit is not ours
+  printf '%s\n' "$BUDGET_LINE"
+  case "$RULE" in
+    start) printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n' ;;
+    ask)   printf '  developer, off budget (or no reading): ask the owner first, in one line; start it with their words on --owner-ok.\n' ;;
+    info)  printf '  tester: start it whatever the budget line says; testers are not budget-gated (owner, 2026-10-25). The line is information.\n' ;;
+  esac
   exit 0
+fi
+
+if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
+  printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
+  printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
+  printf '  their words on the line: bash scripts/agent-spawn.sh developer --name %s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" >&2
+  printf '  (a tester is not budget-gated and starts regardless)\n' >&2
+  exit 1
 fi
 
 command -v tmux >/dev/null 2>&1 || { echo "agent-spawn: tmux is not on PATH" >&2; exit 1; }
@@ -291,5 +377,10 @@ tmux new-session -d -s "$SESSION" -c "$HARNESS_ROOT" "${CMD[@]}" \
   || { echo "agent-spawn: tmux could not start session $SESSION for $NAME" >&2; exit 1; }
 tmux has-session -t "=$SESSION" 2>/dev/null \
   || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
-printf 'started %s in tmux session %s, on %s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
-printf '  watch it: tmux attach -t =%s\n' "$SESSION"
+# The record: who was started, against which budget line, on whose word.
+mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" >> "$SPAWN_LOG" \
+  || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
+printf 'started %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
+printf '  %s\n' "$BUDGET_LINE"
+printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"

@@ -91,16 +91,24 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 - **Starting one.** For every ticket that is ready to build, and again when it is ready to test, run
   `bash scripts/agent-spawn.sh developer --ticket <id> --model <model> --dry-run` (or `tester`). It picks
   a free name at random and prints the command that starts exactly that one, with
-  `--name <Name>` in place of `--dry-run`, then a `budget` line from `scripts/agents-budget.sh`:
-  - `budget  on`: run it without asking, then tell the owner in one line, with the budget, e.g.
+  `--name <Name>` in place of `--dry-run`, then a `budget` line from `scripts/agents-budget.sh` and what
+  it means for that role. **The budget gates developers only; testers are not budget-gated** (owner,
+  2026-10-25):
+  - developer, `budget  on`: run it without asking, then tell the owner in one line, with the budget, e.g.
     *"Started Wren for HAR-12 on the stronger model; week 41% of 44% planned"*.
-  - `budget  over`, or anything else (no budget set, no reading): ask the owner in one line, naming the
-    ticket, the name and the budget line, whether to start it or leave the ticket ready until the week
-    catches up.
+  - developer, `budget  over`, or anything else (no budget set, no reading): ask the owner in one line,
+    naming the ticket, the name and the budget line, whether to start it or leave the ticket ready until
+    the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`;
+    the spawn refuses an off-budget developer without that, and never refuses one with it. The OK is
+    recorded with the spawn in `~/.local/state/<project>/agent-spawns.tsv` (time, name, role, ticket,
+    model, verdict, the owner's words, the budget line), one row per real spawn.
+  - tester, whatever the line says: start it. The line is printed for information.
 
   The budget decides only whether to ask; it never decides the model (below). A name no longer free
   is refused: dry-run again. The agent starts in its own tmux session (`tmux attach -t =<project>-<name>`
-  to watch it) and its own worktree, reads its role, runs `init.sh` and tells you it is ready. A developer claims the ticket itself, because
+  to watch it) and its own worktree, with Remote Control on under that session's name (so the owner can
+  reach it from claude.ai/code or the Claude mobile app; owner, 2026-10-25), reads its role, runs
+  `init.sh` and tells you it is ready. A developer claims the ticket itself, because
   a claim carries the session's identity; never claim for it. A tester claims nothing. Route it the
   ticket by name and role, as with any agent.
 - **Never a second ticket.** Never hand a developer or a tester a second ticket, or a check on another
