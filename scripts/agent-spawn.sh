@@ -245,6 +245,16 @@ EOF
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ada's spawn above is over; she is free again
   out="$(run developer --ticket HAR-12 --owner-ok 'yes <go ahead> - Peter' --dry-run 2>&1)"; rc=$?
   _t "words that merely contain brackets or a dash are words" "$rc" 0
+  # Strength's follow-ups (Tommy N14-N16 on #11235): the trailing trim is what refuses a placeholder pasted
+  # with a space after it; words that only START or only END with <…> are the owner's words.
+  : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  out="$(run developer --ticket HAR-12 --owner-ok '<their words> ' 2>&1)"; rc=$?
+  _t "over budget, the placeholder with a trailing space is a usage error" "$rc" 2
+  _t "  and starts nothing, records nothing" "$(grep -c '^new-session' "$T/tmux.log")/$(wc -l < "$T/spawns.tsv")" "0/$before"
+  out="$(run developer --ticket HAR-12 --owner-ok '<Peter> said yes' --dry-run 2>&1)"; rc=$?
+  _t "words that start with <…> are words" "$rc" 0
+  out="$(run developer --ticket HAR-12 --owner-ok 'said yes <ok>' --dry-run 2>&1)"; rc=$?
+  _t "words that end with <…> are words" "$rc" 0
   spawn_owner_ok_text_ok $'yes\tPeter' && _t "a tab in the words is refused (it would split the record)" 0 1 \
     || _t "a tab in the words is refused (it would split the record)" 1 1
   spawn_owner_ok_text_ok '  -yes' && _t "a leading dash after blanks is still a flag, not words" 0 1 \
