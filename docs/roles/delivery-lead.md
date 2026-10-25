@@ -98,7 +98,7 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     *"Started Wren for HAR-12 on the stronger model; week 41% of 44% planned"*.
   - developer, `budget  over`, or anything else (no budget set, no reading): ask the owner in one line,
     naming the ticket, the name and the budget line, whether to start it or leave the ticket ready until
-    the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`;
+    the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`; the words must be their actual words on one line (the script refuses a flag, blanks or the `<…>` placeholder in that slot as a usage error, so a slip never records a fake approval);
     the spawn refuses an off-budget developer without that, and never refuses one with it. The OK is
     recorded with the spawn in `~/.local/state/<project>/agent-spawns.tsv` (time, name, role, ticket,
     model, verdict, the owner's words, the budget line), one row per real spawn.

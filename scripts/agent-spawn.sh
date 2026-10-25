@@ -33,7 +33,9 @@
 # THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints scripts/agents-budget.sh's line:
 #   developer  `budget  on` → start it and tell the owner in one line. `over`, or no budget / no reading →
 #              ASK THE OWNER FIRST; a real spawn then needs their answer on the line, --owner-ok "<their words>",
-#              and is refused without it. Never a flat refusal: the owner's OK is the way through.
+#              and is refused without it. Never a flat refusal: the owner's OK is the way through. The words
+#              must BE words: another flag ("--owner-ok --dry-run"), the "<their words>" placeholder pasted
+#              unedited, blanks or a second line are a usage error (exit 2) and start nothing.
 #   tester     started whatever the line says; the line is information. Testers are not budget-gated.
 # The budget never picks the model.
 #
@@ -61,6 +63,17 @@ USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [-
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 
+# PURE: are these the owner's words? Not blank; not another flag (--dry-run after --owner-ok must not become the
+# words, and start a real spawn); not the script's own "<their words>" placeholder pasted unedited; one line (a tab or
+# newline would split the TSV record). $1 words -> 0 | 1
+spawn_owner_ok_text_ok() {
+  local t="${1-}" s
+  s="${t#"${t%%[![:space:]]*}"}"                 # trimmed of leading blanks
+  [[ -n "$s" && "$s" != -* && "$t" != *[[:cntrl:]]* ]] || return 1
+  s="${s%"${s##*[![:space:]]}"}"                 # and of trailing blanks
+  [[ "$s" == '<'*'>' ]] && return 1
+  return 0
+}
 # PURE: what the budget line means for this role. $1 role · $2 agents-budget.sh's exit -> start | ask | info
 spawn_budget_rule() {
   if [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
@@ -215,6 +228,27 @@ EOF
   _has "  and the budget line itself" "$(tail -1 "$T/spawns.tsv")" "budget  over: week 61%"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
+  # F1 (Stephanie, strength #11235): "--owner-ok --dry-run" must not take "--dry-run" as the owner's words and then
+  # start a REAL spawn recorded as approved. F2: the script's own placeholders pasted unedited are not words either.
+  : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  out="$(run developer --ticket HAR-12 --owner-ok --dry-run 2>&1)"; rc=$?
+  _t "--owner-ok followed by another flag is a usage error, not an approval" "$rc" 2
+  _has "  naming what it got" "$out" 'got --dry-run'
+  _t "  and starts nothing" "$(grep -c '^new-session' "$T/tmux.log")" 0
+  _t "  and records nothing" "$(wc -l < "$T/spawns.tsv")" "$before"
+  for ph in '<their words>' "<the owner's words>" '  <anything in angle brackets>  '; do
+    out="$(run developer --ticket HAR-12 --owner-ok "$ph" --dry-run 2>&1)"; rc=$?
+    _t "the placeholder $ph pasted unedited is a usage error" "$rc" 2
+  done
+  _t "  and nothing was started by any of them" "$(grep -c '^new-session' "$T/tmux.log")" 0
+  _t "  nor recorded" "$(wc -l < "$T/spawns.tsv")" "$before"
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ada's spawn above is over; she is free again
+  out="$(run developer --ticket HAR-12 --owner-ok 'yes <go ahead> - Peter' --dry-run 2>&1)"; rc=$?
+  _t "words that merely contain brackets or a dash are words" "$rc" 0
+  spawn_owner_ok_text_ok $'yes\tPeter' && _t "a tab in the words is refused (it would split the record)" 0 1 \
+    || _t "a tab in the words is refused (it would split the record)" 1 1
+  spawn_owner_ok_text_ok '  -yes' && _t "a leading dash after blanks is still a flag, not words" 0 1 \
+    || _t "a leading dash after blanks is still a flag, not words" 1 1
 
   # a real start, on budget, with the role's model from harness.env
   printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
@@ -294,7 +328,10 @@ while (( $# )); do
   case "$1" in
     developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
     --name)   [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; WANT=$2; shift ;;
-    --owner-ok) [[ $# -ge 2 && -n "${2// /}" ]] || { echo "agent-spawn: --owner-ok needs the owner's words" >&2; echo "$USAGE" >&2; exit 2; }; OWNER_OK=$2; shift ;;
+    --owner-ok) [[ $# -ge 2 ]] || { echo "agent-spawn: --owner-ok needs the owner's words" >&2; echo "$USAGE" >&2; exit 2; }
+                OWNER_OK=$2; shift
+                spawn_owner_ok_text_ok "$OWNER_OK" \
+                  || { printf "agent-spawn: --owner-ok needs the owner's words on one line, and got %q\n" "$OWNER_OK" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=$2; shift ;;
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
     --dry-run) DRY=1 ;;
