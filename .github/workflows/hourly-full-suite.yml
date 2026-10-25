@@ -32,6 +32,7 @@ jobs:
         env:
           CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
         run: |
+          set -o pipefail   # a failed download must fail the step, not hand bash an empty script
           if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
           curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version

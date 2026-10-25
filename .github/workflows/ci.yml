@@ -152,6 +152,7 @@ jobs:
         env:
           CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
         run: |
+          set -o pipefail   # a failed download must fail the step, not hand bash an empty script
           if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
           curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version
@@ -166,12 +167,14 @@ jobs:
       - name: The full house gate — bash scripts/verify.sh
         env:
           VERIFY_FULL: ${{ needs.route.outputs.force_full == '1' && '1' || '' }}
-        run: bash scripts/verify.sh 2>&1 | tee "$RUNNER_TEMP/verify-output.log"
+        # pipefail, or the step's exit is tee's and a red verify lands (2026-10-25: #48 merged with a red self-test
+        # tier logged in this very step; scripts/check-ci-run-pipes-fail.sh refuses a piped run line without it).
+        run: set -o pipefail; bash scripts/verify.sh 2>&1 | tee "$RUNNER_TEMP/verify-output.log"
       - name: Browser — the specs that cover the surfaces this PR touched
         if: ${{ needs.route.outputs.browser == '1' }}
         env:
           UI_GREP: ${{ needs.route.outputs.ui_grep }}
-        run: RUN_UI=1 UI_ONLY=1 bash scripts/verify.sh 2>&1 | tee -a "$RUNNER_TEMP/verify-output.log"
+        run: set -o pipefail; RUN_UI=1 UI_ONLY=1 bash scripts/verify.sh 2>&1 | tee -a "$RUNNER_TEMP/verify-output.log"
       - name: Cost budget for the required check
         if: ${{ always() }}
         env:
@@ -255,6 +258,7 @@ jobs:
         env:
           CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || '2.1.301' }}
         run: |
+          set -o pipefail   # a failed download must fail the step, not hand bash an empty script
           if command -v claude >/dev/null 2>&1; then echo "claude $(claude --version) is on PATH"; exit 0; fi
           curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"; "$HOME/.local/bin/claude" --version
