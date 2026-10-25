@@ -64,5 +64,9 @@ Four steps in an agent's life, and only the first and the last write this file:
 The onboarded developers and testers are the pool spawn picks from; there is no other list of names.
 A benched agent keeps its name, identity and worktree, and coming back for its next ticket is the same
 identity, not a reuse. `bash scripts/agent-onboard.sh --launch-line <Name>` prints the launch line again
-for an agent already on the roster. `roster_role` (same library) records a change of role. Never edit a
+for an agent already on the roster. The line has two shapes: a developer or tester gets the delivery
+lead's `bash scripts/agent-spawn.sh <role> --name <Name> --ticket <id>`; every other role gets a `cd`
+into its own sibling tree `<project>-<name>` with the row's address and `claude`. It refuses (no line,
+the reason on stderr) a retired name, an empty address and a missing tree, and for a missing tree prints
+the one `git worktree add` that makes it. `roster_role` (same library) records a change of role. Never edit a
 row's `name` or `email`.
