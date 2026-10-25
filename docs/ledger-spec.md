@@ -209,8 +209,10 @@ second tool.
 
 ## 7a. The PR↔issue trailer: read the number, do not recall it
 
-A PR that finishes a ticket says `Closes #N`; one that delivers part of it says `Part of #N`. Both
-name the ticket's **tracking issue**, and the number comes from the ticket **row** — `ledger-db.sh
+Every PR says `Part of #N`, never `Closes #N`: completion is the row writes AFTER the merge
+(flip-passing → archive → release), so a closing keyword shuts the issue at merge over a row that is
+still live; `release` closes the issue. The trailer names the ticket's **tracking issue**, and the
+number comes from the ticket **row** — `ledger-db.sh
 regenerate --out <dir> <id>`, then read `.issue`.
 
 ⚠ **WRITE THE TRAILER FROM THE ROW, BEFORE THE MESSAGE — NOT AT THE END, FROM MEMORY.** This is a

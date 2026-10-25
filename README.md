@@ -387,9 +387,10 @@ These are GitHub/CI/project-specific, so the kit documents rather than ships the
   your CI workflow so PRs build+test the *combined* result and land **serially** —
   this is what actually kills the rebase treadmill when concurrent PRs race `main`.
 - **Ticket → issue mirror.** A small `gh`-based script can open a tracking issue
-  when a ticket goes `in_progress` and print a `Closes #N` line for the PR body
-  (the ledger row stays the source of truth; the PR says `Part of #N`, never `Closes`, so the issue never closes over a live row
-  on merge).
+  when a ticket goes `in_progress` and print a `Part of #N` line for the PR body
+  (the ledger row stays the source of truth; the PR says `Part of #N`, never `Closes`, so the issue
+  never closes over a live row on merge; `scripts/check-tooling-hints-never-say-closes.sh` refuses a
+  printed closing hint).
 - **Verify fast-lane.** Short-circuit `verify.sh` to the cheap relevant checks when
   a diff touches only frontend/docs/ledger paths that can't affect the backend
   layers — minutes saved per parallel PR.

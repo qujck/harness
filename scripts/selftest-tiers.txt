@@ -67,3 +67,4 @@ scripts/agent-spawn.sh	verify
 scripts/agent-bench.sh	verify
 scripts/lib/agent-session.sh	nowhere	a sourced helper with no flag of its own; its arms run inside agent-spawn.sh's and agent-bench.sh's self-tests
 scripts/lib/week-usage.sh	nowhere	a sourced library: its arms run in scripts/agents-budget.sh --self-test and the panel's
+scripts/check-tooling-hints-never-say-closes.sh	verify
