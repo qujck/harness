@@ -83,8 +83,26 @@ colours() {
 SPARK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
 
 # ── the roster ────────────────────────────────────────────────────────────────
-# roster -> "<name>\t<role>\t<kind>" per active agent in file order, then per assistant.
-roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER"; }
+# roster -> "<name>\t<role>\t<kind>" per active agent GROUPED BY ROLE in a fixed order (owner, 2026-10-25:
+# lead, developers, testers, head of testing, reviewer, process, support, then any other role), file order
+# kept within a role, assistants last. A roster appends each new agent at the end, so in file order a new
+# tester drew after the reviewer and the process lead: "in the wrong place on the dashboard". The Delivery
+# tab groups the same way. roster_panel_rows itself stays in file order for its other readers.
+roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER" | roster_grouped; }
+role_rank() {
+  case "$1" in
+    delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; head-of-testing) echo 3 ;;
+    code-reviewer) echo 4 ;; process-improvement) echo 5 ;; production-support) echo 6 ;;
+    assistant) echo 9 ;; *) echo 8 ;;
+  esac
+}
+# stdin: panel rows -> the same rows, stable-sorted by role_rank (sort -s keeps file order within a rank).
+roster_grouped() {
+  local name role kind
+  while IFS=$'\t' read -r name role kind; do
+    printf '%s\t%s\t%s\t%s\n' "$(role_rank "$role")" "$name" "$role" "$kind"
+  done | sort -s -t $'\t' -k1,1n | cut -f2-
+}
 
 # A short label per role id, so the column fits.
 short_role() {
@@ -95,6 +113,7 @@ short_role() {
     tester) echo tester ;;
     code-reviewer) echo review ;;
     process-improvement) echo process ;;
+    production-support) echo support ;;
     assistant) echo pa ;;
     *) echo "${1:0:7}" ;;
   esac
@@ -558,15 +577,29 @@ selftest() {
     "$(R=$'\033[0m' GREY=$'\033[90m' INV=$'\033[7m' NOINV=$'\033[27m'; spark 0,1,4,7 7)"
   t test 'short_role: head-of-testing' "$(short_role head-of-testing)"
 
-  # The roster: file order, retired left out, assistants last.
+  # The roster: grouped by role in the fixed order, file order within a role, retired left out, assistants
+  # last. The fixture is strength's shape: a tester appended after the reviewer and the process lead.
+  printf '%s' '{"agents":[{"name":"Carl","role":"delivery-lead","status":"active"},
+    {"name":"Ed","role":"developer","status":"active"},{"name":"Tom","role":"tester","status":"active"},
+    {"name":"Vera","role":"head-of-testing","status":"active"},{"name":"Old","role":"developer","status":"retired"},
+    {"name":"Stef","role":"code-reviewer","status":"active"},{"name":"Ro","role":"process-improvement","status":"active"},
+    {"name":"Ben","role":"tester","status":"active"},{"name":"Zed","role":"some-new-role","status":"active"},
+    {"name":"Sup","role":"production-support","status":"active"},{"name":"Ivy","role":"developer","status":"active"}],
+    "assistants":[{"name":"Ada"}]}' > "$T/roster-grouped.json"
+  t $'Carl\tdelivery-lead\tagent\nEd\tdeveloper\tagent\nIvy\tdeveloper\tagent\nTom\ttester\tagent\nBen\ttester\tagent\nVera\thead-of-testing\tagent\nStef\tcode-reviewer\tagent\nRo\tprocess-improvement\tagent\nSup\tproduction-support\tagent\nZed\tsome-new-role\tagent\nAda\tassistant\tassistant' \
+    'roster: grouped lead, developers, testers, head of testing, reviewer, process, support, other; file order within a role; the assistant last' "$(ROSTER="$T/roster-grouped.json" roster)"
+  t support 'short_role: production-support' "$(short_role production-support)"
+  t '' 'roster_grouped: no rows in, none out' "$(printf '' | roster_grouped)"
+  # The frames below read this small roster: Ed, Vera, Ben in file order IS the grouped order (dev, test, tester
+  # is not: Ben the tester groups before Vera), so the frame arms also pin the grouping.
   printf '%s' '{"agents":[{"name":"Ed","email":"ed@example.test","role":"developer","status":"active"},
     {"name":"Vera","email":"vera@example.test","role":"head-of-testing","status":"active"},
     {"name":"Old","email":"old@example.test","role":"developer","status":"retired"},
     {"name":"Ben","email":"ben@example.test","role":"tester","status":"active"}],
     "assistants":[{"name":"Ada"}]}' > "$T/roster.json"
   ROSTER="$T/roster.json"
-  t $'Ed\tdeveloper\tagent\nVera\thead-of-testing\tagent\nBen\ttester\tagent\nAda\tassistant\tassistant' \
-    'roster: active agents in file order, then the assistant' "$(roster)"
+  t $'Ed\tdeveloper\tagent\nBen\ttester\tagent\nVera\thead-of-testing\tagent\nAda\tassistant\tassistant' \
+    'roster: the frame fixture groups Ben the tester before Vera, then the assistant' "$(roster)"
 
   # Readings: a pinned clock on a minute boundary, so the buckets are predictable.
   local NOW=1792156800; AGENTS_DASH_NOW=$NOW; export AGENTS_DASH_NOW
