@@ -103,6 +103,13 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     recorded with the spawn in `~/.local/state/<project>/agent-spawns.tsv` (time, name, role, ticket,
     model, verdict, the owner's words, the budget line), one row per real spawn.
   - tester, whatever the line says: start it. The line is printed for information.
+- **The owner moves the plan** (owner, 2026-10-25). The straight-line plan is the default, not the week's
+  allowance: `bash scripts/agents-budget.sh approve <pct> "<the owner's words>"` makes today's plan at close
+  of day `<pct>` (spending contingency, or taking it back when `<pct>` is below the line), and
+  `adjust <+N|-N> "<words>"` adds or removes N points from now. Both hold for the rest of the week, so the
+  plan at the reset moves by the same amount, and the reset clears them. The `budget` line then says
+  `of 60% planned so far (owner +7.4)`; `adjustments` lists the week's entries. These are the owner's
+  verbs: you ask for the number and the words, you never run them for the owner.
 
   The budget decides only whether to ask; it never decides the model (below). A name no longer free
   is refused: dry-run again. The agent starts in its own tmux session (`tmux attach -t =<project>-<name>`
