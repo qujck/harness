@@ -28,5 +28,5 @@ A path the mod cannot stat is the tool's to answer, and a failure inside the gua
 and logs one line: it exists to save context, never to gate work. Every refusal is one line in the
 session log (`read-guard: …`), so "why did my Read fail" is answered there.
 
-`claude plugin test mods/read-guard` runs its tests; `scripts/check-mods-tests-pass.sh` runs them on
+`claude plugin test claude-code/read-guard` runs its tests; `scripts/check-mods-tests-pass.sh` runs them on
 every PR.

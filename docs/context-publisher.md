@@ -9,7 +9,7 @@ cites context as a reason to stop, defer or narrow.
 
 ## The contract
 
-A status-line command (yours — `scripts/examples/statusline-publish.sh` is an example to adapt, not the
+A status-line command (yours — `team/statusline-publish.sh` is an example to adapt, not the
 file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 (default `~/.local/state/<project>/context/`), replaced atomically every few seconds:
 
@@ -33,10 +33,10 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 | `context.window` | the window the publisher's own gauge is measured against: an `/autocompact` cap when one applies, else the model's `context_window_size` |
 | `tokens.output_total` | output tokens added up across responses: the payload gives only the last response's, so the publisher adds it whenever the (used, output) pair changes, keeping the pair and the total in `.<session_id>.tokens` beside the row |
 
-`bash scripts/agent-context.sh` renders every row, freshest first (`--me` for yours, `--json` raw).
-`bash scripts/agents-dash.sh` draws the team panel from the same rows: per agent its state and how long,
+`bash team/agent-context.sh` renders every row, freshest first (`--me` for yours, `--json` raw).
+`bash team/agents-dash.sh` draws the team panel from the same rows: per agent its state and how long,
 context used against its window, a fifteen-minute token-burn sparkline, model and effort, with the
-account's week on top, marked against the owner's budget (`scripts/agents-budget.sh`). The fields from
+account's week on top, marked against the owner's budget (`team/agents-budget.sh`). The fields from
 `model` down feed the panel; a row without them shows `no reading yet`
 there rather than a guess, and the panel never opens a transcript.
 

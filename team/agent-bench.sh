@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# scripts/agent-bench.sh — stop a developer's or tester's session once its ticket has merged: onto the bench.
+# team/agent-bench.sh — stop a developer's or tester's session once its ticket has merged: onto the bench.
 #
-#   bash scripts/agent-bench.sh <Name> [--dry-run]
-#   bash scripts/agent-bench.sh --self-test
+#   bash team/agent-bench.sh <Name> [--dry-run]
+#   bash team/agent-bench.sh --self-test
 #
 # The delivery lead's way to shrink the team (docs/roles/delivery-lead.md, "The size of the team"); the
-# partner of scripts/agent-spawn.sh. Benching stops the SESSION and nothing else: the roster row, the name,
+# partner of team/agent-spawn.sh. Benching stops the SESSION and nothing else: the roster row, the name,
 # its identity and its worktree all stay, and agent-spawn.sh can start the same agent for its next ticket.
 # It never writes agents/roster.json (retiring a name for good is a different, permanent act).
 #
@@ -28,12 +28,12 @@ set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
-. "$_here/lib/selftest-flag.sh"
+. "$_here/../scripts/lib/selftest-flag.sh"
 # shellcheck source=lib/harness-env.sh
-. "$_here/lib/harness-env.sh"
+. "$_here/../scripts/lib/harness-env.sh"
 export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/roster.sh
-. "$_here/lib/roster.sh"
+. "$_here/../scripts/lib/roster.sh"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 LDB="${LDB:-bash $_here/ledger-db.sh}"   # overridable so the self-test can stand in for the ledger

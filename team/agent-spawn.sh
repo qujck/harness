@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# scripts/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
+# team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   bash scripts/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok "<words>"] [--dry-run]
-#   bash scripts/agent-spawn.sh --self-test
+#   bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok "<words>"] [--dry-run]
+#   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
-# team"). Its partner is scripts/agent-bench.sh, which stops the session once the ticket has merged.
+# team"). Its partner is team/agent-bench.sh, which stops the session once the ticket has merged.
 #
 # THE POOL IS THE ROSTER. A name is free when its row in agents/roster.json is ACTIVE, holds this role, and
-# has no running session (scripts/lib/agent-session.sh: its tmux session, or a live Claude Code record
+# has no running session (team/lib/agent-session.sh: its tmux session, or a live Claude Code record
 # carrying its address). Without --name one free name is picked at random, a dry run included, so start
 # exactly the name a dry run printed with --name. A --name that is not free is refused, and with no name
 # free it refuses and says so: onboard another (agent-onboard.sh) or bench a finished one.
@@ -30,7 +30,7 @@
 #   remote       --remote-control <session>: every spawned session can be reached from claude.ai/code and the
 #                Claude mobile app under its tmux session's name (owner, 2026-10-25)
 #
-# THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints scripts/agents-budget.sh's line:
+# THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints team/agents-budget.sh's line:
 #   developer  `budget  on` → start it and tell the owner in one line. `over`, or no budget / no reading →
 #              ASK THE OWNER FIRST; a real spawn then needs their answer on the line, --owner-ok "<their words>",
 #              and is refused without it. Never a flat refusal: the owner's OK is the way through. The words
@@ -50,12 +50,12 @@ set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
-. "$_here/lib/selftest-flag.sh"
+. "$_here/../scripts/lib/selftest-flag.sh"
 # shellcheck source=lib/harness-env.sh
-. "$_here/lib/harness-env.sh"
+. "$_here/../scripts/lib/harness-env.sh"
 export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/roster.sh
-. "$_here/lib/roster.sh"
+. "$_here/../scripts/lib/roster.sh"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
@@ -87,7 +87,7 @@ spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$
 # The first prompt. $1 name · $2 role · $3 ticket (may be empty)
 spawn_prompt() {
   local n="$1" r="$2" t="${3:-}" p
-  p="You are $n, a $r on this project's agent team, started by scripts/agent-spawn.sh"
+  p="You are $n, a $r on this project's agent team, started by team/agent-spawn.sh"
   [[ -n "$t" ]] && p+=" for ticket $t. That ticket is yours and you hold no other." || p+="."
   p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
   if [[ -z "$t" ]]; then
@@ -376,7 +376,7 @@ else
     else
       printf 'agent-spawn: no active %s is onboarded, so there is nobody to start.\n' "$ROLE" >&2
     fi
-    printf '  Bench one whose ticket has merged (bash scripts/agent-bench.sh <Name>), or onboard another\n' >&2
+    printf '  Bench one whose ticket has merged (bash team/agent-bench.sh <Name>), or onboard another\n' >&2
     printf '  (bash scripts/agent-onboard.sh <Name> %s) and commit the roster.\n' "$ROLE" >&2
     exit 1
   fi
@@ -398,7 +398,7 @@ case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell 
 
 if (( DRY )); then
   printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
-  printf '  start exactly this one with: bash scripts/agent-spawn.sh %s --name %s%s%s%s\n' \
+  printf '  start exactly this one with: bash team/agent-spawn.sh %s --name %s%s%s%s\n' \
     "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   printf '  first prompt: %s\n' "$PROMPT"
   printf '%s\n' "$BUDGET_LINE"
@@ -413,7 +413,7 @@ fi
 if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
-  printf '  their words on the line: bash scripts/agent-spawn.sh developer --name %s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" >&2
+  printf '  their words on the line: bash team/agent-spawn.sh developer --name %s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" >&2
   printf '  (a tester is not budget-gated and starts regardless)\n' >&2
   exit 1
 fi

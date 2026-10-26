@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# scripts/install-units.sh — render scripts/systemd/*.in for THIS project and install them, user scope.
+# ops/install-units.sh — render ops/systemd/*.in for THIS project and install them, user scope.
 # (feat_harness_ops_alerts_are_conditions_with_one_email_on_failing_and_one_on_recovery)
 #
-#   bash scripts/install-units.sh            # render + install + enable the timers (systemctl --user)
-#   bash scripts/install-units.sh --render   # render only, to ./.agent/units/ — nothing installed
-#   bash scripts/install-units.sh --self-test
+#   bash ops/install-units.sh            # render + install + enable the timers (systemctl --user)
+#   bash ops/install-units.sh --render   # render only, to ./.agent/units/ — nothing installed
+#   bash ops/install-units.sh --self-test
 #
 # A template carries @@PROJECT@@ (HARNESS_PROJECT) and @@REPO_ROOT@@; the installed unit is named
 # <project>-<template name>. The OnFailure hook <project>-unit-failure@.service turns any unit's failure
-# into a CONDITION (scripts/ops-alert-unit-failure.sh): one email when it fails, one when the settle
+# into a CONDITION (ops/ops-alert-unit-failure.sh): one email when it fails, one when the settle
 # tick finds it healthy again. ⚠ Edit the template and re-run this; never the installed copy.
 # ⚠ Never check a unit with `systemd-analyze --user verify` on a machine whose user manager is running: it
 # starts a throwaway manager that replaces $XDG_RUNTIME_DIR/systemd/private, and every `systemctl --user`
 # then fails ("Failed to connect to bus") until the user manager restarts. `--render` and a read are enough.
 set -uo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
-. "$HERE/lib/selftest-flag.sh"
-. "$HERE/lib/harness-env.sh"
+. "$HERE/../scripts/lib/selftest-flag.sh"
+. "$HERE/../scripts/lib/harness-env.sh"
 
 # render_unit <template> <project> <repo root> -> the unit text on stdout   (pure)
 render_unit() { sed -e "s|@@PROJECT@@|$2|g" -e "s|@@REPO_ROOT@@|$3|g" "$1"; }
@@ -33,14 +33,14 @@ OnFailure=proj-unit-failure@%n.service
 [Service]
 WorkingDirectory=/r" "$(render_unit "$d/t.service.in" proj /r)"
   _t "the installed name is <project>-<template>" "proj-t.service" "$(installed_name "$d/t.service.in" proj)"
-  _t "the shipped templates leave no placeholder behind" 0 "$(for t in "$ROOT"/scripts/systemd/*.in; do render_unit "$t" proj /r; done | awk '/@@/{n++} END{print n+0}')"
-  _t "every shipped service template names the failure hook (the condition contract)" 0 "$(for t in "$ROOT"/scripts/systemd/*.service.in; do case "$(basename "$t")" in unit-failure@*) continue;; esac; awk '/^OnFailure=@@PROJECT@@-unit-failure@%n.service/{f=1} END{exit f}' "$t" && echo "$t"; done | awk 'END{print NR}')"
+  _t "the shipped templates leave no placeholder behind" 0 "$(for t in "$ROOT"/ops/systemd/*.in; do render_unit "$t" proj /r; done | awk '/@@/{n++} END{print n+0}')"
+  _t "every shipped service template names the failure hook (the condition contract)" 0 "$(for t in "$ROOT"/ops/systemd/*.service.in; do case "$(basename "$t")" in unit-failure@*) continue;; esac; awk '/^OnFailure=@@PROJECT@@-unit-failure@%n.service/{f=1} END{exit f}' "$t" && echo "$t"; done | awk 'END{print NR}')"
   rm -rf "$d"
   (( f == 0 )) && { echo "install-units: self-test ok"; exit 0; } || { echo "install-units: self-test FAILED" >&2; exit 1; }
 fi
 
 out="$ROOT/.agent/units"; mkdir -p "$out"
-for t in "$ROOT"/scripts/systemd/*.in; do
+for t in "$ROOT"/ops/systemd/*.in; do
   [[ -f "$t" ]] || continue
   n="$(installed_name "$t" "$HARNESS_PROJECT")"; render_unit "$t" "$HARNESS_PROJECT" "$ROOT" > "$out/$n"; echo "rendered $out/$n"
 done

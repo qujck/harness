@@ -37,27 +37,18 @@ agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name
 progress/, PROGRESS.md   # FROZEN history: a session entry is a ledger row (scripts/progress.sh new), never a file
 progress/                # session records: one file per session
 .gitattributes           # ⚠ sets NO merge driver, deliberately — see the file
-scripts/
+scripts/                 # THE PROCESS: the harness proper. Every other section depends on it; it depends on none of them
   init.sh                # clock in
   verify.sh              # Definition of Done
   handoff.sh             # clock out gate
   ledger-db.sh           # the ticket verbs: raise · groom · claim · park · amend · flip-passing · archive · release · frontier …
   agent-onboard.sh       # register an agent in the roster and PRINT THE LAUNCH LINE that gives its session an identity
-  agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree, Remote Control on); the budget gates developers only, --owner-ok "<words>" records the owner's yes off budget
-  agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
-  agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
-  lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   full-suite-gate.sh     # is main's hourly full suite red? judges on the newest concluded run, names it; exit 0/1/2
   ui-relevant-specs.sh   # changed paths -> the browser subset (scripts/ui-map.txt), or __ALL__
   ci-stack-project.sh    # the CI compose project, keyed on the RUNNER NAME (never a label two runners can share)
   check-merge-seat-count.sh  # the registry carries MERGE_SEAT_RUNNERS runners with the seat label, as declared
   check-workflow-shape.sh    # ci.yml keeps route -> verify -> land, the gate's 0/1/2 policy beside the call, the hourly's own group
-  lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
-  ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
-  install-units.sh       # render scripts/systemd/*.in for this project and install them, user scope
   agent-stacks.sh        # who is live on this box; --check refuses a stack past AGENT_STACK_LIMIT (names the holders, stops nothing)
-  agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
-  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
   selftest-tiers.txt     # WHERE each self-test runs (verify | stack | nowhere + reason); verify.sh runs the verify tier
   check-selftests-are-invoked.sh   # every self-test is invoked by something or says why not (--list feeds verify.sh)
   check-selftest-flag-contract.sh  # every self-test flag goes through lib/selftest-flag.sh (a typo exits 2)
@@ -72,15 +63,30 @@ scripts/
   lib/harness-env.sh     # reads harness.env; HARNESS_PROJECT names the ledger container/network (sourced)
   _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)
-.claude/
+team/                    # several agents on one box (optional: tmux, a Claude subscription's usage reading, Remote Control)
+  agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree, Remote Control on); the budget gates developers only, --owner-ok "<words>" records the owner's yes off budget
+  agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
+  agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
+  agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
+  agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
+  statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
+  lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
+  lib/week-usage.sh      # the account's week so far, from the published rows (sourced by the budget and the panel)
+ops/                     # alerts and timers on the box that runs the stack (optional: systemd user units, mail)
+  lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
+  lib/ops_alert_machine.py  # the same state machine for Python callers; both run ops/testdata/ops-alert-conditions.json
+  ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
+  ops-alert-unit-failure.sh  # the OnFailure= hook every timer-driven unit names
+  install-units.sh       # render ops/systemd/*.in for this project and install them, user scope
+claude-code/             # Claude Code mods (optional: Claude Code only): one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
+  self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
+  waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt or the team has gone idle; shows nothing in any other session
+  read-guard/              # refuses a repeat Read of an image already in the context, and a whole-file Read of a large text file with no offset/limit
+.claude/                 # Claude Code reads hooks and skills from THIS path, so it stays at the root
   settings.json          # Claude Code hook wiring
   hooks/stop-check.sh        # per-turn lenient handoff warning
   hooks/user-prompt-check.sh # nudge to run init.sh
   skills/configure/SKILL.md  # /configure — fills every placeholder for you (Claude Code)
-mods/                      # Claude Code mods: one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
-  self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
-  waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt or the team has gone idle; shows nothing in any other session
-  read-guard/              # refuses a repeat Read of an image already in the context, and a whole-file Read of a large text file with no offset/limit
 ```
 
 **The three scripts are the harness.** They map onto a session's lifecycle:
@@ -153,14 +159,14 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 - **`.claude/settings.json`** — wires the two hooks into Claude Code.
 - **`.claude/skills/configure/SKILL.md`** — the `/configure` skill: detects your
   stack and fills every placeholder for you (Claude Code only).
-- **`mods/`** — three Claude Code mods, installed per *box* rather than per repo: `self-compact`
-  ([mods/self-compact/README.md](mods/self-compact/README.md)) nudges an agent whose compaction
+- **`claude-code/`** — three Claude Code mods, installed per *box* rather than per repo: `self-compact`
+  ([claude-code/self-compact/README.md](claude-code/self-compact/README.md)) nudges an agent whose compaction
   window is nearly full to reach a stopping point, bring its durable record up to date and ask to
-  be compacted (`bash mods/self-compact/compact-me.sh "<what the summary must keep>"`); auto-compact at
-  the window stays as the backstop. `waiting-agents` ([mods/waiting-agents/README.md](mods/waiting-agents/README.md))
+  be compacted (`bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"`); auto-compact at
+  the window stays as the backstop. `waiting-agents` ([claude-code/waiting-agents/README.md](claude-code/waiting-agents/README.md))
   tells the delivery lead's session when a team agent has sat at a permission prompt for 25 seconds, so
   nobody watches every pane, and nudges it when team agents have been idle for fifteen minutes, so the
-  team stays active. `read-guard` ([mods/read-guard/README.md](mods/read-guard/README.md)) refuses a
+  team stays active. `read-guard` ([claude-code/read-guard/README.md](claude-code/read-guard/README.md)) refuses a
   repeat `Read` of an image already in the context and a whole-file `Read` of a large text file with no
   offset and limit, the two reads that were half of one measured hour's context (2026-10-23). All three
   load in every session the box starts and act only where they belong; none types into a pane.
@@ -191,7 +197,7 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    `env` block of `~/.claude/settings.json` — the user file, not the repo's, because the mods act
    per session on the box rather than per repo — and set the self-compact soft point:
    ```bash
-   # ~/.claude/settings.json → { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/your-repo/mods" } }
+   # ~/.claude/settings.json → { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/your-repo/claude-code" } }
    mkdir -p ~/.config/self-compact && echo '{ "default": 200000, "agents": {} }' > ~/.config/self-compact/compact-after.json
    ```
    `default` is the token count at which an agent is nudged to compact itself (200k against a
@@ -209,11 +215,11 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    its next check at once (seen 2026-10-16 in the delivery lead's session, which had been started
    before the fix existed). Deploying a mod fix is a pull, not a restart.
 
-6. **Put the team panel beside the delivery lead** (optional, tmux). `scripts/agents-dash.sh` draws
+6. **Put the team panel beside the delivery lead** (optional, tmux). `team/agents-dash.sh` draws
    every rostered agent's ticket, state, context used against its window, token burn, model and effort,
    with the account's week on top:
    ```bash
-   tmux split-window -h -l 32 -t <lead's tmux session> "bash /path/to/your-repo/scripts/agents-dash.sh"
+   tmux split-window -h -l 32 -t <lead's tmux session> "bash /path/to/your-repo/team/agents-dash.sh"
    ```
    Run from outside the project checkout it needs `ROSTER_FILE=/path/to/your-repo/agents/roster.json`
    and `CONTEXT_DIR` (where the status line publishes; see step 7) in its environment. The frame fits the
@@ -252,7 +258,7 @@ After step 1 above:
 
 4. **Clock in** (installs the pre-commit hook): `bash scripts/init.sh`.
 
-5. **Restart your agent** so it picks up `.claude/settings.json`. (The `mods/` folder is Claude
+5. **Restart your agent** so it picks up `.claude/settings.json`. (The `claude-code/` folder is Claude
    Code only; another agent ignores it.)
 
 ### Integrate into an existing project
@@ -261,7 +267,7 @@ The paths above assume a fresh adoption. For a repo that already has code, CI,
 docs, and maybe its own agent instructions, adopt **incrementally and
 non-destructively** — merge into what's there, don't overwrite it.
 
-1. **Copy only the non-colliding files first.** `scripts/`, `mods/`, `infra/ledger-db/`, `agents/`, `docs/`,
+1. **Copy only the non-colliding files first.** `scripts/`, `team/`, `ops/`, `claude-code/`, `infra/ledger-db/`, `agents/`, `docs/`,
    `feature_list.archive.jsonl`, `OBSERVABILITY.md`, and `harness.env.example` are
    almost always new. Copy them in. Hold back the four that commonly collide —
    `AGENTS.md`, `CLAUDE.md`, `.gitattributes`, `.gitignore` — and merge them by
@@ -309,7 +315,7 @@ The kit's `.gitignore` already lists these; confirm they're in your repo's:
 .agent/
 harness.env
 .claude/settings.local.json
-mods/*/.claude-plugin/types/
+claude-code/*/.claude-plugin/types/
 ```
 
 ## The loop, once configured

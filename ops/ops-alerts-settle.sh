@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# scripts/ops-alerts-settle.sh — the settle tick: announce recoveries that have held, and sweep
+# ops/ops-alerts-settle.sh — the settle tick: announce recoveries that have held, and sweep
 # unit-failed:<unit> conditions whose unit is active again (a unit that recovered without anyone
 # calling `recovered` would otherwise stay FAILING for ever). Run by @@PROJECT@@-alerts-settle.timer.
 # (feat_harness_ops_alerts_are_conditions_with_one_email_on_failing_and_one_on_recovery)
 #
-#   bash scripts/ops-alerts-settle.sh              # one tick
-#   bash scripts/ops-alerts-settle.sh --self-test
+#   bash ops/ops-alerts-settle.sh              # one tick
+#   bash ops/ops-alerts-settle.sh --self-test
 set -uo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-. "$HERE/lib/selftest-flag.sh"
+. "$HERE/../scripts/lib/selftest-flag.sh"
 . "$HERE/lib/ops-alert.sh"
 
 # unit_healthy_verdict <ActiveState> -> healthy | failed | unknown   (pure)

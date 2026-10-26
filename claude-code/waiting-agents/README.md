@@ -49,7 +49,7 @@ nothing.
 - `hooks/watch.ts` reads the roster and the session files and decides who is due a report; `hooks/nudge.ts`
   decides who is idle and whether a nudge may go; `hooks/register.ts` polls and sends; `hooks/waiting.test.ts`
   and `hooks/nudge.test.ts` hold the tests.
-- `claude plugin validate mods/waiting-agents` and `claude plugin test mods/waiting-agents` check it.
+- `claude plugin validate claude-code/waiting-agents` and `claude plugin test claude-code/waiting-agents` check it.
   `scripts/verify.sh` runs the tests on every PR through `scripts/check-mods-tests-pass.sh`.
   `.claude-plugin/types/`, which `tsconfig.json` extends, is written by Claude Code when it loads the mod
   and is not committed.

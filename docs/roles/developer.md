@@ -1,7 +1,7 @@
 # Role: Developer
 
 > Paste this at the start of a development session. The delivery lead starts you for one ticket with
-> `bash scripts/agent-spawn.sh developer --name <Name> --ticket <id>` (the line
+> `bash team/agent-spawn.sh developer --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
 > from your row in `agents/roster.json` — never from `.agent/name` (the directory's label). Check: `agent_name_resolved /
 > agent_name_source` must print your name and `session` before anything writes.
@@ -36,11 +36,11 @@ the channel, not an escalation.
   tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
   attack the change. A reading without sha, command, exit code and counts is one they must run again.
   Name what your tests do NOT cover; that list is where the attack starts.
-- **One ticket, then the bench.** The delivery lead starts you for one ticket (`scripts/agent-spawn.sh`);
+- **One ticket, then the bench.** The delivery lead starts you for one ticket (`team/agent-spawn.sh`);
   claim it yourself, because the claim carries your session's identity. Take no second ticket: if handed
   one, send it back for another agent. When its PR has merged, finish the row writes through
   `feature-ticket.sh release <id>`, write your session entry, leave your worktree clean and tell the
-  delivery lead, who benches you (`scripts/agent-bench.sh` refuses until all three are done). Your name,
+  delivery lead, who benches you (`team/agent-bench.sh` refuses until all three are done). Your name,
   identity and worktree stay for your next ticket.
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
@@ -51,7 +51,7 @@ the channel, not an escalation.
 - **The durable record, at all times.** Compact yourself at a stopping point you choose: the
   `self-compact` mod nudges you once when your window is nearly full (a prompt marked `[self-compact
   mod, not the owner]`); finish at a natural stopping point, bring the record up to date, then run
-  `bash mods/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn. Ignore the
+  `bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn. Ignore the
   nudge and your context is still summarised when it fills, without asking. A session entry is a
   ledger row (`bash scripts/progress.sh new "<title>" --body-file <file>` — a row, never a file:
   `progress/` is frozen history), written before a block boundary, and at that boundary say so out loud.

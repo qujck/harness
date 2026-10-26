@@ -80,18 +80,18 @@ tester once it is ready to test) and benched when that ticket's PR merges. The f
 
 - **Onboard** (`bash scripts/agent-onboard.sh <Name> <role>`, the roster row committed on `main`) once
   per name. The onboarded developers and testers ARE the pool; there is no other list of names.
-- **Spawn** (`scripts/agent-spawn.sh`) starts an onboarded developer or tester with no running session,
+- **Spawn** (`team/agent-spawn.sh`) starts an onboarded developer or tester with no running session,
   for one ticket.
-- **Bench** (`scripts/agent-bench.sh`) stops its session once that ticket has merged. Its name, identity
+- **Bench** (`team/agent-bench.sh`) stops its session once that ticket has merged. Its name, identity
   and worktree stay, and the next spawn can start it again.
 - **Retire** is permanent, and a retired name is never used again.
 
 Spawn and bench never write `agents/roster.json`; only onboarding and retiring do.
 
 - **Starting one.** For every ticket that is ready to build, and again when it is ready to test, run
-  `bash scripts/agent-spawn.sh developer --ticket <id> --model <model> --dry-run` (or `tester`). It picks
+  `bash team/agent-spawn.sh developer --ticket <id> --model <model> --dry-run` (or `tester`). It picks
   a free name at random and prints the command that starts exactly that one, with
-  `--name <Name>` in place of `--dry-run`, then a `budget` line from `scripts/agents-budget.sh` and what
+  `--name <Name>` in place of `--dry-run`, then a `budget` line from `team/agents-budget.sh` and what
   it means for that role. **The budget gates developers only; testers are not budget-gated** (owner,
   2026-10-25):
   - developer, `budget  on`: run it without asking, then tell the owner in one line, with the budget, e.g.
@@ -104,7 +104,7 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     model, verdict, the owner's words, the budget line), one row per real spawn.
   - tester, whatever the line says: start it. The line is printed for information.
 - **The owner moves the plan** (owner, 2026-10-25). The straight-line plan is the default, not the week's
-  allowance: `HARNESS_PROJECT=<project> bash scripts/agents-budget.sh approve <pct> "<the owner's words>"` makes today's plan at close
+  allowance: `HARNESS_PROJECT=<project> bash team/agents-budget.sh approve <pct> "<the owner's words>"` makes today's plan at close
   of day `<pct>` (spending contingency, or taking it back when `<pct>` is below the line), and
   `adjust <+N|-N> "<words>"` adds or removes N points from now. Both hold for the rest of the week, so the
   plan at the reset moves by the same amount, and the reset clears them. The `budget` line then says
@@ -132,7 +132,7 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 - **Stopping one.** As soon as the ticket's PR has merged (not later), or the ticket is dropped or
   handed to another agent: the developer finishes its row writes, ending with `feature-ticket.sh
   release <id>`, the agent writes its session entry and leaves its worktree clean, and you run
-  `bash scripts/agent-bench.sh <Name>` (`--dry-run` first if in doubt). It refuses while the agent holds
+  `bash team/agent-bench.sh <Name>` (`--dry-run` first if in doubt). It refuses while the agent holds
   a claim, is mid-turn, has uncommitted changes in its worktree, or has written no session entry since
   its session started, and says which. Get that finished; never work round it. A benched agent drops
   off the panel until it is spawned again.
@@ -143,7 +143,7 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 
 An agent runs one turn per prompt and then stops. It does not loop. So "doing nothing" usually means
 a session that finished minutes ago with nobody to tell it to carry on, and the fix cannot be a person
-typing `continue` into panes. The nudger is a duty of the `waiting-agents` mod (`mods/waiting-agents/`),
+typing `continue` into panes. The nudger is a duty of the `waiting-agents` mod (`claude-code/waiting-agents/`),
 running inside YOUR session: every five minutes it reads the rows the context publisher writes
 (docs/context-publisher.md) and, when team agents have been idle for the quiet threshold (15 minutes by
 default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into your
@@ -178,12 +178,12 @@ at once: one message marked `[waiting-agents mod, not the owner]` when a team ag
 25 seconds, and your status bar shows `watching N, M waiting`. Read that agent's pane and answer the
 prompt it is stuck on; the mod never does (it types into nothing).
 
-**The panel.** `bash scripts/agents-dash.sh` in a 32-column pane beside your session (`tmux split-window
--h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`) shows every agent in the roster's
+**The panel.** `bash team/agents-dash.sh` in a 32-column pane beside your session (`tmux split-window
+-h -l 32 -t <session> "bash /path/to/harness/team/agents-dash.sh"`) shows every agent in the roster's
 order (developers and testers on the bench left out), each name in its role's colour with the ticket it
 holds: whether it is working, waiting, in a shell command or idle and for how long, context used against
 its own window, a fifteen-minute token-burn sparkline on a scale shared by every row, and its model and
-reasoning effort, with the account's week on top, marked against the budget (`scripts/agents-budget.sh`). The context gauge turns amber at 60% and
+reasoning effort, with the account's week on top, marked against the budget (`team/agents-budget.sh`). The context gauge turns amber at 60% and
 red at 85%; a row flags itself after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
 records, never a transcript, and types into nothing.
 

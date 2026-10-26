@@ -795,7 +795,7 @@ sync_all() { # [--worktree]
   # branch read ZERO tickets and exited 1 — an OnFailure email every ten minutes for as long as the
   # timer stayed on. Neither was a decision. This is one, and it is the same predicate the gates use.
   # `missing` (no files, no marker) is the broken-read case and keeps the broken-read exit.
-  # The unit itself belongs in scripts/systemd/deliberately-off from the deletion commit on; a
+  # The unit itself belongs in ops/systemd/deliberately-off from the deletion commit on; a
   # `git revert` of the deletion restores the files and this arm returns to mirroring by itself.
   # (infra_the_ledger_sync_janitor_decides_on_its_store_before_it_reads)
   . "$(dirname -- "${BASH_SOURCE[0]}")/lib/ticket-files.sh"
@@ -803,7 +803,7 @@ sync_all() { # [--worktree]
   if [[ "$mode" == main ]]; then _store="$(ticket_files_state --ref "$from")"; else _store="$(ticket_files_state)"; fi
   case "$(_sync_store_verdict "$_store")" in
     retired)
-      echo "ledger-db sync: NOT MIRRORED — the ticket files are RETIRED at ${from:-the working tree} ($TICKET_FILES_RETIRED_MARKER is in the tree, features/ is not). The row is the source; there is nothing to mirror and nothing was written. strength-ledger-sync.timer belongs OFF (scripts/systemd/deliberately-off); rollback = git revert the deletion commit, then re-enable it." >&2
+      echo "ledger-db sync: NOT MIRRORED — the ticket files are RETIRED at ${from:-the working tree} ($TICKET_FILES_RETIRED_MARKER is in the tree, features/ is not). The row is the source; there is nothing to mirror and nothing was written. strength-ledger-sync.timer belongs OFF (ops/systemd/deliberately-off); rollback = git revert the deletion commit, then re-enable it." >&2
       return 0 ;;
     anomaly)
       echo "ledger-db sync: NOT MIRRORED — ${from:-the working tree} carries BOTH $TICKET_FILES_RETIRED_MARKER and features/. The two stores disagree, so the corpus to mirror is undefined: mirroring a stray file would overwrite rows from a directory that should not exist, and skipping a restored corpus would silently stop the sync. Resolve it first — finish the rollback (remove the marker; git revert of the deletion commit does both) or remove the stray files. Nothing was written." >&2

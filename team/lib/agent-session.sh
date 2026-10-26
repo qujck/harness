@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# scripts/lib/agent-session.sh — is a rostered agent's session running, and in what state.
-# Sourced by scripts/agent-spawn.sh and scripts/agent-bench.sh; it parses no arguments, and its arms
+# team/lib/agent-session.sh — is a rostered agent's session running, and in what state.
+# Sourced by team/agent-spawn.sh and team/agent-bench.sh; it parses no arguments, and its arms
 # run inside those two scripts' self-tests.
 #
 # A session is RUNNING when either holds:

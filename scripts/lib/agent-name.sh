@@ -415,7 +415,7 @@ agent_name_conflict_kind() {
 # ⚠ STILL NOT A STALENESS HEURISTIC (see agent_name_conflict_kind). The age of a marker is never
 # read. The question is whether the session it names is RUNNING, asked of Claude Code's own
 # per-process registry, ~/.claude/sessions/<pid>.json: {pid, sessionId, procStart, …}, written at
-# (scripts/lib/agent-session.sh reads the same files to ask WHICH agent a record belongs to; this asks
+# (team/lib/agent-session.sh reads the same files to ask WHICH agent a record belongs to; this asks
 # only whether ONE session id is still running, and trusts nothing it cannot verify against /proc.)
 # start and removed at exit. A session is live iff an entry names it AND that pid is a `claude`
 # whose kernel start time (/proc/<pid>/stat field 22) equals procStart, so a recycled pid or a file

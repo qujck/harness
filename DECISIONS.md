@@ -372,3 +372,27 @@ process's CPU and memory:
 
 **Not ported:** the seeded project's `/color` at spawn (the spawn's one positional prompt is the agent's
 first prompt) and its waiting pulse.
+
+## 2026-10-26 — The repo is laid out in sections: one home per kind of thing
+
+**Decision.** The harness held four kinds of thing in one `scripts/` tree, and an adopter could not tell which were
+the process and which were one way of running it. They now sit apart, and dependencies point one way:
+
+- `scripts/` is **the process**: init, verify, handoff, the ledger and its verbs, identity and the roster, the
+  gates, the CI helpers, `lib/`. It depends on no other section. `agents/roster.json`, `infra/ledger-db/` and
+  `docs/` stay where they were: identity and the ticket store are process.
+- `team/` is **several agents on one box**: spawn, bench, budget, the panel, the context screen, the status-line
+  publisher and their two libraries. Optional; needs tmux and a usage reading.
+- `ops/` is **alerts and timers**: the condition library in both languages, the queue, the settle tick, the unit
+  failure hook, the unit templates and their installer. Optional.
+- `claude-code/` is **the Claude Code mods**. Optional; Claude Code only. The hooks and the `/configure` skill stay
+  under `.claude/`, because Claude Code reads them from that path.
+
+Each section has a README saying what it is, what it needs and that it can be left out. Moved scripts source the
+shared libraries from `scripts/lib/`; their own libraries sit beside them. `check-selftest-flag-contract.sh` scans
+`team/` and `ops/` as well as `scripts/`; `check-mods-tests-pass.sh` reads `claude-code/`.
+
+**What did not move, and why.** `scripts/` keeps its name: `scripts/` is written in over a hundred files, this log
+among them, and the name says nothing wrong. `agent-stacks.sh` stays in the process: `init.sh` refuses to start a
+stack past the cap, so the cap is part of clocking in. This entry records the moves only; content is unchanged, so
+the diff reads as renames.

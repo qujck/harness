@@ -127,7 +127,7 @@ bash scripts/check-no-new-progress-files.sh || fail "a session-entry FILE was ad
 step "[0/3] Harness — scripts/check-context-is-never-a-reason-to-do-less.sh"
 bash scripts/check-context-is-never-a-reason-to-do-less.sh || fail "a document cites context as a reason to do less"
 step "[0/3] Harness — scripts/check-mods-tests-pass.sh"
-# every mod under mods/ passes `claude plugin test`; exit 2 (no claude CLI with mods present) is CANNOT LOOK and fails here too
+# every mod under claude-code/ passes `claude plugin test`; exit 2 (no claude CLI with mods present) is CANNOT LOOK and fails here too
 bash scripts/check-mods-tests-pass.sh || fail "a mod's tests failed, or could not be run (run: bash scripts/check-mods-tests-pass.sh)"
 step "[0/3] Harness — scripts/check-workflow-shape.sh"
 bash scripts/check-workflow-shape.sh || fail "the workflow no longer has the shape its header promises"

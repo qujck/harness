@@ -25,7 +25,7 @@ Description=@@PROJECT@@ — alert that %i failed (a CONDITION: one email on fail
 Type=oneshot
 WorkingDirectory=@@REPO_ROOT@@
 Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/env bash @@REPO_ROOT@@/scripts/ops-alert-unit-failure.sh %i
+ExecStart=/usr/bin/env bash @@REPO_ROOT@@/ops/ops-alert-unit-failure.sh %i
 # Sending one email is seconds. Past a minute the mail path is the problem, and the alert about
 # a stuck unit must not itself get stuck.
 TimeoutStartSec=60

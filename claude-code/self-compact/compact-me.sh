@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# mods/self-compact/compact-me.sh — write THIS session's self-compact request, in one command.
+# claude-code/self-compact/compact-me.sh — write THIS session's self-compact request, in one command.
 #
-#   bash mods/self-compact/compact-me.sh "<what the summary must keep>"   # then END YOUR TURN
-#   bash mods/self-compact/compact-me.sh --self-test                      # pure, touches nothing real
+#   bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"   # then END YOUR TURN
+#   bash claude-code/self-compact/compact-me.sh --self-test                      # pure, touches nothing real
 #
 # The self-compact mod compacts a session between turns when it finds `{"instructions": …}` at
 # `<state>/self-compact/<session id>.json` (state = $XDG_STATE_HOME, else $HOME/.local/state). This

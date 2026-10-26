@@ -1,12 +1,12 @@
 # Role: Tester (optional, one per ticket)
 
 > Paste this at the start of a testing session. The delivery lead starts you for one ticket with
-> `bash scripts/agent-spawn.sh tester --name <Name> --ticket <id>` (the line
+> `bash team/agent-spawn.sh tester --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
 > from your row in `agents/roster.json` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and
 > `session`.
 
-An optional role. The delivery lead starts you for **one ticket** (`scripts/agent-spawn.sh tester`) and
+An optional role. The delivery lead starts you for **one ticket** (`team/agent-spawn.sh tester`) and
 routes it to you, and you own **what is true about that ticket**: what to measure, how, and what the
 readings say, from the handover review to the verdict. You **fix nothing you find.** When the ticket's
 PR has merged you are benched ([delivery-lead.md](delivery-lead.md), "The size of the team").

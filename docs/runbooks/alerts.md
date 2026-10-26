@@ -4,8 +4,8 @@
 
 **The contract.** An alert is a **condition** with a **key** (`unit-failed:<unit>`, `main-red`,
 `box-memory-pressure` — the condition, never the instance). A sender reports a reading:
-`ops_alert_condition <key> failing|recovered <subject> <body>` (`scripts/lib/ops-alert.sh`). The
-state machine (`scripts/lib/ops_alert_machine.py`) turns readings into at most these emails:
+`ops_alert_condition <key> failing|recovered <subject> <body>` (`ops/lib/ops-alert.sh`). The
+state machine (`ops/lib/ops_alert_machine.py`) turns readings into at most these emails:
 
 | when | email |
 |---|---|
@@ -14,7 +14,7 @@ state machine (`scripts/lib/ops_alert_machine.py`) turns readings into at most t
 | the 5th transition inside an hour | `[FLAPPING] <key>` — once, then silence while it flaps; `[RECOVERED]` only once the last recovery has held the flap window (60 min) |
 
 A send that fails does **not** advance the state: the next reading sends what was never delivered.
-The shared vectors (`scripts/testdata/ops-alert-conditions.json`, 12 scenarios) are run by both the
+The shared vectors (`ops/testdata/ops-alert-conditions.json`, 12 scenarios) are run by both the
 machine's and the library's self-tests, so neither can drift.
 
 **One state location, resolved by the library.** `ops_alert_state_dir` is `OPS_ALERT_STATE_DIR`,
@@ -30,11 +30,11 @@ the repo), or `post` (`ALERT_POST_URL`, JSON `{subject, body, host}`). `OPS_ALER
 instead of sending — for a self-test or a by-hand drive, never set on a unit.
 
 **The queue.** Every alert is also written to `<state dir>/ops-alerts.jsonl`; `bash
-scripts/ops-alerts.sh` lists what nobody has acted on, `--ack <seq>` marks them; `init.sh` prints
+ops/ops-alerts.sh` lists what nobody has acted on, `--ack <seq>` marks them; `init.sh` prints
 the queue at session start.
 
-**Units.** `scripts/systemd/*.in` are templates (`@@PROJECT@@`, `@@REPO_ROOT@@`);
-`bash scripts/install-units.sh` renders them as `<project>-<name>` and installs them in user scope:
+**Units.** `ops/systemd/*.in` are templates (`@@PROJECT@@`, `@@REPO_ROOT@@`);
+`bash ops/install-units.sh` renders them as `<project>-<name>` and installs them in user scope:
 - `<project>-unit-failure@.service` — the OnFailure hook: any unit that names
   `OnFailure=<project>-unit-failure@%n.service` reports `unit-failed:<unit>` failing, with the
   journal tail and the unit's current state in the body.
