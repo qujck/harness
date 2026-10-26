@@ -85,8 +85,8 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
 const START = { cwd: '/home/me/dev', surface: 'terminal', isInteractive: true } as const
 // A delivery lead's checkout as AGENTS.md rule 0 makes it: a linked worktree named after the agent,
 // whose `.git` is a file pointing into the main checkout.
-const WORKTREE = '/home/me/dev/strength-lead'
-const GIT_FILE = 'gitdir: /home/me/dev/strength/.git/worktrees/strength-lead\n'
+const WORKTREE = '/home/me/dev/acme-lead'
+const GIT_FILE = 'gitdir: /home/me/dev/acme/.git/worktrees/acme-lead\n'
 const world = (): World => ({
   leadSid: 'lead-sid',
   leadStatus: 'idle',
@@ -199,8 +199,8 @@ test('a lead in a linked worktree reads the rows of the main checkout, not of a 
   const w = world()
   w.root = WORKTREE
   w.gitFile = GIT_FILE
-  w.context = '/home/me/.local/state/strength/context'
-  w.log = '/home/me/.local/state/strength/lead-nudge.log'
+  w.context = '/home/me/.local/state/acme/context'
+  w.log = '/home/me/.local/state/acme/lead-nudge.log'
   stage(on, w, clock, sent, log)
   await $.session.start({ ...START, cwd: WORKTREE })
 
@@ -209,12 +209,12 @@ test('a lead in a linked worktree reads the rows of the main checkout, not of a 
   expect(sent[0]).toContain('Dev, developer idle 16m')
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
 
-  expect(mainCheckoutOf(GIT_FILE)).toBe('/home/me/dev/strength')
+  expect(mainCheckoutOf(GIT_FILE)).toBe('/home/me/dev/acme')
   expect(mainCheckoutOf(undefined)).toBe(undefined)
-  expect(mainCheckoutOf('gitdir: /home/me/dev/strength/.git')).toBe(undefined)
-  expect(statePaths('/home/me', WORKTREE, {}, undefined, GIT_FILE).contextDir).toBe('/home/me/.local/state/strength/context')
+  expect(mainCheckoutOf('gitdir: /home/me/dev/acme/.git')).toBe(undefined)
+  expect(statePaths('/home/me', WORKTREE, {}, undefined, GIT_FILE).contextDir).toBe('/home/me/.local/state/acme/context')
   expect(statePaths('/home/me', WORKTREE, {}, 'HARNESS_PROJECT=forge\n', GIT_FILE).contextDir).toBe('/home/me/.local/state/forge/context')
-  expect(statePaths('/home/me', WORKTREE, {}, undefined, undefined).contextDir).toBe('/home/me/.local/state/strength-lead/context')
+  expect(statePaths('/home/me', WORKTREE, {}, undefined, undefined).contextDir).toBe('/home/me/.local/state/acme-lead/context')
 })
 
 test('a missing context directory is shown in the status line and logged, never a silent hold', async ($, on) => {
@@ -247,9 +247,9 @@ test('harness.env names the project, the context directory and the threshold, as
   const sent: string[] = []
   const log: string[] = []
   const w = world()
-  w.envFile = '# settings\nHARNESS_PROJECT=strength   # the ledger name\nLEAD_NUDGE_THRESHOLD_S="600"\n'
-  w.context = '/home/me/.local/state/strength/context'
-  w.log = '/home/me/.local/state/strength/lead-nudge.log'
+  w.envFile = '# settings\nHARNESS_PROJECT=acme   # the ledger name\nLEAD_NUDGE_THRESHOLD_S="600"\n'
+  w.context = '/home/me/.local/state/acme/context'
+  w.log = '/home/me/.local/state/acme/lead-nudge.log'
   w.agents.Dev = { activity: 'idle', idleAtT0: 700 }
   stage(on, w, clock, sent, log)
   await $.session.start(START)

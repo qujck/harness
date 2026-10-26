@@ -35,8 +35,8 @@
 # owner's words (no blank, no `<placeholder>`), and the budget line shows the sum: "of 60% planned so far
 # (owner +7.4)". The panel's mark and agent-spawn.sh read that line as before.
 #
-# A verb that WRITES needs HARNESS_PROJECT (owner, 2026-10-25, after Alfred found the trap): the file is per
-# project, and an entry written under the default "harness" is never read by strength's spawn gate or panel,
+# A verb that WRITES needs HARNESS_PROJECT (owner, 2026-10-25, after the trap was found): the file is per
+# project, and an entry written under the default "harness" is never read by the project's spawn gate or panel,
 # so the owner's adjustment would silently do nothing. Cannot tell which project: refuses, exit 2, nothing
 # written. HARNESS_PROJECT must be in the environment: the name lib/harness-env.sh derives from the repo
 # directory does not count, since the owner runs this from the harness checkout, where it says "harness". The

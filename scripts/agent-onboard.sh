@@ -14,7 +14,7 @@
 # delivery lead's `agent-spawn.sh` command, every other role a `cd` into its own sibling tree
 # `<project>-<name>` with the row's address. It refuses (rc 1, no line) a retired name, an empty address
 # and a missing tree, and for a missing tree prints the `git worktree add` that makes it.
-# (backported from strength, 2026-10-25)
+# (backported from acme, 2026-10-25)
 #
 # ── ⚠ THE PRINTED LINE IS THE DELIVERABLE, NOT A CONVENIENCE ────────────────────────────────────
 #
@@ -89,37 +89,37 @@ if selftest_is_flag "${1:-}"; then
   # Driven through `--launch-line` on a FIXTURE roster and a fixture parent directory, never the real
   # ones: the real roster has every address equal to the derived one, so it cannot tell a line that
   # reads the row from one that derives the address, and a missing-tree arm on the real parent would
-  # be one bug away from creating a tree beside the real checkout. The fixture project is `strength`.
+  # be one bug away from creating a tree beside the real checkout. The fixture project is `acme`.
   _T="$(mktemp -d)" && [[ -d "$_T" ]] || { echo "FATAL: agent-onboard self-test cannot make a scratch dir" >&2; exit 2; }
   trap 'rm -rf "$_T"' EXIT
   _g() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@"; }
-  _g init -q "$_T/strength" && _g -C "$_T/strength" commit -q --allow-empty -m seed \
-    && _g -C "$_T/strength" update-ref refs/remotes/origin/main HEAD \
-    && _g -C "$_T/strength" worktree add -q --detach "$_T/strength-vera" origin/main \
-    && _g -C "$_T/strength" worktree add -q --detach "$_T/strength-lea" origin/main \
+  _g init -q "$_T/acme" && _g -C "$_T/acme" commit -q --allow-empty -m seed \
+    && _g -C "$_T/acme" update-ref refs/remotes/origin/main HEAD \
+    && _g -C "$_T/acme" worktree add -q --detach "$_T/acme-vera" origin/main \
+    && _g -C "$_T/acme" worktree add -q --detach "$_T/acme-lea" origin/main \
     || { echo "FATAL: agent-onboard self-test cannot build its fixture repository" >&2; exit 2; }
-  printf 'not a tree\n' > "$_T/strength-pat"
-  mkdir "$_T/strength-hal" && _g init -q "$_T/strength-ivy" \
+  printf 'not a tree\n' > "$_T/acme-pat"
+  mkdir "$_T/acme-hal" && _g init -q "$_T/acme-ivy" \
     || { echo "FATAL: agent-onboard self-test cannot build its fixture directories" >&2; exit 2; }
   # Vera and Tommy carry addresses that are NOT the derived form, so a derived address is visible.
   cat > "$_T/roster.json" <<'EOF_ROSTER'
 {"agents":[
- {"name":"Cara","email":"cara@weaversite.co.uk","role":"developer","status":"active"},
+ {"name":"Cara","email":"cara@example.test","role":"developer","status":"active"},
  {"name":"Tommy","email":"t.qa@example.test","role":"tester","status":"active"},
  {"name":"Vera","email":"vera.qa@example.test","role":"head-of-testing","status":"active"},
- {"name":"Lea","email":"lea@weaversite.co.uk","role":"delivery-lead","status":"active"},
+ {"name":"Lea","email":"lea@example.test","role":"delivery-lead","status":"active"},
  {"name":"Zed","email":"","role":"delivery-lead","status":"active"},
- {"name":"Quinn","email":"quinn@weaversite.co.uk","role":"code-reviewer","status":"active"},
- {"name":"Pat","email":"pat@weaversite.co.uk","role":"process-improvement","status":"active"},
- {"name":"Hal","email":"hal@weaversite.co.uk","role":"code-reviewer","status":"active"},
- {"name":"Ivy","email":"ivy@weaversite.co.uk","role":"delivery-lead","status":"active"},
- {"name":"Arnold","email":"arnold@weaversite.co.uk","role":"developer","status":"retired"},
- {"name":"Rhea","email":"rhea@weaversite.co.uk","role":"head-of-testing","status":"retired"}]}
+ {"name":"Quinn","email":"quinn@example.test","role":"code-reviewer","status":"active"},
+ {"name":"Pat","email":"pat@example.test","role":"process-improvement","status":"active"},
+ {"name":"Hal","email":"hal@example.test","role":"code-reviewer","status":"active"},
+ {"name":"Ivy","email":"ivy@example.test","role":"delivery-lead","status":"active"},
+ {"name":"Arnold","email":"arnold@example.test","role":"developer","status":"retired"},
+ {"name":"Rhea","email":"rhea@example.test","role":"head-of-testing","status":"retired"}]}
 EOF_ROSTER
   # ROSTER_DOMAIN is pinned: the fixture rows carry the seeded project's addresses, and a worktree's basename would otherwise name the domain.
-  _ll() { ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" --launch-line "$1" 2>"$_T/err"; }
+  _ll() { ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" --launch-line "$1" 2>"$_T/err"; }
   _ll1() { local o; o="$(_ll "$1")"; printf '%s' "${o%%$'\n'*}"; }
-  _snap() { find "$_T" -maxdepth 1 ! -name err -printf '%f %y\n' | sort; _g -C "$_T/strength" worktree list --porcelain; }
+  _snap() { find "$_T" -maxdepth 1 ! -name err -printf '%f %y\n' | sort; _g -C "$_T/acme" worktree list --porcelain; }
   _t "the fixture reads Vera's row address" "$(ROSTER_FILE="$_T/roster.json" roster_lookup_email Vera)" vera.qa@example.test
 
   _t "a developer is spawned by the delivery lead" "$(_ll Cara; echo "rc=$?")" \
@@ -129,8 +129,8 @@ EOF_ROSTER
   _t "the name is spelt as the row spells it" "$(_ll tommy) $(_ll TOMMY)" \
      'bash team/agent-spawn.sh tester --name Tommy --ticket <ticket-id> bash team/agent-spawn.sh tester --name Tommy --ticket <ticket-id>'
   _t "a head of testing starts in her own tree with the ROW's address" "$(_ll Vera; echo "rc=$?")" \
-     "$(printf 'cd %q && \\\n  GIT_AUTHOR_NAME="Vera" GIT_AUTHOR_EMAIL="vera.qa@example.test" \\\n  GIT_COMMITTER_NAME="Vera" GIT_COMMITTER_EMAIL="vera.qa@example.test" \\\n  claude\nrc=0' "$_T/strength-vera")"
-  _t "the delivery lead is a sibling-tree role too" "$(_ll1 Lea)" "$(printf 'cd %q && \\' "$_T/strength-lea")"
+     "$(printf 'cd %q && \\\n  GIT_AUTHOR_NAME="Vera" GIT_AUTHOR_EMAIL="vera.qa@example.test" \\\n  GIT_COMMITTER_NAME="Vera" GIT_COMMITTER_EMAIL="vera.qa@example.test" \\\n  claude\nrc=0' "$_T/acme-vera")"
+  _t "the delivery lead is a sibling-tree role too" "$(_ll1 Lea)" "$(printf 'cd %q && \\' "$_T/acme-lea")"
   _all="$(for _n in Cara Tommy Vera Lea; do _ll "$_n"; done)"
   _t "no line places the session with --worktree" "$(printf '%s' "$_all" | /usr/bin/grep -c -- '--work''tree')" 0
   _t "no line starts it in tmux" "$(printf '%s' "$_all" | /usr/bin/grep -c -- '--tm''ux')" 0
@@ -148,29 +148,29 @@ EOF_ROSTER
   _t "a missing tree is refused" "$(_ll Quinn; echo "rc=$?")" rc=1
   _t "…printing exactly one command, the worktree add of the shared checkout's sibling" \
      "$(/usr/bin/grep -c '^git ' "$_T/err") $(/usr/bin/grep '^git ' "$_T/err")" \
-     "1 $(printf 'git -C %q worktree add --detach %q origin/main' "$_T/strength" "$_T/strength-quinn")"
+     "1 $(printf 'git -C %q worktree add --detach %q origin/main' "$_T/acme" "$_T/acme-quinn")"
   _t "…and creating nothing" "$(_snap)" "$_before"
   _t "a FILE where the tree should be is a missing tree" "$(_ll Pat; echo "rc=$?")" rc=1
-  _t "…and the file is left alone" "$(cat "$_T/strength-pat")" 'not a tree'
+  _t "…and the file is left alone" "$(cat "$_T/acme-pat")" 'not a tree'
   _t "a plain directory where the tree should be is a missing tree" "$(_ll Hal; echo "rc=$?")" rc=1
-  _t "…and it is left empty" "$(ls -A "$_T/strength-hal")" ''
+  _t "…and it is left empty" "$(ls -A "$_T/acme-hal")" ''
   _t "another repository where the tree should be is a missing tree" "$(_ll Ivy; echo "rc=$?")" rc=1
   _t "…and it is not made a worktree of the shared checkout" \
-     "$(_g -C "$_T/strength" worktree list --porcelain | /usr/bin/grep -c 'strength-ivy$')" 0
+     "$(_g -C "$_T/acme" worktree list --porcelain | /usr/bin/grep -c 'acme-ivy$')" 0
   # The printed command is the remedy: run it (in the fixture), and the line follows.
   _ll Quinn >/dev/null; env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE bash -c "$(/usr/bin/grep '^git ' "$_T/err")" >/dev/null 2>&1
-  _t "the printed worktree add makes the tree, and the line then prints" "$(_ll1 Quinn)" "$(printf 'cd %q && \\' "$_T/strength-quinn")"
+  _t "the printed worktree add makes the tree, and the line then prints" "$(_ll1 Quinn)" "$(printf 'cd %q && \\' "$_T/acme-quinn")"
 
   # A row onboarding has just written: roster_add writes the derived address, and the line reads it back.
   cp "$_T/roster.json" "$_T/onboard.json"
-  ROSTER_FILE="$_T/onboard.json" ROSTER_DOMAIN=weaversite.co.uk roster_add Wren code-reviewer 2026-10-24 test >/dev/null 2>&1
-  _g -C "$_T/strength" worktree add -q --detach "$_T/strength-wren" origin/main >/dev/null 2>&1
-  _t "a freshly onboarded row prints its line" "$(ROSTER_FILE="$_T/onboard.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" --launch-line Wren 2>&1 | /usr/bin/grep -c 'GIT_AUTHOR_EMAIL="wren@weaver''site.co.uk"')" 1
+  ROSTER_FILE="$_T/onboard.json" ROSTER_DOMAIN=example.test roster_add Wren code-reviewer 2026-10-24 test >/dev/null 2>&1
+  _g -C "$_T/acme" worktree add -q --detach "$_T/acme-wren" origin/main >/dev/null 2>&1
+  _t "a freshly onboarded row prints its line" "$(ROSTER_FILE="$_T/onboard.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" --launch-line Wren 2>&1 | /usr/bin/grep -c 'GIT_AUTHOR_EMAIL="wren@example.test"')" 1
   # --dry-run has no row yet: the line comes from the facts roster_add WILL write, and says so.
-  _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" Wren2 developer --dry-run 2>&1)"
+  _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" Wren2 developer --dry-run 2>&1)"
   _t "a dry run prints the spawn line for a developer" "$(printf '%s' "$_out" | /usr/bin/grep -cxF 'bash team/agent-spawn.sh developer --name Wren2 --ticket <ticket-id>')" 1
-  _t "…and names the address it will write" "$(printf '%s' "$_out" | /usr/bin/grep -c 'wren2@weaversite.co.uk')" 1
-  _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" Wren3 code-reviewer --dry-run 2>&1)"
+  _t "…and names the address it will write" "$(printf '%s' "$_out" | /usr/bin/grep -c 'wren2@example.test')" 1
+  _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" Wren3 code-reviewer --dry-run 2>&1)"
   _t "a dry run for a role with no tree yet prints the worktree add, not a line" \
      "$(printf '%s' "$_out" | /usr/bin/grep -c 'worktree add --detach') $(printf '%s' "$_out" | /usr/bin/grep -c 'GIT_AUTHOR')" '1 0'
 

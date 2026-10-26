@@ -41,8 +41,8 @@
 # front-end containers. Everything else on this box is correctly excluded by the same rule, not by a
 # hand-maintained deny-list:
 #   * plex / caddy / portainer / download / cloudflared — unrelated projects, different compose files
-#   * iron-forge-monitoring, iron-forge-logs           — docker-compose.monitoring.yml / .logs.yml
-#   * iron-forge-test-local                            — docker-compose.test-local.yml
+#   * acme-forge-monitoring, acme-forge-logs           — docker-compose.monitoring.yml / .logs.yml
+#   * acme-forge-test-local                            — docker-compose.test-local.yml
 #   * ephemeral e2e (scripts/e2e-ephemeral.sh)         — pins base+e2e and says "NO dev override"
 # Counting containers instead would refuse the first agent of the day, since the box idles with ~20
 # containers that belong to nobody's agent.
@@ -80,50 +80,50 @@ esac
 
 selftest_reject_typo "${1:-}"
 if selftest_is_flag "${1:-}"; then
-  # the fixtures below are the seeded project's real `docker compose ls` shapes; their names are DATA,
+  # the fixtures below are real `docker compose ls` shapes with the names changed; the names are DATA,
   # so the self-test pins the config they were recorded under (the live defaults come from harness.env)
-  CI_STACK_PROJECT=strength_ci; INFRA_STACK_PROJECTS='iron-forge-test-local'; TEST_STACK_PROJECT=iron-forge-test-local
+  CI_STACK_PROJECT=acme_ci; INFRA_STACK_PROJECTS='acme-forge-test-local'; TEST_STACK_PROJECT=acme-forge-test-local
   fails=0
   eq() { # eq <what> <expected> <got>
     if [[ "$3" != "$2" ]]; then printf 'selftest FAIL [%s]: expected %q, got %q\n' "$1" "$2" "$3" >&2; fails=1; fi
   }
 
-  # A faithful sample of this box: four agent stacks plus everything else that actually runs here.
+  # A faithful sample of one box, names changed: four agent stacks plus everything else that ran there.
   SAMPLE='[
-    {"Name":"caddy","Status":"running(1)","ConfigFiles":"/home/peter/dev/download/caddy/docker-compose.yml"},
-    {"Name":"iron-forge-logs","Status":"running(1)","ConfigFiles":"/home/peter/dev/strength-nadia/monitoring/docker-compose.logs.yml"},
-    {"Name":"iron-forge-monitoring","Status":"running(3)","ConfigFiles":"/home/peter/dev/strength/monitoring/docker-compose.monitoring.yml"},
-    {"Name":"iron-forge-test-local","Status":"running(5)","ConfigFiles":"/home/peter/dev/strength-autodeploy/docker-compose.test-local.yml,/home/peter/dev/strength-nadia/docker-compose.test-local.yml"},
-    {"Name":"plex","Status":"running(1)","ConfigFiles":"/home/peter/dev/download/plex/docker-compose.yml"},
-    {"Name":"strength_ci","Status":"running(9)","ConfigFiles":"/var/lib/ironforge/actions-runner/_work/strength/strength/docker-compose.yml,/var/lib/ironforge/actions-runner/_work/strength/strength/docker-compose.override.yml,/var/lib/ironforge/actions-runner/_work/strength/strength/docker-compose.ci.yml"},
-    {"Name":"strength_e2e_20260802_021455_31337","Status":"running(4)","ConfigFiles":"/home/peter/dev/strength-hugo/docker-compose.yml,/home/peter/dev/strength-hugo/docker-compose.e2e.yml"},
-    {"Name":"strength_strength-hugo","Status":"running(9)","ConfigFiles":"/home/peter/dev/strength-hugo/docker-compose.yml,/home/peter/dev/strength-hugo/docker-compose.override.yml"},
-    {"Name":"strength_strength-nadia","Status":"running(9)","ConfigFiles":"/home/peter/dev/strength-nadia/docker-compose.yml,/home/peter/dev/strength-nadia/docker-compose.override.yml"},
-    {"Name":"strength_strength-nell","Status":"running(9)","ConfigFiles":"/home/peter/dev/strength-nell/docker-compose.yml,/home/peter/dev/strength-nell/docker-compose.override.yml"},
-    {"Name":"strength_strength-wren","Status":"running(9)","ConfigFiles":"/home/peter/dev/strength-wren/docker-compose.yml,/home/peter/dev/strength-wren/docker-compose.override.yml"}
+    {"Name":"caddy","Status":"running(1)","ConfigFiles":"/home/owner/dev/download/caddy/docker-compose.yml"},
+    {"Name":"acme-forge-logs","Status":"running(1)","ConfigFiles":"/home/owner/dev/acme-nadia/monitoring/docker-compose.logs.yml"},
+    {"Name":"acme-forge-monitoring","Status":"running(3)","ConfigFiles":"/home/owner/dev/acme/monitoring/docker-compose.monitoring.yml"},
+    {"Name":"acme-forge-test-local","Status":"running(5)","ConfigFiles":"/home/owner/dev/acme-autodeploy/docker-compose.test-local.yml,/home/owner/dev/acme-nadia/docker-compose.test-local.yml"},
+    {"Name":"plex","Status":"running(1)","ConfigFiles":"/home/owner/dev/download/plex/docker-compose.yml"},
+    {"Name":"acme_ci","Status":"running(9)","ConfigFiles":"/var/lib/forge/actions-runner/_work/acme/acme/docker-compose.yml,/var/lib/forge/actions-runner/_work/acme/acme/docker-compose.override.yml,/var/lib/forge/actions-runner/_work/acme/acme/docker-compose.ci.yml"},
+    {"Name":"acme_e2e_20260802_021455_31337","Status":"running(4)","ConfigFiles":"/home/owner/dev/acme-hugo/docker-compose.yml,/home/owner/dev/acme-hugo/docker-compose.e2e.yml"},
+    {"Name":"acme_acme-hugo","Status":"running(9)","ConfigFiles":"/home/owner/dev/acme-hugo/docker-compose.yml,/home/owner/dev/acme-hugo/docker-compose.override.yml"},
+    {"Name":"acme_acme-nadia","Status":"running(9)","ConfigFiles":"/home/owner/dev/acme-nadia/docker-compose.yml,/home/owner/dev/acme-nadia/docker-compose.override.yml"},
+    {"Name":"acme_acme-nell","Status":"running(9)","ConfigFiles":"/home/owner/dev/acme-nell/docker-compose.yml,/home/owner/dev/acme-nell/docker-compose.override.yml"},
+    {"Name":"acme_acme-wren","Status":"running(9)","ConfigFiles":"/home/owner/dev/acme-wren/docker-compose.yml,/home/owner/dev/acme-wren/docker-compose.override.yml"}
   ]'
 
   # The CI stack IS enumerated (its compose set includes the override — the listing must be able to
   # show it) but is then classified OUT of agent arithmetic below. Two different questions.
   got="$(printf '%s' "$SAMPLE" | agent_stacks_from_json | cut -f1 | tr '\n' ' ')"
   eq "the four agent stacks + the CI stack, and ONLY those" \
-     'strength_ci strength_strength-hugo strength_strength-nadia strength_strength-nell strength_strength-wren ' "$got"
+     'acme_ci acme_acme-hugo acme_acme-nadia acme_acme-nell acme_acme-wren ' "$got"
 
   # Each exclusion asserted on its own, so a future regression names which one broke.
-  for excluded in caddy plex iron-forge-monitoring iron-forge-logs iron-forge-test-local; do
+  for excluded in caddy plex acme-forge-monitoring acme-forge-logs acme-forge-test-local; do
     if printf '%s' "$SAMPLE" | agent_stacks_from_json | cut -f1 | grep -qx "$excluded"; then
       echo "selftest FAIL: '$excluded' must not count as an agent stack" >&2; fails=1
     fi
   done
   # The ephemeral e2e stack lives in an agent's worktree and shares its compose file — it is excluded
   # by the OVERRIDE rule, not by its name. This is the case a basename or path check would get wrong.
-  if printf '%s' "$SAMPLE" | agent_stacks_from_json | cut -f1 | grep -q 'strength_e2e_'; then
+  if printf '%s' "$SAMPLE" | agent_stacks_from_json | cut -f1 | grep -q 'acme_e2e_'; then
     echo "selftest FAIL: an ephemeral e2e stack must not hold an agent slot" >&2; fails=1
   fi
 
   eq "worktree dir is derived from the config path" \
-     '/home/peter/dev/strength-nell' \
-     "$(printf '%s' "$SAMPLE" | agent_stacks_from_json | awk -F'\t' '$1=="strength_strength-nell"{print $2}')"
+     '/home/owner/dev/acme-nell' \
+     "$(printf '%s' "$SAMPLE" | agent_stacks_from_json | awk -F'\t' '$1=="acme_acme-nell"{print $2}')"
 
   # Degenerate daemon output must not explode or invent stacks.
   eq "empty array"  '' "$(printf '[]'   | agent_stacks_from_json)"
@@ -134,63 +134,63 @@ if selftest_is_flag "${1:-}"; then
   # The one non-agent project with a stack of its own. It must never land in `others` (that would
   # let a CI verify eat a human's seat) and never in `mine_up` (its admission is the $CI bypass).
   enum="$(printf '%s' "$SAMPLE" | agent_stacks_from_json)"
-  eq "CI up: hugo sees 3 others + himself + CI"  $'3\t1\t1' "$(classify_stacks strength_strength-hugo <<< "$enum")"
-  eq "CI up: a newcomer sees 4 others + CI"      $'4\t0\t1' "$(classify_stacks strength_strength-faith <<< "$enum")"
+  eq "CI up: hugo sees 3 others + himself + CI"  $'3\t1\t1' "$(classify_stacks acme_acme-hugo <<< "$enum")"
+  eq "CI up: a newcomer sees 4 others + CI"      $'4\t0\t1' "$(classify_stacks acme_acme-faith <<< "$enum")"
   eq "no CI stack: ci_up is 0" \
-     $'4\t0\t0' "$(classify_stacks strength_strength-faith <<< "$(grep -v $'^strength_ci\t' <<< "$enum")")"
+     $'4\t0\t0' "$(classify_stacks acme_acme-faith <<< "$(grep -v $'^acme_ci\t' <<< "$enum")")"
   # And the seat does not soften the agent cap: with CI up and four agents live, a fifth AGENT is
   # still refused — CI's presence must change nothing about the humans' arithmetic.
-  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks strength_strength-faith <<< "$enum")"
+  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks acme_acme-faith <<< "$enum")"
   eq "fifth agent still refused while CI holds its seat" refuse "$(cap_verdict "$_o" "$_m" 4)"
 
   # ── the permanent TEST stack (fix_agent_stacks_counts_the_permanent_test_autodeploy_stack_as_one_of_the_four_developer_slots) ──
-  # ⚠ THE LIVE SHAPE, NOT THE TIDY ONE. The fixture above gives iron-forge-test-local only its own
+  # ⚠ THE LIVE SHAPE, NOT THE TIDY ONE. The fixture above gives acme-forge-test-local only its own
   # compose file, so the override rule excludes it and no name check is exercised. On the box it had
   # ALSO picked up another worktree's docker-compose.override.yml, which is what made it an "agent".
-  TEST_SHAPE='{"Name":"iron-forge-test-local","Status":"running(10)","ConfigFiles":"/srv/ironforge/strength-autodeploy/docker-compose.test-local.yml,/home/peter/dev/strength-rowan-l/docker-compose.yml,/home/peter/dev/strength-rowan-l/docker-compose.override.yml"}'
-  agent_json() { printf '{"Name":"strength_strength-%s","Status":"running(9)","ConfigFiles":"/home/peter/dev/strength-%s/docker-compose.yml,/home/peter/dev/strength-%s/docker-compose.override.yml"}' "$1" "$1" "$1"; }
+  TEST_SHAPE='{"Name":"acme-forge-test-local","Status":"running(10)","ConfigFiles":"/srv/forge/acme-autodeploy/docker-compose.test-local.yml,/home/owner/dev/acme-rowan-l/docker-compose.yml,/home/owner/dev/acme-rowan-l/docker-compose.override.yml"}'
+  agent_json() { printf '{"Name":"acme_acme-%s","Status":"running(9)","ConfigFiles":"/home/owner/dev/acme-%s/docker-compose.yml,/home/owner/dev/acme-%s/docker-compose.override.yml"}' "$1" "$1" "$1"; }
   three="$(printf '[%s,%s,%s,%s]' "$TEST_SHAPE" "$(agent_json a)" "$(agent_json b)" "$(agent_json c)")"
   four="$(printf '[%s,%s,%s,%s,%s]' "$TEST_SHAPE" "$(agent_json a)" "$(agent_json b)" "$(agent_json c)" "$(agent_json d)")"
   # Positive control on the fixture: the contaminated shape IS enumerated by the override rule, so the
   # arms below are testing the name exclusion and not passing because the stack was never seen.
   eq "the contaminated TEST stack is enumerated (so the exclusion below is what is tested)" \
-     1 "$(printf '%s' "$three" | agent_stacks_from_json | cut -f1 | grep -cx iron-forge-test-local)"
-  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks strength_strength-new <<< "$(printf '%s' "$three" | agent_stacks_from_json)")"
+     1 "$(printf '%s' "$three" | agent_stacks_from_json | cut -f1 | grep -cx acme-forge-test-local)"
+  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks acme_acme-new <<< "$(printf '%s' "$three" | agent_stacks_from_json)")"
   eq "TEST + three agents: TEST is not counted" 3 "$_o"
   eq "TEST + three agents: a fourth DEVELOPER is admitted" allow "$(cap_verdict "$_o" "$_m" 4)"
-  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks strength_strength-new <<< "$(printf '%s' "$four" | agent_stacks_from_json)")"
+  IFS=$'\t' read -r _o _m _c <<< "$(classify_stacks acme_acme-new <<< "$(printf '%s' "$four" | agent_stacks_from_json)")"
   eq "NEGATIVE CONTROL: TEST + four agents still refuses a fifth developer" refuse "$(cap_verdict "$_o" "$_m" 4)"
   eq "TEST never lands in ci_up either" 0 "$_c"
   # Keyed on the declared NAME, never on "(unnamed)": an agent stack whose holder cannot be named
   # still takes its seat.
   eq "an unnamed agent stack still counts" $'1\t0\t0' \
-     "$(classify_stacks strength_strength-new <<< $'strength_strength-nobody\t/tmp/no-such-worktree\trunning(9)')"
-  eq "a near-miss of the TEST name is NOT excluded" 1 "$(is_test_stack iron-forge-test-local-2; echo $?)"
+     "$(classify_stacks acme_acme-new <<< $'acme_acme-nobody\t/tmp/no-such-worktree\trunning(9)')"
+  eq "a near-miss of the TEST name is NOT excluded" 1 "$(is_test_stack acme-forge-test-local-2; echo $?)"
   # ⚠ ONE NAME, TWO FILES. scripts/test-local.sh pins the project; this is the check that they agree.
   _tl_proj="$(sed -n '/^PROJECT=/{s///p;q;}' "$(dirname "${BASH_SOURCE[0]}")/test-local.sh")"
-  eq "is_ci_stack: the pinned project"  0 "$(is_ci_stack strength_ci; echo $?)"
-  eq "is_ci_stack: an agent is not CI"  1 "$(is_ci_stack strength_strength-hugo; echo $?)"
+  eq "is_ci_stack: the pinned project"  0 "$(is_ci_stack acme_ci; echo $?)"
+  eq "is_ci_stack: an agent is not CI"  1 "$(is_ci_stack acme_acme-hugo; echo $?)"
   # ⚠ EVERY CI LANE MUST BE EXCLUDED, not just the historical literal
   # (fix_ledger_lane_verify_destroys_the_code_lane_ci_stack). CI runs under one project name PER
   # LANE now, and if this classifier stops recognising one, that lane's stack is counted as
   # another agent's — a running CI job then eats one of the four machine-wide seats and init.sh
   # refuses to start an agent, with nothing in the message pointing at CI.
-  eq "is_ci_stack: the code lane"       0 "$(is_ci_stack strength_ci_forge-box; echo $?)"
-  eq "is_ci_stack: the ledger lane"     0 "$(is_ci_stack strength_ci_canary-box; echo $?)"
-  eq "is_ci_stack: the nightly"         0 "$(is_ci_stack strength_ci_nightly; echo $?)"
-  eq "is_ci_stack: the dispatch job"    0 "$(is_ci_stack strength_ci_dispatch; echo $?)"
+  eq "is_ci_stack: the code lane"       0 "$(is_ci_stack acme_ci_forge-box; echo $?)"
+  eq "is_ci_stack: the ledger lane"     0 "$(is_ci_stack acme_ci_canary-box; echo $?)"
+  eq "is_ci_stack: the nightly"         0 "$(is_ci_stack acme_ci_nightly; echo $?)"
+  eq "is_ci_stack: the dispatch job"    0 "$(is_ci_stack acme_ci_dispatch; echo $?)"
   # …and this one was ALREADY misclassified before the rename — the manual UI job has always had
   # its own project name and the exact match never covered it.
-  eq "is_ci_stack: the manual UI job"   0 "$(is_ci_stack strength_ci_ui; echo $?)"
+  eq "is_ci_stack: the manual UI job"   0 "$(is_ci_stack acme_ci_ui; echo $?)"
   # ⚠ AND THE PREFIX MUST NOT OVER-REACH. A name that merely STARTS with the letters is not a CI
   # stack; without the separator check this would silently stop counting a real agent.
-  eq "is_ci_stack: a near-miss is NOT CI" 1 "$(is_ci_stack strength_cider; echo $?)"
+  eq "is_ci_stack: a near-miss is NOT CI" 1 "$(is_ci_stack acme_cider; echo $?)"
   # The property that actually matters: a lane-named CI stack does not consume an agent seat.
-  lane_enum="$(printf '%s\n' $'strength_ci_forge-box\t/w\trunning(9)' $'strength_strength-hugo\t/h\trunning(9)')"
+  lane_enum="$(printf '%s\n' $'acme_ci_forge-box\t/w\trunning(9)' $'acme_acme-hugo\t/h\trunning(9)')"
   eq "a lane-named CI stack is not another agent" $'0\t1\t1' \
-     "$(classify_stacks strength_strength-hugo <<< "$lane_enum")"
+     "$(classify_stacks acme_acme-hugo <<< "$lane_enum")"
   # classify handles degenerate input like the enumerator does.
-  eq "classify of nothing" $'0\t0\t0' "$(classify_stacks strength_strength-faith <<< '')"
+  eq "classify of nothing" $'0\t0\t0' "$(classify_stacks acme_acme-faith <<< '')"
 
   # ── occupancy: is this a stack, or debris that looks like one? ──
   # (fix_agent_cap_counts_a_one_container_remnant_as_a_full_stack)
@@ -215,18 +215,18 @@ if selftest_is_flag "${1:-}"; then
   # everything else is unchanged. The 4th field is OPTIONAL, so every assertion above that passes
   # three fields still means exactly what it meant before occupancy existed.
   occ_enum="$(printf '%s\n' \
-    $'strength_strength\t/home/peter/dev/strength\trunning(1)\tremnant' \
-    $'strength_strength-anthony\t/a\trunning(11)\tup' \
-    $'strength_strength-saffron2\t/s\trunning(10)\tup' \
-    $'strength_strength-cara\t/c\trunning(11)\tup')"
+    $'acme_acme\t/home/owner/dev/acme\trunning(1)\tremnant' \
+    $'acme_acme-anthony\t/a\trunning(11)\tup' \
+    $'acme_acme-saffron2\t/s\trunning(10)\tup' \
+    $'acme_acme-cara\t/c\trunning(11)\tup')"
   eq "the real 5/4: debris drops out, 3 remain" $'2\t1\t0' \
-     "$(classify_stacks strength_strength-cara <<< "$occ_enum")"
+     "$(classify_stacks acme_acme-cara <<< "$occ_enum")"
   eq "and a newcomer is admitted"               allow \
-     "$(IFS=$'\t' read -r o m _ <<< "$(classify_stacks strength_strength-new <<< "$occ_enum")"; cap_verdict "$o" "$m" 4)"
+     "$(IFS=$'\t' read -r o m _ <<< "$(classify_stacks acme_acme-new <<< "$occ_enum")"; cap_verdict "$o" "$m" 4)"
   # The negative control on the SAME fixture: without the verdict column nothing is excluded, so the
   # newcomer is refused. This is the pre-fix behaviour, and it proves the fixture can still refuse.
   eq "control: no verdicts -> the old wrong answer" refuse \
-     "$(IFS=$'\t' read -r o m _ <<< "$(classify_stacks strength_strength-new <<< "$(cut -f1-3 <<< "$occ_enum")")"; cap_verdict "$o" "$m" 4)"
+     "$(IFS=$'\t' read -r o m _ <<< "$(classify_stacks acme_acme-new <<< "$(cut -f1-3 <<< "$occ_enum")")"; cap_verdict "$o" "$m" 4)"
 
   # ── the listing's WORDING: it must never assert a direction it cannot know ──
   # (infra_a_dead_stack_reads_as_a_starting_one_and_holds_a_machine_wide_slot)
@@ -260,13 +260,13 @@ if selftest_is_flag "${1:-}"; then
   # guard stopped matching and DEBRIS STARTED COUNTING — a wording change silently becoming a
   # seat-arithmetic change. The 4-field form must keep its exact prior meaning too.
   five_field="$(printf '%s\n' \
-    $'strength_strength\t/home/peter/dev/strength\trunning(1)\tremnant\t0' \
-    $'strength_strength-anthony\t/a\trunning(11)\tup\t0' \
-    $'strength_strength-cara\t/c\trunning(11)\tup\t3')"
+    $'acme_acme\t/home/owner/dev/acme\trunning(1)\tremnant\t0' \
+    $'acme_acme-anthony\t/a\trunning(11)\tup\t0' \
+    $'acme_acme-cara\t/c\trunning(11)\tup\t3')"
   eq "a 5-field line still excludes debris" $'1\t1\t0' \
-     "$(classify_stacks strength_strength-cara <<< "$five_field")"
+     "$(classify_stacks acme_acme-cara <<< "$five_field")"
   eq "…and the 4-field form is unchanged" $'1\t1\t0' \
-     "$(classify_stacks strength_strength-cara <<< "$(cut -f1-4 <<< "$five_field")")"
+     "$(classify_stacks acme_acme-cara <<< "$(cut -f1-4 <<< "$five_field")")"
   # ⚠ NO HAND-ROLLED "CONTROL" HERE, DELIBERATELY. The first draft asserted the pre-fix answer by
   # re-implementing the broken loop inline — arithmetic over a constant, which passes whatever the
   # real code does and could never have failed. The honest control is a MUTATION of the real

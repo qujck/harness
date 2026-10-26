@@ -228,7 +228,7 @@ EOF
   _has "  and the budget line itself" "$(tail -1 "$T/spawns.tsv")" "budget  over: week 61%"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
-  # F1 (Stephanie, strength #11235): "--owner-ok --dry-run" must not take "--dry-run" as the owner's words and then
+  # F1 (from the review of the spawn gate): "--owner-ok --dry-run" must not take "--dry-run" as the owner's words and then
   # start a REAL spawn recorded as approved. F2: the script's own placeholders pasted unedited are not words either.
   : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
   out="$(run developer --ticket HAR-12 --owner-ok --dry-run 2>&1)"; rc=$?
@@ -245,7 +245,7 @@ EOF
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ada's spawn above is over; she is free again
   out="$(run developer --ticket HAR-12 --owner-ok 'yes <go ahead> - Peter' --dry-run 2>&1)"; rc=$?
   _t "words that merely contain brackets or a dash are words" "$rc" 0
-  # Strength's follow-ups (Tommy N14-N16 on #11235): the trailing trim is what refuses a placeholder pasted
+  # Follow-ups from the same review: the trailing trim is what refuses a placeholder pasted
   # with a space after it; words that only START or only END with <…> are the owner's words.
   : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
   out="$(run developer --ticket HAR-12 --owner-ok '<their words> ' 2>&1)"; rc=$?

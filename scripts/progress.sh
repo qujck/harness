@@ -186,7 +186,7 @@ cmd_tail() {
         done <<< "$(files_older_than "$cut" "$(( n - shown ))")"
     fi
     if [ "$any" = 0 ]; then
-        echo "no session entries yet — the older history is in progress/ and PROGRESS.md"
+        echo "no session entries yet"
     fi
 }
 

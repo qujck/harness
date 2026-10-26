@@ -501,3 +501,23 @@ the harness has one source, the publisher's rows, and keeps it. Its "dormant" la
 hand reads a roster column the harness roster does not have; a role with no session still reads "not started".
 Its ticket column in the context screen reads a per-agent ticket file; here the ticket is a ledger claim and
 the panel already shows it from the board.
+
+## 2026-10-26 — The seeded project's names, machine and session records leave the template
+
+**Decision.** The harness is a template: what it carries from the project it was extracted from should be the
+process, not that project's furniture. Scrubbed in one pass, behaviour unchanged, every self-test and gate green:
+
+- **Fixtures.** `scripts/agent-stacks.sh` sampled one machine's `docker compose ls` by its real paths and project
+  names; the same shapes now carry neutral names (`/home/owner`, `acme`, `acme-forge`), so every arm still
+  exercises the rule it was written for. `scripts/lib/roster.sh` and the waiting-agents mod's tests used the
+  seeded project's mail domain and worktree names, as did `scripts/lib/agent-name.sh`, `scripts/agent-onboard.sh` and two
+  comments in the ledger scripts; they now use `example.test` and `acme`.
+- **Credits.** Comments that named the agent or person who found something ("X's review", "after X found the
+  trap") now say what was found and when. The finding is the record; the name was not.
+- **Session records.** `progress/` held two records from the seeded project's own sessions. They are gone; the
+  directory is still frozen (`scripts/check-no-new-progress-files.sh`), so nothing new appears there either.
+- **Permission.** `.claude/settings.json` allowed one web domain by name; nothing in the kit fetches it. Removed.
+
+**Kept.** Dated decisions and their counts (a unit that failed 391 times in four days), the ticket slugs that
+name the fix a rule came from, and the project names inside DECISIONS.md entries: those are the history that
+explains a rule, and a template with no history explains nothing.

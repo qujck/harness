@@ -7,8 +7,8 @@
 # The self-compact mod compacts a session between turns when it finds `{"instructions": …}` at
 # `<state>/self-compact/<session id>.json` (state = $XDG_STATE_HOME, else $HOME/.local/state). This
 # writes that file for the session the command runs in, and nothing else: the id comes from
-# CLAUDE_CODE_SESSION_ID, which Claude Code sets in every Bash the agent runs (Alfred, 2026-10-16,
-# seen in Anthony's shell; confirmed in Rowan's, where it matched the session file's sessionId).
+# CLAUDE_CODE_SESSION_ID, which Claude Code sets in every Bash the agent runs (seen in two agents'
+# shells on 2026-10-16, where it matched the session file's sessionId).
 #
 # ⚠ IT REFUSES RATHER THAN GUESSES. No CLAUDE_CODE_SESSION_ID, or one that is not a plain token,
 # or no state directory: exit 2 with one line, and no file is written. A guessed id could only ever
@@ -88,7 +88,7 @@ selftest_reject_typo "${1:-}"
 # flag, and its catch-all branch exits 2 on any other first argument, which here is the instructions
 # text itself. At b0b2feb every real call exited 2 "unknown argument" and wrote nothing, and the
 # self-test stayed green because its refusal arm asserted only the exit code, which the wrong
-# rejection also produced (Alfred, 2026-10-16). Both arms below now assert the reason and the file.
+# rejection also produced (found 2026-10-16). Both arms below now assert the reason and the file.
 if selftest_is_flag "${1:-}"; then self_test; exit $?; fi
 
 TEXT="${1:-}"

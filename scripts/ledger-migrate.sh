@@ -72,7 +72,7 @@ BOOTSTRAP='001-baseline.sql'   # the template's baseline is the first recorded m
 # SESSION rather than from a directory label — the 2026-08-14 defect, five sessions under one name,
 # none able to fix it from the inside. That is worth keeping exactly as it is. But it establishes
 # the name by resolving $GIT_AUTHOR_EMAIL through `agents/roster.json`, and the roster holds twelve
-# entries, every one an agent on @weaversite.co.uk. **The owner applies the migrations and is not in
+# entries, every one an agent on @example.test. **The owner applies the migrations and is not in
 # it**, so the one human who runs this tool is the one identity it cannot accept — and the remedy it
 # printed, `agent-onboard.sh --launch-line`, is an AGENT onboarding path he cannot use. A guard whose
 # remedy is unavailable to the person it stops is the shape CLAUDE.md warns about: it pushes people

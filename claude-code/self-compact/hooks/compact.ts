@@ -10,8 +10,8 @@ export const NUDGE_AT_REMAINING = 0.20
 // (owner, 2026-10-16: 40k).
 export const MIN_FINISH_ROOM = 40_000
 
-// Auto-compact does not fire at the window: it fires this many tokens short of it. Measured by
-// Alfred on 2026-10-16 from compact_boundary entries (compactMetadata.preTokens) in every agent
+// Auto-compact does not fire at the window: it fires this many tokens short of it. Measured on
+// 2026-10-16 from compact_boundary entries (compactMetadata.preTokens) in every agent
 // transcript on a 300k window: 266.7k–269.3k, so ~33k early; on 250k that is ~217k (confirmed at
 // 217,132 the same morning). Used only when the engine's breakdown is not available: with it,
 // `hardAt` carries the session's own buffer, read live.

@@ -193,14 +193,14 @@ ops_alert() { ops_alert_resend "$@"; } # <subject> <body>
 # THE KEY IS THE CONDITION (`main-red`, `unit-failed:<unit>`), NEVER THE INSTANCE, so a second PR
 # entering the same condition is the same key and sends nothing.
 #
-# ⚠ PO RULING (Carl, 2026-09-28): SETTLED RECOVERY. [FAILING] at once; [RECOVERED] only once the key
+# ⚠ PO RULING (the delivery lead, 2026-09-28): SETTLED RECOVERY. [FAILING] at once; [RECOVERED] only once the key
 # has stayed recovered for 10 minutes; a re-fail inside that window cancels it silently; more than 4
 # changes in 60 minutes sends one [FLAPPING] and then nothing until it has been stable for an HOUR (the flap window, not the 10-minute settle). The machine itself is
 # ops/lib/ops_alert_machine.py, and the SAME machine is the /api/ops/alert backstop — both run
 # ops/testdata/ops-alert-conditions.json.
 #
 # ⚠ THE SETTLE DOES NOT WAIT FOR THE SAME CALLER TO COME BACK. `ops_alert_settle_due` runs as a step on
-# pr-refresh's 3-minute tick (Rowan's rule: "do X after N minutes" is a step on an existing tick, never
+# pr-refresh's 3-minute tick (the standing rule: "do X after N minutes" is a step on an existing tick, never
 # a transient timer), so the effective settle is 10–13 minutes. It is file-backed, so it survives a
 # reboot, and it runs from the platform checkout like every other user-scope unit.
 #

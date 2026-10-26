@@ -306,7 +306,7 @@ agent_name_refusal() {
 #   c) set, but the address is unrostered— likewise, and probably a typo in the launch line.
 #
 # (b) is not hypothetical and it is why the launch line alone was not the whole fix. Measured
-# 2026-08-14: every session's process cwd is /home/peter/dev/strength, which was 31 commits behind
+# 2026-08-14: every session's process cwd is /home/owner/dev/acme, which was 31 commits behind
 # main and had no agents/roster.json at all — so rung 0 COULD NOT ANSWER even with the variable set
 # correctly, and the resolution fell to a directory file for all five sessions.
 #
@@ -363,7 +363,7 @@ agent_name_identity_warning() { # $1 repo root
 # The scan used to decide "is a live agent here?" with `[[ -f session.active ]]` — file EXISTENCE, never
 # the session id INSIDE it. So the guard could not tell an agent's own abandoned marker from a live
 # rival. Driven case: on 2026-08-23 it refused Don the name `Don`, naming
-# `/home/peter/dev/strength-don` — whose marker holds HIS OWN session id, written on 11 August in a
+# `/home/owner/dev/acme-don` — whose marker holds HIS OWN session id, written on 11 August in a
 # worktree he had left. The guard blocked him on his own behalf, and he could not clear it without
 # deleting state in a directory that might have belonged to somebody else.
 #
@@ -403,13 +403,13 @@ agent_name_conflict_kind() {
 # working; only the newcomer — the one who never ran init.sh, and so has no marker of their own — is
 # asked to choose. Backwards, this would evict the working agent, which is worse than the bug.
 # ── IS THE SESSION A MARKER NAMES STILL RUNNING? ──────────────────────────────────────────────────
-# (strength fix_init_refuses_a_spawned_session_because_it_reads_agent_name_and_never_the_session_identity_the_spawn_sets,
+# (acme fix_init_refuses_a_spawned_session_because_it_reads_agent_name_and_never_the_session_identity_the_spawn_sets,
 #  backported 2026-10-25)
 #
 # ⚠ THE SPAWN MODEL BREAKS THE SCAN BY CONSTRUCTION WITHOUT THIS. agent-bench.sh stops the session
 # and leaves its session.active behind, and every respawn (agent-spawn.sh) is a NEW session id, so
 # the respawn reads its own old worktree as `other` = a live rival and is refused its own name. Measured 2026-10-24: Anthony was
-# refused five times over, by strength-anthony2/3/5/6/-ew, every marker naming one dead session
+# refused five times over, by acme-anthony2/3/5/6/-ew, every marker naming one dead session
 # (2abadc11…) and no claude process standing in any of them.
 #
 # ⚠ STILL NOT A STALENESS HEURISTIC (see agent_name_conflict_kind). The age of a marker is never
@@ -496,7 +496,7 @@ agent_name_taken_by() {
     if [[ "$(agent_name_conflict_kind "$mine" "$(agent_name_of "$nroot")" "$live" \
              "$(agent_directory_identity "$nroot")")" == conflict ]]; then
       # Normalised, because this path goes into an error message a human has to act on:
-      # "/w/strength-b/../strength-a" is the same directory but reads like a different one.
+      # "/w/acme-b/../acme-a" is the same directory but reads like a different one.
       printf '%s\n' "$(cd "$nroot" 2>/dev/null && pwd || printf '%s' "$nroot")"; return 0
     fi
   done
@@ -531,9 +531,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 fi
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
-  # the fixtures below are sibling worktrees named strength-<agent> (the seeded project's shape); the
+  # the fixtures below are sibling worktrees named acme-<agent> (the seeded project's shape); the
   # sibling scan keys on HARNESS_PROJECT, so the self-test pins it to the fixtures' prefix
-  HARNESS_PROJECT=strength
+  HARNESS_PROJECT=acme
   set -uo pipefail
   t_fail() { printf 'agent-name selftest FAIL: %s\n' "$*" >&2; exit 1; }
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -710,28 +710,28 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     || t_fail "legacy must stay BLOCKING for the sibling scan, or an unknown live peer is waved through"
 
   # ── DON'S CASE, RECONSTRUCTED ON DISK, 2026-08-23 ───────────────────────────────────────────────
-  # He was refused the name `Don`, cited against /home/peter/dev/strength-don — a worktree he had
+  # He was refused the name `Don`, cited against /home/owner/dev/acme-don — a worktree he had
   # abandoned on 11 August, whose marker holds HIS OWN session id. The guard blocked him on his own
   # behalf and he had no way to clear it without deleting state in a directory that might have been
   # somebody else's.
-  mkdir -p "$tmp/wt/strength-me/.agent" "$tmp/wt/strength-don/.agent"
-  printf 'Don\n' > "$tmp/wt/strength-me/.agent/name"
-  printf 'Don\n' > "$tmp/wt/strength-don/.agent/name"
+  mkdir -p "$tmp/wt/acme-me/.agent" "$tmp/wt/acme-don/.agent"
+  printf 'Don\n' > "$tmp/wt/acme-me/.agent/name"
+  printf 'Don\n' > "$tmp/wt/acme-don/.agent/name"
   CLAUDE_CODE_SESSION_ID=don-session
-  printf '2026-08-11T12:19:10Z\nsession don-session\n' > "$tmp/wt/strength-don/.agent/session.active"
-  agent_name_taken_by "$tmp/wt/strength-me" Don >/dev/null \
+  printf '2026-08-11T12:19:10Z\nsession don-session\n' > "$tmp/wt/acme-don/.agent/session.active"
+  agent_name_taken_by "$tmp/wt/acme-me" Don >/dev/null \
     && t_fail "REGRESSION: my own abandoned worktree must not hold my name against me"
 
   # ⚠ NEGATIVE CONTROL — the same layout, one field changed, must still refuse. Without this the
   # test above passes against a guard that simply never refuses anybody.
-  printf '2026-08-11T12:19:10Z\nsession somebody-else\n' > "$tmp/wt/strength-don/.agent/session.active"
-  agent_name_taken_by "$tmp/wt/strength-me" Don >/dev/null \
+  printf '2026-08-11T12:19:10Z\nsession somebody-else\n' > "$tmp/wt/acme-don/.agent/session.active"
+  agent_name_taken_by "$tmp/wt/acme-me" Don >/dev/null \
     || t_fail "NEGATIVE CONTROL: a marker naming a DIFFERENT live session must still take the name"
 
   # ⚠ …and an OLD-FORMAT marker must still refuse, because it might be a live agent. This is the row
   # a staleness heuristic would get wrong in the expensive direction.
-  printf '2026-08-11T12:19:10Z\n' > "$tmp/wt/strength-don/.agent/session.active"
-  agent_name_taken_by "$tmp/wt/strength-me" Don >/dev/null \
+  printf '2026-08-11T12:19:10Z\n' > "$tmp/wt/acme-don/.agent/session.active"
+  agent_name_taken_by "$tmp/wt/acme-me" Don >/dev/null \
     || t_fail "an id-less marker must still take the name — ambiguity is not permission"
   unset CLAUDE_CODE_SESSION_ID
 
@@ -744,13 +744,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   ROSTER_FILE="$tmp/roster.json"
   cat > "$ROSTER_FILE" <<'JSON'
 {"agents":[
-  {"name":"Ed","email":"ed@weaversite.co.uk","role":"developer","status":"active"},
-  {"name":"Don","email":"don@weaversite.co.uk","role":"delivery-lead","status":"active"}
+  {"name":"Ed","email":"ed@example.test","role":"developer","status":"active"},
+  {"name":"Don","email":"don@example.test","role":"delivery-lead","status":"active"}
 ]}
 JSON
   mkdir -p "$tmp/donsdir/.agent"; printf 'Don\n' > "$tmp/donsdir/.agent/name"
   unset AGENT_NAME
-  GIT_AUTHOR_EMAIL=ed@weaversite.co.uk
+  GIT_AUTHOR_EMAIL=ed@example.test
   [[ "$(agent_name_resolved "$tmp/donsdir")" == "Ed" ]] \
     || t_fail "THE HEADLINE: the SESSION must name the agent, not the directory it is standing in"
   [[ "$(agent_name_source "$tmp/donsdir")" == "session" ]] \
@@ -758,7 +758,7 @@ JSON
 
   # ⚠ NEGATIVE CONTROL. Without it, a rung 0 that returned a constant would pass the case above and
   # every agent on the box would resolve to the same name.
-  GIT_AUTHOR_EMAIL=don@weaversite.co.uk
+  GIT_AUTHOR_EMAIL=don@example.test
   [[ "$(agent_name_resolved "$tmp/donsdir")" == "Don" ]] \
     || t_fail "NEGATIVE CONTROL: a different address must resolve to a different name"
   [[ "$(agent_name_resolved "$tmp/noname")" == "Don" ]] \
@@ -766,12 +766,12 @@ JSON
 
   # ⚠ AN UNROSTERED ADDRESS MUST NOT NAME YOU. Deriving a name from the local-part would invent an
   # identity that is in no register, cannot be routed to, and would still stamp a claim.
-  GIT_AUTHOR_EMAIL=stranger@weaversite.co.uk
+  GIT_AUTHOR_EMAIL=stranger@example.test
   [[ "$(agent_name_resolved "$tmp/donsdir")" == "Don" ]] \
     || t_fail "an unrostered address must FALL THROUGH to the directory, not invent 'stranger'"
   [[ "$(agent_name_source "$tmp/donsdir")" == "file" ]] \
     || t_fail "…and must report the rung that actually answered"
-  GIT_AUTHOR_EMAIL=stranger@weaversite.co.uk
+  GIT_AUTHOR_EMAIL=stranger@example.test
   agent_name_resolved "$tmp/noname" >/dev/null \
     && t_fail "an unrostered address with no other rung must REFUSE, not invent a name"
 
@@ -784,7 +784,7 @@ JSON
   # ⚠ THE PEER-DIRECTORY RULE SURVIVES RUNG 0. agent_name_of answers "who owns THAT worktree" and
   # must never consult the environment — least of all now, when the environment is authoritative for
   # the OTHER question. Borrowing it here would label every peer's stack with the reader's name.
-  GIT_AUTHOR_EMAIL=ed@weaversite.co.uk
+  GIT_AUTHOR_EMAIL=ed@example.test
   [[ "$(agent_name_of "$tmp/donsdir")" == "Don" ]] \
     || t_fail "agent_name_of must still read the FILE — the session names ME, never THAT directory"
   [[ "$(agent_name_of "$tmp/noname")" == "" ]] \
@@ -798,7 +798,7 @@ JSON
   # agents/roster.json — so rung 0 could not answer EVEN WITH THE VARIABLE SET CORRECTLY.
   # (feat_agent_onboarding_and_offboarding)
   mkdir -p "$tmp/noroster" "$tmp/hasroster/agents"
-  printf '{"agents":[{"name":"Wren","email":"wren@weaversite.co.uk","status":"active"}]}\n' \
+  printf '{"agents":[{"name":"Wren","email":"wren@example.test","status":"active"}]}\n' \
     > "$tmp/hasroster/agents/roster.json"
 
   unset GIT_AUTHOR_EMAIL
@@ -806,7 +806,7 @@ JSON
     || t_fail "an UNSET GIT_AUTHOR_EMAIL is not a warning — nothing was offered"
 
   # (b) offered, but the tree has no roster to resolve it against. THE LIVE CASE.
-  _w="$(GIT_AUTHOR_EMAIL=wren@weaversite.co.uk REPO_ROOT="$tmp/noroster" \
+  _w="$(GIT_AUTHOR_EMAIL=wren@example.test REPO_ROOT="$tmp/noroster" \
         agent_name_identity_warning "$tmp/noroster")"
   [[ -n "$_w" ]] || t_fail "a set address with NO roster must warn — this is how five sessions shared one name"
   [[ "$_w" == *"no roster is readable"* ]] || t_fail "the no-roster warning must say so, not blame the address"
@@ -818,18 +818,18 @@ JSON
   [[ "$_u" != "$_w" ]] || t_fail "b and c must not share a message; they send you to different fixes"
 
   # (d) offered and resolved — silent, or the warning becomes noise and gets ignored.
-  [[ -z "$(GIT_AUTHOR_EMAIL=wren@weaversite.co.uk REPO_ROOT="$tmp/hasroster" \
+  [[ -z "$(GIT_AUTHOR_EMAIL=wren@example.test REPO_ROOT="$tmp/hasroster" \
            agent_name_identity_warning "$tmp/hasroster")" ]] \
     || t_fail "a correctly resolved identity must be SILENT"
   unset GIT_AUTHOR_EMAIL
 
   # 9. ── A MARKER WHOSE SESSION IS NOT RUNNING IS NOT A RIVAL ─────────────────────────────────────
-  # (backported from strength, 2026-10-25)
+  # (backported from acme, 2026-10-25)
   # The live shape: a respawned Anthony refused his own name by five old worktrees, each marker naming
   # one dead session. The fixture sessions are REAL processes whose executable is called `claude` (a
   # #!/bin/bash script, whose comm is the script's name, blocked on a fifo with no external child to
   # orphan), so agent_pid_is_session runs unmodified.
-  mkdir -p "$tmp/bin" "$tmp/reg" "$tmp/lv/strength-me/.agent" "$tmp/lv/strength-old/.agent"
+  mkdir -p "$tmp/bin" "$tmp/reg" "$tmp/lv/acme-me/.agent" "$tmp/lv/acme-old/.agent"
   mkfifo "$tmp/never" || t_fail "fixture: cannot make a fifo"
   printf '#!/bin/bash\nread -r -t 300 <> "$1"\n' > "$tmp/bin/claude" && chmod +x "$tmp/bin/claude" \
     || t_fail "fixture: cannot make a process called claude"
@@ -847,12 +847,12 @@ JSON
   _lv() { # <expected live|dead|unknown> <session id> <what>
     local got; got="$(agent_session_liveness "$2" 2>/dev/null)"
     [[ "$got" == "$1" ]] || t_fail "liveness($2): expected $1, got $got: $3"; }
-  _tk() { # <expected taken|free> <what>: does strength-old hold the name Anthony against strength-me?
-    local got=free; agent_name_taken_by "$tmp/lv/strength-me" Anthony >/dev/null 2>&1 && got=taken
+  _tk() { # <expected taken|free> <what>: does acme-old hold the name Anthony against acme-me?
+    local got=free; agent_name_taken_by "$tmp/lv/acme-me" Anthony >/dev/null 2>&1 && got=taken
     [[ "$got" == "$1" ]] || t_fail "taken_by: expected $1, got $got: $2"; }
-  printf 'Anthony\n' > "$tmp/lv/strength-me/.agent/name"
-  printf 'Anthony\n' > "$tmp/lv/strength-old/.agent/name"
-  _old_marker() { printf '2026-10-01T23:48:26Z\nsession %s\n' "$1" > "$tmp/lv/strength-old/.agent/session.active"; }
+  printf 'Anthony\n' > "$tmp/lv/acme-me/.agent/name"
+  printf 'Anthony\n' > "$tmp/lv/acme-old/.agent/name"
+  _old_marker() { printf '2026-10-01T23:48:26Z\nsession %s\n' "$1" > "$tmp/lv/acme-old/.agent/session.active"; }
   AGENT_SESSION_REGISTRY="$tmp/reg"; CLAUDE_CODE_SESSION_ID=me-session; _reset_reg
 
   _lv live    me-session    "my own running session"
@@ -899,7 +899,7 @@ JSON
   _lv unknown gone-session "no registry directory"
   _tk taken "no registry is the old rule"
   AGENT_SESSION_REGISTRY="$tmp/reg"
-  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/strength-old/.agent/session.active"  # legacy: no id
+  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/acme-old/.agent/session.active"  # legacy: no id
   _tk taken "an id-less marker still takes the name: it cannot be proven dead"
   # Not a Claude session at all (no id of mine to self-check): a clean registry is believed.
   _old_marker gone-session; CLAUDE_CODE_SESSION_ID=''
@@ -913,20 +913,20 @@ JSON
 
   # 9b. ── THE SAME READER DECIDES WHETHER A MARKER OCCUPIES init.sh's OWN TREE ──────────────────
   _oc() { # <expected 1|0> <what>
-    local got; got="$(agent_marker_occupies "$tmp/lv/strength-old" 2>/dev/null)"
+    local got; got="$(agent_marker_occupies "$tmp/lv/acme-old" 2>/dev/null)"
     [[ "$got" == "$1" ]] || t_fail "occupies: expected $1, got $got: $2"; }
   CLAUDE_CODE_SESSION_ID=me-session; _reset_reg
   _old_marker rival-session; _oc 1 "a marker naming a RUNNING other session occupies the tree"
   _old_marker gone-session;  _oc 0 "a marker naming a session that is NOT RUNNING does not"
   _old_marker me-session;    _oc 1 "my own marker is not proven dead, so it is read as before (the name decides)"
-  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/strength-old/.agent/session.active"
+  printf '2026-10-01T23:48:26Z\n' > "$tmp/lv/acme-old/.agent/session.active"
   _oc 1 "an id-less (legacy) marker occupies: it cannot be proven dead"
   _old_marker gone-session; AGENT_SESSION_REGISTRY="$tmp/nowhere"
   _oc 1 "no registry is unknown, and unknown occupies"
   AGENT_SESSION_REGISTRY="$tmp/reg"; _reset_reg; rm -f "$tmp/reg/$_pa.json"
   _oc 1 "a registry that cannot see the session asking is unknown, and occupies"
-  rm -f "$tmp/lv/strength-old/.agent/session.active"; _oc 0 "no marker, nobody here"
-  : > "$tmp/lv/strength-old/.agent/session.active";   _oc 0 "an empty marker is no marker (the guard's own -s rule)"
+  rm -f "$tmp/lv/acme-old/.agent/session.active"; _oc 0 "no marker, nobody here"
+  : > "$tmp/lv/acme-old/.agent/session.active";   _oc 0 "an empty marker is no marker (the guard's own -s rule)"
   # A reader with no session id of its own: the registry parses, so liveness answers `dead` for a
   # missing session, but every marker reads `legacy`, never `other`, so it keeps the old rule and
   # occupies, as section 9 pins for the scan. Only `other` is ever asked about liveness.

@@ -106,11 +106,11 @@ type Nudger = { nextAt: number; problem?: string }
 
 async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
-  // including ones whose root is not a strength checkout: the house assistant's, or a developer's
+  // including ones whose root is not a checkout of the project: the house assistant's, or a developer's
   // started in ~/dev. There is no roster to read there, so there is nothing to watch, and nothing
   // is shown: the status line exists only in the session that actually watches (owner, 2026-10-16;
   // the first fix said so in the status bar, with a ⚠ the owner did not want). No ENOENT is logged
-  // either (Alfred, 2026-10-16).
+  // either (2026-10-16).
   const rosterPath = `${await $.session.root()}/agents/roster.json`
   const rosterText = await $.fs.read(rosterPath).catch(() => undefined)
   if (typeof rosterText !== 'string') { $.ui.status(undefined); return }
