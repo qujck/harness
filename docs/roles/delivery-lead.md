@@ -195,7 +195,8 @@ order (developers and testers on the bench left out), each name in its role's co
 holds: whether it is working, waiting, in a shell command or idle and for how long, context used against
 its own window, a fifteen-minute token-burn sparkline on a scale shared by every row, and its model and
 reasoning effort, with the account's week on top, marked against the budget (`team/agents-budget.sh`). The context gauge turns amber at 60% and
-red at 85%; a row flags itself after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
+red at 85%; a waiting agent's block pulses through amber shades (`AGENTS_DASH_PULSE`), and a row flags itself
+after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
 records, never a transcript, and types into nothing.
 
 **What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs

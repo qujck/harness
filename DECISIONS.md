@@ -478,3 +478,26 @@ are now in AGENTS.md, stated as rules without the quotes that produced them:
 **Not ported.** The seeded project's never-merge-until-the-owner-says rule, its signed-comment and
 three-approval gate, its review-in-the-main-checkout and sign-off-before-PR settings, and its single-file
 durable record are its own merge model and record format; the harness lands by CI and records in the ledger.
+
+## 2026-10-26 — The panel pulses for a waiting agent; old context rows are hidden; the tester's browser wait (ported from the seeded project)
+
+**Decision.** Three small things the seeded project's team found it wanted:
+
+- **`team/agents-dash.sh`**: a waiting agent's whole block pulses through 256-colour background shades
+  (`AGENTS_DASH_PULSE`, one step every `AGENTS_DASH_PULSE_STEP` seconds), so a stuck agent catches the eye
+  without the panel having to be read. The frame marks a waiting agent's lines; `render()` paints marked
+  lines and strips the mark, re-applying the background after every reset inside the line. The loop redraws
+  the same frame in the next shade until the interval is up, and no longer clears the screen per frame: home,
+  overwrite with each line cleared to its end, clear below. Plain output (`--plain`, or not a terminal) is
+  unchanged, so every existing assertion still holds.
+- **`team/agent-context.sh`**: a row older than a day is a session long gone and is hidden; `--all` shows it.
+  Stale (over two minutes) still marks rather than hides.
+- **`AGENT_BROWSER_WAIT`** in `harness.env` and the tester's role doc: with `yes` the tester batches the checks
+  that need no browser, then tells the delivery lead the ticket, the URL and roughly how long before the first
+  browser step and waits for "go" or "go without me", so the owner can watch.
+
+**Not ported.** The seeded project's panel reads a second usage source, a cache its own status line writes;
+the harness has one source, the publisher's rows, and keeps it. Its "dormant" label for a role switched off by
+hand reads a roster column the harness roster does not have; a role with no session still reads "not started".
+Its ticket column in the context screen reads a per-agent ticket file; here the ticket is a ledger claim and
+the panel already shows it from the board.

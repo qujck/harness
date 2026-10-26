@@ -57,6 +57,12 @@ SPARK_MINS="${AGENTS_DASH_SPARK_MINS:-15}"
 CTX_ALERT="${AGENTS_DASH_CTX_ALERT:-85}"   # context used (%) at which the gauge turns red
 WAIT_ALERT="${AGENTS_DASH_WAIT_ALERT:-60}" # seconds waiting before a row is flagged
 PANE_LINES="${AGENTS_DASH_LINES:-0}"       # the pane's height; 0 = unknown, and the full layout is drawn
+# While an agent is waiting, its whole block pulses through these 256-colour backgrounds, one step every
+# PULSE_STEP seconds, so a waiting agent catches the eye without the panel having to be read. Empty = no pulse.
+read -r -a PULSE <<<"${AGENTS_DASH_PULSE-58 94 130 136 130 94}"
+PULSE_STEP="${AGENTS_DASH_PULSE_STEP:-0.33}"
+# A frame marks every line of a waiting agent's block with this; render() paints those lines and strips it.
+MARK=$'\001'
 
 # The clock, overridable so the self-test can pin a frame to a known second.
 now_s() { printf '%s' "${AGENTS_DASH_NOW:-$(date -u +%s)}"; }
@@ -365,6 +371,23 @@ readings() {
 }
 
 # ── one frame ─────────────────────────────────────────────────────────────────
+# render <frame> [256-colour background]: prints the frame, each line cleared to the pane's edge. A line the
+# frame marked (a waiting agent's) is painted on the background, re-applied after every reset inside the
+# line so it survives the line's own colours; without a background the mark is simply stripped.
+render() {
+  local bg="" el=$'\033[K' line
+  [ -n "${2:-}" ] && [ -n "$R" ] && bg=$'\033[48;5;'"$2"'m'
+  [ -t 1 ] || el=""
+  while IFS= read -r line; do
+    if [[ $line == "$MARK"* ]]; then
+      line=${line#"$MARK"}
+      if [ -n "$bg" ]; then printf '%s%s%s%s\n' "$bg" "${line//"$R"/"$R$bg"}" "$el" "$R"; else printf '%s%s\n' "$line" "$el"; fi
+    else
+      printf '%s%s\n' "$line" "$el"
+    fi
+  done <<<"$1"
+}
+
 frame() {
   local now week
   now=$(now_s)
@@ -437,7 +460,7 @@ frame() {
     role=$(short_role "$id")
     local ctx=${ctxs[$i]} rate=${rates[$i]} ser=${series[$i]} model=${models[$i]} eff=${effs[$i]}
     local pid=${L_PID[$name]:-} status=${L_STATUS[$name]:-} since=${L_SINCE[$name]:-0}
-    local flag=" " namecol dot state nm line1
+    local flag=" " namecol dot state nm line1 mark=""
     namecol=$(role_colour "$id"); [ -n "$namecol" ] || namecol=$BOLD
 
     if [ -z "$pid" ]; then
@@ -487,7 +510,9 @@ frame() {
       ?*) efftxt="${DIM}${eff:0:1}${R}" ;;
     esac
 
-    # A long wait flags the row and turns the name's box amber; high context shows only in the gauge's colour.
+    # A waiting agent's lines are marked for render() to pulse; a long wait also flags the row and turns the
+    # name's box amber. High context shows only in the gauge's colour.
+    [ "$status" = waiting ] && mark="$MARK"
     if [ "$status" = waiting ] && [ "$held" -ge "$WAIT_ALERT" ]; then
       flag="${AMBER}?${R}"; [ -n "$R" ] && namecol=$'\033[38;5;16;48;5;214m' || namecol=""
     fi
@@ -499,16 +524,16 @@ frame() {
     local line2 line3
     case "$lvl" in
       4|3)
-        printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
+        printf '%s%s\n' "$mark" "${line1%"${line1##*[![:space:]]}"}"
         line2=$(printf ' %s %-9s %s' "$dot" "$state $(ago "$held")" "$ctxtxt")
-        printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+        printf '%s%s\n' "$mark" "${line2%"${line2##*[![:space:]]}"}"
         if [ -n "$ser" ]; then
           line3=$(printf ' %s %s%s/m%s %s %s' "$(spark "$ser" "$ceil")" "$DIM" "$(compact "${rate:-0}")" "$R" "$modeltxt" "$efftxt")
         else
           # Live, but no row has carried a token total yet: the publisher has not refreshed with one.
           line3=$(printf ' %sno reading yet%s %s %s' "$DIM" "$R" "$modeltxt" "$efftxt")
         fi
-        printf '%s\n' "${line3%"${line3##*[![:space:]]}"}"
+        printf '%s%s\n' "$mark" "${line3%"${line3##*[![:space:]]}"}"
         [ "$lvl" -eq 4 ] && rule
         ;;
       *)
@@ -521,7 +546,7 @@ frame() {
         else pctpad=$(printf '%4s' ""); fi
         tail=$(printf ' %s%s' "${modeltxt:+$modeltxt }" "${efftxt:-$(printf ' ')}")
         if [ "$lvl" -eq 2 ]; then
-          printf '%s\n' "${line1%"${line1##*[![:space:]]}"}"
+          printf '%s%s\n' "$mark" "${line1%"${line1##*[![:space:]]}"}"
           head=$(printf ' %s %-7s %3s %s ' "$dot" "${state/in shell/shell}" "$(ago "$held")" "$pctpad")
         else
           # One line: the name, then the state. The ticket and role have no room at this height.
@@ -533,7 +558,7 @@ frame() {
         cells=$(( W - ${#hp} - ${#tp} )); [ "$cells" -lt 3 ] && cells=3
         [ -n "$ser" ] && sp=$(spark "$ser" "$ceil" "$cells")
         line2="${head}${sp}${tail}"
-        printf '%s\n' "${line2%"${line2##*[![:space:]]}"}"
+        printf '%s%s\n' "$mark" "${line2%"${line2##*[![:space:]]}"}"
         ;;
     esac
   done
@@ -696,6 +721,18 @@ selftest() {
     t 0 'fit: no rule between agents at three lines' "$(printf '%s\n' "$out" | sed '1,5d' | grep -c '^─')"
     out=$(PANE_LINES=16 frame)
     t 15 'fit: a pane one line taller than the frame keeps the full layout' "$(printf '%s\n' "$out" | wc -l)"
+
+    # The pulse: a waiting session's block is marked, render paints marked lines and strips the mark.
+    t 0 'pulse: nobody waiting, no line is marked' "$(printf '%s' "$(frame)" | grep -c $'^\001')"
+    printf '{"pid":%s,"sessionId":"s1","name":null,"status":"waiting","waitingFor":"permission prompt","statusUpdatedAt":%s,"messagingSocketPath":"%s"}\n' \
+      "$child" "$(( (NOW - 10) * 1000 ))" "$T/ed.sock" > "$SESSIONS/$child.json"
+    out=$(frame)
+    t 3 'pulse: a waiting agent has its three block lines marked' "$(printf '%s\n' "$out" | grep -c $'^\001')"
+    t 1 'pulse: the mark is stripped when rendered plain' "$(render "$out" | grep -c '^ Ed          dev     feat_x$')"
+    t 0 'pulse: no mark survives rendering' "$(render "$out" | grep -c $'\001')"
+    t "$(printf '\033[48;5;58mx\033[0m\033[48;5;58my\033[0m')" 'pulse: a marked line is painted, the background re-applied after each reset' \
+      "$(R=$'\033[0m' render "$(printf '%sx\033[0my' "$MARK")" 58)"
+    t 'plain' 'pulse: an unmarked line is left as it is' "$(R=$'\033[0m' render 'plain' 58)"
   else
     echo "  skipped  the live-session arms need python3 to make a socket — said, not silently passed"
   fi
@@ -718,16 +755,27 @@ colours
 
 if [ "$ONCE" = 1 ]; then
   PANE_LINES=$(pane_lines)
-  frame
+  render "$(frame)" "${PULSE[0]:-}"
   exit 0
 fi
 
 trap 'tput cnorm 2>/dev/null; exit 0' INT TERM
 tput civis 2>/dev/null
+tput clear 2>/dev/null || printf '\033[2J\033[H'
+step=0
 while :; do
   PANE_LINES=$(pane_lines)   # every frame: the pane may have been resized
   out=$(frame)
-  tput clear 2>/dev/null || printf '\033[2J\033[H'
-  printf '%s\n' "$out"
-  sleep "$INTERVAL"
+  until_s=$(( SECONDS + INTERVAL ))
+  if [[ $out == *"$MARK"* ]] && [ -n "$R" ] && [ "${#PULSE[@]}" -gt 0 ]; then
+    # Someone is waiting: redraw the same frame every PULSE_STEP in the next shade until the interval is up.
+    while [ "$SECONDS" -lt "$until_s" ]; do
+      printf '\033[H'; render "$out" "${PULSE[step % ${#PULSE[@]}]}"; printf '\033[J'
+      step=$((step+1)); sleep "$PULSE_STEP"
+    done
+  else
+    # Home, then overwrite with each line cleared to its end, then clear below: no flicker from a full clear.
+    printf '\033[H'; render "$out"; printf '\033[J'
+    sleep "$INTERVAL"
+  fi
 done

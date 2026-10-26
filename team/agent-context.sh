@@ -15,9 +15,10 @@
 #   to answer "how much have you got left". It is NEVER a reason to do less work or to stop: a
 #   compaction is a summary, not an ending, and the work continues on the other side of it.
 #
-# Usage:  bash team/agent-context.sh            # table of live sessions (stale > 2 min are marked)
+# Usage:  bash team/agent-context.sh            # table of live sessions (stale > 2 min are marked; older than a day hidden)
 #         bash team/agent-context.sh --me       # this session's line only (needs AGENT_NAME or a name match)
 #         bash team/agent-context.sh --json     # the raw rows, one JSON object per line
+#         bash team/agent-context.sh --all      # include rows older than a day (sessions long gone)
 #         bash team/agent-context.sh --self-test
 set -uo pipefail
 # shellcheck source=lib/selftest-flag.sh
@@ -25,6 +26,7 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/harness-env.sh" 2>/dev/null || true
 DIR="${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/context}"   # the publisher writes one JSON per session here
 STALE_S=120
+MAX_AGE_S=86400   # a row older than this is a session long gone: hidden unless --all
 
 rows() { # -> one JSON object per line, freshest first, with an `age_s` field added
   local now f
@@ -32,7 +34,7 @@ rows() { # -> one JSON object per line, freshest first, with an `age_s` field ad
   for f in "$DIR"/*.json; do
     [ -r "$f" ] || continue
     jq -c --argjson now "$now" '. + {age_s: ($now - ((.ts | fromdateiso8601?) // $now))}' "$f" 2>/dev/null
-  done | sort -t$'\t' -k1 | jq -s -c 'sort_by(.age_s) | .[]' 2>/dev/null
+  done | jq -s -c --argjson max "$MAX_AGE_S" 'map(select(.age_s <= $max)) | sort_by(.age_s) | .[]' 2>/dev/null
 }
 
 render() {
@@ -49,12 +51,16 @@ render() {
 selftest() {
   local t; t=$(mktemp -d); trap 'rm -rf "$t"' RETURN
   printf '{"agent":"a","session_id":"1","ts":"%s","cwd":"/x","worktree":"wt","model":"M","context":{"remaining_pct":12.4},"week":{"used_pct":50}}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$t/1.json"
-  printf '{"agent":"b","session_id":"2","ts":"2020-01-01T00:00:00Z","cwd":"/y","worktree":null,"model":"M","context":{"remaining_pct":80},"week":{"used_pct":50}}\n' > "$t/2.json"
+  printf '{"agent":"b","session_id":"2","ts":"%s","cwd":"/y","worktree":null,"model":"M","context":{"remaining_pct":80},"week":{"used_pct":50}}\n' "$(date -u -d "@$(( $(date -u +%s) - 600 ))" +%Y-%m-%dT%H:%M:%SZ)" > "$t/2.json"
+  printf '{"agent":"c","session_id":"3","ts":"2020-01-01T00:00:00Z","cwd":"/z","worktree":null,"model":"M","context":{"remaining_pct":5},"week":{"used_pct":50}}\n' > "$t/3.json"
   local out; out=$(DIR="$t" render)
   grep -q '^a  *?  *12%' <<<"$out" || { echo "FAIL: fresh row not rendered with its remaining %"; echo "$out"; return 1; }
-  grep -q 'b .*(stale)' <<<"$out" || { echo "FAIL: an old row is not marked stale"; echo "$out"; return 1; }
+  grep -q 'b .*(stale)' <<<"$out" || { echo "FAIL: a ten-minute-old row is not marked stale"; echo "$out"; return 1; }
+  grep -q '^c ' <<<"$out" && { echo "FAIL: a row from years ago is shown without --all"; echo "$out"; return 1; }
   [ "$(sed -n 2p <<<"$out" | awk '{print $1}')" = "a" ] || { echo "FAIL: freshest first"; echo "$out"; return 1; }
-  echo "agent-context: self-test ok — fresh row rendered, stale row marked, freshest first"
+  out=$(DIR="$t" MAX_AGE_S=999999999 render)
+  grep -q '^c .*(stale)' <<<"$out" || { echo "FAIL: --all does not bring the old row back, stale"; echo "$out"; return 1; }
+  echo "agent-context: self-test ok — fresh row rendered, stale row marked, a day-old row hidden unless --all, freshest first"
 }
 
 selftest_reject_typo "${1:-}"
@@ -62,6 +68,7 @@ if selftest_is_flag "${1:-}"; then selftest; exit $?; fi
 case "${1:-}" in
   "") render ;;
   --json) rows ;;
+  --all) MAX_AGE_S=999999999 render ;;
   --me) source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/agent-name.sh" 2>/dev/null; me="$(agent_name_resolved 2>/dev/null || true)"; render | awk -v m="${me:-}" 'NR==1 || tolower($1)==tolower(m)' ;;
-  *) echo "agent-context: unknown argument '$1' (usage: agent-context.sh [--me|--json|--self-test])" >&2; exit 2 ;;
+  *) echo "agent-context: unknown argument '$1' (usage: agent-context.sh [--me|--json|--all|--self-test])" >&2; exit 2 ;;
 esac
