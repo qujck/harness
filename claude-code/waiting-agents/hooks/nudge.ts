@@ -51,9 +51,9 @@ export function mainCheckoutOf(gitFile: string | undefined): string | undefined 
 //
 // ⚠ The checkout is the MAIN one, not the session's worktree. The delivery lead works in a linked
 // worktree named after themself (AGENTS.md rule 0: `../<project>-<you>`), so the session root's
-// basename is `strength-carl` while the publisher writes under `strength`. The first version took
+// basename is `acme-carl` while the publisher writes under `acme`. The first version took
 // the root's basename, found no rows, and logged "hold: no team agent idle" on every tick, in a log
-// directory that did not exist either (Alfred's review, 2026-10-16). `gitFile` is the text of
+// directory that did not exist either (review, 2026-10-16). `gitFile` is the text of
 // `<root>/.git` when the root is a linked worktree.
 export function statePaths(
   home: string,

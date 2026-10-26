@@ -603,7 +603,7 @@ selftest() {
   t test 'short_role: head-of-testing' "$(short_role head-of-testing)"
 
   # The roster: grouped by role in the fixed order, file order within a role, retired left out, assistants
-  # last. The fixture is strength's shape: a tester appended after the reviewer and the process lead.
+  # last. The fixture is the seeded project's shape: a tester appended after the reviewer and the process lead.
   printf '%s' '{"agents":[{"name":"Carl","role":"delivery-lead","status":"active"},
     {"name":"Ed","role":"developer","status":"active"},{"name":"Tom","role":"tester","status":"active"},
     {"name":"Vera","role":"head-of-testing","status":"active"},{"name":"Old","role":"developer","status":"retired"},

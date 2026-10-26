@@ -321,7 +321,7 @@ test('a session whose root has no agents/roster.json shows NO status line and lo
   const sent: string[] = []
   const logged: string[] = []
   const status: string[] = []
-  // the house assistant's session, or a developer's started in ~/dev: no strength checkout here
+  // the house assistant's session, or a developer's started in ~/dev: no project checkout here
   const w = { ...world(), noRoster: true }
   stage(on, w, sent, logged, status)
   await $.session.start(START)

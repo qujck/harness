@@ -4,7 +4,7 @@
 
 Owner, 2026-09-28: "one when it fails, and one, however much later, when it's fixed — not every fail".
 
-PO RULING (Carl, 2026-09-28), SETTLED RECOVERY:
+PO RULING (the delivery lead, 2026-09-28), SETTLED RECOVERY:
   * [FAILING] is sent the moment a key starts failing.
   * [RECOVERED] is sent only once the key has stayed recovered for SETTLE (10 min).
   * A re-fail inside that window cancels the pending recovery silently; the failure email stands.
@@ -60,7 +60,7 @@ def step(state, op, now, key="", subject=None, body=None):
     # FAILING / RECOVERED / FLAPPING stream on any key that flaps with gaps longer than the settle.
     # Measured on unit-failed:strength-pr-refresh.service, 2026-09-29: FLAPPING 07:45, then a
     # RECOVERED+FAILING pair 39 minutes later. (infra_a_condition_written_by_two_senders_from_two_state_dirs_defeats_the_flap_guard;
-    # Carl's ruling: the owner's record wins over the PO's "until it settles".)
+    # the delivery lead's ruling: the owner's record wins over the PO's "until it settles".)
     quiet_needed = FLAP_WINDOW_S if s["announced"] == "flapping" else SETTLE_S
     if (s["state"] == "recovered" and s["recovered_since"] is not None
             and now - s["recovered_since"] >= quiet_needed and s["announced"] in ("failing", "flapping")):

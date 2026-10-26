@@ -322,7 +322,7 @@ CONTAINER="${LEDGER_CONTAINER:-${HARNESS_PROJECT}-ledger-db}"   # harness.env, v
 #   2. $AGENT_NAME                                        source: env       (last resort)
 #
 # Driven in THIS worktree, whose .agent/name says "Don":
-#   GIT_AUTHOR_EMAIL=cara@weaversite.co.uk  ->  Cara / session   <- the session beats the directory
+#   GIT_AUTHOR_EMAIL=cara@example.test  ->  Cara / session   <- the session beats the directory
 #   GIT_AUTHOR_EMAIL unset                  ->  Don  / file
 #
 # ⚠ MY FIRST VERSION SAID "prefers GIT_AUTHOR_NAME" — a variable read NOWHERE. My second said "the

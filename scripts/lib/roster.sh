@@ -476,7 +476,7 @@ fi
 # claim <id>` would otherwise be read as a flag for this library.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   _real_domain="$ROSTER_DOMAIN"    # the shipped roster is judged against the CONFIGURED domain (below)
-  ROSTER_DOMAIN=weaversite.co.uk   # the fixtures below carry the seeded project's addresses; pin the rule to them
+  ROSTER_DOMAIN=example.test   # the fixtures below carry addresses on this domain; pin the rule to them
   set -uo pipefail
   fails=0
   t() { local want="$1" desc="$2" got="$3"
@@ -484,15 +484,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
         else printf '  FAIL  %s\n        want %q\n        got  %q\n' "$desc" "$want" "$got"; fails=1; fi; }
 
   FX='{"agents":[
-    {"name":"Ed","email":"ed@weaversite.co.uk","role":"developer","status":"active"},
-    {"name":"Vera","email":"vera@weaversite.co.uk","role":"head-of-testing","status":"active"},
-    {"name":"Arnold","email":"arnold@weaversite.co.uk","role":"developer","status":"retired"}
+    {"name":"Ed","email":"ed@example.test","role":"developer","status":"active"},
+    {"name":"Vera","email":"vera@example.test","role":"head-of-testing","status":"active"},
+    {"name":"Arnold","email":"arnold@example.test","role":"developer","status":"retired"}
   ]}'
 
-  t Ed   'an address resolves to its name'        "$(printf '%s' "$FX" | roster_name_for_email ed@weaversite.co.uk)"
-  t Ed   'address matching is case-insensitive'   "$(printf '%s' "$FX" | roster_name_for_email Ed@Weaversite.CO.UK)"
+  t Ed   'an address resolves to its name'        "$(printf '%s' "$FX" | roster_name_for_email ed@example.test)"
+  t Ed   'address matching is case-insensitive'   "$(printf '%s' "$FX" | roster_name_for_email Ed@Example.TEST)"
   t ''   'an unrostered address resolves to nothing, never to a guess' \
-                                                  "$(printf '%s' "$FX" | roster_name_for_email nobody@weaversite.co.uk)"
+                                                  "$(printf '%s' "$FX" | roster_name_for_email nobody@example.test)"
   t ''   'an empty address resolves to nothing'   "$(printf '%s' "$FX" | roster_name_for_email '')"
   t head-of-testing 'the role comes from the register, not from behaviour' \
                                                   "$(printf '%s' "$FX" | roster_role_for_name Vera)"
@@ -505,7 +505,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   printf '%s' "$FX" | roster_known Arnold \
     && printf '  ok    a RETIRED name is still known — the name stays taken for ever\n' \
     || { printf '  FAIL  a retired name read as free\n'; fails=1; }
-  printf '%s' "$FX" | roster_email_known arnold@weaversite.co.uk \
+  printf '%s' "$FX" | roster_email_known arnold@example.test \
     && printf '  ok    …and so is a retired ADDRESS\n' \
     || { printf '  FAIL  a retired address read as free\n'; fails=1; }
   t retired 'and its status is reported honestly'  "$(printf '%s' "$FX" | roster_status_for_name Arnold)"
@@ -516,7 +516,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   printf '%s' "$FX" | roster_known Nobody \
     && { printf '  FAIL  an unknown name read as known — roster_known says yes to everything\n'; fails=1; } \
     || printf '  ok    NEGATIVE CONTROL: an unknown name is NOT known\n'
-  printf '%s' "$FX" | roster_email_known nobody@weaversite.co.uk \
+  printf '%s' "$FX" | roster_email_known nobody@example.test \
     && { printf '  FAIL  an unknown address read as known\n'; fails=1; } \
     || printf '  ok    NEGATIVE CONTROL: an unknown address is NOT known\n'
 
@@ -530,10 +530,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     "$(printf '%s' "$FX" | jq -c '. + {assistants: [{name: "Ada"}]}' | roster_panel_rows)"
 
   # ── who may AUTHOR a commit: agents AND humans ────────────────────────────
-  FXH='{"agents":[{"name":"Ed","email":"ed@weaversite.co.uk","role":"developer","status":"active"},
-                  {"name":"Arnold","email":"arnold@weaversite.co.uk","role":"developer","status":"retired"}],
+  FXH='{"agents":[{"name":"Ed","email":"ed@example.test","role":"developer","status":"active"},
+                  {"name":"Arnold","email":"arnold@example.test","role":"developer","status":"retired"}],
         "humans":[{"name":"Peter Parker","email":"qujck@outlook.com"}]}'
-  printf '%s' "$FXH" | roster_email_allowed ed@weaversite.co.uk \
+  printf '%s' "$FXH" | roster_email_allowed ed@example.test \
     && printf '  ok    an active agent may author\n' || { printf '  FAIL  agent refused\n'; fails=1; }
   # ⚠ THE OWNER'S OWN ADDRESS. Reusing the AGENT reader here would red every commit he makes.
   printf '%s' "$FXH" | roster_email_allowed qujck@outlook.com \
@@ -541,7 +541,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     || { printf '  FAIL  the owner cannot author — the gate would red his own commits\n'; fails=1; }
   # ⚠ A RETIRED AGENT MAY STILL AUTHOR. Their old commits exist and must stay valid; the name being
   # reserved is about onboarding, not about invalidating history.
-  printf '%s' "$FXH" | roster_email_allowed arnold@weaversite.co.uk \
+  printf '%s' "$FXH" | roster_email_allowed arnold@example.test \
     && printf '  ok    a retired agent may still author — their history stays valid\n' \
     || { printf '  FAIL  retiring an agent invalidated their existing commits\n'; fails=1; }
   # NEGATIVE CONTROL, or the allower allows everything.
@@ -555,8 +555,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   t 'Peter Parker' 'a human address resolves to a name for messages' \
     "$(printf '%s' "$FXH" | roster_name_for_any_email qujck@outlook.com)"
 
-  t ed@weaversite.co.uk    'the derived address lowercases the name'  "$(roster_email_of_name Ed)"
-  t saffron@weaversite.co.uk 'and does so for every name'             "$(roster_email_of_name Saffron)"
+  t ed@example.test    'the derived address lowercases the name'  "$(roster_email_of_name Ed)"
+  t saffron@example.test 'and does so for every name'             "$(roster_email_of_name Saffron)"
 
   # ── the writer, against a throwaway copy ────────────────────────────────
   _tmp="$(mktemp -d)"; trap 'rm -rf "$_tmp"' EXIT
@@ -567,7 +567,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     && printf '  ok    a new agent can be onboarded\n' \
     || { printf '  FAIL  roster_add refused a genuinely new name\n'; fails=1; }
   t developer 'and is readable immediately'   "$(roster_lookup_role Wren)"
-  t wren@weaversite.co.uk 'with the derived address' "$(roster_lookup_email Wren)"
+  t wren@example.test 'with the derived address' "$(roster_lookup_email Wren)"
 
   # ⚠ THE TWO REFUSALS. The second is the load-bearing one.
   roster_add Ed developer 2026-08-13 >/dev/null 2>&1 \
@@ -672,7 +672,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
 
   # ── the launch line's two shapes, from the facts alone (the tree-reading shape is driven in agent-onboard.sh) ──
   t 'bash team/agent-spawn.sh developer --name Cara --ticket <ticket-id>' "a developer's line is the delivery lead's spawn command" \
-    "$(roster_launch_line_for Cara developer cara@weaversite.co.uk)"
+    "$(roster_launch_line_for Cara developer cara@example.test)"
   t 'bash team/agent-spawn.sh tester --name Tom --ticket <ticket-id>' "a tester's line is the spawn command too" \
     "$(roster_launch_line_for Tom tester t.qa@example.test)"
   t '' 'an empty address on the row prints no line, never a derived one' "$(roster_launch_line_for Zed delivery-lead '' 2>/dev/null)"

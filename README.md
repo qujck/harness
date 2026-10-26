@@ -28,14 +28,13 @@ docs/roles/              # the four role prompts + the roster doc: PO · develop
 docs/runbooks/           # main-is-red: one owner, repair over revert, the repair lane
 docs/landed-children.txt # which template-epic children have landed (governs the "arrives with" markers)
 METHOD.md                # how to know your MEASUREMENT is sound — read before trusting a result
-PROGRESS.md              # FROZEN history — read it, never append (see progress/)
+PROGRESS.md              # FROZEN history — read it, never append
 DECISIONS.md             # append-only architecture log
 OBSERVABILITY.md         # L11 — optional observability next step (not yet wired)
 infra/ledger-db/         # the ticket store: ONE Postgres per box (compose, baseline schema, migrations)
 .github/workflows/       # ci.yml (route -> verify -> land, + repair) and hourly-full-suite.yml; docs/runbooks/ci-lanes.md
 agents/roster.json       # who may write to the ledger: GIT_AUTHOR_EMAIL -> name -> role (agents · machines · assistants)
-progress/, PROGRESS.md   # FROZEN history: a session entry is a ledger row (scripts/progress.sh new), never a file
-progress/                # session records: one file per session
+PROGRESS.md              # FROZEN history: a session entry is a ledger row (scripts/progress.sh new), never a file
 .gitattributes           # ⚠ sets NO merge driver, deliberately — see the file
 scripts/                 # THE PROCESS: the harness proper. Every other section depends on it; it depends on none of them
   init.sh                # clock in

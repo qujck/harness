@@ -3,8 +3,8 @@
 #
 # WHERE THE NUMBERS COME FROM. Claude Code hands its status-line script a JSON payload with the
 # session's context-window usage and the account's rate limits; the MODEL never sees that payload.
-# So the status-line script (~/dev/download/claude/statusline.sh, owner-configured) writes one small
-# JSON file per session to ~/.local/state/strength/context/<session_id>.json on every refresh
+# So the status-line script (the publisher, docs/context-publisher.md) writes one small
+# JSON file per session to ~/.local/state/<project>/context/<session_id>.json on every refresh
 # (about every 5 s), and this script renders them. Owner, 2026-09-28: "each agent should log their
 # current context where the other agents can see it."
 #
