@@ -10,11 +10,23 @@
 #     cannot be read, whose record is named <name>. This finds a session started by hand from the
 #     launch line, which has no tmux session of agent-spawn's making.
 # The record is what says whether it is mid-turn (`status`) and when it started (`startedAt`, ms).
+# A record counts only while its process is the session's own: Claude Code leaves a crashed session's record
+# behind, and its pid can be reused, so the process must have started no later than `startedAt` (a minute's
+# grace). A process that took the pid over started after the record was written.
 #
 # Needs: jq, roster.sh sourced first (roster_lookup_email, roster_email_of_name), HARNESS_PROJECT.
 
 # The tmux session and the worktree an agent's session uses: one name for both.
 agent_session_name() { printf '%s-%s\n' "${HARNESS_PROJECT:?}" "${1,,}"; }
+
+# agent_session_pid_since <pid> <startedAt-ms> -> 0 when the process started no later than the session did.
+agent_session_pid_since() {
+  local el
+  # ps's etime is [[dd-]hh:]mm:ss on Linux and macOS alike
+  el=$(ps -o etime= -p "$1" 2>/dev/null | awk '{ n = split($1, a, /[-:]/); s = a[n] + 60 * a[n-1]
+    if (n > 2) s += 3600 * a[n-2]; if (n > 3) s += 86400 * a[n-3]; print s }')
+  [[ "$el" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]] && (( $(date +%s) - el <= $2 / 1000 + 60 ))
+}
 
 agent_session_tmux_up() { # <name>
   command -v tmux >/dev/null 2>&1 || return 1
@@ -37,6 +49,7 @@ agent_session_record() { # <name>
     if [[ -n "$env_email" ]]; then [[ "${env_email,,}" == "${email,,}" ]] || continue
     else [[ -n "$rname" && "${rname,,}" == "${name,,}" ]] || continue; fi
     [[ "${started:-0}" =~ ^[0-9]+$ ]] || started=0
+    agent_session_pid_since "$pid" "$started" || continue
     (( started > best_t )) && { best_t=$started; best="$pid"$'\t'"$status"$'\t'"$started"; }
   done
   [[ -n "$best" ]] && printf '%s\n' "$best"
