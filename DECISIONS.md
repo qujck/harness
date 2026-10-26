@@ -521,3 +521,17 @@ process, not that project's furniture. Scrubbed in one pass, behaviour unchanged
 **Kept.** Dated decisions and their counts (a unit that failed 391 times in four days), the ticket slugs that
 name the fix a rule came from, and the project names inside DECISIONS.md entries: those are the history that
 explains a rule, and a template with no history explains nothing.
+
+## 2026-10-26 — A developer's ticket is checked before the spawn and its claim watched after
+
+**Decision.** The owner, on finding tickets left unassigned after their developers were started: "this stuff
+should be automatic - how do we make it something natural rather than something you have to remember".
+`team/agent-spawn.sh` now reads a developer's ticket row before starting anything and refuses a spawn the
+claim would refuse (no row, finished, ungroomed, held by another), and after the start watches the row until
+the developer's claim appears, for `AGENT_SPAWN_CLAIM_WAIT_S`, saying loudly and exiting 1 when it does not.
+A tester's ticket is left alone.
+
+**Why not claim for the developer.** The seeded project runs on one Jira account, so its spawn assigns the
+ticket to the owner and moves it to In Progress itself. Here every agent has its own identity and a claim is
+stamped with it (`scripts/lib/agent-name.sh`: a claim under another name is a record that matches nothing
+else), and the lock is a branch the developer pushes. So the spawn checks and watches; it never claims.

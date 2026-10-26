@@ -123,6 +123,14 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
   `init.sh` and tells you it is ready. A developer claims the ticket itself, because
   a claim carries the session's identity; never claim for it. A tester claims nothing. Route it the
   ticket by name and role, as with any agent.
+- **The ticket is checked, and the claim watched** (owner, 2026-10-26: "this stuff should be automatic").
+  Before a developer starts, the spawn reads the row: no row, a finished or ungroomed status, or another
+  holder refuses the spawn with the way out, so a developer is never started for a ticket it could not
+  claim. After the start it watches the row until the developer's claim is on it, for
+  `AGENT_SPAWN_CLAIM_WAIT_S` (600 s; 0 starts without watching), and if the claim has not appeared it
+  says so and exits 1 with the agent running: read the pane and tell the developer to claim, or bench
+  them. A ticket already that name's (a claim from an earlier session) starts at once. A tester's ticket
+  is neither read nor watched.
 - **Never a second ticket.** Never hand a developer or a tester a second ticket, or a check on another
   ticket's PR, even when it looks free. That work is a ticket of its own and gets its own agent. It is
   the README's WIP=1 (L07) applied to the people as well as the rows.

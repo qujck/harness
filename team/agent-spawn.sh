@@ -39,13 +39,23 @@
 #   tester     started whatever the line says; the line is information. Testers are not budget-gated.
 # The budget never picks the model.
 #
+# THE TICKET IS CHECKED BEFORE THE START, AND THE CLAIM AFTER (owner, 2026-10-26: "this stuff should be automatic").
+# A developer spawned for a ticket is a developer who will hold it, so the spawn reads the row first (ticket-row,
+# ticket-owner): no row, a finished or ungroomed status, or another holder refuses the spawn before anything
+# starts, with the way out; a row already this name's is fine (a claim from an earlier session). The developer
+# still claims it itself — a claim carries the session's identity — so after the start the spawn watches the row
+# until the claim appears, up to AGENT_SPAWN_CLAIM_WAIT_S (600; 0 = do not wait), and if it does not, says so
+# loudly and exits 1 with the agent running: an unclaimed ticket is work the board cannot see. A tester's
+# ticket is not read or watched. AGENT_SPAWN_LEDGER names a stand-in for scripts/ledger-db.sh (the self-test's).
+#
 # EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
 # time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line. That is
 # where an off-budget start shows who said yes; the start line prints the same.
 #
 # AGENT_SPAWN_BUDGET names a stand-in for agents-budget.sh (the self-test's hook, like agents-dash.sh's).
 #
-# Exit: 0 started (or a dry run said what it would start) · 1 refused · 2 a usage error.
+# Exit: 0 started (or a dry run said what it would start) · 1 refused, or started but the claim never appeared ·
+# 2 a usage error.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
@@ -62,6 +72,9 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok \"<the owner's words>\"] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
+LEDGER_SH="${AGENT_SPAWN_LEDGER:-bash $_here/../scripts/ledger-db.sh}"
+CLAIM_WAIT_S="${AGENT_SPAWN_CLAIM_WAIT_S:-600}"
+CLAIM_POLL_S="${AGENT_SPAWN_CLAIM_POLL_S:-5}"
 
 # PURE: are these the owner's words? Not blank; not another flag (--dry-run after --owner-ok must not become the
 # words, and start a real spawn); not the script's own "<their words>" placeholder pasted unedited; one line (a tab or
@@ -81,6 +94,24 @@ spawn_budget_rule() {
 
 # PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
 spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+)$ ]]; }
+# PURE: who holds the row, from a ticket-owner line. The database store answers `owner:<name>\tstood-down-by:<x>`;
+# the Jira store answers the assignee's name alone. $1 line -> the name, or nothing
+spawn_owner_of() { local f="${1%%$'\t'*}"; printf '%s' "${f#owner:}"; }
+# PURE: may this developer be started for this row? Mirrors feature-ticket.sh's claim rules, so a spawn that
+# would end in a refused claim is refused here, before an agent starts. $1 status · $2 holder · $3 name
+#   -> claimable | yours | refused:no-row | refused:finished:<st> | refused:not-selected:<st> | refused:held-by:<who>
+spawn_ticket_verdict() {
+  local st="$1" who="$2" name="$3"
+  [[ -n "$st" ]] || { printf 'refused:no-row'; return; }
+  case "$st" in
+    archived|passing|wont_do) printf 'refused:finished:%s' "$st"; return ;;
+    selected|in_progress) ;;
+    *) printf 'refused:not-selected:%s' "$st"; return ;;
+  esac
+  if [[ -n "$who" && "${who,,}" != "${name,,}" ]]; then printf 'refused:held-by:%s' "$who"
+  elif [[ -n "$who" ]]; then printf 'yours'
+  else printf 'claimable'; fi
+}
 # PURE: is this a model name Claude Code could take (an alias, a full id, a [1m]-style suffix)?
 spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$ ]]; }
 
@@ -125,6 +156,15 @@ spawn_self_test() {
   spawn_ticket_ok 'x;rm' && _t "a shell metacharacter is no ticket" 0 1 || _t "a shell metacharacter is no ticket" 1 1
   spawn_model_ok 'opus;rm' && _t "a model with ; is refused" 0 1 || _t "a model with ; is refused" 1 1
   spawn_model_ok 'opus[1m]' && _t "a [1m] model suffix is accepted" 0 0 || _t "a [1m] model suffix is accepted" 1 0
+  _t "owner: the database store's line gives the name" "$(spawn_owner_of $'owner:Ada\tstood-down-by:')" Ada
+  _t "owner: the database store's line with nobody gives nothing" "$(spawn_owner_of $'owner:\tstood-down-by:Ben')" ""
+  _t "owner: the Jira store's bare name gives the name" "$(spawn_owner_of 'Ada Lovelace')" "Ada Lovelace"
+  _t "verdict: a selected, unclaimed row is claimable" "$(spawn_ticket_verdict selected '' Ada)" claimable
+  _t "verdict: an in_progress row held by this name is yours" "$(spawn_ticket_verdict in_progress ada Ada)" yours
+  _t "verdict: a row held by another is refused, naming them" "$(spawn_ticket_verdict in_progress Ben Ada)" refused:held-by:Ben
+  _t "verdict: no row is refused" "$(spawn_ticket_verdict '' '' Ada)" refused:no-row
+  _t "verdict: a finished row is refused" "$(spawn_ticket_verdict archived '' Ada)" refused:finished:archived
+  _t "verdict: an ungroomed row is refused" "$(spawn_ticket_verdict not_started '' Ada)" refused:not-selected:not_started
   _t "rule: a developer on budget starts" "$(spawn_budget_rule developer 0)" start
   _t "rule: a developer over budget asks" "$(spawn_budget_rule developer 1)" ask
   _t "rule: a developer with no budget reading asks" "$(spawn_budget_rule developer 2)" ask
@@ -143,14 +183,31 @@ spawn_self_test() {
  {"name":"Cy","email":"cy@proj.local","role":"developer","status":"retired"},
  {"name":"Tess","email":"tess@proj.local","role":"tester","status":"active"}]}
 JSON
+  # new-session is the agent starting: when $T/ledger.claims-on-start exists, a started developer (its prompt
+  # says to claim) "claims" the ticket at once, as a real one would after init; without it the row stays as it was.
   cat > "$T/bin/tmux" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$T/tmux.log"
 case "\$1" in
   has-session) grep -qxF -- "\${3#=}" "$T/tmux.sessions" 2>/dev/null ;;
-  new-session) printf '%s\n' "\$4" >> "$T/tmux.sessions" ;;
+  new-session) printf '%s\n' "\$4" >> "$T/tmux.sessions"
+               if [ -e "$T/ledger.claims-on-start" ] && grep -q 'feature-ticket.sh claim' <<<"\$*"; then
+                 n=\$(sed -n 's/.*--name \([A-Za-z]*\).*/\1/p' <<<"\$*"); printf 'in_progress\t%s\n' "\$n" > "$T/ledger.state"
+               fi ;;
 esac
 EOF
+  # a stand-in ledger-db.sh: the row is $T/ledger.state ("status<TAB>holder"); $T/ledger.down makes it unreachable
+  cat > "$T/bin/ledger" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$T/ledger.log"
+[ -e "$T/ledger.down" ] && { echo "ledger-db: cannot reach the ledger" >&2; exit 3; }
+IFS=\$'\t' read -r st ow < "$T/ledger.state"
+case "\$1" in
+  ticket-row)   printf '%s\n' "\$st" ;;
+  ticket-owner) printf 'owner:%s\tstood-down-by:\n' "\$ow" ;;
+esac
+EOF
+  printf 'selected\t\n' > "$T/ledger.state"; touch "$T/ledger.claims-on-start"
   printf '#!/usr/bin/env bash\necho "stand-in claude: never run by the self-test" >&2; exit 1\n' > "$T/bin/claude"
   # a stand-in agents-budget.sh, steered by $T/budget.mode: on / over / (absent) none set
   cat > "$T/bin/budget" <<EOF
@@ -161,12 +218,13 @@ case "\$(cat "$T/budget.mode" 2>/dev/null)" in
   *)    echo "budget  none set (AGENT_WEEK_PCT_PER_HOUR in harness.env): ask the owner"; exit 2 ;;
 esac
 EOF
-  chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget"
+  chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/ledger"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
             AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="$T/spawns.tsv" \
+            AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
             bash "$SELF" "$@" 2>&1; }
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
@@ -260,8 +318,8 @@ EOF
   spawn_owner_ok_text_ok '  -yes' && _t "a leading dash after blanks is still a flag, not words" 0 1 \
     || _t "a leading dash after blanks is still a flag, not words" 1 1
 
-  # a real start, on budget, with the role's model from harness.env
-  printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  # a real start, on budget, with the role's model from harness.env; the row is selected and unclaimed again
+  printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"; printf 'selected\t\n' > "$T/ledger.state"
   out="$(run developer --ticket HAR-12)"; rc=$?
   _t "a spawn exits 0" "$rc" 0
   _has "  and says how to watch it" "$out" "tmux attach -t =proj-ada"
@@ -275,7 +333,52 @@ EOF
   _has "  on the role's model (AGENT_MODEL_DEV)" "$line" "--model sonnet"
   _has "  told to read its role and init" "$line" "Read docs/roles/developer.md and AGENTS.md first, then run \`bash scripts/init.sh\`"
   _has "  and to claim the ticket itself" "$line" "bash scripts/feature-ticket.sh claim HAR-12"
+  _has "  the row was read before the start" "$out" "ticket  HAR-12 is selected, unclaimed: Ada claims it after init"
+  _has "  and the claim was seen after it" "$out" "claimed HAR-12 is Ada's"
   _t "a spawn writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
+
+  # ── THE TICKET IS CHECKED BEFORE THE START, AND THE CLAIM AFTER (owner, 2026-10-26) ──
+  : > "$T/tmux.log"; : > "$T/ledger.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  for row in $'\t' $'archived\t' $'not_started\t' $'in_progress\tBen'; do
+    printf '%s\n' "$row" > "$T/ledger.state"
+    out="$(run developer --ticket HAR-12 --dry-run)"; rc=$?
+    _t "a row that is '$row' refuses the spawn" "$rc" 1
+  done
+  printf '\n' > "$T/ledger.state"; out="$(run developer --ticket HAR-12)"
+  _has "  no row says to raise it" "$out" "no row for HAR-12 on the ledger"
+  printf 'archived\t\n' > "$T/ledger.state"; out="$(run developer --ticket HAR-12)"
+  _has "  a finished row says so" "$out" "HAR-12 is 'archived': finished, not claimable"
+  printf 'not_started\t\n' > "$T/ledger.state"; out="$(run developer --ticket HAR-12)"
+  _has "  an ungroomed row says who grooms" "$out" "ask the PO to groom it to selected first"
+  printf 'in_progress\tBen\n' > "$T/ledger.state"; out="$(run developer --ticket HAR-12)"
+  _has "  another's row names the holder" "$out" "HAR-12 is held by Ben"
+  _t "  none of them started anything" "$(grep -c '^new-session' "$T/tmux.log")" 0
+  _t "  nor recorded a spawn" "$(awk -F'\t' '$4=="HAR-12"' "$T/spawns.tsv" | wc -l)" "$(awk -F'\t' '$4=="HAR-12"' "$T/spawns.tsv" | wc -l)"
+  touch "$T/ledger.down"; out="$(run developer --ticket HAR-12 --dry-run)"; rc=$?
+  _t "an unreachable ledger refuses: cannot tell is not free" "$rc" 1
+  _has "  and says so" "$out" "could not read the ledger for HAR-12"
+  rm -f "$T/ledger.down"
+  printf 'in_progress\tAda\n' > "$T/ledger.state"; : > "$T/tmux.log"
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a row already this name's starts without waiting" "$rc" 0
+  _has "  and says the claim is from before" "$out" "HAR-12 is already Ada's"
+  _t "  the agent started" "$(grep -c '^new-session' "$T/tmux.log")" 1
+  printf 'selected\t\n' > "$T/ledger.state"; rm -f "$T/ledger.claims-on-start"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  before=$(wc -l < "$T/spawns.tsv")
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a claim that never appears exits 1 with the agent running" "$rc" 1
+  _has "  and says so loudly, naming agent, ticket and the way out" "$out" "Ada has NOT claimed HAR-12 after 2s"
+  _has "  with how to tell them" "$out" "bash scripts/feature-ticket.sh claim HAR-12"
+  _t "  the agent did start" "$(grep -c '^new-session' "$T/tmux.log")" 1
+  _t "  and the spawn is recorded" "$(( $(wc -l < "$T/spawns.tsv") - before ))" 1
+  printf 'selected\t\n' > "$T/ledger.state"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(CW=0 run developer --ticket HAR-12)"; rc=$?
+  _t "AGENT_SPAWN_CLAIM_WAIT_S=0 starts without watching" "$rc" 0
+  _has "  and says the claim is unwatched" "$out" "not watched (AGENT_SPAWN_CLAIM_WAIT_S=0)"
+  touch "$T/ledger.claims-on-start"; printf 'selected\t\n' > "$T/ledger.state"; : > "$T/ledger.log"
+  run tester --ticket HAR-12 >/dev/null
+  _t "a tester's ticket is neither read nor watched" "$(grep -c . "$T/ledger.log")" 0
+  printf 'proj-ben\nproj-ada\n' > "$T/tmux.sessions"   # as after the real start above: Ben and Ada running
 
   # a project root Claude Code has not been trusted in: refused before anything starts
   cp "$T/claude/.claude.json" "$T/trusted.json"; printf '{"projects":{}}\n' > "$T/claude/.claude.json"
@@ -391,6 +494,23 @@ CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
 CMD+=(--remote-control "$SESSION" "$PROMPT")
 WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}"
 
+# The ticket, for a developer: the row must be one this developer could claim, or nothing starts.
+TICKET_LINE="" CLAIM_STATE=""
+if [[ "$ROLE" == developer && -n "$TICKET" ]]; then
+  ROW_STATUS="$($LEDGER_SH ticket-row "$TICKET" 2>/dev/null)" \
+    || { printf 'agent-spawn: could not read the ledger for %s: CANNOT TELL, not free; nothing started.\n' "$TICKET" >&2; exit 1; }
+  ROW_OWNER="$(spawn_owner_of "$($LEDGER_SH ticket-owner "$TICKET" 2>/dev/null)")"
+  VERDICT_T="$(spawn_ticket_verdict "$ROW_STATUS" "$ROW_OWNER" "$NAME")"
+  case "$VERDICT_T" in
+    claimable) TICKET_LINE="ticket  $TICKET is $ROW_STATUS, unclaimed: $NAME claims it after init" ;;
+    yours)     TICKET_LINE="ticket  $TICKET is already $NAME's (a claim from an earlier session)"; CLAIM_STATE=yours ;;
+    refused:no-row)        echo "agent-spawn: no row for $TICKET on the ledger: raise it first (ledger-db.sh raise <json>); nothing started." >&2; exit 1 ;;
+    refused:finished:*)    echo "agent-spawn: $TICKET is '${VERDICT_T##*:}': finished, not claimable; nothing started." >&2; exit 1 ;;
+    refused:not-selected:*) echo "agent-spawn: $TICKET is '${VERDICT_T##*:}': ask the PO to groom it to selected first; nothing started." >&2; exit 1 ;;
+    refused:held-by:*)     echo "agent-spawn: $TICKET is held by ${VERDICT_T#refused:held-by:}, so $NAME could not claim it; nothing started." >&2; exit 1 ;;
+  esac
+fi
+
 # The budget line, and what it means for THIS role (header: developers are gated, testers are not).
 BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
@@ -401,6 +521,7 @@ if (( DRY )); then
   printf '  start exactly this one with: bash team/agent-spawn.sh %s --name %s%s%s%s\n' \
     "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   printf '  first prompt: %s\n' "$PROMPT"
+  [[ -z "$TICKET_LINE" ]] || printf '%s\n' "$TICKET_LINE"
   printf '%s\n' "$BUDGET_LINE"
   case "$RULE" in
     start) printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n' ;;
@@ -431,3 +552,26 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAM
 printf 'started %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"
+[[ -z "$TICKET_LINE" ]] || printf '  %s\n' "$TICKET_LINE"
+
+# The claim: the developer's own, watched here until it is on the row. An unclaimed ticket is work the board
+# cannot see, so a claim that never appears is said loudly, and the exit says it too; the agent keeps running.
+if [[ "$ROLE" == developer && -n "$TICKET" && "$CLAIM_STATE" != yours ]]; then
+  if (( CLAIM_WAIT_S <= 0 )); then
+    printf '  claim   %s not watched (AGENT_SPAWN_CLAIM_WAIT_S=0): check the row yourself: bash scripts/ledger-db.sh ticket-owner %s\n' "$TICKET" "$TICKET"
+  else
+    waited=0 holder=""
+    while :; do
+      holder="$(spawn_owner_of "$($LEDGER_SH ticket-owner "$TICKET" 2>/dev/null)")"
+      [[ "${holder,,}" != "${NAME,,}" ]] || { printf '  claimed %s is %s'"'"'s, after %ss\n' "$TICKET" "$NAME" "$waited"; break; }
+      if [[ -n "$holder" ]]; then
+        printf 'agent-spawn: %s was claimed by %s, not %s, while %s was starting. Two agents on one ticket: sort it out now.\n' "$TICKET" "$holder" "$NAME" "$NAME" >&2; exit 1
+      fi
+      (( waited < CLAIM_WAIT_S )) || {
+        printf 'agent-spawn: %s has NOT claimed %s after %ss: the row is still unclaimed and the board does not show the work.\n' "$NAME" "$TICKET" "$waited" >&2
+        printf '  Read the pane (tmux attach -t =%s). Tell %s, as developer, to claim it: bash scripts/feature-ticket.sh claim %s. Or bench them.\n' "$SESSION" "$NAME" "$TICKET" >&2
+        exit 1; }
+      sleep "$CLAIM_POLL_S"; waited=$(( waited + CLAIM_POLL_S ))
+    done
+  fi
+fi
