@@ -535,3 +535,25 @@ A tester's ticket is left alone.
 ticket to the owner and moves it to In Progress itself. Here every agent has its own identity and a claim is
 stamped with it (`scripts/lib/agent-name.sh`: a claim under another name is a record that matches nothing
 else), and the lock is a branch the developer pushes. So the spawn checks and watches; it never claims.
+
+## 2026-10-26 — Every spawn says why its model (ported from the seeded project)
+
+**Decision.** The owner, on the delivery lead's model choices going unrecorded: "we aren't capturing the
+decision and the reason each time - can we?", and for developers as well as testers, "both please".
+`team/agent-spawn.sh` takes `--why "<reason>"`, the reason for the model the agent starts on, and a real spawn
+without it is a usage error that starts nothing; the words check `--owner-ok` uses applies, so a flag, blanks,
+a second line or the `<placeholder>` pasted unedited are refused. The reason is the spawn record's ninth
+column and is printed on the start line. A dry run without it still runs and says the real spawn needs it.
+
+**What differs from the seeded project.** There a real spawn must also name `--model`. Here the role's
+`AGENT_MODEL_*` from `harness.env` still applies without one: the reason is recorded either way, and the
+settings keep their meaning.
+
+**Not ported, and why.** Two of the seeded project's changes the same day are about its shared byobu grid: a
+benched agent's pane is left as a spare placeholder rather than closed, and re-laying out a window closes
+the spares it no longer needs, so a bench shrinks the grid by whole columns. The harness gives each agent
+its own tmux session (`team/agent-bench.sh` stops it), so there is no shared grid to lay out. Its spawn
+assigning the ticket in Jira is covered here by the ledger check and claim watch above.
+
+The change sits in `team/`, where the sectioned layout of the same day put the spawn.
+

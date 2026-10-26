@@ -137,9 +137,12 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 - **The work picks the model, ticket by ticket, never the cost.** Name it on every spawn with `--model`:
   the routine model for routine work, the stronger one where judgement carries the risk (production
   data, isolation between clients, anything that moves money, the first round on a new feature, a
-  ticket whose spec is unclear). Say which and why in the routing message, e.g. *"Wren, as tester, on
-  the stronger model: the first round of a new feature"*. Without `--model` the agent gets its role's
-  `AGENT_MODEL_DEV` / `AGENT_MODEL_TESTER` from `harness.env` (empty is the account's default).
+  ticket whose spec is unclear). Give the reason on the spawn itself, `--why "<reason>"`, developer or
+  tester (owner, 2026-10-26: "both please"): a real spawn without it is refused, and the spawn record
+  keeps it beside the model, so the choices can be looked back on. Say the same in the routing message,
+  e.g. *"Wren, as tester, on the stronger model: the first round of a new feature"*. Without `--model`
+  the agent gets its role's `AGENT_MODEL_DEV` / `AGENT_MODEL_TESTER` from `harness.env` (empty is the
+  account's default); `--why` still says why that model.
 - **When no name is free**, the spawn refuses: bench an agent whose ticket has merged, or onboard
   another and commit the roster. Never edit the roster by hand to make room.
 - **Stopping one.** As soon as the ticket's PR has merged (not later), or the ticket is dropped or

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok "<words>"] [--dry-run]
+#   bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--dry-run]
 #   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -39,6 +39,11 @@
 #   tester     started whatever the line says; the line is information. Testers are not budget-gated.
 # The budget never picks the model.
 #
+# EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26, for developers and testers: "both please"). --why
+# "<reason>" is the lead's reason for the model the agent starts on, whether named with --model or left to the
+# role's: "first round of a new feature", "routine retest of a one-line fix". A real spawn without it is a usage
+# error (exit 2) and starts nothing; the same words check as --owner-ok applies. A dry run without it says so.
+#
 # THE TICKET IS CHECKED BEFORE THE START, AND THE CLAIM AFTER (owner, 2026-10-26: "this stuff should be automatic").
 # A developer spawned for a ticket is a developer who will hold it, so the spawn reads the row first (ticket-row,
 # ticket-owner): no row, a finished or ungroomed status, or another holder refuses the spawn before anything
@@ -49,8 +54,9 @@
 # ticket is not read or watched. AGENT_SPAWN_LEDGER names a stand-in for scripts/ledger-db.sh (the self-test's).
 #
 # EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
-# time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line. That is
-# where an off-budget start shows who said yes; the start line prints the same.
+# time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line · why that
+# model. That is where an off-budget start shows who said yes, and every start why it runs on its model; the
+# start line prints the same.
 #
 # AGENT_SPAWN_BUDGET names a stand-in for agents-budget.sh (the self-test's hook, like agents-dash.sh's).
 #
@@ -69,7 +75,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] [--owner-ok \"<the owner's words>\"] [--dry-run]"
+USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 LEDGER_SH="${AGENT_SPAWN_LEDGER:-bash $_here/../scripts/ledger-db.sh}"
@@ -225,7 +231,8 @@ EOF
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
             AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="$T/spawns.tsv" \
             AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
-            bash "$SELF" "$@" 2>&1; }
+            bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
+  local WHYARGS=(--why "routine test")   # every run in this test says why its model, unless a test empties it
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
   out=""; for _ in 1 2 3 4 5 6; do out+="$(run developer --ticket HAR-12 --dry-run)"$'\n'; done
@@ -416,6 +423,27 @@ EOF
   _t "with no model set, no --model is passed" "$(grep -c -- '--model' <<<"$line")" 0
   _has "with no ticket, it asks the lead for one" "$line" "ask which ticket is yours"
 
+  # ── EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26) ──
+  _t "the record's last column is why that model" "$(awk -F'\t' 'END{print $9}' "$T/spawns.tsv")" "routine test"
+  printf 'on\n' > "$T/budget.mode"; printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
+  out="$(WHYARGS=(); run tester --ticket HAR-12 --model opus --why 'first round of a new feature')"
+  _has "the start line says the model and why" "$out" "on opus (first round of a new feature)"
+  printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  WHYARGS=()
+  out="$(run tester --ticket HAR-12 --model opus)"; rc=$?
+  _t "a real spawn without --why is a usage error" "$rc" 2
+  _has "  saying what it needs" "$out" 'a real spawn says why it runs on its model'
+  for w in '<why that model>' '  ' '--dry-run' $'two\nlines'; do
+    out="$(run tester --ticket HAR-12 --model opus --why "$w")"; rc=$?
+    _t "  --why $(printf %q "$w") is not a reason" "$rc" 2
+  done
+  _t "  and none of them started or recorded anything" "$(grep -c '^new-session' "$T/tmux.log")/$(wc -l < "$T/spawns.tsv")" "0/$before"
+  out="$(run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "a dry run without --why still runs" "$rc" 0
+  _has "  and says the real spawn needs it" "$out" "the real spawn needs --why"
+  _has "  with the slot in the start line" "$out" '--why "<why that model>"'
+  WHYARGS=(--why "routine test")
+
   # a session started by hand from the launch line (no tmux session of ours) still counts as running
   : > "$T/tmux.sessions"
   GIT_AUTHOR_EMAIL=ada@proj.local sleep 60 & child=$!
@@ -436,7 +464,7 @@ if selftest_is_flag "${1:-}"; then
   spawn_self_test; exit $?
 fi
 
-ROLE="" WANT="" TICKET="" MODEL="" OWNER_OK="" DRY=0
+ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" DRY=0
 while (( $# )); do
   case "$1" in
     developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
@@ -447,12 +475,19 @@ while (( $# )); do
                   || { printf "agent-spawn: --owner-ok needs the owner's words on one line, and got %q\n" "$OWNER_OK" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=$2; shift ;;
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
+    --why)    [[ $# -ge 2 ]] || { echo "agent-spawn: --why needs the reason for the model" >&2; echo "$USAGE" >&2; exit 2; }
+              WHY=$2; shift
+              spawn_owner_ok_text_ok "$WHY" \
+                || { printf 'agent-spawn: --why needs the reason for the model on one line, and got %q\n' "$WHY" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --dry-run) DRY=1 ;;
     *) printf 'agent-spawn: unknown argument: %s\n%s\n' "$1" "$USAGE" >&2; exit 2 ;;
   esac
   shift
 done
 [[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
+(( DRY )) || [[ -n "$WHY" ]] \
+  || { printf 'agent-spawn: a real spawn says why it runs on its model: --why "<the reason for that model>"\n%s\n' "$USAGE" >&2; exit 2; }
+WHY_ARG=""; [[ -n "$WHY" ]] && WHY_ARG=" --why $(printf '%q' "$WHY")"
 [[ -z "$TICKET" ]] || spawn_ticket_ok "$TICKET" \
   || { printf 'agent-spawn: %q is not a ticket id (a ledger id like feat_x_y, or a Jira key like HAR-12)\n' "$TICKET" >&2; exit 2; }
 if [[ -z "$MODEL" ]]; then
@@ -518,8 +553,10 @@ case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell 
 
 if (( DRY )); then
   printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
-  printf '  start exactly this one with: bash team/agent-spawn.sh %s --name %s%s%s%s\n' \
-    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
+  printf '  start exactly this one with: bash team/agent-spawn.sh %s --name %s%s%s%s%s\n' \
+    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "${WHY_ARG:- --why \"<why that model>\"}" \
+    "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
+  [[ -n "$WHY" ]] || printf '  the real spawn needs --why: the reason for the model it starts on.\n'
   printf '  first prompt: %s\n' "$PROMPT"
   [[ -z "$TICKET_LINE" ]] || printf '%s\n' "$TICKET_LINE"
   printf '%s\n' "$BUDGET_LINE"
@@ -534,7 +571,7 @@ fi
 if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
-  printf '  their words on the line: bash team/agent-spawn.sh developer --name %s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" >&2
+  printf '  their words on the line: bash team/agent-spawn.sh developer --name %s%s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
   printf '  (a tester is not budget-gated and starts regardless)\n' >&2
   exit 1
 fi
@@ -547,9 +584,9 @@ tmux has-session -t "=$SESSION" 2>/dev/null \
   || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
 # The record: who was started, against which budget line, on whose word.
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" >> "$SPAWN_LOG" \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
-printf 'started %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
+printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"
 [[ -z "$TICKET_LINE" ]] || printf '  %s\n' "$TICKET_LINE"
