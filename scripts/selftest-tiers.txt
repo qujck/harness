@@ -69,3 +69,5 @@ team/lib/agent-session.sh	nowhere	a sourced helper with no flag of its own; its 
 team/lib/week-usage.sh	nowhere	a sourced library: its arms run in team/agents-budget.sh --self-test and the panel's
 scripts/check-tooling-hints-never-say-closes.sh	verify
 scripts/check-ci-run-pipes-fail.sh	verify
+team/activity-hook.sh	verify
+team/install-claude-code.sh	verify

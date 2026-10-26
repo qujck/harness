@@ -11,8 +11,18 @@
 set -uo pipefail
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../scripts/lib" && pwd)/harness-env.sh" 2>/dev/null || true
 DIR="${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/context}"
+ACT="${ACTIVITY_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/activity}"
 payload="$(cat)"
 sid="$(jq -r '.session_id // "unknown"' <<<"$payload")"
+# What the session is doing, from the file team/activity-hook.sh keeps ("<state> <epoch>"): working,
+# waiting or idle, and for idle how long. Without the hooks the row says working, as the payload
+# itself cannot tell.
+activity="${CLAUDE_ACTIVITY:-working}"; idle_s=null
+if [ -r "$ACT/$sid" ]; then
+  read -r _st _at < "$ACT/$sid" 2>/dev/null
+  case "$_st" in working|waiting|idle) activity=$_st ;; esac
+  if [ "$activity" = idle ] && [ -n "${_at:-}" ] && [ "$_at" -le "$(date +%s)" ] 2>/dev/null; then idle_s=$(( $(date +%s) - _at )); fi
+fi
 # the agent's NAME comes from the session (GIT_AUTHOR_EMAIL -> roster), the same source every write uses
 name="$(cd "$(dirname -- "${BASH_SOURCE[0]}")/.." && source scripts/lib/agent-name.sh 2>/dev/null && agent_name_resolved 2>/dev/null || true)"
 mkdir -p "$DIR"
@@ -39,7 +49,7 @@ window="${cw:-null}"
 if [ -n "$cap" ] && [ "$cap" -gt 0 ] 2>/dev/null && [ -n "$cw" ] && [ "$cap" -lt "$cw" ] 2>/dev/null; then window=$cap; fi
 jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%TZ)" --arg cwd "$(pwd)" \
    --arg wt "$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename)" \
-   --arg activity "${CLAUDE_ACTIVITY:-working}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
+   --arg activity "$activity" --argjson idle_s "$idle_s" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
    --argjson window "$window" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
@@ -50,6 +60,6 @@ jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%T
     tokens:  { output_total: (if $has_tokens == "1" then $total else null end) },
     week:    { used_pct: (.rate_limits.seven_day.used_percentage // null) },
     five_hour: { used_pct: (.rate_limits.five_hour.used_percentage // null) },
-    activity: $activity }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv -f "$DIR/$sid.json.tmp" "$DIR/$sid.json"
+    activity: $activity, idle_s: $idle_s }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv -f "$DIR/$sid.json.tmp" "$DIR/$sid.json"
 # the status line itself: what the person sees
 printf '%s · ctx %s%% left · week %s%%\n' "${name:-unnamed}" "$(jq -r '.context_window.remaining_percentage // "?"' <<<"$payload")" "$(jq -r '.rate_limits.seven_day.used_percentage // "?"' <<<"$payload")"

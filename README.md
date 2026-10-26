@@ -70,6 +70,8 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
   agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
+  activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
+  install-claude-code.sh # once per box: adds the status line, the mods folder and the activity hooks to ~/.claude/settings.json, asking first
   lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   lib/week-usage.sh      # the account's week so far, from the published rows (sourced by the budget and the panel)
 ops/                     # alerts and timers on the box that runs the stack (optional: systemd user units, mail)
@@ -193,15 +195,19 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    bash scripts/init.sh   # also installs the git pre-commit hook
    ```
 
-4. **Load the mods, once per box** (`/configure` offers this too). Name the `mods` folder in the
-   `env` block of `~/.claude/settings.json` — the user file, not the repo's, because the mods act
-   per session on the box rather than per repo — and set the self-compact soft point:
+4. **Wire Claude Code, once per box** (`/configure` offers this too):
    ```bash
-   # ~/.claude/settings.json → { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/your-repo/claude-code" } }
+   bash team/install-claude-code.sh   # shows what it adds, asks, keeps the old file as settings.json.bak
    mkdir -p ~/.config/self-compact && echo '{ "default": 200000, "agents": {} }' > ~/.config/self-compact/compact-after.json
    ```
-   `default` is the token count at which an agent is nudged to compact itself (200k against a
-   300k `autoCompactWindow`); `agents` overrides it by launch-line name. Each mod's README has the rest.
+   It adds three things to `~/.claude/settings.json`, the user file rather than the repo's, because all
+   three act per session on the box: the status line `team/statusline-publish.sh`, which publishes each
+   session's row; `CLAUDE_CODE_PLUGIN_DIRS` naming the `claude-code` folder, so the three mods load; and
+   hooks calling `team/activity-hook.sh` on prompts, tool calls, permission requests and stops, so the row
+   says whether a session is working, waiting or idle. Nothing the person already set is replaced. The
+   `compact-after.json` line sets the self-compact soft point: `default` is the token count at which an agent
+   is nudged to compact itself (200k against a 300k `autoCompactWindow`); `agents` overrides it by launch-line
+   name. Each mod's README has the rest.
    ⚠ `autoCompactWindow` in `settings.json` reaches only sessions started afterwards. A running
    session keeps the window it started with until `/autocompact <n>` is typed into it (the argument
    form applies at once, no picker), and auto-compact fires about 33k short of whatever window the
@@ -234,7 +240,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    A team with its own status line, instead of the kit's `statusline-publish.sh`, shows `no reading yet`
    and a blank burn column until it writes `context.used`, `context.window` (the `/autocompact` cap when
    one applies), `tokens.output_total` (a running total, kept with its last pair in `.<session_id>.tokens`
-   beside the row) and `five_hour.used_pct`. The field table and the example publisher in that document
+   beside the row) and `five_hour.used_pct`, and it reads `activity` and `idle_s` from the file
+   `team/activity-hook.sh` keeps, or the nudger never sees an idle agent. The field table and the example publisher in that document
    are the reference.
 
 ### The manual path (other agents, or no Claude Code)

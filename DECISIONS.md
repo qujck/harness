@@ -423,3 +423,25 @@ read from `~/.claude/sessions`; the harness keeps `GIT_AUTHOR_NAME` from the lau
 rule. Its nudges carry each agent's ticket from a per-agent ticket file; here the ticket is a ledger claim and
 the nudge text stays as it was. Its `compact-me.sh` parses the self-test flag by hand; the harness copy keeps the
 shared `selftest-flag.sh` contract.
+
+## 2026-10-26 — Activity comes from hooks, and Claude Code is wired in one command (ported from the seeded project)
+
+**Decision.** The context row's `activity` was whatever the publisher guessed, which was `working` for every
+session, so the nudger never saw an idle agent and the panel could not tell a blocked session from a busy one.
+Now `team/activity-hook.sh`, called from Claude Code's hooks, records each session as working (a prompt or a
+tool call), waiting (a permission prompt, or a question to the person) or idle (a stop), with the time, in one
+file per session under `~/.local/state/<project>/activity`; a session's end removes it. The publisher reads that
+file into `activity` and `idle_s`. A transcript cannot give this: a long tool call or a permission prompt writes
+nothing to it, so a busy or blocked agent read as idle.
+
+`team/install-claude-code.sh` wires Claude Code on a box once: the status line, the `claude-code` mods folder in
+`CLAUDE_CODE_PLUGIN_DIRS`, and the activity hooks on the eight events, added to the user's `settings.json`
+alongside what is there. It never replaces a value the person set, shows what it would add, asks, and keeps the
+old file as `.bak`; `--dry-run` only looks, `--yes` is for a script. Both scripts carry `--self-test` and have
+`verify` rows; the merge is a pure function tested on its own, and the installer is tested against a throwaway
+`CLAUDE_CONFIG_DIR`.
+
+**Not ported.** The seeded project's installer also writes a roster, installs byobu bindings, copies scripts
+into `~/.claude/bin` and installs systemd or launchd timers for its record archiver; those belong to its own
+roster and layout, which the harness does not share. Its status line draws a full bar (activity, ticket, a
+running-gates row); the harness publisher remains the example it was, now carrying the activity.
