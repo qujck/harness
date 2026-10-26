@@ -25,7 +25,7 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 | `ts` | when written, UTC; a row older than **120 s** renders as `(stale)` |
 | `context.remaining_pct` | what the model has left in its window |
 | `week.used_pct` | the account's weekly usage — the owner's to spend |
-| `activity` / `idle_s` | `working` or `idle` (+ seconds idle), from the publisher |
+| `activity` / `idle_s` | `working`, `waiting` (a permission prompt or a question to the person) or `idle` (+ seconds idle), from the file `team/activity-hook.sh` keeps per session under `ACTIVITY_DIR` (default `~/.local/state/<project>/activity`), written by the hooks `team/install-claude-code.sh` wires; without them the publisher says `working` |
 | `five_hour.used_pct` | the account's five-hour usage, when the payload carries it |
 | `model` | the model's display name (`Opus 5.5`); the panel shows `O5.5` |
 | `effort` | the session's reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`) from the payload's `effort.level`; null for a model without one. The panel shows its first letter, `X` for max |

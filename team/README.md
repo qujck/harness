@@ -3,7 +3,10 @@
 The scripts that run a team of agent sessions side by side on one machine: start a developer or tester for one
 ticket (`agent-spawn.sh`), stop it when the ticket has merged (`agent-bench.sh`), decide whether the week's usage
 allows another start (`agents-budget.sh`), and watch the team (`agents-dash.sh`, `agent-context.sh`, fed by the
-status-line row `statusline-publish.sh` publishes; the row's contract is `docs/context-publisher.md`).
+status-line row `statusline-publish.sh` publishes; the row's contract is `docs/context-publisher.md`). The row's
+`activity` comes from `activity-hook.sh`, which the hooks call on every prompt, tool call, permission request and
+stop, so a session blocked on a prompt or busy in a long tool call is not taken for idle. `install-claude-code.sh`
+wires all three into `~/.claude/settings.json` once per box, asking first.
 
 **Needs.** The process section (`scripts/`: the roster, `harness.env`, the ledger's claims board), tmux, and a
 Claude subscription whose usage the status line can read. Nothing in `scripts/` depends on this section.
