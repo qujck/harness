@@ -102,9 +102,10 @@ EOF
     printf 'proj-ada\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; : > "$T/ledger.log"; rm -f "$T/ledger.down"
     printf 'feat_other|ci|Ben\n' > "$T/board"; printf '[{"agent":"Ada","title":"done"}]\n' > "$T/entries"
     [[ -n "$child" ]] && kill -0 "$child" 2>/dev/null || { GIT_AUTHOR_EMAIL=ada@proj.local sleep 60 & child=$!; }
-    printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":1792156800000}\n' "$child" > "$T/claude/sessions/$child.json"
+    printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":%s}\n' "$child" "$started" > "$T/claude/sessions/$child.json"
   }
-  since="$(jq -nr '1792156800 | todate')"
+  local started; started=$(( $(date +%s) * 1000 ))
+  since="$(jq -nr --argjson s "$(( started / 1000 ))" '$s | todate')"
 
   reset
   out="$(run Nobody)"; rc=$?;   _t "a name not on the roster is refused" "$rc" 1
@@ -148,6 +149,15 @@ EOF
   _has "  and says what stays" "$out" "benched Ada"
   _t "  and writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
   _t "  and keeps the worktree" "$(git -C "$T/repo" worktree list | grep -c '/proj-ada ')" 1
+
+  # a crashed session's record left behind, its pid now another process's (started after it): never stopped
+  reset; : > "$T/tmux.sessions"
+  sed -i "s/\"startedAt\":$started/\"startedAt\":$(( started - 3600000 ))/" "$T/claude/sessions/$child.json"
+  out="$(run Ada)"; rc=$?
+  _t "a record whose pid was reused is not the agent running" "$rc" 0
+  _has "  so it is already on the bench" "$out" "Ada has no running session"
+  kill -0 "$child" 2>/dev/null && _t "  and the process holding the pid is left alone" alive alive \
+    || _t "  and the process holding the pid is left alone" gone alive
 
   # a session started by hand from the launch line: no tmux session of ours, so the process is stopped
   reset; : > "$T/tmux.sessions"

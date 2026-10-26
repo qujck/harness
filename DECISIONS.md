@@ -557,3 +557,19 @@ assigning the ticket in Jira is covered here by the ledger check and claim watch
 
 The change sits in `team/`, where the sectioned layout of the same day put the spawn.
 
+
+## 2026-10-26 — A session record counts only while its process is the session's own (ported from the seeded project)
+
+**Why.** A review of the seeded project found its bench could take a dead session's record for a live one:
+Claude Code leaves a crashed session's record in `~/.claude/sessions`, and its pid is later reused. Here the
+same record decides whether an agent started by hand is running, and the bench stops that pid, so it could
+stop an unrelated process: the address check reads `/proc`, and where a process carries no
+`GIT_AUTHOR_EMAIL` the record's name alone was taken.
+
+**What.** `team/lib/agent-session.sh` takes a record only when its process started no later than the
+record's `startedAt`, with a minute's grace. A process that took the pid over started after the record was
+written, so it fails. Both `agent-spawn.sh` and `agent-bench.sh` read records through it.
+
+**Not ported, and why.** The same review asked that a restore resume each agent on the model it was spawned
+on. The harness has no restore script: each agent runs in its own tmux session, started by
+`team/agent-spawn.sh`, so there is nothing to carry over.

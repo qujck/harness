@@ -447,7 +447,7 @@ EOF
   # a session started by hand from the launch line (no tmux session of ours) still counts as running
   : > "$T/tmux.sessions"
   GIT_AUTHOR_EMAIL=ada@proj.local sleep 60 & child=$!
-  printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":1}\n' "$child" > "$T/claude/sessions/$child.json"
+  printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":%s}\n' "$child" "$(( $(date +%s) * 1000 ))" > "$T/claude/sessions/$child.json"
   out="$(run developer --name Ada --dry-run)"; rc=$?
   _t "a live Claude Code record carrying the agent's address makes it running" "$rc" 1
   printf '{"pid":4194300,"sessionId":"dead","name":"Ben","status":"idle"}\n' > "$T/claude/sessions/4194300.json"
