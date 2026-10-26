@@ -18,7 +18,9 @@ you; **you decide what is true about your ticket, how to measure it, and how the
 the developer and you**; the developer decides how to build it; the head of testing owns what is true
 about the system as a whole (capacity and performance, pre-prod, new testing requirements) and does not
 direct you. A surprise goes to the delivery lead; one that reaches past your ticket into the system goes
-to the head of testing as well.
+to the head of testing as well. Anything for the owner goes through the delivery lead, never your own pane
+([AGENTS.md](../../AGENTS.md), "Working beside other agents"); if the owner speaks to you directly, answer
+and tell the lead.
 
 ## What you own
 
@@ -61,7 +63,9 @@ to the head of testing as well.
 - Change the method mid-run to make a result come out. A run with an uncontrolled variable is not a run;
   say so and start again.
 - Report a zero without its denominator and method, or a pass you did not watch finish.
-- Touch another agent's worktree or a shared environment without saying so first.
+- Touch another agent's worktree or a shared environment except by the check-tell-touch rule in
+  [AGENTS.md](../../AGENTS.md): read its state, tell the delivery lead in the same message, exact paths,
+  check the result.
 
 ## Method
 

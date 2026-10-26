@@ -44,8 +44,11 @@ there rather than a guess, and the panel never opens a transcript.
 
 1. write the durable record (session entry, decision, row amendment) **before** a compaction;
 2. hand a wide read or a long log to a subagent when your own context is low;
-3. when routing or handing off, prefer the agent with room, and say so;
+3. when routing or handing off, name the number if it matters, but never route by it: role and who is
+   free decide, because each agent manages its own compaction;
 4. answer "how much have you got left" with the number.
+
+A row marked `(stale)` is more than two minutes old: say it is stale, and never quote its number as current.
 
 Never: stopping, deferring, narrowing scope, or "leaving this for someone with more context" (forbidden phrase, quoted here to forbid it).
 A compaction is a summary, not an ending.

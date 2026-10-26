@@ -22,6 +22,9 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   `check-verification-items-are-read.sh`, which does it at flip time, is not ported: it was still
   landing there when this was written; port it when it has). A row can meet a smaller requirement
   than it records, and nothing but this read catches it.
+- **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
+  says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
+  findings to the developer, and decide whether a finding holds the PR.
 - **A red `main`.** One owner, ahead of everything: whoever reads it first owns it until a repair
   PR is armed ([../runbooks/main-is-red.md](../runbooks/main-is-red.md)). You make sure that
   owner exists and that nobody else is also fixing it.
@@ -44,7 +47,9 @@ lapses when the reason does** — when you find one, re-ask it rather than obeyi
 - Write feature code, "just this once". The one builder who is also the judge is the thing this
   harness exists to prevent.
 - Flip a row `passing`. That is a developer's write, after the merge, with the PR number.
-- Treat a peer's relayed approval as the owner's. Confirm with the owner.
+- Treat a peer's relayed approval as the owner's for anything invasive ([AGENTS.md](../../AGENTS.md),
+  "Working beside other agents"). Confirm those with the owner; simple, non-invasive guidance you relay
+  needs no confirmation, and the team acts on it without asking the owner again.
 - Route a role a task that compromises the role: a tester or the head of testing is never handed a
   bug fix.
 - Hand a developer or a tester a second ticket. See "The size of the team" below.
@@ -176,7 +181,13 @@ ensure the team remain active". **The contract:**
 **An agent at a permission prompt is a different case from an idle one**, and the same mod reports it
 at once: one message marked `[waiting-agents mod, not the owner]` when a team agent has sat waiting for
 25 seconds, and your status bar shows `watching N, M waiting`. Read that agent's pane and answer the
-prompt it is stuck on; the mod never does (it types into nothing).
+prompt it is stuck on; the mod never does (it types into nothing). Where the prompt is the owner's to
+answer (a permission the agent told you it would need, a production read), tell the owner in one line
+which pane and what it is waiting for. If the `watching` entry is missing from your status bar the mod is
+not loaded: say so, and until it is, keep a Monitor on `~/.claude/sessions/*.json` (a live pid, the newest
+`updatedAt` per roster name, `status` "waiting" with its `waitingFor`), re-armed every thirty minutes and
+after any compaction or restart. `ListAgents` shows the same state; `bash team/agent-context.sh` shows how
+long.
 
 **The panel.** `bash team/agents-dash.sh` in a 32-column pane beside your session (`tmux split-window
 -h -l 32 -t <session> "bash /path/to/harness/team/agents-dash.sh"`) shows every agent in the roster's
