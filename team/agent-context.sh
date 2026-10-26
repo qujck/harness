@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/agent-context.sh — every live agent's remaining context and weekly usage, on one screen.
+# team/agent-context.sh — every live agent's remaining context and weekly usage, on one screen.
 #
 # WHERE THE NUMBERS COME FROM. Claude Code hands its status-line script a JSON payload with the
 # session's context-window usage and the account's rate limits; the MODEL never sees that payload.
@@ -15,14 +15,14 @@
 #   to answer "how much have you got left". It is NEVER a reason to do less work or to stop: a
 #   compaction is a summary, not an ending, and the work continues on the other side of it.
 #
-# Usage:  bash scripts/agent-context.sh            # table of live sessions (stale > 2 min are marked)
-#         bash scripts/agent-context.sh --me       # this session's line only (needs AGENT_NAME or a name match)
-#         bash scripts/agent-context.sh --json     # the raw rows, one JSON object per line
-#         bash scripts/agent-context.sh --self-test
+# Usage:  bash team/agent-context.sh            # table of live sessions (stale > 2 min are marked)
+#         bash team/agent-context.sh --me       # this session's line only (needs AGENT_NAME or a name match)
+#         bash team/agent-context.sh --json     # the raw rows, one JSON object per line
+#         bash team/agent-context.sh --self-test
 set -uo pipefail
 # shellcheck source=lib/selftest-flag.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/selftest-flag.sh"
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/harness-env.sh" 2>/dev/null || true
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/selftest-flag.sh"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/harness-env.sh" 2>/dev/null || true
 DIR="${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/context}"   # the publisher writes one JSON per session here
 STALE_S=120
 
@@ -62,6 +62,6 @@ if selftest_is_flag "${1:-}"; then selftest; exit $?; fi
 case "${1:-}" in
   "") render ;;
   --json) rows ;;
-  --me) source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/agent-name.sh" 2>/dev/null; me="$(agent_name_resolved 2>/dev/null || true)"; render | awk -v m="${me:-}" 'NR==1 || tolower($1)==tolower(m)' ;;
+  --me) source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/lib/agent-name.sh" 2>/dev/null; me="$(agent_name_resolved 2>/dev/null || true)"; render | awk -v m="${me:-}" 'NR==1 || tolower($1)==tolower(m)' ;;
   *) echo "agent-context: unknown argument '$1' (usage: agent-context.sh [--me|--json|--self-test])" >&2; exit 2 ;;
 esac

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# scripts/agents-budget.sh — is the team inside the owner's weekly budget? The delivery lead's test before it
+# team/agents-budget.sh — is the team inside the owner's weekly budget? The delivery lead's test before it
 # starts another agent (docs/roles/delivery-lead.md, "The size of the team").
 #
-#   bash scripts/agents-budget.sh                          one line, and the exit code
-#   HARNESS_PROJECT=<project> bash scripts/agents-budget.sh approve <pct> "<words>"
+#   bash team/agents-budget.sh                          one line, and the exit code
+#   HARNESS_PROJECT=<project> bash team/agents-budget.sh approve <pct> "<words>"
 #                                                          OWNER: today's plan, at close of day, becomes <pct>
-#   HARNESS_PROJECT=<project> bash scripts/agents-budget.sh adjust <+N|-N> "<words>"
+#   HARNESS_PROJECT=<project> bash team/agents-budget.sh adjust <+N|-N> "<words>"
 #                                                          OWNER: add or take back N points, from now
-#   bash scripts/agents-budget.sh adjustments              this week's entries and their sum
-#   bash scripts/agents-budget.sh --self-test
+#   bash team/agents-budget.sh adjustments              this week's entries and their sum
+#   bash team/agents-budget.sh --self-test
 #
 # Exit: 0 on budget · 1 over it · 2 cannot tell (no budget set, a malformed setting, or no reading of the week
 # since it reset). The budget decides only whether the lead asks the owner before starting an agent; it never
@@ -21,7 +21,7 @@
 # weekend spends from the next working day's share. All four live in harness.env; with no rate set (blank or 0)
 # there is no budget and the answer is always "ask".
 #
-# THE WEEK'S USE is scripts/lib/week-usage.sh's reading, the one the panel shows. A reading older than the
+# THE WEEK'S USE is team/lib/week-usage.sh's reading, the one the panel shows. A reading older than the
 # reset is no reading: the week it measured is over.
 #
 # THE OWNER'S ADJUSTMENTS (owner, 2026-10-25: "I'd like to approve 60% for today, so burn some contingency and
@@ -48,10 +48,10 @@ set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
-. "$_here/lib/selftest-flag.sh"
+. "$_here/../scripts/lib/selftest-flag.sh"
 PROJECT_GIVEN="${HARNESS_PROJECT:-}"   # before harness-env.sh derives one from the repo directory's name
 # shellcheck source=lib/harness-env.sh
-. "$_here/lib/harness-env.sh"
+. "$_here/../scripts/lib/harness-env.sh"
 # shellcheck source=lib/week-usage.sh
 . "$_here/lib/week-usage.sh"
 
@@ -170,7 +170,7 @@ budget_self_test() {
   verb "a malformed entry is skipped, said on stderr" 0 "(owner -4)" "2026-10-21 12:00" 35 "2026-10-21 11:59"
   verb "  and named" 0 "skipped" "2026-10-21 12:00" 35 "2026-10-21 11:59"
 
-  # the week's reading (scripts/lib/week-usage.sh), which the panel shares
+  # the week's reading (team/lib/week-usage.sh), which the panel shares
   local r
   rm -f "$T/ctx/"*.json
   r=$(CONTEXT_DIR="$T/ctx" week_used)

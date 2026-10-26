@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# scripts/agents-dash.sh — a narrow at-a-glance panel for the team, to sit beside the delivery lead.
+# team/agents-dash.sh — a narrow at-a-glance panel for the team, to sit beside the delivery lead.
 #
-#   bash scripts/agents-dash.sh            redraw until interrupted
-#   bash scripts/agents-dash.sh --once     draw one frame and exit
-#   bash scripts/agents-dash.sh --plain    no colour (for a pipe or a log)
-#   bash scripts/agents-dash.sh --self-test
+#   bash team/agents-dash.sh            redraw until interrupted
+#   bash team/agents-dash.sh --once     draw one frame and exit
+#   bash team/agents-dash.sh --plain    no colour (for a pipe or a log)
+#   bash team/agents-dash.sh --self-test
 #
 # It answers one question: is anything going awol. Per agent it shows its name in its role's colour,
 # the ticket it holds, whether the session is working, waiting, in a shell command or idle and for how
 # long, how much of its context window it has used, how fast it is generating tokens, and its model and
 # reasoning effort. The account's week sits at
-# the top - what it has used against the owner's budget so far (scripts/agents-budget.sh) - because the
+# the top - what it has used against the owner's budget so far (team/agents-budget.sh) - because the
 # limit is account-wide and cannot be attributed to one agent. Put it in a pane beside the delivery
 # lead's session, e.g.
-# `tmux split-window -h -l 32 -t <session> "bash /path/to/harness/scripts/agents-dash.sh"`.
+# `tmux split-window -h -l 32 -t <session> "bash /path/to/harness/team/agents-dash.sh"`.
 #
 # The frame fits the pane's height. The full layout is three lines and a rule per agent; when that would
 # run past the bottom the frame steps down (fit_level): no rule, then the sparkline folded onto the state
@@ -28,7 +28,7 @@
 #                   /proc/<pid>/environ where /proc exists and looked up in the roster, or failing that
 #                   by its own session name
 #   context, burn,  the rows the context publisher writes to CONTEXT_DIR (docs/context-publisher.md):
-#   window, week    context.used, context.window, tokens.output_total; week through scripts/lib/week-usage.sh
+#   window, week    context.used, context.window, tokens.output_total; week through team/lib/week-usage.sh
 #   model, effort   the same rows: model, effort
 #   ticket          the claims board, `ledger-db.sh board`, read in the background at most once a minute
 #   disk            df, for AGENT_DISK_WATCH only
@@ -39,11 +39,11 @@
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/selftest-flag.sh
-. "$_here/lib/selftest-flag.sh"
+. "$_here/../scripts/lib/selftest-flag.sh"
 # shellcheck source=lib/harness-env.sh
-. "$_here/lib/harness-env.sh" 2>/dev/null || true
+. "$_here/../scripts/lib/harness-env.sh" 2>/dev/null || true
 # shellcheck source=lib/roster.sh
-. "$_here/lib/roster.sh"
+. "$_here/../scripts/lib/roster.sh"
 # shellcheck source=lib/week-usage.sh
 . "$_here/lib/week-usage.sh"
 
@@ -281,7 +281,7 @@ disk_line() {
   printf ' %sdisk%s %s%sG free%s %s%s%s\n' "$DIM" "$R" "$col" "$free" "$R" "$DIM" "$DISK" "$R"
 }
 
-# week_line <used %> -> the week's use as a bar, with a │ at the allowance scripts/agents-budget.sh gives for
+# week_line <used %> -> the week's use as a bar, with a │ at the allowance team/agents-budget.sh gives for
 # this point in the week, and both figures: green while the use is inside the allowance, red once past it.
 # With no budget set, the plain bar, coloured by the use.
 BUDGET="${AGENTS_DASH_BUDGET:-$_here/agents-budget.sh}"
@@ -398,7 +398,7 @@ frame() {
   local names=() roles=() ctxs=() rates=() series=() models=() effs=() ceil=1
   while IFS=$'\t' read -r name role kind; do
     [ -n "$name" ] || continue
-    # A developer or tester with no running session is on the bench (scripts/agent-bench.sh) until it is
+    # A developer or tester with no running session is on the bench (team/agent-bench.sh) until it is
     # spawned for its next ticket: not shown. Every other role reads "not started" when it is down.
     case "$role" in developer|tester) [ -n "${L_PID[$name]:-}" ] || continue ;; esac
     local ctx="" rate="" ser="" model="" eff=""

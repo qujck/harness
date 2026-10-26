@@ -367,7 +367,7 @@ roster_remit() {
 #
 # ⚠ TWO SHAPES, BY ROLE (backported from strength's infra_the_launch_line_still_starts_claude_worktree_tmux_
 # which_the_spawn_bench_wrapper_replaced, 2026-10-25). A developer or tester is started per ticket by the
-# delivery lead's `scripts/agent-spawn.sh`, which sets the identity from the row itself, so for those roles
+# delivery lead's `team/agent-spawn.sh`, which sets the identity from the row itself, so for those roles
 # the line IS that command. Every other role starts `claude` in its own sibling tree,
 # `<parent of the shared checkout>/<project>-<name>`, with the row's address. The old line,
 # `claude --worktree <project>-<name> --tmux`, put the session in Claude Code's own worktree location and
@@ -427,7 +427,7 @@ roster_launch_line_for() {
   local n="${1:?roster_launch_line_for <name> <role> <email>}" role="${2-}" e="${3-}" dir
   [[ -n "$e" ]] || { printf 'roster: %s has an empty email on the row: no launch line without the address the register holds\n' "$n" >&2; return 1; }
   if roster_role_is_spawned "$role"; then
-    printf 'bash scripts/agent-spawn.sh %s --name %s --ticket <ticket-id>\n' "$role" "$n"
+    printf 'bash team/agent-spawn.sh %s --name %s --ticket <ticket-id>\n' "$role" "$n"
     return 0
   fi
   dir="$(roster_sibling_tree "$n")" || return 1
@@ -671,9 +671,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   fi
 
   # ── the launch line's two shapes, from the facts alone (the tree-reading shape is driven in agent-onboard.sh) ──
-  t 'bash scripts/agent-spawn.sh developer --name Cara --ticket <ticket-id>' "a developer's line is the delivery lead's spawn command" \
+  t 'bash team/agent-spawn.sh developer --name Cara --ticket <ticket-id>' "a developer's line is the delivery lead's spawn command" \
     "$(roster_launch_line_for Cara developer cara@weaversite.co.uk)"
-  t 'bash scripts/agent-spawn.sh tester --name Tom --ticket <ticket-id>' "a tester's line is the spawn command too" \
+  t 'bash team/agent-spawn.sh tester --name Tom --ticket <ticket-id>' "a tester's line is the spawn command too" \
     "$(roster_launch_line_for Tom tester t.qa@example.test)"
   t '' 'an empty address on the row prints no line, never a derived one' "$(roster_launch_line_for Zed delivery-lead '' 2>/dev/null)"
   roster_launch_line_for Zed delivery-lead '' >/dev/null 2>&1; t 1 '…and is rc 1' "$?"

@@ -74,7 +74,7 @@ import io, os, re, sys
 repo, legacy = sys.argv[1], set(sys.argv[2].split())
 # scripts/ is where the gates live; e2e-ui/tools holds node tools with self-tests of their own, and
 # leaving them out would make the ratchet's silence mean less than it appears to.
-ROOTS = ['scripts', 'e2e-ui/tools']
+ROOTS = ['scripts', 'team', 'ops', 'e2e-ui/tools']
 SPELL = re.compile(r'--self-?test')
 # The flag being handed TO something else is a call site, not a handler.
 CALL = re.compile(r'\b(?:bash|sh|node|python3?|exec|source)\b[^\n]*?' + SPELL.pattern)

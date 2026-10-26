@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/check-mods-tests-pass.sh — every mod under mods/ passes `claude plugin test`.
+# scripts/check-mods-tests-pass.sh — every mod under claude-code/ passes `claude plugin test`.
 # (feat_harness_optional_code_reviewer_and_tester_roles_and_a_waiting_agents_mod)
 #
-#   bash scripts/check-mods-tests-pass.sh [mods-dir]     # default: mods/ beside this repo's scripts/
+#   bash scripts/check-mods-tests-pass.sh [mods-dir]     # default: claude-code/ beside this repo's scripts/
 #   bash scripts/check-mods-tests-pass.sh --self-test
 #
 # WHY: a mod's tests run only under the Claude Code test runner, which no tier of verify.sh invoked, so
-# mods/waiting-agents landed with five tests nothing in the pipeline ran. A mod is one directory holding
+# claude-code/waiting-agents landed with five tests nothing in the pipeline ran. A mod is one directory holding
 # `.claude-plugin/plugin.json`; each is tested on its own so the red names the mod.
 #
 # Verdicts (exit code): 0 every mod green, or no mods dir at all (named, never silent); 1 a mod's tests
@@ -31,9 +31,9 @@ mods_verdict() {
   for m in "${mods[@]}"; do
     if claude plugin test "$m" >/dev/null 2>&1; then printf '  ok    %s\n' "$m"; n=$((n+1))
     else printf '  FAIL  %s  (run: claude plugin test %s)\n' "$m" "$m"; failed+=("$m"); fi
-    # A mod's shell helpers (mods/<mod>/*.sh) carry their own --self-test, and THIS is what runs it:
+    # A mod's shell helpers (claude-code/<mod>/*.sh) carry their own --self-test, and THIS is what runs it:
     # check-selftests-are-invoked.sh sweeps scripts/ and infra/ only, so a selftest-tiers.txt row for
-    # a path under mods/ is dead and verify's tier step would never run it (found 2026-10-16 when
+    # a path under claude-code/ is dead and verify's tier step would never run it (found 2026-10-16 when
     # self-compact/compact-me.sh was added). A red helper fails its mod.
     local h
     for h in "$m"/*.sh; do
@@ -80,11 +80,11 @@ fi
 case "${1:-}" in --*) echo "check-mods-tests-pass: unknown flag ${1} (only --self-test, or a mods directory)" >&2; exit 2 ;; esac
 (( $# <= 1 )) || { echo "check-mods-tests-pass: one argument at most (a mods directory)" >&2; exit 2; }
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-out="$(mods_verdict "${1:-$ROOT/mods}")"
+out="$(mods_verdict "${1:-$ROOT/claude-code}")"
 printf '%s\n' "$out" | sed '$d'
 case "$(printf '%s\n' "$out" | tail -1)" in
   ok:*)     echo "check-mods-tests-pass: ${out##*ok:} mod(s) green"; exit 0 ;;
-  no-mods)  echo "check-mods-tests-pass: no mods to test (mods/ holds no .claude-plugin/plugin.json)"; exit 0 ;;
+  no-mods)  echo "check-mods-tests-pass: no mods to test (claude-code/ holds no .claude-plugin/plugin.json)"; exit 0 ;;
   failed:*) echo "check-mods-tests-pass: FAILED — ${out##*failed:}" >&2; exit 1 ;;
   *)        echo "check-mods-tests-pass: CANNOT LOOK — mods exist but the claude CLI is not on PATH; nothing was tested" >&2; exit 2 ;;
 esac

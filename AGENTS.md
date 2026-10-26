@@ -39,16 +39,16 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    ownership record. `init.sh` refuses to start where another agent's live marker already is, and
    refuses to start a stack past `AGENT_STACK_LIMIT` (it names the holders and stops nothing:
    `bash scripts/agent-stacks.sh`).
-0a. **Context is a fact you can read, never a reason to do less.** `bash scripts/agent-context.sh`
+0a. **Context is a fact you can read, never a reason to do less.** `bash team/agent-context.sh`
    shows every live agent's remaining context and the account's weekly usage (`--me` for yours; the
    status line publishes one file per session — [docs/context-publisher.md](docs/context-publisher.md)).
    Use it for four things: write the durable record *before* a compaction; hand a wide read to a
    subagent when your own context is low; prefer the agent with room when routing, and say so; answer
    "how much have you got left" with the number. **Compact yourself at a stopping point you choose:**
-   the `self-compact` mod (`mods/self-compact/`, loaded in every session on the box) nudges you once
+   the `self-compact` mod (`claude-code/self-compact/`, loaded in every session on the box) nudges you once
    when your window is nearly full with a prompt marked `[self-compact mod, not the owner]`; finish at
    a natural stopping point, bring the durable record up to date, then run
-   `bash mods/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn — the mod
+   `bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn — the mod
    compacts between turns with those instructions. You may run it after any milestone. Auto-compact at
    the window is still the backstop. ⚠ **What it is NEVER for: stopping, deferring,
    narrowing scope, or "leaving this for someone with more context"** (forbidden phrase, quoted here to forbid it).
@@ -59,7 +59,7 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    context across the team was twenty whole-file Reads, mostly screenshots read twice. Read an image
    once, after the spec that produced it passes; read a long file by `offset`/`limit` after `grep -n`
    has found the lines; count with `grep -c` instead of listing; `head`/`tail` a long command's output;
-   never `cat` a file to grep it. The `read-guard` mod (`mods/read-guard/`) refuses the two worst
+   never `cat` a file to grep it. The `read-guard` mod (`claude-code/read-guard/`) refuses the two worst
    cases, a repeat image read and an unbounded Read of a file over 64 KiB, and says what to do instead.
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;

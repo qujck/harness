@@ -123,11 +123,11 @@ EOF_ROSTER
   _t "the fixture reads Vera's row address" "$(ROSTER_FILE="$_T/roster.json" roster_lookup_email Vera)" vera.qa@example.test
 
   _t "a developer is spawned by the delivery lead" "$(_ll Cara; echo "rc=$?")" \
-     $'bash scripts/agent-spawn.sh developer --name Cara --ticket <ticket-id>\nrc=0'
+     $'bash team/agent-spawn.sh developer --name Cara --ticket <ticket-id>\nrc=0'
   _t "a tester is spawned as a tester" "$(_ll Tommy; echo "rc=$?")" \
-     $'bash scripts/agent-spawn.sh tester --name Tommy --ticket <ticket-id>\nrc=0'
+     $'bash team/agent-spawn.sh tester --name Tommy --ticket <ticket-id>\nrc=0'
   _t "the name is spelt as the row spells it" "$(_ll tommy) $(_ll TOMMY)" \
-     'bash scripts/agent-spawn.sh tester --name Tommy --ticket <ticket-id> bash scripts/agent-spawn.sh tester --name Tommy --ticket <ticket-id>'
+     'bash team/agent-spawn.sh tester --name Tommy --ticket <ticket-id> bash team/agent-spawn.sh tester --name Tommy --ticket <ticket-id>'
   _t "a head of testing starts in her own tree with the ROW's address" "$(_ll Vera; echo "rc=$?")" \
      "$(printf 'cd %q && \\\n  GIT_AUTHOR_NAME="Vera" GIT_AUTHOR_EMAIL="vera.qa@example.test" \\\n  GIT_COMMITTER_NAME="Vera" GIT_COMMITTER_EMAIL="vera.qa@example.test" \\\n  claude\nrc=0' "$_T/strength-vera")"
   _t "the delivery lead is a sibling-tree role too" "$(_ll1 Lea)" "$(printf 'cd %q && \\' "$_T/strength-lea")"
@@ -168,7 +168,7 @@ EOF_ROSTER
   _t "a freshly onboarded row prints its line" "$(ROSTER_FILE="$_T/onboard.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" --launch-line Wren 2>&1 | /usr/bin/grep -c 'GIT_AUTHOR_EMAIL="wren@weaver''site.co.uk"')" 1
   # --dry-run has no row yet: the line comes from the facts roster_add WILL write, and says so.
   _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" Wren2 developer --dry-run 2>&1)"
-  _t "a dry run prints the spawn line for a developer" "$(printf '%s' "$_out" | /usr/bin/grep -cxF 'bash scripts/agent-spawn.sh developer --name Wren2 --ticket <ticket-id>')" 1
+  _t "a dry run prints the spawn line for a developer" "$(printf '%s' "$_out" | /usr/bin/grep -cxF 'bash team/agent-spawn.sh developer --name Wren2 --ticket <ticket-id>')" 1
   _t "…and names the address it will write" "$(printf '%s' "$_out" | /usr/bin/grep -c 'wren2@weaversite.co.uk')" 1
   _out="$(ROSTER_FILE="$_T/roster.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=strength ROSTER_DOMAIN=weaversite.co.uk bash "$0" Wren3 code-reviewer --dry-run 2>&1)"
   _t "a dry run for a role with no tree yet prints the worktree add, not a line" \

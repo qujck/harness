@@ -181,7 +181,7 @@ Tell the user the remaining manual steps (do not do these silently):
    read it first and merge, never overwrite; if the key already names other folders, append this
    one after a `:`), and to write `~/.config/self-compact/compact-after.json` as
    `{ "default": 200000, "agents": {} }` when it does not exist (the token count at which
-   `self-compact` nudges an agent to compact itself; `mods/self-compact/README.md`).
+   `self-compact` nudges an agent to compact itself; `claude-code/self-compact/README.md`).
 4. **Restart Claude Code** so it picks up `.claude/settings.json` (the Stop /
    UserPromptSubmit hooks) and the mods. Hooks and mods loaded at startup won't activate mid-session.
 

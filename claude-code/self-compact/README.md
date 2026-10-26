@@ -44,7 +44,7 @@ line says so, naming whether the hard point was read from this session or estima
 `/autocompact <window>` in that session, or a lower `COMPACT_AFTER`. That is the silent miss made loud: settings
 raised while a running session kept its old window, or a soft point set too close.
 
-**Writing the request in one command.** `bash mods/self-compact/compact-me.sh "<what the summary must keep>"`
+**Writing the request in one command.** `bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"`
 writes `{"instructions": …}` to this session's own request path and tells you to end your turn. The session id
 is `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every Bash an agent runs; without it, or with one that
 is not a plain token, or with no state directory, the script refuses (exit 2, one line) rather than guess, since
@@ -72,7 +72,7 @@ does not override it.
 - `hooks/compact.ts` is the pure part: the request and config paths, the window arithmetic (soft point, hard
   point, guard), the nudge and status text, and the two parsers. `hooks/register.ts` reads and acts after each turn. `hooks/compact.test.ts` holds the
   tests, including the negative control (a garbled request compacts nothing).
-- `claude plugin validate mods/self-compact` and `claude plugin test mods/self-compact` check it.
+- `claude plugin validate claude-code/self-compact` and `claude plugin test claude-code/self-compact` check it.
   `scripts/verify.sh` runs the tests on every PR through `scripts/check-mods-tests-pass.sh`.
   `.claude-plugin/types/`, which `tsconfig.json` extends, is written by Claude Code when it loads the mod
   and is not committed.

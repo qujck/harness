@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# scripts/examples/statusline-publish.sh — AN EXAMPLE of the context publisher, for the project owner to adapt.
+# team/statusline-publish.sh — AN EXAMPLE of the context publisher, for the project owner to adapt.
 # (feat_harness_a_machine_wide_agent_stack_cap_and_each_agents_context_published_for_the_others)
 #
 # Claude Code calls a status-line command every few seconds with a JSON payload on stdin. This example
 # turns that payload into ONE file per session under the context directory, in the shape
-# scripts/agent-context.sh reads (docs/context-publisher.md states the contract). The real status-line
+# team/agent-context.sh reads (docs/context-publisher.md states the contract). The real status-line
 # script is the owner's, outside the repo; this is the shape it must write, not the file to install.
 #
-#   bash scripts/examples/statusline-publish.sh < <(printf '{"session_id":"abc","model":{"display_name":"Opus"},"cwd":"/w","context_window":{"remaining_percentage":42},"rate_limits":{"seven_day":{"used_percentage":18}}}')
+#   bash team/statusline-publish.sh < <(printf '{"session_id":"abc","model":{"display_name":"Opus"},"cwd":"/w","context_window":{"remaining_percentage":42},"rate_limits":{"seven_day":{"used_percentage":18}}}')
 set -uo pipefail
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/harness-env.sh" 2>/dev/null || true
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../scripts/lib" && pwd)/harness-env.sh" 2>/dev/null || true
 DIR="${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/context}"
 payload="$(cat)"
 sid="$(jq -r '.session_id // "unknown"' <<<"$payload")"
 # the agent's NAME comes from the session (GIT_AUTHOR_EMAIL -> roster), the same source every write uses
-name="$(cd "$(dirname -- "${BASH_SOURCE[0]}")/../.." && source scripts/lib/agent-name.sh 2>/dev/null && agent_name_resolved 2>/dev/null || true)"
+name="$(cd "$(dirname -- "${BASH_SOURCE[0]}")/.." && source scripts/lib/agent-name.sh 2>/dev/null && agent_name_resolved 2>/dev/null || true)"
 mkdir -p "$DIR"
-# A running total of output tokens, for the panel's burn sparkline (scripts/agents-dash.sh). The payload
+# A running total of output tokens, for the panel's burn sparkline (team/agents-dash.sh). The payload
 # gives only the LAST response's output, so each refresh whose (used, output) pair differs from the
 # previous refresh's is taken as a new response and added; two responses between refreshes count as one.
 used="$(jq -r '.context_window.total_input_tokens // empty' <<<"$payload")"

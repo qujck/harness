@@ -57,15 +57,15 @@ Four steps in an agent's life, and only the first and the last write this file:
 | step | how | the roster |
 |---|---|---|
 | **onboard** | `bash scripts/agent-onboard.sh <Name> <role>` (`--dry-run` to check first): adds the row, prints the launch line | a new `active` row, committed on `main` |
-| **spawn** | `bash scripts/agent-spawn.sh developer\|tester --ticket <id>`: starts an onboarded developer or tester with no running session, for one ticket | untouched |
-| **bench** | `bash scripts/agent-bench.sh <Name>`: stops its session once the ticket has merged | untouched |
+| **spawn** | `bash team/agent-spawn.sh developer\|tester --ticket <id>`: starts an onboarded developer or tester with no running session, for one ticket | untouched |
+| **bench** | `bash team/agent-bench.sh <Name>`: stops its session once the ticket has merged | untouched |
 | **retire** | no script yet: `roster_retire <Name> <date> "<why>"` from `scripts/lib/roster.sh` (first write wins on the date) | `retired`, for good |
 
 The onboarded developers and testers are the pool spawn picks from; there is no other list of names.
 A benched agent keeps its name, identity and worktree, and coming back for its next ticket is the same
 identity, not a reuse. `bash scripts/agent-onboard.sh --launch-line <Name>` prints the launch line again
 for an agent already on the roster. The line has two shapes: a developer or tester gets the delivery
-lead's `bash scripts/agent-spawn.sh <role> --name <Name> --ticket <id>`; every other role gets a `cd`
+lead's `bash team/agent-spawn.sh <role> --name <Name> --ticket <id>`; every other role gets a `cd`
 into its own sibling tree `<project>-<name>` with the row's address and `claude`. It refuses (no line,
 the reason on stderr) a retired name, an empty address and a missing tree, and for a missing tree prints
 the one `git worktree add` that makes it. `roster_role` (same library) records a change of role. Never edit a

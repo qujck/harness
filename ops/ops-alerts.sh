@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/ops-alerts.sh — read the durable queue of operational alerts.
+# ops/ops-alerts.sh — read the durable queue of operational alerts.
 # (infra_nothing_watches_the_stuck_count_so_work_can_stop_for_hours)
 #
-#   bash scripts/ops-alerts.sh                # alerts you have not acted on yet
-#   bash scripts/ops-alerts.sh --all          # everything ever recorded
-#   bash scripts/ops-alerts.sh --ack <seq>    # mark everything up to <seq> as ACTED ON
-#   bash scripts/ops-alerts.sh --ack-all      # mark everything currently recorded as acted on
-#   bash scripts/ops-alerts.sh --self-test
+#   bash ops/ops-alerts.sh                # alerts you have not acted on yet
+#   bash ops/ops-alerts.sh --all          # everything ever recorded
+#   bash ops/ops-alerts.sh --ack <seq>    # mark everything up to <seq> as ACTED ON
+#   bash ops/ops-alerts.sh --ack-all      # mark everything currently recorded as acted on
+#   bash ops/ops-alerts.sh --self-test
 #
 # ── ⚠ WHY THERE IS A QUEUE TO READ AT ALL ───────────────────────────────────────────────────────
 #
@@ -38,7 +38,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO_ROOT/scripts/lib/selftest-flag.sh"
-. "$REPO_ROOT/scripts/lib/ops-alert.sh"   # the queue lives beside the condition state (one location)
+. "$REPO_ROOT/ops/lib/ops-alert.sh"   # the queue lives beside the condition state (one location)
 
 ALERTS_FILE="${OPS_ALERTS_LOG:-$(ops_alert_state_dir 2>/dev/null)/ops-alerts.jsonl}"
 ACK_FILE="${OPS_ALERTS_ACK:-${ALERTS_FILE}.acked}"
@@ -142,7 +142,7 @@ if selftest_is_flag "${1:-}"; then
   t="$(mktemp -d)"
   printf '%s\n' "$fx" > "$t/alerts.jsonl"
   before="$(wc -l < "$t/alerts.jsonl")"
-  OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/alerts.acked" bash "$REPO_ROOT/scripts/ops-alerts.sh" --ack-all >/dev/null 2>&1
+  OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/alerts.acked" bash "$REPO_ROOT/ops/ops-alerts.sh" --ack-all >/dev/null 2>&1
   after="$(wc -l < "$t/alerts.jsonl")"
   if [[ "$before" == "$after" && "$(cat "$t/alerts.acked" 2>/dev/null)" == 3 ]]; then
     printf '  ok    --ack-all marks 3 and removes nothing (%s lines before and after)\n' "$before"
@@ -155,8 +155,8 @@ if selftest_is_flag "${1:-}"; then
   # exactly what made a log grep count old reds as new ones.
   t="$(mktemp -d)"
   printf '%s\n' '{"seq":9,"ts":"t","class":"ci","subject":"hourly red","body":"✘ 325 [chromium] › lifecycle-phases-one-to-three.spec.js:22 phases 1-3"}' > "$t/alerts.jsonl"
-  ci_out="$(GITHUB_ACTIONS=true OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/acked" bash "$REPO_ROOT/scripts/ops-alerts.sh" 2>&1)"
-  se_out="$(env -u GITHUB_ACTIONS OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/acked" bash "$REPO_ROOT/scripts/ops-alerts.sh" 2>&1)"
+  ci_out="$(GITHUB_ACTIONS=true OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/acked" bash "$REPO_ROOT/ops/ops-alerts.sh" 2>&1)"
+  se_out="$(env -u GITHUB_ACTIONS OPS_ALERTS_LOG="$t/alerts.jsonl" OPS_ALERTS_ACK="$t/acked" bash "$REPO_ROOT/ops/ops-alerts.sh" 2>&1)"
   if [[ "$ci_out" != *lifecycle-phases-one-to-three* && "$ci_out" == *"1 alert(s) not yet acted on"* ]]; then
     printf '  ok    in a CI job log: the count and the pointer, and no alert body (no old result line to grep)\n'
   else printf '  FAIL  in CI the alert body reached the log: %q\n' "${ci_out:0:160}"; fails=1; fi
@@ -221,11 +221,11 @@ case "$mode" in
           if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
             printf '  %s alert(s) not yet acted on — NOT reprinted into a CI log (their bodies quote old test results,\n' \
               "$(unread_lines "$acked" < "$ALERTS_FILE" | wc -l | tr -d ' ')"
-            printf '  which a grep of this log would count as this run'"'"'s). Read them on the box: bash scripts/ops-alerts.sh\n'
+            printf '  which a grep of this log would count as this run'"'"'s). Read them on the box: bash ops/ops-alerts.sh\n'
           else
             printf '\n  Alerts not yet acted on (%s), marker at %s:\n\n' "$ALERTS_FILE" "$acked"
             unread_lines "$acked" < "$ALERTS_FILE" | render
-            printf '  Mark them done with: bash scripts/ops-alerts.sh --ack-all\n'
+            printf '  Mark them done with: bash ops/ops-alerts.sh --ack-all\n'
           fi ;;
   ack|ackall)
           if [[ "$mode" == ackall ]]; then

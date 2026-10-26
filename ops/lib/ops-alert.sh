@@ -31,7 +31,7 @@
 # directory's .env (never from the repo): MONITORING_STATE, or ${PLATFORM_VAR}/monitoring, or
 # ~/.local/state/<project>/monitoring. ⚠ No project name or address is hard-coded here: the
 # template's own keys are the examples in harness.env.example.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/harness-env.sh" 2>/dev/null || true
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../../scripts/lib/harness-env.sh" 2>/dev/null || true
 _ops_alert_monitoring_dir() {
   if [[ -n "${MONITORING_STATE:-}" ]]; then printf '%s' "$MONITORING_STATE"; return 0; fi
   if [[ -n "${PLATFORM_VAR:-}" ]]; then printf '%s/monitoring' "$PLATFORM_VAR"; return 0; fi
@@ -196,8 +196,8 @@ ops_alert() { ops_alert_resend "$@"; } # <subject> <body>
 # ⚠ PO RULING (Carl, 2026-09-28): SETTLED RECOVERY. [FAILING] at once; [RECOVERED] only once the key
 # has stayed recovered for 10 minutes; a re-fail inside that window cancels it silently; more than 4
 # changes in 60 minutes sends one [FLAPPING] and then nothing until it has been stable for an HOUR (the flap window, not the 10-minute settle). The machine itself is
-# scripts/lib/ops_alert_machine.py, and the SAME machine is the /api/ops/alert backstop — both run
-# scripts/testdata/ops-alert-conditions.json.
+# ops/lib/ops_alert_machine.py, and the SAME machine is the /api/ops/alert backstop — both run
+# ops/testdata/ops-alert-conditions.json.
 #
 # ⚠ THE SETTLE DOES NOT WAIT FOR THE SAME CALLER TO COME BACK. `ops_alert_settle_due` runs as a step on
 # pr-refresh's 3-minute tick (Rowan's rule: "do X after N minutes" is a step on an existing tick, never
@@ -300,13 +300,13 @@ ops_alert_open_keys() { python3 "$OPS_ALERT_MACHINE" open "$(ops_alert_state_dir
 # ── --self-test: run as a script, never when sourced ────────────────────────────────────────────
 # ⚠ THE SHARED FLAG CONTRACT, AND GUARDED ON BEING EXECUTED: every watcher sources this file with its OWN
 # argv, so `$1` here may be the caller's argument. (chore_unify_selftest_flag_spelling)
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/selftest-flag.sh"
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../../scripts/lib/selftest-flag.sh"
 [[ "${BASH_SOURCE[0]}" == "$0" ]] && selftest_reject_typo "${1-}"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]] && selftest_is_flag "${1-}"; then
   _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   _fails=0
   printf '==> the machine against the shared vectors\n'
-  python3 "$OPS_ALERT_MACHINE" --self-test "$_root/scripts/testdata/ops-alert-conditions.json" || _fails=1
+  python3 "$OPS_ALERT_MACHINE" --self-test "$_root/ops/testdata/ops-alert-conditions.json" || _fails=1
 
   # ⚠ EACH CALL IS A SEPARATE PROCESS, because the watchers are: a state that lived only in memory
   # would pass every arm below run in one shell and fail on the box. The dry run is the transport, so

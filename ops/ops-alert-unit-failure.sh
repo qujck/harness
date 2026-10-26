@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ── systemd OnFailure handler — turn a failed unit into an email ─────────────────────────────
 #
-#   bash scripts/ops-alert-unit-failure.sh <unit-name>
+#   bash ops/ops-alert-unit-failure.sh <unit-name>
 #
 # Wired in as `OnFailure=strength-unit-failure@%n.service`, so the failing unit's own name is
 # passed through and one handler serves every timer we schedule.
@@ -38,12 +38,12 @@
 # the silence-proof property the ladder's "if the state cannot be written, SEND" rule protected.
 # (infra_every_ops_alert_sender_moves_to_the_condition_contract_with_a_recovery_for_each)
 set -uo pipefail
-. "$(dirname "${BASH_SOURCE[0]}")/lib/harness-env.sh" 2>/dev/null || true
+. "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/harness-env.sh" 2>/dev/null || true
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 0
 
 # shellcheck disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/lib/selftest-flag.sh" 2>/dev/null || true
+. "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib/selftest-flag.sh" 2>/dev/null || true
 
 # ── the pure half ───────────────────────────────────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ fi
 # ── the impure half ─────────────────────────────────────────────────────────────────────────────
 UNIT="${1:-unknown.service}"
 
-# the library resolves the monitoring dir and the ONE state location itself (scripts/lib/ops-alert.sh)
+# the library resolves the monitoring dir and the ONE state location itself (ops/lib/ops-alert.sh)
 . "$(dirname "${BASH_SOURCE[0]}")/lib/ops-alert.sh" 2>/dev/null || exit 0
 
 # ⚠ `cmd --user || cmd` DOES NOT FALL BACK, AND MEASURING IT WAS THE ONLY WAY TO SEE THAT.

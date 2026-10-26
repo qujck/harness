@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/lib/week-usage.sh — how much of the account's week has been used, read from the rows the context
+# team/lib/week-usage.sh — how much of the account's week has been used, read from the rows the context
 # publisher writes (docs/context-publisher.md). One reading for the panel and the budget, so the two never
 # disagree. Sourced; parses no arguments.
 #

@@ -12,4 +12,4 @@ infra/ledger-db/pgpass
 __pycache__/
 
 # Written by Claude Code when it loads a mod
-mods/*/.claude-plugin/types/
+claude-code/*/.claude-plugin/types/

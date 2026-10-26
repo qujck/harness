@@ -14,7 +14,7 @@ The KEY is the condition (`main-red`, `unit-failed:<unit>`), never the instance:
 the same condition is the same key and sends nothing.
 
 THE SAME MACHINE EXISTS ON THE SERVER (OpsAlertConditionMachine, the /api/ops/alert backstop) and
-both run every scenario in scripts/testdata/ops-alert-conditions.json. Change one and the other's
+both run every scenario in ops/testdata/ops-alert-conditions.json. Change one and the other's
 test goes red; that shared list is the only thing keeping two languages in step.
 
 Pure core: step(state, op, now) -> (state, emails). Everything else here is file I/O around it.
