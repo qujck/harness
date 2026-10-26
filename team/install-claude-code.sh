@@ -10,7 +10,9 @@
 #
 # What it adds, each only when absent:
 #   statusLine                 bash <repo>/team/statusline-publish.sh, every 5 s (docs/context-publisher.md)
-#   env.CLAUDE_CODE_PLUGIN_DIRS  <repo>/claude-code appended to whatever is listed (the three mods load in every session)
+#   env.CLAUDE_CODE_PLUGIN_DIRS  <repo>/claude-code appended to whatever is listed (the three mods load in every session);
+#                                a stale <repo>/mods entry (the folder's name before 2f96cd0, 2026-10-26) is dropped,
+#                                not kept beside it: a box left on it loads no mods in any new session
 #   hooks                      bash <repo>/team/activity-hook.sh <Event> for the eight events it records;
 #                              the four tool events carry matcher "*"
 # The file is Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, default ~/.claude), not the
@@ -25,11 +27,11 @@ TOOL_EVENTS='["PreToolUse","PermissionRequest","PostToolUse","PostToolUseFailure
 
 # merge_settings <repo root> : current settings JSON on stdin -> merged JSON on stdout   (pure)
 merge_settings() {
-  jq --arg mods "$1/claude-code" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" \
+  jq --arg mods "$1/claude-code" --arg old "$1/mods" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" \
      --argjson ev "$EVENTS" --argjson tev "$TOOL_EVENTS" '
     .statusLine //= {type: "command", command: $sl, refreshInterval: 5}
     | .env //= {}
-    | .env.CLAUDE_CODE_PLUGIN_DIRS = ((((.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | map(select(. != "" and . != $mods))) + [$mods]) | join(":"))
+    | .env.CLAUDE_CODE_PLUGIN_DIRS = ((((.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":") | map(select(. != "" and . != $mods and . != $old))) + [$mods]) | join(":"))
     | .hooks //= {}
     | reduce ($ev + $tev)[] as $e (.;
         if ([.hooks[$e][]?.hooks[]?.command // ""] | any(test("activity-hook\\.sh"))) then .
@@ -72,6 +74,8 @@ if selftest_is_flag "${1:-}"; then
   m3="$(merge_settings /r <<<"$own")"
   _t "a status line the person set is kept" mine "$(jq -r .statusLine.command <<<"$m3")"
   _t "other plugin dirs are kept, ours once, at the end" "/x:/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m3")"
+  m4="$(merge_settings /r <<<'{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/x:/r/mods"}}')"
+  _t "the pre-2f96cd0 mods folder is replaced, not kept beside the new one" "/x:/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m4")"
   _t "an event that already runs an activity hook gains no second one" 1 "$(jq -r '.hooks.Stop | length' <<<"$m3")"
   _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit" "$(additions "$own" "$m3")"
   # the real action against a throwaway config dir: a dry run writes nothing; --yes writes and keeps a .bak
