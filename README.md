@@ -63,7 +63,7 @@ scripts/                 # THE PROCESS: the harness proper. Every other section 
   _stack.sh              # optional per-stream docker helpers (sourced)
   git-hooks/pre-commit   # hard enforcement (installed by init.sh)
 team/                    # several agents on one box (optional: tmux, a Claude subscription's usage reading, Remote Control)
-  agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree, Remote Control on); the budget gates developers only, --owner-ok "<words>" records the owner's yes off budget
+  agent-spawn.sh         # start an onboarded developer or tester with no running session, for ONE ticket (its own tmux session and worktree, Remote Control on); the budget gates developers only, --owner-ok "<words>" records the owner's yes off budget, and every real spawn says why its model with --why "<reason>"
   agent-bench.sh         # stop that session once the ticket has merged; refuses while a claim, a turn, a dirty worktree or a missing session entry is open
   agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
