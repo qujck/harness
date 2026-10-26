@@ -8,6 +8,7 @@ const ROSTER = JSON.stringify({
     { name: 'Lead', email: 'lead@example.test', role: 'delivery-lead', status: 'active' },
     { name: 'Dev', email: 'dev@example.test', role: 'developer', status: 'active' },
     { name: 'Tess', email: 'tess@example.test', role: 'head-of-testing', status: 'active' },
+    { name: 'Tam', email: 'tam@example.test', role: 'tester', status: 'active' },
     { name: 'Gone', email: 'gone@example.test', role: 'developer', status: 'retired' },
   ],
   assistants: [{ name: 'Assistant' }],
@@ -59,6 +60,7 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
     if (e.path.endsWith('/agents/roster.json')) return v(ROSTER)
     if (e.path === `${root}/harness.env`) { if (w.envFile === undefined) throw new Error('ENOENT'); return v(w.envFile) }
     if (e.path === `${root}/.git`) { if (w.gitFile === undefined) throw new Error('EISDIR'); return v(w.gitFile) }
+    if (e.path === '/proc/self/stat') return v(stat('1'))
     if (e.path === '/proc/1/stat') return v(stat('100'))
     if (e.path === '/home/me/.claude/sessions/1.json') {
       return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: 'Lead', status: w.leadStatus, updatedAt: 5 }))
@@ -88,7 +90,7 @@ const GIT_FILE = 'gitdir: /home/me/dev/strength/.git/worktrees/strength-lead\n'
 const world = (): World => ({
   leadSid: 'lead-sid',
   leadStatus: 'idle',
-  agents: { Dev: { activity: 'idle', idleAtT0: 1000 }, Tess: { activity: 'working', idleAtT0: 0 }, Lead: { activity: 'idle', idleAtT0: 5000 } },
+  agents: { Dev: { activity: 'idle', idleAtT0: 1000 }, Tess: { activity: 'working', idleAtT0: 0 }, Tam: { activity: 'working', idleAtT0: 0 }, Lead: { activity: 'idle', idleAtT0: 5000 } },
 })
 const verdicts = (log: string[]) => log.map(l => l.slice(20).trim())
 
@@ -132,11 +134,11 @@ test('a new state is nudged afresh, and the bound survives a restart through the
   expect(sent).toEqual([])
   expect(verdicts(log)).toEqual(['hold: already nudged 2 times for this exact state; idle: Dev, developer idle 16m'])
 
-  w.agents.Tess = { activity: 'idle', idleAtT0: 900 }
+  w.agents.Tam = { activity: 'idle', idleAtT0: 900 }
   await clock.advance(300_000)
   expect(sent.length).toBe(1)
   expect(sent[0]).toContain('nudge 1 of 2')
-  expect(sent[0]).toContain('Dev, developer idle 21m; Tess, head of testing idle 20m')
+  expect(sent[0]).toContain('Dev, developer idle 21m; Tam, tester idle 20m')
 })
 
 test('nobody idle long enough, or the lead mid-turn, is a logged hold and nothing sent', async ($, on) => {
@@ -157,6 +159,22 @@ test('nobody idle long enough, or the lead mid-turn, is a logged hold and nothin
   await clock.advance(300_000)
   expect(sent).toEqual([])
   expect(verdicts(log).at(-1)).toContain('hold: delivery lead is mid-turn; idle: Dev')
+})
+
+test('an idle head of testing is not nudged: only developers, testers, the code reviewer and process improvement are', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.agents.Dev = { activity: 'working', idleAtT0: 0 }
+  w.agents.Tess = { activity: 'idle', idleAtT0: 5000 }
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more'])
 })
 
 test('a session that is not the delivery lead sends and logs nothing', async ($, on) => {
@@ -211,16 +229,16 @@ test('a missing context directory is shown in the status line and logged, never 
   await $.session.start(START)
 
   await clock.advance(10_000)
-  expect(w.status.at(-1)).toBe('watching 2, 0 waiting')
+  expect(w.status.at(-1)).toBe('watching 3, 0 waiting')
   await clock.advance(10_000)
-  expect(w.status.at(-1)).toBe(`watching 2, 0 waiting; context dir missing: ${CONTEXT}`)
+  expect(w.status.at(-1)).toBe(`watching 3, 0 waiting; context dir missing: ${CONTEXT}`)
   expect(sent).toEqual([])
   expect(log).toEqual([])
 
   w.contextMissing = false
   await clock.advance(300_000)
   expect(sent.length).toBe(1)
-  expect(w.status.at(-1)).toBe('watching 2, 0 waiting')
+  expect(w.status.at(-1)).toBe('watching 3, 0 waiting')
 })
 
 test('harness.env names the project, the context directory and the threshold, as the scripts read them', async ($, on) => {
@@ -242,7 +260,7 @@ test('harness.env names the project, the context directory and the threshold, as
 })
 
 test('roster roles, settings, row freshness and the bound, unit by unit', async () => {
-  expect([...parseRoster(ROSTER).roleOf]).toEqual([['Dev', 'developer'], ['Tess', 'head-of-testing']])
+  expect([...parseRoster(ROSTER).roleOf]).toEqual([['Dev', 'developer'], ['Tess', 'head-of-testing'], ['Tam', 'tester']])
   expect(roleWords('head-of-testing')).toBe('head of testing')
 
   expect(envFileValue('export CONTEXT_DIR="/srv/ctx"\n', 'CONTEXT_DIR')).toBe('/srv/ctx')

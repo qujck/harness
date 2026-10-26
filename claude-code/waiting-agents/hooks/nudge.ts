@@ -11,6 +11,9 @@ export const DEFAULT_THRESHOLD_S = 900
 export const STALE_S = 120
 // At most this many nudges for one state (the same agents idle).
 export const MAX_NUDGES = 2
+// The roles the nudger reports, by their roster ids. The delivery lead is the one told; the head of
+// testing defines what is true rather than working a ticket; assistants are not on the team.
+export const NUDGE_ROLES: readonly string[] = ['developer', 'tester', 'code-reviewer', 'process-improvement']
 
 // One row of the context directory (docs/context-publisher.md), published by each session's status line.
 export type ContextRow = { agent?: string; ts?: string; activity?: string; idle_s?: number | null }

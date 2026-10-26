@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, remainingFraction, requestPath, softPoint } from './compact.ts'
+import { COMPACTED_TEXT, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, remainingFraction, requestPath, softPoint } from './compact.ts'
 
 const v = (value: unknown) => ({ value }) as never
 const SID = 'sid-1'
@@ -89,13 +89,15 @@ test('under the threshold nothing is sent and nothing compacts; the status line 
   expect(s.status).toEqual(['150,000 used, nudge at 173,600, auto-compact at 217,000, room 43,400'])
 })
 
-test('with no COMPACT_AFTER, at 20% of the room ONE nudge goes out, naming the path and the mod; later turns do not repeat it', async ($, on) => {
+test('with no COMPACT_AFTER, at 20% of the room ONE nudge goes out, naming the script and the mod; later turns do not repeat it', async ($, on) => {
   const s = seen(); const w: World = { tokens: 200_000, store: {} }
   stage(on, w, s)
   await turn($ as never)
   expect(s.sent.length).toBe(1)
   expect(s.sent[0]).toContain('[self-compact mod, not the owner] 200,000 tokens used; auto-compact fires at about 217,000, so about 17,000 remain')
-  expect(s.sent[0]).toContain(HOME_PATH)
+  expect(s.sent[0]).toContain('compact-me.sh "<what the summary must keep>"')
+  expect(s.sent[0]).toContain('session entry')
+  expect(s.sent[0]).toContain('the very next action standing in it')
   w.tokens = 215_000
   await turn($ as never)
   await turn($ as never)
@@ -182,12 +184,13 @@ test('the live breakdown beats the settings estimate: a session the engine says 
   expect(s.sent.length).toBe(1)
 })
 
-test('a request file compacts the session with its instructions, once, and no nudge rides along', async ($, on) => {
+test('a request file compacts the session with its instructions, once; the follow-up prompt goes out and no nudge rides along', async ($, on) => {
   const s = seen(); const w: World = { tokens: 210_000, store: {}, request: { text: '{"instructions":"keep the plan"}', mtimeMs: 1000 } }
   stage(on, w, s)
   await turn($ as never)
   expect(s.compacted).toEqual([{ instructions: 'keep the plan' }])
-  expect(s.sent).toEqual([])
+  // past the soft point, so a nudge would be due: the one prompt sent is the mod's follow-up, not that
+  expect(s.sent).toEqual([COMPACTED_TEXT])
   expect(s.logged).toEqual(["compacted at the agent's request"])
   // the same file, unchanged, is not acted on again; a rewritten one is
   w.tokens = 40_000
@@ -197,6 +200,24 @@ test('a request file compacts the session with its instructions, once, and no nu
   await turn($ as never)
   expect(s.compacted.length).toBe(2)
   expect(s.compacted[1]).toEqual({ instructions: undefined })
+  expect(s.sent).toEqual([COMPACTED_TEXT, COMPACTED_TEXT])
+})
+
+test('a compaction the agent asked for is followed by ONE prompt telling it to read its record and carry on', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 } }
+  stage(on, w, s)
+  await turn($ as never)
+  expect(s.compacted.length).toBe(1)
+  expect(s.sent.length).toBe(1)
+  expect(s.sent[0]).toBe(COMPACTED_TEXT)
+  expect(s.sent[0]).toContain('[self-compact mod, not the owner] Compacted at your request.')
+  expect(s.sent[0]).toContain('Read your durable record first')
+  expect(s.sent[0]).toContain('If that action is waiting on someone, say what you are waiting for and stop.')
+  // the same request, unchanged, is not acted on again, so no second prompt
+  await turn($ as never)
+  await turn($ as never)
+  expect(s.compacted.length).toBe(1)
+  expect(s.sent).toEqual([COMPACTED_TEXT])
 })
 
 test('a garbled request compacts nothing and says why once (the NEGATIVE CONTROL)', async ($, on) => {
@@ -205,15 +226,17 @@ test('a garbled request compacts nothing and says why once (the NEGATIVE CONTROL
   await turn($ as never)
   await turn($ as never)
   expect(s.compacted).toEqual([])
+  expect(s.sent).toEqual([])
   expect(s.logged).toEqual([`${HOME_PATH} ignored — the request file is not JSON`])
 })
 
-test('a vetoed compaction is reported, not retried', async ($, on) => {
+test('a vetoed compaction is reported, not retried, and nothing is queued after it', async ($, on) => {
   const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 5 } }
   stage(on, w, s, { veto: 'off' })
   await turn($ as never)
   await turn($ as never)
   expect(s.compacted).toEqual([])
+  expect(s.sent).toEqual([])
   expect(s.logged).toEqual(['a hook vetoed the compaction — off'])
 })
 

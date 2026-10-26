@@ -18,6 +18,7 @@ export type SessionFile = {
   status?: string | null
   waitingFor?: string | null
   tmux?: string | null
+  messagingSocketPath?: string | null
   updatedAt?: number | null
   statusUpdatedAt?: number | null
 }

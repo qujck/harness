@@ -26,7 +26,14 @@ type World = {
   sessions?: string
   /** The session root holds no agents/roster.json (a session started outside a checkout). */
   noRoster?: boolean
+  /** The pause file exists beside the nudger's log. */
+  paused?: boolean
+  /** A platform without /proc (macOS): no stat, no environ. */
+  noProc?: boolean
+  /** The socket files present under SOCKS, by name. */
+  socks?: string[]
 }
+const SOCKS = '/run/me/cc-socks'
 
 function stage(on: On, world: World, sent: string[], logged: string[], status: string[] = []) {
   const sessions = world.sessions ?? SESSIONS
@@ -41,11 +48,14 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
   // missing directory is a reported problem there, not a quiet one.
   on('fs.list', ($, e) => {
     if (e.path.endsWith('/.local/state/dev/context')) return v([])
+    if (e.path === SOCKS) return v((world.socks ?? []).map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })))
     if (e.path !== sessions) throw new Error(`ENOENT: ${e.path}`)
     return v(Object.keys(world.files).map(name => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })))
   })
   on('fs.read', ($, e) => {
     if (e.path.endsWith('/agents/roster.json')) { if (world.noRoster) throw new Error('ENOENT'); return v(ROSTER) }
+    if (e.path.endsWith('/waiting-agents.paused')) { if (world.paused) return v(''); throw new Error('ENOENT') }
+    if (e.path === '/proc/self/stat') { if (world.noProc) throw new Error('ENOENT'); return v(stat('1')) }
     if (e.path.endsWith('.json') && !e.path.startsWith(`${sessions}/`)) throw new Error(`ENOENT: ${e.path}`)
     const env = e.path.match(/^\/proc\/(\d+)\/environ$/)?.[1]
     if (env !== undefined) {
@@ -114,6 +124,62 @@ test('one message per wait once it has lasted 25 seconds, and again for the next
   wait(w, clock.now())
   await clock.advance(30_000)
   expect(sent.length).toBe(2)
+  expect(logged).toEqual([])
+})
+
+test('a pause file silences every alert while it exists, shows "paused", and a wait that outlasts it is reported once it is gone', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const status: string[] = []
+  const w = world()
+  w.paused = true
+  stage(on, w, sent, [], status)
+  await $.session.start(START)
+
+  wait(w, clock.now())
+  await clock.advance(60_000)
+  expect(sent).toEqual([])
+  expect(status.at(-1)).toBe('paused')
+
+  w.paused = false
+  await clock.advance(10_000)
+  expect(sent.length).toBe(1)
+  expect(sent[0]).toContain('Dev waiting: permission prompt')
+  expect(status.at(-1)).toBe('watching 2, 1 waiting')
+})
+
+test('without /proc a session is live while the socket its record names exists; one with no socket is skipped', async ($, on) => {
+  const clock = mock.clock(on)
+  const sent: string[] = []
+  const logged: string[] = []
+  const status: string[] = []
+  const w: World = {
+    noProc: true,
+    procs: {},
+    socks: ['1.sock', '2.sock'],
+    files: {
+      '1.json': { ...lead, messagingSocketPath: `${SOCKS}/1.sock` },
+      '2.json': { ...dev, messagingSocketPath: `${SOCKS}/2.sock` },
+      // A record naming no socket cannot be told live, so it is left out.
+      '3.json': { pid: 3, procStart: '300', name: 'Reviewer', status: 'waiting', statusUpdatedAt: -60_000, updatedAt: 9 },
+    },
+  }
+  stage(on, w, sent, logged, status)
+  await $.session.start(START)
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(status.at(-1)).toBe('watching 2, 0 waiting')
+
+  w.files['2.json'] = { ...dev, messagingSocketPath: `${SOCKS}/2.sock`, status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: clock.now(), updatedAt: clock.now() }
+  await clock.advance(40_000)
+  expect(sent.length).toBe(1)
+  expect(sent[0]).toContain('Dev waiting: permission prompt')
+
+  // The socket has gone: the session is over, whatever its record still says.
+  w.socks = ['1.sock']
+  await clock.advance(10_000)
+  expect(status.at(-1)).toBe('watching 2, 0 waiting')
+  expect(sent.length).toBe(1)
   expect(logged).toEqual([])
 })
 

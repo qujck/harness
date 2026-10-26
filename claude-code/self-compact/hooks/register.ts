@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, requestPath, statusText, type Window } from './compact.ts'
+import { COMPACTED_TEXT, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, requestPath, statusText, type Window } from './compact.ts'
 
 // Store keys, per session: the token count at the last nudge (re-armed when the count drops under it),
 // the mtime of the last request file acted on (a file is acted on once; the agent may write it again),
@@ -58,7 +58,10 @@ async function windowOf($: EngineInterface): Promise<Window | undefined> {
 
 // A request file newer than the last one handled is read, acted on, and remembered by its mtime.
 // The compact call runs between turns and rejects while a turn runs, so a request written mid-turn
-// is simply read at the next turn's end.
+// is simply read at the next turn's end. A compaction that happened is followed by one prompt of
+// the mod's own: a compaction is not a turn, so without it the session would wait for input, and
+// the standing rule to read the durable record first would never fire. A veto or a refused request
+// compacted nothing, so neither is followed by anything.
 async function actOnRequest($: EngineInterface, path: string): Promise<boolean> {
   if (!(await $.fs.exists(path))) return false
   const { mtimeMs } = await $.fs.stat(path)
@@ -71,16 +74,20 @@ async function actOnRequest($: EngineInterface, path: string): Promise<boolean> 
     return false
   }
   const result = await $.session.compact(parsed.request.instructions === undefined ? {} : { instructions: parsed.request.instructions })
-  if ('skip' in result && result.skip) $.ui.log(`a hook vetoed the compaction — ${result.skip}`)
-  else $.ui.log('compacted at the agent\'s request')
+  if ('skip' in result && result.skip) {
+    $.ui.log(`a hook vetoed the compaction — ${result.skip}`)
+    return true
+  }
+  $.ui.log('compacted at the agent\'s request')
+  await $.prompt.submit({ text: COMPACTED_TEXT })
   return true
 }
 
 // Every turn: the status line shows both points and the room; a guard warning is logged once per
 // distinct text. Once per fill: when the soft point is reached and nothing has been requested, the
-// agent is asked (as a prompt of its own, marked as the mod's) to find a stopping point and write
-// the file.
-async function reportAndNudge($: EngineInterface, path: string): Promise<void> {
+// agent is asked (as a prompt of its own, marked as the mod's) to find a stopping point and run
+// compact-me.sh.
+async function reportAndNudge($: EngineInterface): Promise<void> {
   const w = await windowOf($)
   if (!w) return
   $.ui.status(statusText(w))
@@ -92,7 +99,7 @@ async function reportAndNudge($: EngineInterface, path: string): Promise<void> {
   if (prior !== undefined && w.tokens < prior) await $.store.delete(NUDGED_AT)
   if (!nudgeDue(w, prior)) return
   await $.store.set(NUDGED_AT, w.tokens)
-  await $.prompt.submit({ text: nudgeText(w, path) })
+  await $.prompt.submit({ text: nudgeText(w, `${$.plugin.root}/compact-me.sh`) })
 }
 
 // After every main-loop turn (a subagent's or fork's turns are passed through untouched): act on a
@@ -104,7 +111,7 @@ export const register: Register = on => {
     if ((e as { agentId?: string }).agentId !== undefined) return result
     try {
       const path = await ownRequestPath($)
-      if (!(await actOnRequest($, path))) await reportAndNudge($, path)
+      if (!(await actOnRequest($, path))) await reportAndNudge($)
     } catch (err) {
       $.ui.log(String(err))
     }
