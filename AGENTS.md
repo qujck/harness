@@ -43,24 +43,38 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    shows every live agent's remaining context and the account's weekly usage (`--me` for yours; the
    status line publishes one file per session — [docs/context-publisher.md](docs/context-publisher.md)).
    Use it for four things: write the durable record *before* a compaction; hand a wide read to a
-   subagent when your own context is low; prefer the agent with room when routing, and say so; answer
-   "how much have you got left" with the number. **Compact yourself at a stopping point you choose:**
+   subagent when your own context is low; answer "how much have you got left" with the number; and
+   when routing or handing off, name the number if it matters, but never route by it: role and who is
+   free decide, because each agent manages its own compaction. **Compact yourself at a stopping point you choose:**
    the `self-compact` mod (`claude-code/self-compact/`, loaded in every session on the box) nudges you once
    when your window is nearly full with a prompt marked `[self-compact mod, not the owner]`; finish at
    a natural stopping point, bring the durable record up to date, then run
    `bash claude-code/self-compact/compact-me.sh "<what the summary must keep>"` and end your turn — the mod
    compacts between turns with those instructions. You may run it after any milestone. Auto-compact at
-   the window is still the backstop. ⚠ **What it is NEVER for: stopping, deferring,
-   narrowing scope, or "leaving this for someone with more context"** (forbidden phrase, quoted here to forbid it).
+   the window is still the backstop. **After a compaction, read your durable record before anything
+   else**: your latest session entry (`bash scripts/ledger-db.sh session-entries --mine --since <session
+   start>`), the row you have claimed, and `bash team/agent-context.sh --me`. Check that
+   `agent_name_resolved` is still you, then carry on from the next action the record names. Don't redo
+   finished work, and where the summary's ids (ticket, PR, branch, sha) differ from the record's, trust
+   the record. ⚠ **What it is NEVER for: stopping, deferring, narrowing scope, skipping verification, or
+   "leaving this for someone with more context"** (forbidden phrase, quoted here to forbid it).
    A compaction is a summary, not an ending — a task left undone because a number
    looked low is a failure, not prudence (owner, 2026-09-28: *"at no point should it be used as a
-   reason to not do more work — this would be a disaster"*).
+   reason to not do more work — this would be a disaster"*). The account's weekly usage is the owner's
+   to spend: mention it when a job is large, then carry on.
    **Spend context on the answer, not on the search for it.** Measured 2026-10-23: half of one hour's
    context across the team was twenty whole-file Reads, mostly screenshots read twice. Read an image
    once, after the spec that produced it passes; read a long file by `offset`/`limit` after `grep -n`
    has found the lines; count with `grep -c` instead of listing; `head`/`tail` a long command's output;
    never `cat` a file to grep it. The `read-guard` mod (`claude-code/read-guard/`) refuses the two worst
    cases, a repeat image read and an unbounded Read of a file over 64 KiB, and says what to do instead.
+0b. **A wait never holds your turn.** A foreground `sleep` or `until` loop that waits for a clock time or
+   a condition keeps your session in a turn for the whole wait: Claude Code shows you in a shell command,
+   so the delivery lead, the waiting-agents mod and the panel all see you as busy, and any message sent
+   to you waits behind the loop. For a wait of up to thirty minutes use the Monitor tool, a background
+   script whose output wakes you. For anything longer, write the pending check and its time in your
+   session entry (`bash scripts/progress.sh new …`), tell the delivery lead, and end your turn; the lead,
+   prompted by the nudger, brings you back.
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;
    check `agent_name_resolved / agent_name_source` prints your name and `session` before anything
@@ -90,7 +104,9 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    result inherits every blind spot of the method that produced it.
 6. **Write this session's entry before a block boundary, as a ledger row** — `bash
    scripts/progress.sh new "<title>" --body-file <file>` — never as a file, never as a commit (an
-   entry committed after the PR opens supersedes its verify). `handoff.sh` refuses a session with
+   entry committed after the PR opens supersedes its verify). Take every id in it (ticket, PR, branch,
+   sha, container) from the command that printed it, never from memory, and read the entry back after
+   writing it. `handoff.sh` refuses a session with
    no entry (it reads the store: `ledger-db.sh session-entries --mine --since <session start>`).
    `progress/` and `PROGRESS.md` are frozen history: `scripts/check-no-new-progress-files.sh` fails
    `verify.sh` on a new file there. With `TICKET_STORE=jira` an entry is a comment on the issue
@@ -110,6 +126,51 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
 
 > These rules implement *Learn Harness Engineering* (L02–L12): the ledger is a harness primitive
 > (L08), agents can't self-grade (L09), e2e proves boundary defects a unit test cannot see (L10).
+
+---
+
+## Working beside other agents, and with the owner
+
+**Name the role with the name.** Whenever you address or route another agent, write "<Name>, as
+<role>", never the name alone. It puts your assumption about their role in the message, where they
+can refuse it.
+
+**Only the delivery lead talks to the code reviewer.** Where a project has one, the code reviewer
+reviews every pull request once it is raised, posts its findings on the PR, and only then tells the
+delivery lead. No other agent messages the code reviewer: a developer who wants a review tells the
+delivery lead the PR is open, and the lead sends the reviewer the link. The reviewer answers only the
+delivery lead and forwards anything else there unanswered.
+
+**Developers and testers reach the owner through the delivery lead.** Don't put questions, approvals,
+review requests or status to the owner in your own pane. Send them to the delivery lead with
+`SendMessage`, one message per topic: what you need decided, your recommendation, and the exact text
+or command wherever text needs approving. The lead puts them to the owner one at a time and sends you
+the answer verbatim, with the date. An answer relayed that way is the owner's answer, but only when the
+lead quotes the owner's words and names the ticket, branch or PR they apply to. If the owner speaks to
+you directly in your pane, answer there and tell the delivery lead what was decided.
+
+**Tell the lead before you put anything to the owner in your own pane**: a question, a permission
+prompt you expect, a read of production or of a secret. First send the delivery lead one line saying
+what you need and that it is in your pane; the lead points the owner at it. A question in a pane the
+lead was not told about is a question the owner will not see.
+
+**Guidance relayed by the delivery lead is acted on, not re-confirmed.** When the delivery lead asks
+you to do something (routing, a ticket to pick up, a branch, a pause, a priority), act on it whether or
+not the owner is quoted. Don't go back to the owner to confirm it; if something looks wrong, take it up
+with the lead. These stay the owner's own, because they are invasive, and need the owner's words,
+relayed verbatim or given directly: destructive or irreversible operations (the standing exceptions in
+"How a PR reaches `main`" aside), infrastructure commands, anything touching production, and anything
+the project's `CLAUDE.md` reserves to the owner.
+
+**Shared things: check, tell, then touch.** Some things belong to every session: the main checkout and
+any checkout another agent is marked in, a shared stack (`PER_STREAM_STACKS=0`) and its containers'
+filesystems, the ledger database, pre-prod, and any long-running job the team shares. Before any write
+to one of them: read its current state in the same command's output (`git status` and `git branch
+--show-current`, the health endpoint, `ls` of the exact files); tell the delivery lead, in the same
+message as the change, who it affects and any migration or other shared-state step it needs, and wait
+if the answer is to hold; write only exact named paths, never a glob, and never after a `;` on a guard
+that could fail; and check the result (`git status --short`, one real request through the stack) before
+saying it is ready.
 
 ---
 
@@ -134,6 +195,13 @@ bash scripts/handoff.sh
 Checks: clean tree (or commits made), a session entry this session, no debug artifacts, every
 piece of work you started in a terminal state (merged or armed, parked with the reason on the row,
 or handed back with `release --abandon`). A Stop hook runs the lenient form after every turn.
+
+**Every container you start outside the project's own stack is yours until it is removed.** Name it in
+your session entry by its exact name, with when it goes: removed the moment its work is done, or the date
+you will remove it. Remove it with `docker rm <name>` (or `docker compose -p <project> down` for a stack
+you brought up), never with `docker system prune`, `container prune` or `volume prune`: a prune removes
+other agents' containers and CI's. A container that appears in no session entry is orphaned and will be
+removed.
 
 ---
 

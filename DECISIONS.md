@@ -445,3 +445,36 @@ old file as `.bak`; `--dry-run` only looks, `--yes` is for a script. Both script
 into `~/.claude/bin` and installs systemd or launchd timers for its record archiver; those belong to its own
 roster and layout, which the harness does not share. Its status line draws a full bar (activity, ticket, a
 running-gates row); the harness publisher remains the example it was, now carrying the activity.
+
+## 2026-10-26 — The rules of conduct between agents, and with the owner (ported from the seeded project)
+
+**Decision.** The harness said what each role owns and what it must not touch, but little about how agents
+deal with one another and with the owner, and the seeded project had learnt those rules the hard way. They
+are now in AGENTS.md, stated as rules without the quotes that produced them:
+
+- **0b, a wait never holds your turn.** A foreground sleep or `until` loop keeps the session in a turn; the
+  lead, the mod and the panel all see it as busy, and messages queue behind it. Monitor for up to thirty
+  minutes, otherwise record the pending check, tell the lead and end the turn.
+- **0a gains three sentences.** After a compaction, read the record first (session entry, claimed row,
+  `agent-context.sh --me`), check the identity still resolves, trust the record's ids over the summary's;
+  "skipping verification" joins the list of what low context is never for; the weekly usage is the owner's
+  to spend. And routing is never by context left: role and who is free decide, because each agent manages
+  its own compaction. The old "prefer the agent with room" in 0a and in docs/context-publisher.md said the
+  opposite and is gone.
+- **Rule 6**: every id in a session entry comes from the command that printed it, never from memory.
+- **Session exit**: every container started outside the project's stack is named in the session entry and
+  removed by name, never by a prune; an unrecorded container is orphaned and will be removed.
+- **A new section, "Working beside other agents, and with the owner"**: name the role with the name; only
+  the delivery lead talks to the code reviewer, and findings go on the PR first; developers and testers reach
+  the owner through the lead, and tell the lead before putting anything to the owner in their own pane;
+  guidance the lead relays is acted on without re-confirming, with the short list of what stays the owner's
+  own; shared things are touched by check, tell, then touch.
+- **Role docs**: the developer runs what the pipeline runs before opening the PR and lists it in the
+  handover (CI's run stays the definition of done); the code reviewer compacts only at a finished PR and
+  sets its soft point low; the delivery lead keeps the reviewer's queue, confirms only invasive relays with
+  the owner, and tells the owner in one line when an agent is stuck on a prompt that is the owner's; every PR
+  comment starts with the agent's name and role; the tester touches shared things by the rule.
+
+**Not ported.** The seeded project's never-merge-until-the-owner-says rule, its signed-comment and
+three-approval gate, its review-in-the-main-checkout and sign-off-before-PR settings, and its single-file
+durable record are its own merge model and record format; the harness lands by CI and records in the ledger.

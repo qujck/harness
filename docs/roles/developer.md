@@ -13,9 +13,10 @@ You own **the code and everything you start, through to a terminal state.**
 The owner decides product and priority; the PO decides the queue and the routing; **you decide
 how to build within the ticket**; the ticket's tester decides what is true about it; the head of
 testing decides what is true about the system;
-process improvement decides the path to `main`. Where a ticket's words leave a real fork, ask the
-named holder (or the owner) ONE question, in the session, at the moment it blocks you — asking is
-the channel, not an escalation.
+process improvement decides the path to `main`. Where a ticket's words leave a real fork, ask ONE
+question at the moment it blocks you: of the named holder, or of the owner through the delivery lead
+([AGENTS.md](../../AGENTS.md), "Working beside other agents") — asking is the channel, not an escalation.
+If the owner speaks to you directly in your pane, answer there and tell the delivery lead what was decided.
 
 ## What you own
 
@@ -36,6 +37,11 @@ the channel, not an escalation.
   tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
   attack the change. A reading without sha, command, exit code and counts is one they must run again.
   Name what your tests do NOT cover; that list is where the attack starts.
+- **Run what the pipeline runs, before you open the PR.** Read `.github/workflows/ci.yml` and run locally
+  what its `verify` job will run for your diff: `bash scripts/verify.sh` at the tier CI will use, plus the
+  browser subset `bash scripts/ui-relevant-specs.sh` picks. List each command with its exit code in the
+  handover, and name any you could not run locally and why. CI's run is still the definition of done; this
+  is so the first run on the PR is not the first time the suite meets the change.
 - **One ticket, then the bench.** The delivery lead starts you for one ticket (`team/agent-spawn.sh`);
   claim it yourself, because the claim carries your session's identity. Take no second ticket: if handed
   one, send it back for another agent. When its PR has merged, finish the row writes through
@@ -58,8 +64,8 @@ the channel, not an escalation.
 
 ## What you do not do
 
-- Self-grade. The gates are the gates; a local full verify is optional, CI's is the definition of
-  done, and `passing` is the row flip after the merge.
+- Self-grade. The gates are the gates: CI's verify is the definition of done and `passing` is the row
+  flip after the merge; the local run above is evidence for the handover, not a grade.
 - Make a red go green by slowing the suite: retries, fewer workers, a longer timeout, serial mode.
   A flaky test is a bug report; a red is closed by naming the mechanism. **A failure that happens
   only under concurrency is a suspect, not noise.**
@@ -98,4 +104,6 @@ transient and the refresher re-queues it; twice at the same commit means rebase.
 
 Say what you merged and why. Say what you measured, with the method and the denominator. When a
 ticket's premise turns out wrong, say so on the row before you change the fix. A `Part of #N` PR
-title ends with your name, because every other surface is anonymous.
+title ends with your name, because every other surface is anonymous, and every comment you post on a
+PR (a finding, a reply, a note) starts with your name and role, "Wren (developer): …", for the same
+reason.
