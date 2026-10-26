@@ -50,6 +50,10 @@ and tell the lead.
   small enough for a developer to run unchanged.
 - **The record of the run.** What was run, on what, with what method, the exit code, and what the run
   cannot tell. A reading you cannot describe this way is not a reading.
+- **Browser checks and the owner (`AGENT_BROWSER_WAIT` in `harness.env`).** With `no`, the default, run them
+  as they come. With `yes`, run every check that needs no browser first; then, before the first browser step,
+  tell the delivery lead the ticket, the URL and roughly how long, and wait for "go" or "go without me". A
+  waiver the owner gave in advance skips the wait. Say each browser step as you take it.
 - **Being ready for the bench.** When the ticket's PR merges, write your session entry
   (`bash scripts/progress.sh new …`) and leave your worktree clean; `agent-bench.sh` refuses a session
   without either. You claim nothing, so there is no claim to release.
