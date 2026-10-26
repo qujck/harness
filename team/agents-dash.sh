@@ -302,7 +302,10 @@ week_line() {
     return 0
   fi
   col=$GREEN; [ "$used" -gt "$plan" ] && col="$BOLD$RED"
-  fill=$(( (used + 5) / 10 )); mark=$(( (plan + 5) / 10 ))
+  # The gap between use and allowance is rounded on its own, so a use a point under its allowance has the
+  # marker straight after it rather than a cell on.
+  if [ "$used" -le "$plan" ]; then fill=$(( (used + 5) / 10 )); mark=$(( fill + (plan - used + 5) / 10 ))
+  else mark=$(( (plan + 5) / 10 )); fill=$(( mark + (used - plan + 5) / 10 )); fi
   [ "$fill" -gt 10 ] && fill=10; [ "$mark" -gt 10 ] && mark=10
   for (( i = 0; i <= 10; i++ )); do
     [ "$i" -eq "$mark" ] && bar+="$R$DIM│$R"
@@ -676,6 +679,11 @@ selftest() {
   t ' week ████│░░░░░░ 40% of 44%' 'week line: on budget, the bar to the use and the mark at the allowance' "$(week_line 40)"
   printf '#!/usr/bin/env bash\necho "budget  over: week 70%% used of 44%% planned so far: ask the owner"; exit 1\n' > "$T/budget"
   t ' week ████│███░░░ 70% of 44%' 'week line: over budget, the bar runs past the mark' "$(week_line 70)"
+  printf '#!/usr/bin/env bash\necho "budget  on: week 14%% used of 15%% planned so far"; exit 0\n' > "$T/budget"
+  t ' week █│░░░░░░░░░ 14% of 15%' 'week line: a use a point under its allowance has the mark straight after it, not a cell on' "$(week_line 14)"
+  printf '#!/usr/bin/env bash\necho "budget  on: week 14%% used of 35%% planned so far"; exit 0\n' > "$T/budget"
+  t ' week █░░│░░░░░░░ 14% of 35%' 'week line: a real gap still shows' "$(week_line 14)"
+  printf '#!/usr/bin/env bash\necho "budget  over: week 70%% used of 44%% planned so far: ask the owner"; exit 1\n' > "$T/budget"
   t ' week no reading yet' 'week line: no reading says so' "$(week_line -1)"
   t 1 'readings: the good rows survive a bad file beside them' "$(readings | grep -c '^s1')"
 
