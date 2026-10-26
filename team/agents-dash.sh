@@ -90,7 +90,8 @@ SPARK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
 
 # ── the roster ────────────────────────────────────────────────────────────────
 # roster -> "<name>\t<role>\t<kind>" per active agent GROUPED BY ROLE in a fixed order (owner, 2026-10-25:
-# lead, developers, testers, head of testing, reviewer, process, support, then any other role), file order
+# lead, developers, testers, head of testing, reviewer, support, process, then any other role — owner,
+# 2026-10-26: "Lead, Devs, Testers, Reviewer, Support, Improvement, Assistant"), file order
 # kept within a role, assistants last. A roster appends each new agent at the end, so in file order a new
 # tester drew after the reviewer and the process lead: "in the wrong place on the dashboard". The Delivery
 # tab groups the same way. roster_panel_rows itself stays in file order for its other readers.
@@ -98,7 +99,7 @@ roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER" | roster_grouped; }
 role_rank() {
   case "$1" in
     delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; head-of-testing) echo 3 ;;
-    code-reviewer) echo 4 ;; process-improvement) echo 5 ;; production-support) echo 6 ;;
+    code-reviewer) echo 4 ;; production-support) echo 5 ;; process-improvement) echo 6 ;;
     assistant) echo 9 ;; *) echo 8 ;;
   esac
 }
@@ -611,8 +612,8 @@ selftest() {
     {"name":"Ben","role":"tester","status":"active"},{"name":"Zed","role":"some-new-role","status":"active"},
     {"name":"Sup","role":"production-support","status":"active"},{"name":"Ivy","role":"developer","status":"active"}],
     "assistants":[{"name":"Ada"}]}' > "$T/roster-grouped.json"
-  t $'Carl\tdelivery-lead\tagent\nEd\tdeveloper\tagent\nIvy\tdeveloper\tagent\nTom\ttester\tagent\nBen\ttester\tagent\nVera\thead-of-testing\tagent\nStef\tcode-reviewer\tagent\nRo\tprocess-improvement\tagent\nSup\tproduction-support\tagent\nZed\tsome-new-role\tagent\nAda\tassistant\tassistant' \
-    'roster: grouped lead, developers, testers, head of testing, reviewer, process, support, other; file order within a role; the assistant last' "$(ROSTER="$T/roster-grouped.json" roster)"
+  t $'Carl\tdelivery-lead\tagent\nEd\tdeveloper\tagent\nIvy\tdeveloper\tagent\nTom\ttester\tagent\nBen\ttester\tagent\nVera\thead-of-testing\tagent\nStef\tcode-reviewer\tagent\nSup\tproduction-support\tagent\nRo\tprocess-improvement\tagent\nZed\tsome-new-role\tagent\nAda\tassistant\tassistant' \
+    'roster: grouped lead, developers, testers, head of testing, reviewer, support, process, other; file order within a role; the assistant last' "$(ROSTER="$T/roster-grouped.json" roster)"
   t support 'short_role: production-support' "$(short_role production-support)"
   t '' 'roster_grouped: no rows in, none out' "$(printf '' | roster_grouped)"
   # The frames below read this small roster: Ed, Vera, Ben in file order IS the grouped order (dev, test, tester
