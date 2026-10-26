@@ -13,16 +13,22 @@ turn (a subagent's or fork's turns are passed through) it does one of two things
   `{"instructions": "<what the summary must keep>"}`. The mod calls the engine's own compact, the same call
   `/compact` makes, with those instructions, and logs `self-compact: compacted at the agent's request`. A
   file that is not a JSON object compacts nothing and is named once in the log. A hook's veto is reported,
-  not retried. The agent may write the file at any time, not only when nudged: an early compaction after
-  a milestone is the agent's call.
+  not retried. Once the compaction has happened, one prompt marked `[self-compact mod, not the owner]` is
+  queued in the session: read your durable record first, then carry on with its next action, and if that
+  action is waiting on someone, say so and stop. A compaction is not a turn, so without that prompt the
+  session would sit at an empty prompt and the standing rule to read the record first would never fire; a
+  veto or a refused request compacted nothing and is followed by nothing. The agent may write the file at
+  any time, not only when nudged: an early compaction after a milestone is the agent's call.
 - **No request, and the count has reached the soft point.** The soft point is `COMPACT_AFTER` for this agent
   when the config file (below) gives one, else where 20% of the room remains. The room runs to the *hard
   point*: where this session actually auto-compacts, read from the engine's context breakdown each turn (its
   settled window less its auto-compact buffer, ~33k; a running session keeps the window it started with or the
   one `/autocompact` gave it, whatever the settings file says now). Without a breakdown the settings window
   less 33k stands in (measured 2026-10-16: auto-compact at 266.7k–269.3k on 300k, 217,132 on 250k). The mod submits one prompt, marked `[self-compact mod, not the owner]`, naming the
-  figures and the exact path to write: finish at a natural stopping point, bring the durable record up to
-  date, then write the file and end the turn. One nudge per fill: it re-arms only once the count has
+  figures and the one command to run: finish at a natural stopping point, bring the durable record up to
+  date, then run `compact-me.sh "<what the summary must keep>"` and end the turn, with the instructions
+  naming where the record is and the very next action standing in it, so the summary points back at the
+  record. One nudge per fill: it re-arms only once the count has
   dropped, that is, after a compaction.
 
 **The soft point, `COMPACT_AFTER`.** One file per box, `$XDG_CONFIG_HOME/self-compact/compact-after.json`
@@ -62,7 +68,7 @@ Install it, with every other mod in this folder, by naming the folder in the `en
 folders are separated by `:`):
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/mods" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/harness/claude-code" } }
 ```
 
 It takes effect in sessions started after that. A running session does not reload `autoCompactWindow` from

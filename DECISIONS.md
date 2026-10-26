@@ -396,3 +396,30 @@ shared libraries from `scripts/lib/`; their own libraries sit beside them. `chec
 among them, and the name says nothing wrong. `agent-stacks.sh` stays in the process: `init.sh` refuses to start a
 stack past the cap, so the cap is part of clocking in. This entry records the moves only; content is unchanged, so
 the diff reads as renames.
+
+## 2026-10-26 — The Claude Code mods catch up with the seeded project's copies
+
+**Decision.** Three behaviours that the project this harness was extracted from added to its own copies of
+the mods are brought back, so the two copies carry the same mechanisms:
+
+- **self-compact.** A compaction the agent asked for is followed by one prompt of the mod's own, marked as the
+  mod's: read your durable record first, then carry on with its next action; if that action is waiting on
+  someone, say so and stop. A compaction is not a turn, so without it the session sat at an empty prompt and
+  the standing rule to read the record first never fired. The nudge now names the one command to run,
+  `compact-me.sh "<what the summary must keep>"`, and says what the instructions must name (where the record
+  is and the very next action), instead of a JSON file path to write by hand. A veto or a refused request is
+  followed by nothing.
+- **waiting-agents, liveness without `/proc`.** On macOS there is no `/proc`, so the mod saw no live session
+  at all and the delivery lead's status line stayed empty. There a session now counts as live while the
+  messaging socket its own record names still exists; Claude Code writes both and removes both. Where `/proc`
+  exists nothing changes: start time and `GIT_AUTHOR_EMAIL` are still read from it.
+- **waiting-agents, a pause file and the nudged roles.** `waiting-agents.paused` beside the nudger's log
+  silences every alert and nudge while it exists, with `paused` in the status bar, for evenings and weekends.
+  Nudges go only to developers, testers, the code reviewer and process improvement (`NUDGE_ROLES`): the head
+  of testing defines what is true rather than working a ticket, and assistants are not on the team.
+
+**Not ported, and why.** The seeded project keys each agent's `COMPACT_AFTER` entry by the session's own name
+read from `~/.claude/sessions`; the harness keeps `GIT_AUTHOR_NAME` from the launch line, which is its identity
+rule. Its nudges carry each agent's ticket from a per-agent ticket file; here the ticket is a ledger claim and
+the nudge text stays as it was. Its `compact-me.sh` parses the self-test flag by hand; the harness copy keeps the
+shared `selftest-flag.sh` contract.

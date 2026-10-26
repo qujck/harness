@@ -159,12 +159,23 @@ export function statusText(w: Window): string {
   return `${n(w.tokens)} used, nudge at ${n(softPoint(w))}, auto-compact at ${n(hardPoint(w))}, room ${n(g.room)}${g.warning ? ' ⚠' : ''}`
 }
 
-// The nudge, marked as the mod's and not the owner's, carrying the exact path to write.
-export function nudgeText(w: Window, path: string): string {
+// The nudge, marked as the mod's and not the owner's, naming the one command to run and what the
+// compaction instructions must say, so the summary itself points back at the durable record.
+export function nudgeText(w: Window, script: string): string {
   const left = Math.max(0, hardPoint(w) - w.tokens)
   return [
     `[self-compact mod, not the owner] ${n(w.tokens)} tokens used; auto-compact fires at about ${n(hardPoint(w))}, so about ${n(left)} remain to finish and save.`,
     'Finish at a natural stopping point and bring your durable record up to date (session entry, row notes, memory) before anything else.',
-    `Then write {"instructions":"<what the summary must keep>"} to ${path} and end your turn: this mod compacts the session between turns, with those instructions, and clears the request. Do not start new work first.`,
+    `Then run: bash ${script} "<what the summary must keep>" and end your turn: this mod compacts the session between turns, with those instructions, and clears the request. Do not start new work first.`,
+    'What the summary must keep names where your record is (the ticket you hold, its row notes, your latest session entry) and the very next action standing in it, so the summary points back at the record.',
   ].join('\n')
 }
+
+// The prompt queued in the session once a compaction it asked for has happened, marked as the mod's
+// and not the owner's. A compaction is not a turn, so nothing would start one otherwise and the
+// session would sit at a prompt; this is what carries the agent on from its record.
+export const COMPACTED_TEXT = [
+  '[self-compact mod, not the owner] Compacted at your request.',
+  'Read your durable record first (the ticket you hold, its row notes and your latest session entry), then carry on with its next action.',
+  'If that action is waiting on someone, say what you are waiting for and stop.',
+].join('\n')

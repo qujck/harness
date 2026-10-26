@@ -176,7 +176,7 @@ Tell the user the remaining manual steps (do not do these silently):
 2. **Clock in:** `bash scripts/init.sh` (also installs the pre-commit hook).
    Offer to run it.
 3. **Load the mods, once per box.** Offer to add
-   `"CLAUDE_CODE_PLUGIN_DIRS": "<this repo's absolute path>/mods"` to the `env` block of
+   `"CLAUDE_CODE_PLUGIN_DIRS": "<this repo's absolute path>/claude-code"` to the `env` block of
    `~/.claude/settings.json` (the USER file: the mods act per session on the box, not per repo —
    read it first and merge, never overwrite; if the key already names other folders, append this
    one after a `:`), and to write `~/.config/self-compact/compact-after.json` as
