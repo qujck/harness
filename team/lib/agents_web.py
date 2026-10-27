@@ -1705,11 +1705,14 @@ function roleList() {
   for (const a of [...S.agents, ...S.bench]) seen[a.role] ??= {role: a.role, name: a.roleName || a.role, colour: a.colour};
   return Object.values(seen).sort((x, y) => (ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99));
 }
+// A grid or tabs pane's agents, role by role in the order the roles were picked (n.roles keeps it), roster order
+// within a role.
+const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
 // The agents a pane shows a card of: an agent pane its one, a grid all of its roles, tabs the picked one.
 function onScreen(l) {
   const names = new Set();
   for (const [path, n] of leaves(l.root)) {
-    const of = S.agents.filter(a => (n.roles || []).includes(a.role));
+    const of = paneAgents(n);
     if (n.show === "agent" && n.name) names.add(n.name);
     if (n.show === "grid") of.forEach(a => names.add(a.name));
     if (n.show === "tabs" && of.length) names.add((of.find(a => a.name === localStorage.getItem("tab:pane:" + path)) || of[0]).name);
@@ -1721,7 +1724,7 @@ function customHtml(ceil, tabRow) {
   let maxed = localStorage.getItem("custom:max");
   if (maxed && !leaves(l.root).some(([p, n]) => p === maxed && n.show === "agent")) { localStorage.removeItem("custom:max"); maxed = null; }
   const pane = (n, path) => {
-    const of = S.agents.filter(a => (n.roles || []).includes(a.role));
+    const of = paneAgents(n);
     let body = `<div class="blank">${l.locked ? "" : "Choose what this pane shows"}</div>`;
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
