@@ -1213,6 +1213,10 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
 .mini svg.spark{height:16px;margin-top:3px}
+/* The List pane's cards share its height: when there are more agents than room, each card's line shrinks first,
+   down to its name row, and only then does the list scroll. */
+.others .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
+.others .mini svg.spark{flex:0 1 16px;min-height:0;height:auto}
 #detail .left{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
 #dbottom,.card .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
   border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:600 12px var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
