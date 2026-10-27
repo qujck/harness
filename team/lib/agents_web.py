@@ -1706,7 +1706,12 @@ function draw() {
     const sec = b.parentElement.dataset.sec;
     localStorage.setItem(sec ? "mode:" + sec : "page", b.dataset.mode); draw();
   });
-  document.querySelectorAll(".tabbar button").forEach(b => b.onclick = () => { localStorage.setItem("tab:" + b.parentElement.dataset.sec, b.dataset.tab); draw(); });
+  // Picking a tab puts the cursor in that agent's message box, ready to type.
+  document.querySelectorAll(".tabbar button").forEach(b => b.onclick = () => {
+    const sec = b.parentElement.dataset.sec, name = CSS.escape(b.dataset.tab);
+    localStorage.setItem("tab:" + sec, b.dataset.tab); draw();
+    document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
+  });
   if (pageMode === "grid") grips(tabs.map(t => t.name));
   if (pageMode === "custom") customClicks();
   if (!open) markSeen([...[...main.querySelectorAll(".card")].map(c => c.dataset.name), ...S.agents.filter(a => !seen[a.name]).map(a => a.name)]);
