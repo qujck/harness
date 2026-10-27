@@ -1151,14 +1151,16 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .mini.off{opacity:.45}
 .mini.cur:not(.waiting){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
-.mini .mtop{display:flex;align-items:center;gap:6px}
+.mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:#000;font:700 10.5px/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:#000c;color:#fff}
-.mini .name{font-size:12px;padding:0 6px}
-.mini .ticket{font-size:10.5px;padding:0 5px}
-.mini .mrow{display:flex;align-items:center;gap:6px;margin-top:5px;font:11px var(--mono);color:var(--mute);white-space:nowrap}
-.mini .mrow .state{font:600 11.5px var(--sans)}
-.mini .mrow .pct{margin-left:auto}
+/* One line: name, ticket, state, how long, context; the ticket gives way first, then the state's word. */
+.mini .name{flex:none;font-family:var(--sans);font-size:12px;padding:0 6px}
+.mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
+.mini .mtop .state{flex:0 1 auto;min-width:0;overflow:hidden;font:600 11.5px var(--sans)}
+.mini .mtop .dot{flex:none}
+.mini .mtop .ago,.mini .mtop .pct{flex:none}
+.mini .mtop .pct{margin-left:auto}
 .mini svg.spark{height:16px;margin-top:3px}
 #detail .left{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
 #dbottom,.card .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
@@ -1899,8 +1901,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" title="Open ${esc(a.name)}">
-      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}</div>
-      <div class="mrow"><span class="state"><span class="dot"></span>${STATE[st] || esc(st)}</span><span>${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[st] || esc(st)}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
