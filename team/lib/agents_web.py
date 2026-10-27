@@ -1196,7 +1196,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
 .mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
-.tabbar .unseen{margin-left:6px;background:#000c;color:#fff}
+.tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name, ticket, state, how long, context; the ticket gives way first, then the state's word. */
 .mini .name{flex:none;font-family:var(--sans);font-size:12px;padding:0 6px}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
