@@ -901,6 +901,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Team</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d97757' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 12L21.9 13.4M12 12L18.5 17.0M12 12L15.5 20.7M12 12L10.9 19.5M12 12L5.8 19.9M12 12L4.0 15.2M12 12L2.9 10.7M12 12L5.9 7.2M12 12L8.3 2.9M12 12L13.2 3.7M12 12L17.9 4.4M12 12L19.4 9.0'/%3E%3C/svg%3E">
 <style>
 :root{
   --track:#ffffff10; --soft:#ffffff06; --section:#0b0f15aa; --card1:#161b22f0; --card2:#0d1117f0; --hover:#ffffff40; --text2:#c9d1d9;
