@@ -1085,6 +1085,12 @@ table.md th{background:var(--line);font-weight:600}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
    burn line under them */
 .pbody{container-type:inline-size}
+/* A full card in a grid pane is measured on its own, not by the pane */
+.cards > .cell{container-type:inline-size;min-height:0;display:flex;flex-direction:column}
+.cards > .cell > .card{flex:1}
+.viewseg{flex:none}
+.card > .ctl{position:absolute;top:7px;right:8px;z-index:3;display:none;align-items:center;gap:6px;padding:2px 3px;border-radius:7px;background:var(--box);box-shadow:0 2px 10px #0006}
+.card:hover > .ctl{display:flex}
 .maxbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
 .maxbtn:hover{background:var(--on);color:var(--text)}
 /* a maximised pane's card has its terminal at the top right of its conversation, as the agent's own view does */
@@ -1099,6 +1105,13 @@ table.md th{background:var(--line);font-weight:600}
   .pbody .card:not(.full) > .top + .row2{grid-column:1;grid-row:2;padding-right:0}
   .pbody .card:not(.full) > .row2 + .row2{grid-column:2;grid-row:2}
 }
+@container (max-width:439.98px){
+  .cell > .card.full{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
+  .cell > .card.full > *{grid-column:1/-1}
+  .cell > .card.full > .top + .row2{grid-column:1;grid-row:2;padding-right:0}
+  .cell > .card.full > .row2 + .row2{grid-column:2;grid-row:2}
+  .cell > .card.full > svg.spark{height:16px}
+}
 @container (min-width:440px) and (max-width:719.98px){
   .card.full{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
   .card.full > *{grid-column:1/-1}
@@ -1110,7 +1123,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > svg.spark{height:16px}
 }
 @container (min-width:720px){
-  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
+  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .row2{grid-row:1;align-self:center}
@@ -1120,8 +1133,9 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .top + .row2{grid-column:4;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top > .lanes{grid-column:7;margin:0 0 0 4px}
-  .card.full > .top > .maxbtn{grid-column:8;margin-right:10px}
+  .card.full > .top > .viewseg{grid-column:7}
+  .card.full > .top > .lanes{grid-column:8;margin:0 0 0 4px}
+  .card.full > .top > .maxbtn{grid-column:9;margin-right:10px}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -1452,13 +1466,13 @@ function spark(series, ceil, colour) {
 
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
-function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
+function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, ctl = ""} = {}) {
   const cls = a.live ? a.status : "off";
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
-  return `<div class="card ${cls}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+  return `<div class="card ${cls}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">${ctl ? `<div class="ctl">${ctl}</div>` : ""}
     <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
@@ -1730,28 +1744,41 @@ function roleList() {
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
 function customHtml(ceil, tabRow) {
   const l = layout();
+  // A maximised pane is one agent's card filling the layout: an agent pane's own, or one card of a grid or tabs pane.
   let maxed = localStorage.getItem("custom:max");
-  if (maxed && !leaves(l.root).some(([p, n]) => p === maxed && n.show === "agent")) { localStorage.removeItem("custom:max"); maxed = null; }
+  const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
+  const maxName = maxNode && (maxNode.show === "agent" ? maxNode.name
+    : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
+  if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
+  // A card shows the whole conversation unless its pane is switched to the summary; a maximised one always does. An
+  // agent pane's head has room for the switch and the maximise button; a grid or tabs card shows them over its
+  // corner while the pointer is on it, so its head stays two lines.
+  const paneCard = (n, a, path) => {
+    const big = path === maxed, seg = (big ? "" : viewSeg(fullView(n))) + maxButton(big), inline = n.show === "agent" || big;
+    if (!fullView(n) && !big) return card(a, ceil, null, inline ? seg : "", "", {ctl: inline ? "" : seg});
+    const t = big && termOn() && paneTerm[a.name];
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size].join("|");
+    const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
+    return card(a, ceil, paneConv[a.name] || a.feed,
+      (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + (inline ? seg : ""),
+      t ? paneTermHtml(a.name, t) : "", {key, keep, ctl: inline ? "" : seg});
+  };
   const pane = (n, path) => {
     const of = paneAgents(n);
     let body = `<div class="blank">${l.locked ? "" : "Choose what this pane shows"}</div>`;
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
-      const big = path === maxed, t = big && termOn() && paneTerm[a.name];
-      const key = a && paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size].join("|");
-      const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full .feed`)?.dataset.key === key;
-      body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${card(a, ceil, paneConv[a.name] || a.feed,
-        (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
-        t ? paneTermHtml(a.name, t) : "", {key, keep})}</div>`
+      body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`
         : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "grid" && of.length) {
       const el = $(`#main .pane[data-path="${path}"] .pbody`), c = el ? cols(of.length, el.clientWidth, el.clientHeight) : Math.ceil(Math.sqrt(of.length));
-      body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => card(a, ceil)).join("")}</div>`;
+      body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => fullView(n)
+        ? `<div class="cell">${paneCard(n, a, path)}</div>` : paneCard(n, a, path)).join("")}</div>`;
     } else if (n.show === "tabs" && of.length) {
       const [sel, row] = tabRow("pane:" + path, of);
-      body = `${row}<div class="cards" style="grid-template-columns:minmax(0,1fr)">${card(sel, ceil)}</div>`;
+      body = `${row}<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, sel, path)}</div>`;
     } else if (n.show === "grid" || n.show === "tabs") {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
@@ -1764,8 +1791,11 @@ function customHtml(ceil, tabRow) {
   };
   const node = (n, path) => !n.split ? pane(n, path)
     : `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="flex-grow:${n.at}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="flex-grow:${1 - n.at}">${node(n.b, path + "b")}</div></div>`;
-  return maxed ? pane(nodeAt(l.root, maxed), maxed) : node(l.root, "r");
+  return maxed ? pane({...maxNode, show: "agent", name: maxName}, maxed) : node(l.root, "r");
 }
+const fullView = n => n.view !== "summary";
+const viewSeg = full => `<span class="seg viewseg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]]
+  .map(([v, label, title]) => `<b data-view="${v}" class="${(v === "full") === full ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>`;
 // An agent pane can fill the whole layout for a while, from the button at the end of its card's header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
@@ -1776,10 +1806,10 @@ addEventListener("keydown", e => {
   if (e.key !== "F11" || !e.shiftKey || (localStorage.getItem("page") || "grid") !== "custom" || open) return;
   e.preventDefault();
   if (unmax()) return;
-  const pane = document.activeElement?.closest?.("#main .pane") || (paneUnder?.isConnected ? paneUnder : null);
-  pane?.querySelector(".maxbtn")?.click();
+  const at = document.activeElement?.closest?.("#main .pane .card") || (paneUnder?.isConnected ? paneUnder : null);
+  at?.querySelector(".maxbtn")?.click();
 });
-function unmax() { if (!localStorage.getItem("custom:max")) return false; localStorage.removeItem("custom:max"); paneBig = null; draw(); return true; }
+function unmax() { if (!localStorage.getItem("custom:max")) return false; localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); return true; }
 // Each agent pane's longer conversation, as the agent's own view reads it, fetched with every load of the page, and
 // its terminal as it is on screen, shown in a maximised pane. A conversation's version goes up only when it changes,
 // so an unchanged one is not drawn again.
@@ -1795,7 +1825,8 @@ function paneTermHtml(name, t) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  const names = [...new Set(leaves(layout().root).filter(([, n]) => n.show === "agent" && n.name).map(([, n]) => n.name))];
+  const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
+    !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
     try {
       const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
@@ -1834,6 +1865,11 @@ function customClicks() {
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
   });
+  main.querySelectorAll(".pane .viewseg b").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const path = b.closest(".pane").dataset.path, l = layout();
+    nodeAt(l.root, path).view = b.dataset.view; saveLayout(l); load();
+  });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
     e.stopPropagation();
@@ -1844,7 +1880,7 @@ function customClicks() {
   });
   main.querySelectorAll(".pane .maxbtn").forEach(b => b.onclick = e => {
     e.stopPropagation();
-    if (!unmax()) { localStorage.setItem("custom:max", b.closest(".pane").dataset.path); draw(); }
+    if (!unmax()) { localStorage.setItem("custom:max", b.closest(".pane").dataset.path); localStorage.setItem("custom:maxname", b.closest(".card").dataset.name); load(); }
   });
   main.querySelectorAll(".card.full").forEach(c => {
     const f = c.querySelector(".feed"), btn = c.querySelector(".newest");
