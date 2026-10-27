@@ -913,7 +913,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Team</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d97757' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M12 12L21.9 13.4M12 12L18.5 17.0M12 12L15.5 20.7M12 12L10.9 19.5M12 12L5.8 19.9M12 12L4.0 15.2M12 12L2.9 10.7M12 12L5.9 7.2M12 12L8.3 2.9M12 12L13.2 3.7M12 12L17.9 4.4M12 12L19.4 9.0'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
 <style>
 :root{
   --track:#ffffff10; --soft:#ffffff06; --section:#0b0f15aa; --card1:#161b22f0; --card2:#0d1117f0; --hover:#ffffff40; --text2:#c9d1d9;
@@ -1292,7 +1292,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 </head>
 <body>
 <header>
-  <div class="brand" title="Claude agents"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.6" stroke-linecap="round" aria-label="Claude"><path d="M12 12L21.9 13.4M12 12L18.5 17.0M12 12L15.5 20.7M12 12L10.9 19.5M12 12L5.8 19.9M12 12L4.0 15.2M12 12L2.9 10.7M12 12L5.9 7.2M12 12L8.3 2.9M12 12L13.2 3.7M12 12L17.9 4.4M12 12L19.4 9.0"/></svg></div>
+  <div class="brand" title="Claude agents"><svg width="26" height="26" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="9" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="18" fill="#5EEAD4"/><circle cx="150" cy="50" r="13" fill="#12161C" stroke="#5EEAD4" stroke-width="9"/><circle cx="50" cy="150" r="18" fill="#5EEAD4"/><circle cx="150" cy="150" r="18" fill="#5EEAD4"/><circle cx="100" cy="100" r="38" fill="#F4F4F0"/><path d="M85 86 L99 100 L85 114" fill="none" stroke="#12161C" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div>
   <div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div>
   <div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div>
