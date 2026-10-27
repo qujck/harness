@@ -224,12 +224,22 @@ def proc_email(pid):
 def pid_since(pid, started_ms):
     """True when the process started no later than its session did, a minute's grace (team/lib/agent-session.sh):
     Claude Code leaves a crashed session's record behind, and a process that took its pid over started after it."""
-    el = run("ps", "-o", "etime=", "-p", str(pid)).strip()
-    parts = [int(x) for x in re.split(r"[-:]", el) if x.isdigit()] if el else []
-    if not parts or not started_ms:
-        return False
-    secs = sum(v * m for v, m in zip(reversed(parts), (1, 60, 3600, 86400)))
-    return time.time() - secs <= started_ms / 1000 + 60
+    started = proc_started(pid)
+    return bool(started and started_ms) and started <= started_ms / 1000 + 60
+
+
+def proc_started(pid):
+    """When a process started, in epoch seconds, read from /proc, or None when it cannot be read. Not ps: ps reads every
+    process on the box, which on a busy one (thousands, with agent stacks up) took 50-500 ms a call, once per session
+    on every request."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            ticks = int(f.read().rsplit(")", 1)[1].split()[19])   # field 22, starttime, in clock ticks since boot
+        with open("/proc/stat") as f:
+            boot = next(int(line.split()[1]) for line in f if line.startswith("btime "))
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+    return boot + ticks / os.sysconf("SC_CLK_TCK")
 
 
 def live_sessions():
