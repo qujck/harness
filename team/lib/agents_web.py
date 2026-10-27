@@ -1079,6 +1079,14 @@ table.md th{background:var(--line);font-weight:600}
 .card.full > .termwrap{display:none}
 .card.full:hover{transform:none}
 .pane:has(.termwrap.big){backdrop-filter:none}
+/* A card in a custom Grid or Tabs pane wide enough: its state and its model side by side, so the head is two lines
+   (name, then the facts), as an agent pane's is. */
+@container (min-width:440px){
+  .pbody .card:not(.full){display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
+  .pbody .card:not(.full) > *{grid-column:1/-1}
+  .pbody .card:not(.full) > .top + .row2{grid-column:1;grid-row:2;padding-right:0}
+  .pbody .card:not(.full) > .row2 + .row2{grid-column:2;grid-row:2}
+}
 @container (min-width:440px) and (max-width:719.98px){
   .card.full{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
   .card.full > *{grid-column:1/-1}
