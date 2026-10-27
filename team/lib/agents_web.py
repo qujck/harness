@@ -7,7 +7,7 @@
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
-  POST /api/paste    an image pasted into the page, kept under ~/.local/state/<project>/pasted for a message to attach
+  POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
 
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
 (docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
@@ -778,7 +778,7 @@ def agent_json(name):
 
 
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
-PASTED = os.path.join(STATE_DIR, "pasted")   # images pasted into the page, kept for the agents to read
+PASTED = os.path.join(STATE_DIR, "pasted")   # images and files added in the page, kept for the agents to read
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -852,9 +852,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, b"that agent is not in a pane\n", "text/plain")
         # The text goes in as one bracketed paste, as a terminal pastes, so its line breaks stay line breaks in the
         # agent's message box instead of sending it early. Each image follows as a paste of its path alone, which
-        # Claude Code attaches as an image, as when a file is dragged in.
+        # Claude Code attaches as an image, as when a file is dragged in; any other file stays as its path, for the
+        # agent to open, with a space after it so the next one does not run on.
         ok = True
-        for i, part in enumerate(([text + " "] if text else []) + images):
+        parts = [i if os.path.splitext(i)[1].lower() in IMAGE_TYPES else i + " " for i in images]
+        for i, part in enumerate(([text + " "] if text else []) + parts):
             if i:
                 time.sleep(0.3)
             buf = "agents-web-" + uuid.uuid4().hex[:12]
@@ -880,16 +882,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200 if ok else 500, json.dumps({"stopped": ok}).encode(), "application/json")
 
     def paste(self):
-        """Keeps an image pasted into the page as a file in PASTED, for a message to attach; returns its path."""
+        """Keeps an image pasted into the page, or any file picked, as a file in PASTED, for a message to attach;
+        returns its path. A picked file keeps its own name after the stamp, so the agent can tell what it is."""
         ext = {v: k for k, v in IMAGE_TYPES.items()}.get((self.headers.get("Content-Type") or "").split(";")[0].strip())
+        own = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(urllib.parse.unquote(self.headers.get("X-File-Name") or ""))).strip(".-")[-80:]
+        if ext and os.path.splitext(own)[1].lower() not in IMAGE_TYPES:
+            own = (own + ext) if own else ""
         n = int(self.headers.get("Content-Length") or 0)
-        if not ext or not 0 < n <= 25_000_000:
-            return self.send(400, b"only an image of up to 25 MB\n", "text/plain")
+        if not (ext or own) or not 0 < n <= 100_000_000:
+            return self.send(400, b"only a named file or an image, of up to 100 MB\n", "text/plain")
         os.makedirs(PASTED, exist_ok=True)
-        path = os.path.join(PASTED, time.strftime("%Y-%m-%d_%H-%M-%S_") + uuid.uuid4().hex[:6] + ext)
+        path = os.path.join(PASTED, time.strftime("%Y-%m-%d_%H-%M-%S_") + uuid.uuid4().hex[:6] + ("_" + own if own else ext))
         with open(path, "wb") as f:
-            f.write(self.rfile.read(n))
-        self.send(200, json.dumps({"path": path, "url": "/img?p=" + urllib.parse.quote(path)}).encode(), "application/json")
+            while n > 0:
+                chunk = self.rfile.read(min(n, 1 << 20))
+                if not chunk:
+                    break
+                f.write(chunk); n -= len(chunk)
+        image = os.path.splitext(path)[1].lower() in IMAGE_TYPES
+        self.send(200, json.dumps({"path": path, "url": "/img?p=" + urllib.parse.quote(path), "name": own or os.path.basename(path),
+                                   "image": image}).encode(), "application/json")
 
     def log_message(self, *args):
         pass
@@ -1244,6 +1256,9 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .att img{display:block;height:48px;max-width:120px;object-fit:cover;border-radius:6px;border:1px solid var(--line2)}
 .att b{position:absolute;top:3px;right:3px;width:18px;height:18px;display:grid;place-items:center;border-radius:4px;background:#000a;color:#fff;font-size:11px;font-weight:400;cursor:pointer}
 .att b:hover{background:#000d}
+.att .file{height:48px;display:inline-block;max-width:220px;padding:0 30px 0 10px;border-radius:6px;border:1px solid var(--line2);
+  font:12px/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
+.att .file b{line-height:normal}
 #detail .say{padding:9px 12px;font-size:13.5px;max-height:35vh}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);cursor:pointer}
 .stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:2px;background:var(--text)}
@@ -1288,7 +1303,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 <main id="main"></main>
 <div id="pop"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 // Light or dark, remembered in this browser; dark unless chosen.
@@ -2140,30 +2155,30 @@ function keep(box) {
   if (moved) localStorage.setItem("drafts", JSON.stringify(d));
 }
 async function pasted(e, name) {
-  const files = [...e.clipboardData.items].filter(i => i.kind === "file" && i.type.startsWith("image/")).map(i => i.getAsFile());
+  const files = [...e.clipboardData.items].filter(i => i.kind === "file").map(i => i.getAsFile());
   if (!files.length) return;
   if (!e.clipboardData.getData("text/plain")) e.preventDefault();
   upload(files, name, e.target);
 }
 async function upload(files, name, box) {
   for (const f of files) {
-    const r = await fetch("/api/paste", {method: "POST", headers: {"Content-Type": f.type, "X-Team-Say": "1"}, body: f}).catch(() => null);
+    const r = await fetch("/api/paste", {method: "POST", headers: {"Content-Type": f.type || "application/octet-stream", "X-File-Name": encodeURIComponent(f.name || ""), "X-Team-Say": "1"}, body: f}).catch(() => null);
     if (!r || !r.ok) { flash(box, "failed"); box.title = r ? await r.text() : "the page could not be reached"; continue; }
     (atts[name] = atts[name] || []).push(await r.json()); showAtt(name);
   }
 }
-// The + beside a message box, or Ctrl+U in it, picks images from this computer to go with the message.
+// The + beside a message box, or Ctrl+U in it, picks images or any other files from this computer to go with the message.
 function pick(name, box) {
-  const input = Object.assign(document.createElement("input"), {type: "file", accept: "image/png,image/jpeg,image/gif,image/webp", multiple: true});
+  const input = Object.assign(document.createElement("input"), {type: "file", multiple: true});
   input.onchange = () => { upload([...input.files], name, box); box.focus(); };
   input.click();
 }
-const addButton = name => `<button class="add" data-name="${esc(name)}" title="Add images (Ctrl+U)"></button>`;
+const addButton = name => `<button class="add" data-name="${esc(name)}" title="Add images or files (Ctrl+U)"></button>`;
 function showAtt(name) {
   const list = atts[name] || [];
   localStorage.setItem("atts", JSON.stringify(atts));
   document.querySelectorAll(`.att[data-name="${CSS.escape(name || "")}"]`).forEach(el => {
-    el.innerHTML = list.map((a, i) => `<span><a href="${a.url}" title="${esc(a.path)}" onclick="return showImg(event, this)"><img src="${a.url}" alt="pasted image"></a><b data-i="${i}" title="Remove">✕</b></span>`).join("");
+    el.innerHTML = list.map((a, i) => a.image === false ? `<span class="file" title="${esc(a.path)}">${esc(a.name)}<b data-i="${i}" title="Remove">✕</b></span>` : `<span><a href="${a.url}" title="${esc(a.path)}" onclick="return showImg(event, this)"><img src="${a.url}" alt="pasted image"></a><b data-i="${i}" title="Remove">✕</b></span>`).join("");
     el.onclick = e => e.stopPropagation();
     el.querySelectorAll("b").forEach(x => x.onclick = () => { list.splice(+x.dataset.i, 1); showAtt(name); });
   });
@@ -2375,6 +2390,16 @@ def self_test():
         t("  and one with nothing in it", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), b'{"text":"  "}')[0], 400)
         t("a stop for an agent that is not working is refused", code("/api/agent/Lea/stop", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         t("an image from outside the home directory is not served", code("/img?p=/etc/passwd")[0], 404)
+        up = lambda h, body=b"PK\x03\x04": json.loads(code("/api/paste", "POST", dict(h, **{"X-Team-Say": "1"}), body)[1] or b"{}")
+        z = up({"Content-Type": "application/zip", "X-File-Name": "my%20logs%20(2).zip"})
+        t("a picked zip is kept by its own name, as a file and not an image",
+          (os.path.basename(z.get("path", "")).split("_", 3)[-1], z.get("name"), z.get("image"), os.path.dirname(z.get("path", ""))),
+          ("my-logs-2-.zip", "my-logs-2-.zip", False, T + "/pasted"))
+        t("  a pasted image with no name gets its type's extension",
+          (os.path.splitext(up({"Content-Type": "image/png"}).get("path", ""))[1], up({"Content-Type": "image/png", "X-File-Name": "shot"}).get("name")), (".png", "shot.png"))
+        t("  a file with neither a name nor an image type is refused",
+          code("/api/paste", "POST", {"Content-Type": "application/octet-stream", "X-Team-Say": "1"}, b"x")[0], 400)
+        t("  and a name cannot climb out of the folder", os.path.dirname(up({"Content-Type": "", "X-File-Name": "..%2F..%2Fevil.sh"}).get("path", "")), T + "/pasted")
         server.shutdown()
     finally:
         for k in kids:
