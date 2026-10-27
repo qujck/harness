@@ -1088,7 +1088,6 @@ table.md th{background:var(--line);font-weight:600}
 /* A full card in a grid pane is measured on its own, not by the pane */
 .cards > .cell{container-type:inline-size;min-height:0;display:flex;flex-direction:column}
 .cards > .cell > .card{flex:1}
-.viewseg{flex:none}
 .card > .ctl{position:absolute;top:7px;right:8px;z-index:3;display:none;align-items:center;gap:6px;padding:2px 3px;border-radius:7px;background:var(--box);box-shadow:0 2px 10px #0006}
 .card:hover > .ctl{display:flex}
 .maxbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
@@ -1123,7 +1122,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > svg.spark{height:16px}
 }
 @container (min-width:720px){
-  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
+  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .row2{grid-row:1;align-self:center}
@@ -1133,9 +1132,8 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .top + .row2{grid-column:4;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top > .viewseg{grid-column:7}
-  .card.full > .top > .lanes{grid-column:8;margin:0 0 0 4px}
-  .card.full > .top > .maxbtn{grid-column:9;margin-right:10px}
+  .card.full > .top > .lanes{grid-column:7;margin:0 0 0 4px}
+  .card.full > .top > .maxbtn{grid-column:8;margin-right:10px}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -1750,11 +1748,11 @@ function customHtml(ceil, tabRow) {
   const maxName = maxNode && (maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
-  // A card shows the whole conversation unless its pane is switched to the summary; a maximised one always does. An
-  // agent pane's head has room for the switch and the maximise button; a grid or tabs card shows them over its
-  // corner while the pointer is on it, so its head stays two lines.
+  // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
+  // layout is being changed); a maximised one always does. An agent pane's head has room for the maximise button; a
+  // grid or tabs card shows it over its corner while the pointer is on it, so its head stays two lines.
   const paneCard = (n, a, path) => {
-    const big = path === maxed, seg = (big ? "" : viewSeg(fullView(n))) + maxButton(big), inline = n.show === "agent" || big;
+    const big = path === maxed, seg = maxButton(big), inline = n.show === "agent" || big;
     if (!fullView(n) && !big) return card(a, ceil, null, inline ? seg : "", "", {ctl: inline ? "" : seg});
     const t = big && termOn() && paneTerm[a.name];
     const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size].join("|");
@@ -1784,6 +1782,8 @@ function customHtml(ceil, tabRow) {
     }
     const bar = l.locked ? "" : `<div class="pbar">
       <span class="seg">${Object.entries(PANE_TYPES).map(([t, label]) => `<b data-act="show" data-v="${t}" class="${t === n.show ? "on" : ""}">${label}</b>`).join("")}</span>
+      <span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+        `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       ${n.show === "grid" || n.show === "tabs" ? roleList().map(r => `<em style="--c:${r.colour}" class="${(n.roles || []).includes(r.role) ? "on" : ""}" data-act="role" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("") : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
@@ -1794,8 +1794,6 @@ function customHtml(ceil, tabRow) {
   return maxed ? pane({...maxNode, show: "agent", name: maxName}, maxed) : node(l.root, "r");
 }
 const fullView = n => n.view !== "summary";
-const viewSeg = full => `<span class="seg viewseg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]]
-  .map(([v, label, title]) => `<b data-view="${v}" class="${(v === "full") === full ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>`;
 // An agent pane can fill the whole layout for a while, from the button at the end of its card's header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
@@ -1852,6 +1850,7 @@ function customClicks() {
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
       if (act === "show") { n.show = el.dataset.v; }
+      else if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
       else if (act === "role") { const rs = new Set(n.roles || []); rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs]; }
       else if (act === "row" || act === "col") putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
@@ -1864,11 +1863,6 @@ function customClicks() {
     const tabs = !box() && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
-  });
-  main.querySelectorAll(".pane .viewseg b").forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    const path = b.closest(".pane").dataset.path, l = layout();
-    nodeAt(l.root, path).view = b.dataset.view; saveLayout(l); load();
   });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
