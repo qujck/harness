@@ -1016,6 +1016,9 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.folded .tx .n{font-style:normal;color:var(--faint)}
 #detail .conv .it.folded{cursor:pointer}
 .lanes{margin-left:auto;flex:none}
+/* the maximise button docked in the head's top-right corner, so it stays there when a narrow head wraps */
+.card > .top:has(> .maxbtn){padding-right:38px}
+.card > .top > .maxbtn{position:absolute;top:9px;right:10px}
 .card .top{flex-wrap:wrap;row-gap:4px}
 .lanes b,.termseg b,.railseg b{padding:1px 5px;font-size:10px}
 .it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
@@ -1088,8 +1091,6 @@ table.md th{background:var(--line);font-weight:600}
 /* A full card in a grid pane is measured on its own, not by the pane */
 .cards > .cell{container-type:inline-size;min-height:0;display:flex;flex-direction:column}
 .cards > .cell > .card{flex:1}
-.card > .ctl{position:absolute;top:7px;right:8px;z-index:3;display:none;align-items:center;gap:6px;padding:2px 3px;border-radius:7px;background:var(--box);box-shadow:0 2px 10px #0006}
-.card:hover > .ctl{display:flex}
 .maxbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
 .maxbtn:hover{background:var(--on);color:var(--text)}
 /* a maximised pane's card has its terminal at the top right of its conversation, as the agent's own view does */
@@ -1133,7 +1134,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
   .card.full > .top > .lanes{grid-column:7;margin:0 0 0 4px}
-  .card.full > .top > .maxbtn{grid-column:8;margin-right:10px}
+  .card.full > .top > .maxbtn{grid-column:8;margin-right:10px;position:static}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -1464,13 +1465,13 @@ function spark(series, ceil, colour) {
 
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
-function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, ctl = ""} = {}) {
+function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
   const cls = a.live ? a.status : "off";
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
-  return `<div class="card ${cls}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">${ctl ? `<div class="ctl">${ctl}</div>` : ""}
+  return `<div class="card ${cls}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
@@ -1749,17 +1750,16 @@ function customHtml(ceil, tabRow) {
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
-  // layout is being changed); a maximised one always does. An agent pane's head has room for the maximise button; a
-  // grid or tabs card shows it over its corner while the pointer is on it, so its head stays two lines.
+  // layout is being changed); a maximised one always does. Every card has the maximise button docked at the end of its head.
   const paneCard = (n, a, path) => {
-    const big = path === maxed, seg = maxButton(big), inline = n.show === "agent" || big;
-    if (!fullView(n) && !big) return card(a, ceil, null, inline ? seg : "", "", {ctl: inline ? "" : seg});
+    const big = path === maxed;
+    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false));
     const t = big && termOn() && paneTerm[a.name];
     const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
-      (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + (inline ? seg : ""),
-      t ? paneTermHtml(a.name, t) : "", {key, keep, ctl: inline ? "" : seg});
+      (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
+      t ? paneTermHtml(a.name, t) : "", {key, keep});
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
