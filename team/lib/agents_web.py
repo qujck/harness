@@ -61,6 +61,10 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
          "assistant": ("pa", "Assistant", "Others", "green")}
 TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
+# The order agents are listed in, by role, as the panel groups them (agents-dash.sh role_rank, owner 2026-10-26:
+# "Lead, Devs, Testers, Reviewer, Test Lead, Support, Improvement, Assistant"); any other role before the assistants.
+ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "head-of-testing": 4,
+             "production-support": 5, "process-improvement": 6, "assistant": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
              "purple": 141, "orange": 209}
@@ -192,6 +196,12 @@ def roster():
     rows += [{"name": a["name"], "role": "assistant", "email": (a.get("email") or "").lower()}
              for a in data.get("assistants") or [] if a.get("name")]
     return rows
+
+
+def grouped(rows):
+    """Roster rows grouped by role in ROLE_RANK's order, file order kept within a role. A roster appends each new
+    agent at the end, so in file order a new developer drew after the testers. roster() stays in file order."""
+    return sorted(rows, key=lambda r: ROLE_RANK.get(r["role"], 8))
 
 
 def role_of(role):
@@ -688,7 +698,7 @@ def state():
     live, rows, burns = live_sessions(), context_rows(), burn()
     where, held = panes(), claims()
     agents, bench = [], []
-    for r in roster():
+    for r in grouped(roster()):
         name = r["name"]
         role, role_name, tab, _ = role_of(r["role"])
         rec = live.get(name)
@@ -2216,6 +2226,11 @@ def self_test():
         t("roster: active agents in file order, then the assistants",
           [(r["name"], r["role"]) for r in roster()],
           [("Lea", "delivery-lead"), ("Ada", "developer"), ("Ben", "developer"), ("Tess", "tester"), ("Max", "assistant")])
+        t("grouped: by role in the panel's order, file order within a role, an unknown role before the assistant",
+          [r["name"] for r in grouped([{"name": n, "role": ro} for n, ro in [
+              ("Max", "assistant"), ("Tess", "tester"), ("Rex", "code-reviewer"), ("Zed", "developer"), ("Pip", "ops"),
+              ("Vi", "head-of-testing"), ("Ada", "developer"), ("Lea", "delivery-lead"), ("Ann", "tester")]])],
+          ["Lea", "Zed", "Ada", "Tess", "Ann", "Rex", "Vi", "Pip", "Max"])
 
         # A session is its process's GIT_AUTHOR_EMAIL's agent; without one, the record's name.
         env = {k: v for k, v in os.environ.items() if k != "GIT_AUTHOR_EMAIL"}
