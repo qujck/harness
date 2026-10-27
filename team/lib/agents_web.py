@@ -385,16 +385,19 @@ def panes():
     names = {r["name"].lower(): r["name"] for r in roster()}
     out = run("tmux", "list-panes", "-a", "-F",
               "#{session_name}\t#{pane_id}\t#{pane_title}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}")
+    lines = [p for p in (line.split("\t") for line in out.splitlines()) if len(p) == 6]
+    # A byobu client session (<name>-<n>, grouped with <name>) lists the same panes again: a pane's session is the
+    # one it was made in, the name without the number.
+    home = {}
+    for sess, pid, *_ in lines:
+        if pid not in home or (re.search(r"-\d+$", home[pid]) and not re.search(r"-\d+$", sess)):
+            home[pid] = sess
     by_name = {}
-    for line in out.splitlines():
-        parts = line.split("\t")
-        if len(parts) != 6:
-            continue
-        sess, pid, title, cmd, cols, rows = parts
+    for sess, pid, title, cmd, cols, rows in lines:
         own = sess.startswith(PROJECT + "-") and names.get(sess[len(PROJECT) + 1:])
         name = own or names.get(re.sub(r"^[^A-Za-z]+", "", title).strip().lower())
         if name and (own or cmd == "claude") and (own or name not in by_name):
-            by_name[name] = {"session": sess, "pane": pid, "cols": int(cols), "rows": int(rows)}
+            by_name[name] = {"session": "" if own else home[pid], "pane": pid, "cols": int(cols), "rows": int(rows)}
     return by_name
 
 
@@ -735,7 +738,12 @@ def state():
             "series": ser, "rate": last_minute(ser, now),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
         })
-    tabs = [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
+    # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
+    # agent with no pane there (its own spawn session, or none) goes in its role's section, after them.
+    sessions = sorted({where[a["name"]]["session"] for a in agents if where.get(a["name"], {}).get("session")})
+    for a in agents:
+        a["tab"] = where.get(a["name"], {}).get("session") or a["tab"]
+    tabs = sessions + [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     return {
         "now": now, "week": account_pct(rows, "week"), "plan": (plan := budget_plan()), "even": even_plan(plan),
@@ -2304,7 +2312,7 @@ def self_test():
 
         with open(T + "/bin/tmux", "w") as f:
             f.write("#!/usr/bin/env bash\n[ \"$1\" = list-panes ] && printf '%s\\n' "
-                    "'proj-ada\t%1\t✳ Ada\tnode\t120\t40' 'work\t%2\t✳ Lea\tclaude\t100\t30' 'other\t%3\t✳ Nobody\tclaude\t80\t24'\n")
+                    "'proj-ada\t%1\t✳ Ada\tnode\t120\t40' 'Work-3\t%2\t✳ Lea\tclaude\t100\t30' 'Work\t%2\t✳ Lea\tclaude\t100\t30' 'other\t%3\t✳ Nobody\tclaude\t80\t24'\n")
         with open(T + "/bin/budget", "w") as f:
             f.write("#!/usr/bin/env bash\necho 'budget  over: week 38% used of 36% planned so far'\n")
         os.chmod(T + "/bin/tmux", 0o755)
@@ -2328,10 +2336,10 @@ def self_test():
 
         os.environ.update(AGENT_OWNER_NAME="Pat", AGENT_WEEK_PCT_PER_HOUR="2")
         st = state()
-        t("state: sections by role, in order", st["tabs"], ["Lead", "Developers"])
-        t("  each running agent in its section, with its ticket",
+        t("state: sections as byobu has them, then by role for an agent in its own spawn session", st["tabs"], ["Work", "Developers"])
+        t("  each running agent in its section (its pane's session, not a byobu client's), with its ticket",
           [(a["name"], a["tab"], a["ticket"], a["status"]) for a in st["agents"]],
-          [("Lea", "Lead", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
+          [("Lea", "Work", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
         t("  developers and testers with no session are on the bench, an assistant is not",
           [b["name"] for b in st["bench"]], ["Ben", "Tess"])
         t("  the week's plan and the plan shared out evenly", (st["plan"], st["even"]), (36, 40.0))
