@@ -1827,9 +1827,12 @@ function customClicks() {
     });
   });
   // The list ("others") has every agent: a click on one with a card in a pane puts the cursor in its message box, on any other opens its view.
+  // One in a tabs pane behind another tab is brought to the front first.
   main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => {
-    const box = main.querySelector(`.pane .card[data-name="${CSS.escape(m.dataset.name)}"] .say`);
-    box ? box.focus() : openDetail(m.dataset.name);
+    const name = m.dataset.name, box = () => main.querySelector(`.pane .card[data-name="${CSS.escape(name)}"] .say`);
+    const tabs = !box() && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
+    if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
+    box() ? box().focus() : openDetail(name);
   });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
