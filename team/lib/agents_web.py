@@ -1609,9 +1609,9 @@ function patchNode(a, b) {
 
 function draw() {
   if (!S || resizing || holding($("#main"))) return;
-  const w = S.week, p = S.plan, over = w != null && p != null && w > p;
-  // Over the plan but within the whole allowance shared out evenly is spending the week's contingency: amber.
-  const spare = over && S.even != null && w <= S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
+  const w = S.week, p = S.plan, over = w != null && p != null && w >= p;
+  // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
+  const spare = over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
   $("#weektxt").innerHTML = w == null ? "· no reading" : `· <b style="color:${wc}">${w}%</b>${p != null ? ` of ${p}% planned` : ""}`;
   $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
