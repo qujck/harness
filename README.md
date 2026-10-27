@@ -68,10 +68,12 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
   agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
+  agents-web.sh          # the team as a web page on 127.0.0.1 (python3): a card per running agent in sections by role, its conversation and terminal, a message box that types into its tmux pane; the week amber while it spends the contingency
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
   activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
   install-claude-code.sh # once per box: adds the status line, the mods folder and the activity hooks to ~/.claude/settings.json, asking first
   lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
+  lib/agents_web.py      # the page's server and the page itself (run through agents-web.sh)
   lib/week-usage.sh      # the account's week so far, from the published rows (sourced by the budget and the panel)
 ops/                     # alerts and timers on the box that runs the stack (optional: systemd user units, mail)
   lib/ops-alert.sh       # alerts are CONDITIONS: one email on failing, one on recovery, [FLAPPING] when it flaps (sourced)
@@ -233,6 +235,12 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    (`AGENTS_DASH_LINES` overrides the measured height). A restore script
    that re-creates the panes should add the panel only when the lead's session has ONE pane, or a re-run
    stacks a second panel beside the first.
+
+   **Or watch the team in a browser** (optional, python3). `bash team/agents-web.sh` serves
+   `http://127.0.0.1:8787` (`AGENT_WEB_PORT`) until stopped: the same readings as a card per running agent,
+   in sections by role, with each agent's conversation and its terminal, and a message box on each that
+   types into the agent's tmux pane as `agent-spawn.sh` types a first prompt. Only the page itself can send,
+   and it listens on this machine only. To keep it running, make it a `systemd --user` service.
 
 7. **A custom status line must publish the panel's fields.** The panel, `agent-context.sh` and the
    nudger read the rows the status line writes ([docs/context-publisher.md](docs/context-publisher.md)).

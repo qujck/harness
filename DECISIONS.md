@@ -573,3 +573,33 @@ written, so it fails. Both `agent-spawn.sh` and `agent-bench.sh` read records th
 **Not ported, and why.** The same review asked that a restore resume each agent on the model it was spawned
 on. The harness has no restore script: each agent runs in its own tmux session, started by
 `team/agent-spawn.sh`, so there is nothing to carry over.
+
+
+## 2026-10-27 — The team as a web page (ported from the seeded project)
+
+**Decision.** `team/agents-web.sh` serves the team as a page on `127.0.0.1` (`AGENT_WEB_PORT`, default 8787), for
+an owner who watches the team in a browser rather than in tmux panes. Each running agent on the roster is a card
+in a section by role (Lead, Developers, Testers, Reviewer, Others): state, context, model, ticket from the claims
+board, its burn, and the last turns of its conversation in three lanes (the owner's, the team's, automation's).
+A card opens the agent's own view, with its longer conversation and its terminal as it is on screen. The page
+can also be laid out as tabs, or as a custom set of split panes kept in the browser. Across the top: the week
+against the budget, the team's combined activity, the disk and the bench. The week is green on the plan, amber
+over it but within the whole allowance shared out evenly over the working hours (spending the contingency the
+rate leaves, 10% at 2 an hour for 45 hours), and red past that.
+
+**What it can do.** Each card and view has a message box: the text is pasted into the agent's tmux pane as one
+bracketed paste and Enter pressed, images pasted into the page go after it as attachments, and Esc stops a
+working turn. Only the page can send: the request must name this host and port, carry an `X-Team-Say` header
+(another site's page cannot send one without a CORS preflight the server never answers), and come from this
+origin where the browser names one.
+
+**Why python.** The page reads each agent's transcript tail, keeps conversations and pasted images between
+requests and serves concurrent requests; that is a server, not a frame. It uses the standard library only.
+`agents-web.sh` is the entry point, so the self-test flag contract and `harness.env` work as for every script.
+
+**What differs from the seeded project.** Sections there are the byobu sessions its roster names; here the
+roster has no such column, so they are by role. An agent is found by its roster address in the process's
+environment, and its pane is the tmux session `agent-spawn.sh` starts for it; a session record counts only
+while its process is the session's own, as in `team/lib/agent-session.sh`. The ticket is the first one the
+agent holds on the claims board.
+

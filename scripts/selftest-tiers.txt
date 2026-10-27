@@ -62,6 +62,7 @@ scripts/lib/stale-tool.sh	nowhere	a sourced helper with no self-test of its own 
 scripts/agent-stacks.sh	verify
 team/agent-context.sh	verify
 team/agents-dash.sh	verify
+team/agents-web.sh	verify
 scripts/check-context-is-never-a-reason-to-do-less.sh	verify
 team/agent-spawn.sh	verify
 team/agent-bench.sh	verify
