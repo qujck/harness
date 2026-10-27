@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--dry-run]
 #   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -56,7 +56,10 @@
 # EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
 # time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line · why that
 # model. That is where an off-budget start shows who said yes, and every start why it runs on its model; the
-# start line prints the same.
+# start line prints the same. A real spawn needs HARNESS_PROJECT in the environment, or AGENT_SPAWN_LOG naming the
+# file: the name lib/harness-env.sh derives from the repo directory does not count (from the harness checkout it
+# says "harness", a log the project's own tools never read), so without either it is a usage error, exit 2, and
+# starts nothing. A dry run writes no log and needs neither. (Owner, 2026-10-27; the budget verbs' rule from #53.)
 #
 # AGENT_SPAWN_BUDGET names a stand-in for agents-budget.sh (the self-test's hook, like agents-dash.sh's).
 #
@@ -67,6 +70,7 @@ _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
 . "$_here/../scripts/lib/selftest-flag.sh"
+PROJECT_GIVEN="${HARNESS_PROJECT:-}"   # before harness-env.sh derives one from the repo directory's name
 # shellcheck source=lib/harness-env.sh
 . "$_here/../scripts/lib/harness-env.sh"
 export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
@@ -227,9 +231,9 @@ EOF
   chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/ledger"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
-  run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local \
+  run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT="${PROJ-proj}" ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
-            AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="$T/spawns.tsv" \
+            AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="${LOGF-$T/spawns.tsv}" \
             AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
             bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
   local WHYARGS=(--why "routine test")   # every run in this test says why its model, unless a test empties it
@@ -428,6 +432,18 @@ EOF
   printf 'on\n' > "$T/budget.mode"; printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
   out="$(WHYARGS=(); run tester --ticket HAR-12 --model opus --why 'first round of a new feature')"
   _has "the start line says the model and why" "$out" "on opus (first round of a new feature)"
+  mkdir -p "$T/home"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  out="$(PROJ='' LOGF='' HOME="$T/home" run tester --ticket HAR-12 --model opus)"; rc=$?
+  _t "a real spawn with neither HARNESS_PROJECT nor AGENT_SPAWN_LOG is a usage error" "$rc" 2
+  _has "  saying what it needs" "$out" 'a real spawn needs HARNESS_PROJECT=<project>'
+  _t "  and starts nothing" "$(grep -c '^new-session' "$T/tmux.log" || true)" 0
+  _t "  and records nothing, not even under a derived project" "$(find "$T/home" -name agent-spawns.tsv | wc -l)$(wc -l < "$T/spawns.tsv")" "0$before"
+  out="$(PROJ='' LOGF='' HOME="$T/home" run tester --ticket HAR-12 --model opus --dry-run)"; rc=$?
+  _t "a dry run needs neither" "$rc" 0
+  _has "  and its start line asks for the project" "$out" 'start exactly this one with: HARNESS_PROJECT=<project> bash team/agent-spawn.sh tester'
+  printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run tester --ticket HAR-12 --model opus --dry-run)"
+  _has "a dry run's start line carries the project it was given" "$out" 'start exactly this one with: HARNESS_PROJECT=proj bash team/agent-spawn.sh tester'
   printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
   WHYARGS=()
   out="$(run tester --ticket HAR-12 --model opus)"; rc=$?
@@ -487,6 +503,10 @@ done
 [[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$WHY" ]] \
   || { printf 'agent-spawn: a real spawn says why it runs on its model: --why "<the reason for that model>"\n%s\n' "$USAGE" >&2; exit 2; }
+(( DRY )) || [[ -n "$PROJECT_GIVEN" || -n "${AGENT_SPAWN_LOG:-}" ]] \
+  || { printf 'agent-spawn: a real spawn needs HARNESS_PROJECT=<project> (or AGENT_SPAWN_LOG), to record it where the project reads it\n%s\n' "$USAGE" >&2; exit 2; }
+# The start lines this prints carry the project, so pasting one from the harness checkout is not refused.
+RUN_AS="HARNESS_PROJECT=${PROJECT_GIVEN:-<project>} bash team/agent-spawn.sh"
 WHY_ARG=""; [[ -n "$WHY" ]] && WHY_ARG=" --why $(printf '%q' "$WHY")"
 [[ -z "$TICKET" ]] || spawn_ticket_ok "$TICKET" \
   || { printf 'agent-spawn: %q is not a ticket id (a ledger id like feat_x_y, or a Jira key like HAR-12)\n' "$TICKET" >&2; exit 2; }
@@ -553,8 +573,8 @@ case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell 
 
 if (( DRY )); then
   printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
-  printf '  start exactly this one with: bash team/agent-spawn.sh %s --name %s%s%s%s%s\n' \
-    "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "${WHY_ARG:- --why \"<why that model>\"}" \
+  printf '  start exactly this one with: %s %s --name %s%s%s%s%s\n' \
+    "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "${WHY_ARG:- --why \"<why that model>\"}" \
     "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   [[ -n "$WHY" ]] || printf '  the real spawn needs --why: the reason for the model it starts on.\n'
   printf '  first prompt: %s\n' "$PROMPT"
@@ -571,7 +591,7 @@ fi
 if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
-  printf '  their words on the line: bash team/agent-spawn.sh developer --name %s%s%s%s --owner-ok "<their words>"\n' "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
+  printf '  their words on the line: %s developer --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
   printf '  (a tester is not budget-gated and starts regardless)\n' >&2
   exit 1
 fi
