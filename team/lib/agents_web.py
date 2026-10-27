@@ -928,7 +928,7 @@ main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minma
 .colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
 .colgrip:hover::after,.colgrip.drag::after{background:var(--line2)}
 body.resizing{cursor:col-resize;user-select:none}
-/* Custom: the page split into panes, each an agent's card, the agents not on screen, or a grid or tabs of roles */
+/* Custom: the page split into panes, each an agent's card, every agent as a list, or a grid or tabs of roles */
 .lay{min-width:0;min-height:0;display:flex}
 .lay.col{flex-direction:column}
 .lay > .half{min-width:0;min-height:0;flex:1 1 0;display:flex}
@@ -984,6 +984,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 @keyframes ask{0%,100%{border-color:#c2410c;box-shadow:0 0 0 0 #ff7a1a00}50%{border-color:#ff9a3c;box-shadow:0 0 0 4px #ff7a1a99,0 0 22px 2px #ff7a1aaa}}
 .top{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
 .name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:1px 8px;border-radius:5px;font-size:13.5px}
+/* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
+.name,.tabbar button,.pbar em.on,#dbottom,.card .newest{color:var(--ownerfg)}
 .role{color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ticket{white-space:nowrap;flex:none;margin-left:auto;font:600 11.5px var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:5px}
 .row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:12px var(--mono);color:var(--mute)}
@@ -1016,7 +1018,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .lanes{margin-left:auto;flex:none}
 .card .top{flex-wrap:wrap;row-gap:4px}
 .lanes b,.termseg b,.railseg b{padding:1px 5px;font-size:10px}
-.it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:#000}
+.it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
 .it.sent .who::before{content:"→ "}
 .it.event .tx{color:var(--mute);font-style:italic}
 .it.event .who{color:var(--mute);border:1px solid var(--line2)}
@@ -1170,7 +1172,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .mini.cur:not(.waiting){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
 .mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
-.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:#000;font:700 10.5px/18px var(--sans);text-align:center}
+.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:#000c;color:#fff}
 /* One line: name, ticket, state, how long, context; the ticket gives way first, then the state's word. */
 .mini .name{flex:none;font-family:var(--sans);font-size:12px;padding:0 6px}
@@ -1706,12 +1708,12 @@ function fitBench() {
 
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
 // one above the other ("col"), at a fraction "at", and whose leaves are panes showing an agent's card ("agent"),
-// every agent with no card on screen ("others"), a grid or tabs of the agents in some roles, or nothing yet. A pane is
+// every agent as a list ("others"), a grid or tabs of the agents in some roles, or nothing yet. A pane is
 // named by its path from the root ("r", then "a" or "b" for each split), which also keys its tabs. Locked, the panes
 // lose their bars and the dividers stay put.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "Others", grid: "Grid", tabs: "Tabs"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
@@ -1726,19 +1728,8 @@ function roleList() {
 // A grid or tabs pane's agents, role by role in the order the roles were picked (n.roles keeps it), roster order
 // within a role.
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
-// The agents a pane shows a card of: an agent pane its one, a grid all of its roles, tabs the picked one.
-function onScreen(l) {
-  const names = new Set();
-  for (const [path, n] of leaves(l.root)) {
-    const of = paneAgents(n);
-    if (n.show === "agent" && n.name) names.add(n.name);
-    if (n.show === "grid") of.forEach(a => names.add(a.name));
-    if (n.show === "tabs" && of.length) names.add((of.find(a => a.name === localStorage.getItem("tab:pane:" + path)) || of[0]).name);
-  }
-  return names;
-}
 function customHtml(ceil, tabRow) {
-  const l = layout(), shown = onScreen(l);
+  const l = layout();
   let maxed = localStorage.getItem("custom:max");
   if (maxed && !leaves(l.root).some(([p, n]) => p === maxed && n.show === "agent")) { localStorage.removeItem("custom:max"); maxed = null; }
   const pane = (n, path) => {
@@ -1754,7 +1745,7 @@ function customHtml(ceil, tabRow) {
         t ? paneTermHtml(a.name, t) : "", {key, keep})}</div>`
         : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
     } else if (n.show === "others") {
-      body = `<div class="others">${minis("", S.agents.filter(a => !shown.has(a.name)))}</div>`;
+      body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "grid" && of.length) {
       const el = $(`#main .pane[data-path="${path}"] .pbody`), c = el ? cols(of.length, el.clientWidth, el.clientHeight) : Math.ceil(Math.sqrt(of.length));
       body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => card(a, ceil)).join("")}</div>`;
@@ -1835,7 +1826,11 @@ function customClicks() {
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
     });
   });
-  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => openDetail(m.dataset.name));
+  // The list ("others") has every agent: a click on one with a card in a pane puts the cursor in its message box, on any other opens its view.
+  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => {
+    const box = main.querySelector(`.pane .card[data-name="${CSS.escape(m.dataset.name)}"] .say`);
+    box ? box.focus() : openDetail(m.dataset.name);
+  });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
     e.stopPropagation();
