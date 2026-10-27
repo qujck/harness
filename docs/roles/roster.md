@@ -57,7 +57,7 @@ Four steps in an agent's life, and only the first and the last write this file:
 | step | how | the roster |
 |---|---|---|
 | **onboard** | `bash scripts/agent-onboard.sh <Name> <role>` (`--dry-run` to check first): adds the row, prints the launch line | a new `active` row, committed on `main` |
-| **spawn** | `bash team/agent-spawn.sh developer\|tester --ticket <id>`: starts an onboarded developer or tester with no running session, for one ticket | untouched |
+| **spawn** | `bash team/agent-spawn.sh developer\|tester --ticket <id>`: starts an onboarded developer or tester with no running session, for one ticket; a real spawn needs `HARNESS_PROJECT` (it records the spawn under that project) | untouched |
 | **bench** | `bash team/agent-bench.sh <Name>`: stops its session once the ticket has merged | untouched |
 | **retire** | no script yet: `roster_retire <Name> <date> "<why>"` from `scripts/lib/roster.sh` (first write wins on the date) | `retired`, for good |
 
