@@ -1550,8 +1550,7 @@ function item(it, compact, agent, tag) {
 }
 
 // Which lanes of an agent's conversation are shown - the owner's, the team's, automation's - each on or off, chosen
-// per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed,
-// and a card's in a tabs pane sets every agent's in that pane.
+// per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed.
 const LANES = [["owner", ""], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
 const LANE_TIP = {owner: "Your messages, and the agent's words to you", team: "Messages between this agent and the others",
   auto: "Tool calls, the nudger and other plugins, background tasks and commands"};
@@ -1561,11 +1560,10 @@ function laneOf(name) {
   const m = lanes(), v = name in m ? m[name] : m[""];
   return Array.isArray(v) ? v : ALL.includes(v) ? [v] : ALL;
 }
-function toggleLane(name, lane, also = []) {
+function toggleLane(name, lane) {
   const set = laneOf(name).includes(lane) ? laneOf(name).filter(l => l !== lane) : [...laneOf(name), lane];
   const m = lanes();
   if (name === "") for (const a of S.agents) m[a.name] = set;
-  for (const n of also) m[n] = set;
   m[name] = set;
   localStorage.setItem("lanes", JSON.stringify(m));
 }
@@ -1595,8 +1593,7 @@ function feedHtml(items, name, compact, on = laneOf(name)) {
 function laneClicks(root) {
   root.querySelectorAll(".lanes b").forEach(b => b.onclick = e => {
     e.stopPropagation();
-    const pane = b.closest("#main .pane"), n = pane && nodeAt(layout().root, pane.dataset.path);
-    toggleLane(b.parentElement.dataset.name, b.dataset.lane, n?.show === "tabs" ? paneAgents(n).map(a => a.name) : []);
+    toggleLane(b.parentElement.dataset.name, b.dataset.lane);
     draw(); if (open) { renderConv(); $("#dhead .lanes").outerHTML = laneSeg(open); laneClicks($("#dhead")); }
   });
 }
