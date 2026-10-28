@@ -159,6 +159,20 @@ EOF
   kill -0 "$child" 2>/dev/null && _t "  and the process holding the pid is left alone" alive alive \
     || _t "  and the process holding the pid is left alone" gone alive
 
+  # Claude Code resuming Ada's conversation is hers even when its start, counted from boot, reads as after the record's
+  # (a clock set after boot): mid-turn, it is refused. Another conversation's Claude on the same pid is not hers.
+  printf '#!/usr/bin/env bash\nsleep 60\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+  for args in "--resume s1" "--name Ada" "--resume s9"; do
+    reset; : > "$T/tmux.sessions"; kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; rm -f "$T/claude/sessions/$child.json"
+    GIT_AUTHOR_EMAIL=ada@proj.local "$T/bin/claude" $args >/dev/null 2>&1 & child=$!
+    printf '{"pid":%s,"sessionId":"s1","status":"busy","startedAt":%s}\n' "$child" "$(( started - 3600000 ))" > "$T/claude/sessions/$child.json"
+    out="$(run Ada --dry-run)"; rc=$?
+    if [[ $args == *s9 ]]; then _has "claude $args is not Ada's session" "$out" "Ada has no running session"
+    else _t "claude $args is Ada's session, whatever its start reads: mid-turn is refused" "$rc" 1
+         _has "  and says so" "$out" "Ada is mid-turn (busy)"; fi
+    pkill -P "$child" 2>/dev/null; kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; rm -f "$T/claude/sessions/$child.json"; child=""
+  done
+
   # a session started by hand from the launch line: no tmux session of ours, so the process is stopped
   reset; : > "$T/tmux.sessions"
   out="$(run Ada)"; rc=$?
