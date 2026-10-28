@@ -13,7 +13,9 @@
 # on the bench. The page can also be laid out as tabs, or as a custom set of panes saved in the browser; one kind of
 # pane is the Team transcript, every message between agents on the roster, with a name button to leave each agent out;
 # another, Combined, is the conversations of every agent in the roles chosen as one, in time order, with its own lanes.
-# A click on a turn in either goes to its agent.
+# A click on a turn in either goes to its agent. The Combined pane's lanes split the owner's: Owner is the owner's messages,
+# Said each agent's own words. An agent opens alone in a new tab from the ↗ in its view or its list row, or a Ctrl- or
+# middle click on it.
 # A shell command the owner runs with ! in an agent's prompt shows as the owner's, with what it printed.
 #
 # WHAT IT DOES. Each card and view has a message box: a message is typed into the agent's tmux pane and Enter

@@ -1254,10 +1254,17 @@ b.h{display:block;margin-top:2px;font-weight:700}
 #detail.docked{background:none;backdrop-filter:none;padding:14px;z-index:2}
 #detail.docked .box{box-shadow:none;border-radius:14px}
 #detail.docked .head .x{display:none}
+html.only header,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .newtab, .x){display:none}
+html.only #detail{background:none;backdrop-filter:none;padding:0}
+html.only #detail .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);border:0;border-radius:0;box-shadow:none}
+html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .mini:not(.cur)::before,.others .mini::before{display:none}
 #detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:16px;background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
 #detail .head{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
 #detail .head .lanes + .x{margin-left:14px}
+#detail .head .newtab{margin-left:10px;color:var(--mute);text-decoration:none;font-size:15px;line-height:1}
+#detail .head .newtab:hover{color:var(--text)}
+#detail .head .newtab + .x{margin-left:10px}
 #detail .head .termseg{margin-left:auto;flex:none}
 #detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
 #detail .box.noterm .termwrap{display:none}
@@ -1301,6 +1308,10 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .mini .mtop .dot{flex:none}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
+.mini .mtop .newtab{flex:none;color:var(--mute);text-decoration:none;font:13px/1 var(--sans);padding:0 1px}
+.mini .mtop .pct + .newtab{margin-left:2px}
+.mini .mtop .ago + .newtab{margin-left:auto}
+.mini .mtop .newtab:hover{color:var(--text)}
 .mini svg.spark{height:16px;margin-top:3px}
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
@@ -1382,6 +1393,8 @@ b.h{display:block;margin-top:2px;font-weight:700}
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
+const ONLY = new URLSearchParams(location.search).has("only");
+if (ONLY) document.documentElement.classList.add("only");
 // Light or dark, remembered in this browser; dark unless chosen.
 // The favicon follows the page's theme too: the dark icon is in the page head, the light one here.
 const FAVICON = {dark: document.querySelector("link[rel=icon]").href, light: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='1.5' y='1.5' width='197' height='197' rx='39' fill='%23F4F4F0' stroke='%23D6D6CF' stroke-width='3'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%230D9488'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%230D9488'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%230D9488'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%230D9488'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%2312161C'/%3E%3C/svg%3E"};
@@ -1983,17 +1996,24 @@ function teamHtml(path, full, hide, big) {
 // The Combined pane: the conversations of the running agents in the roles chosen with its role buttons as one, in time
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
 // Full and Summary as the Team pane. The roles are chosen while the layout is being changed, as a grid's are.
+// Its lanes split the owner's: Owner is the owner's messages, Said each agent's own words, so either can go alone.
+const CLANES = [["owner", ""], ["said", "Said"], ["team", "Team"], ["auto", "Auto"]], CALL = CLANES.map(l => l[0]);
+const CLANE_TIP = {owner: "Your messages to the agents", said: "Each agent's own words: its answers and its thinking aloud",
+  team: LANE_TIP.team, auto: LANE_TIP.auto};
+// a pane saved before Said had its own lane shows the agents' words wherever it showed the owner's
+const clanesOf = n => Array.isArray(n.clanes) ? n.clanes : Array.isArray(n.lanes) ? [...n.lanes, ...(n.lanes.includes("owner") ? ["said"] : [])] : CALL;
 function combinedHtml(path, n, full, big) {
-  const chosen = paneAgents(n).map(a => a.name), on = Array.isArray(n.lanes) ? n.lanes : ALL;
-  const items = chosen.flatMap(a => (paneConv[a] || []).filter(it => (it.ts || it.kind === "ask") && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
+  const chosen = paneAgents(n).map(a => a.name), on = clanesOf(n);
+  const shown = it => ["ask", "live", "pending"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
+  const items = chosen.flatMap(a => (paneConv[a] || []).filter(it => (it.ts || it.kind === "ask") && shown(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
     .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0);
   const log = full ? items : items.slice(-30);
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
-  const seg = `<span class="seg clanes">${LANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc("Show or hide: " + LANE_TIP[l].replace(/^\w/, c => c.toLowerCase()))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
+  const seg = `<span class="seg clanes">${CLANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc("Show or hide: " + CLANE_TIP[l].replace(/^\w/, c => c.toLowerCase()))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : `<span class="tfs">${chips}</span>`}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, on)}</div></div>`;
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div></div>`;
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
@@ -2037,8 +2057,9 @@ function customClicks() {
     rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs];
   }); setTimeout(load); });
   main.querySelectorAll(".teamlog .clanes b").forEach(el => el.onclick = () => change(l => {
-    const n = nodeAt(l.root, el.closest(".pane").dataset.path), on = Array.isArray(n.lanes) ? n.lanes : ALL;
-    n.lanes = on.includes(el.dataset.lane) ? on.filter(x => x !== el.dataset.lane) : [...on, el.dataset.lane];
+    const n = nodeAt(l.root, el.closest(".pane").dataset.path), on = clanesOf(n);
+    n.clanes = on.includes(el.dataset.lane) ? on.filter(x => x !== el.dataset.lane) : [...on, el.dataset.lane];
+    delete n.lanes;
   }));
   main.querySelectorAll(".teamlog .tf").forEach(el => el.onclick = () => change(l => {
     const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
@@ -2147,7 +2168,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" title="Open ${esc(a.name)}">
-      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state" title="${STATE[st] || esc(st)}"><span class="dot"></span></span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state" title="${STATE[st] || esc(st)}"><span class="dot"></span></span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}<a class="newtab" href="/?only#${encodeURIComponent(a.name)}" target="_blank" rel="noopener" title="Open ${esc(a.name)} in a new tab" onclick="event.stopPropagation()">↗</a></div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -2189,9 +2210,10 @@ async function openDetail(name) {
   if ($("#detail").classList.contains("docked")) localStorage.setItem("tab:page", name);
   open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = ""; $("#dscreen").innerHTML = ""; $("#dterm").classList.remove("big"); $("#dzoom").textContent = "⤢";
   history.replaceState(null, "", "#" + encodeURIComponent(name));
+  if (ONLY) document.title = name;
   const a = S.agents.find(x => x.name === name) || {};
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(name)}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(name)}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<a class="newtab" href="/?only#${encodeURIComponent(name)}" target="_blank" rel="noopener" title="Open ${esc(name)} in a new tab">↗</a><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
   $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); fitTerm(); };
@@ -2401,7 +2423,7 @@ function dock(a) {
   d.classList.add("docked");
   if (open !== a.name) openDetail(a.name);
 }
-function closeDetail() { if ($("#detail").classList.contains("docked")) return; open = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
+function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
 $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
@@ -2413,6 +2435,19 @@ addEventListener("keydown", e => {
 addEventListener("resize", draw);
 
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
+// Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
+// Team or Combined pane - opens its view in a new tab instead, as the ↗ in the view's head does. That tab (?only)
+// is the agent alone: its view fills the window, with no page behind it, no other agents beside it and no way to close it.
+const AGENT_AT = "#main .card[data-name], .mini[data-name], .teamlog .thead .name, .teamlog .it[data-agent]";
+function agentAt(e) {
+  const el = e.target.closest?.(AGENT_AT);
+  const name = el && (el.dataset.name || el.dataset.agent || el.textContent);
+  return S && S.agents.some(a => a.name === name) && !e.target.closest("a, textarea, button, .seg") ? name : null;
+}
+const inNewTab = name => window.open("/?only#" + encodeURIComponent(name), "_blank", "noopener");
+addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
+addEventListener("auxclick", e => { const name = e.button === 1 && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
+addEventListener("mousedown", e => { if (e.button === 1 && agentAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
 setInterval(load, 4000); setInterval(() => refreshDetail(false), 2500);
 </script>
 </body>
