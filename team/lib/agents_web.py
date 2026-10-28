@@ -1045,7 +1045,6 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);
   color:#000;font:600 12.5px var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
-.tabbar button .dot{box-shadow:0 0 0 1.5px var(--ownerfg)}
 .tabbar button.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
 .card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:11px;border:1px solid var(--line2);
@@ -1171,7 +1170,7 @@ table.md th{background:var(--line);font-weight:600}
 .card.full .feed > :first-child{margin-top:auto}
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
-.teamlog{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
+.teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
 .teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:13.5px;font-weight:650}
 .teamlog .thead{position:relative;padding-right:40px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
@@ -1180,6 +1179,8 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .tf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
 .teamlog .tf.on{background:var(--c);color:var(--ownerfg)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
+/* the Combined pane's turns fade out at the top, just under the line beneath its head */
+.teamlog.combined .feed{mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 28px)}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 .teamlog .it .who.to::before{content:"→ "}
@@ -1312,7 +1313,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
 .mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px}
-.mini .name .dot{flex:none;box-shadow:0 0 0 1.5px var(--ownerfg)}
+.mini .name .dot{flex:none}
 .mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:var(--ownerfg);color:var(--c)}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
@@ -1327,10 +1328,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
 .others .mini svg.spark,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini svg.spark{flex:0 1 16px;min-height:0;height:auto}
 #detail .left{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
-#dbottom,.card .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
+#dbottom,.card .newest,.teamlog .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
   border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:600 12px var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
-#dbottom.on,.card .newest.on{display:block}
-#dbottom:hover,.card .newest:hover{filter:brightness(1.15)}
+#dbottom.on,.card .newest.on,.teamlog .newest.on{display:block}
+#dbottom:hover,.card .newest:hover,.teamlog .newest:hover{filter:brightness(1.15)}
+.teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-end;gap:6px;margin:0 10px 10px}
 .say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);
@@ -2022,7 +2024,7 @@ function combinedHtml(path, n, full, big) {
   const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
   const seg = `<span class="seg clanes">${CLANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc("Show or hide: " + CLANE_TIP[l].replace(/^\w/, c => c.toLowerCase()))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : `<span class="tfs">${chips}</span>`}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div></div>`;
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}</div>`;
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
@@ -2103,7 +2105,7 @@ function customClicks() {
     e.stopPropagation();
     if (!unmax()) { localStorage.setItem("custom:max", b.closest(".pane").dataset.path); localStorage.setItem("custom:maxname", b.closest("[data-name]").dataset.name); load(); }
   });
-  main.querySelectorAll(".card.full").forEach(c => {
+  main.querySelectorAll(".card.full, .teamlog.combined:not(.summary)").forEach(c => {
     const f = c.querySelector(".feed"), btn = c.querySelector(".newest");
     const show = () => { btn.style.bottom = (c.getBoundingClientRect().bottom - f.getBoundingClientRect().bottom + 12) + "px"; btn.classList.toggle("on", !atEnd(f)); };
     f.onscroll = show; show();
