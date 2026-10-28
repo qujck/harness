@@ -1192,6 +1192,7 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog.combined .tfs{flex-basis:100%;margin-left:0}
 .teamlog .clanes b{padding:1px 5px;font-size:10px}
 .teamlog .it[data-agent]{cursor:pointer}
+.teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
    burn line under them */
 .pbody{container-type:inline-size}
@@ -1264,6 +1265,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .head .lanes + .x{margin-left:14px}
 #detail .head .newtab{margin-left:10px;color:var(--mute);text-decoration:none;font-size:15px;line-height:1}
 #detail .head .newtab:hover{color:var(--text)}
+#emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 12px 30px #0008;font:12px var(--mono);color:var(--text2)}
+#emo div{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+#emo div span{font-size:16px;width:20px;text-align:center}
+#emo div.on,#emo div:hover{background:var(--on);color:var(--text)}
 #detail .head .newtab + .x{margin-left:10px}
 #detail .head .termseg{margin-left:auto;flex:none}
 #detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
@@ -1844,8 +1849,8 @@ function draw() {
   document.querySelectorAll("#main .say").forEach(i => {
     i.value = typed[i.dataset.name] || draft(i.dataset.name); grow(i);
     i.onclick = e => e.stopPropagation();
-    i.oninput = () => { emojify(i); grow(i); keep(i); };
-    i.onkeydown = e => keys(e, i, i.dataset.name);
+    i.oninput = () => { emojify(i); suggest(i); grow(i); keep(i); };
+    i.onkeydown = e => emoKey(e, i) || keys(e, i, i.dataset.name);
     i.onpaste = e => pasted(e, i.dataset.name);
     if (focus && focus[0] === i.dataset.name) { i.focus(); i.setSelectionRange(focus[1], focus[1]); }
     if (!i.parentElement.previousElementSibling.children.length) showAtt(i.dataset.name);
@@ -2384,8 +2389,41 @@ function emojify(t) {
   t.value = t.value.slice(0, from) + e + t.value.slice(at);
   t.selectionStart = t.selectionEnd = from + e.length;
 }
-$("#dsay").oninput = () => { emojify($("#dsay")); grow($("#dsay")); keep($("#dsay")); };
-$("#dsay").onkeydown = e => keys(e, $("#dsay"), open);
+// Typing ":" and a few letters of a shortcode offers the emoji that match, in a list over the box: ↑ ↓ to move, Enter or
+// Tab (or a click) to put one in, Esc to leave the text as typed.
+const emo = document.body.appendChild(Object.assign(document.createElement("div"), {id: "emo"}));
+let emoFor = null, emoAt = 0;
+function suggest(t) {
+  const at = t.selectionStart, m = t.selectionEnd === at && t.value.slice(0, at).match(/(?:^|[\s(])(:([a-z0-9_+-]+))$/i);
+  const q = m && m[2].toLowerCase(), names = Object.keys(EMOJI);
+  const hits = q ? [...names.filter(n => n.startsWith(q)), ...names.filter(n => !n.startsWith(q) && n.includes(q))].slice(0, 8) : [];
+  if (!hits.length) return emoHide();
+  emoFor = t; emoAt = Math.min(emoAt, hits.length - 1);
+  emo.innerHTML = hits.map((n, i) => `<div class="${i === emoAt ? "on" : ""}" data-n="${esc(n)}"><span>${EMOJI[n]}</span>:${esc(n)}:</div>`).join("");
+  const r = t.getBoundingClientRect();
+  Object.assign(emo.style, {left: r.left + "px", bottom: innerHeight - r.top + 4 + "px", display: "block"});
+  emo.querySelectorAll("div").forEach(d => d.onmousedown = e => { e.preventDefault(); emoPut(d.dataset.n); });
+}
+function emoHide() { emoFor = null; emoAt = 0; emo.style.display = "none"; }
+function emoPut(n) {
+  const t = emoFor, at = t.selectionStart, from = t.value.slice(0, at).lastIndexOf(":");
+  t.value = t.value.slice(0, from) + EMOJI[n] + t.value.slice(at);
+  t.selectionStart = t.selectionEnd = from + EMOJI[n].length;
+  emoHide(); t.dispatchEvent(new Event("input"));
+}
+// true when the key was the list's
+function emoKey(e, t) {
+  if (emoFor !== t || emo.style.display !== "block") return false;
+  const rows = emo.querySelectorAll("div");
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") emoAt = (emoAt + (e.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length, suggest(t);
+  else if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") emoPut(rows[emoAt].dataset.n);
+  else if (e.key === "Escape") emoHide();
+  else return false;
+  e.preventDefault(); e.stopPropagation(); return true;
+}
+addEventListener("focusout", e => { if (e.target === emoFor) emoHide(); });
+$("#dsay").oninput = () => { emojify($("#dsay")); suggest($("#dsay")); grow($("#dsay")); keep($("#dsay")); };
+$("#dsay").onkeydown = e => emoKey(e, $("#dsay")) || keys(e, $("#dsay"), open);
 $("#dsay").onpaste = e => pasted(e, open);
 $("#dadd").onclick = () => pick(open, $("#dsay"));
 
