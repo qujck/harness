@@ -1306,11 +1306,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
-/* One line: name, ticket, state, how long, context; the ticket gives way first, then the state's word. */
-.mini .name{flex:none;font-family:var(--sans);font-size:12px;line-height:13px;padding:0 6px 2px}
+/* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
+.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px}
+.mini .name .dot{flex:none;box-shadow:0 0 0 1.5px #000a}
+.mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:var(--ownerfg);color:var(--c)}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
-.mini .mtop .state{flex:0 1 auto;min-width:0;overflow:hidden;font:600 11.5px var(--sans)}
-.mini .mtop .dot{flex:none}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
 .mini .mtop .newtab{flex:none;color:var(--mute);text-decoration:none;font:13px/1 var(--sans);padding:0 1px}
@@ -2013,6 +2013,7 @@ function combinedHtml(path, n, full, big) {
   const items = chosen.flatMap(a => (paneConv[a] || []).filter(it => (it.ts || it.kind === "ask") && shown(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
     .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0);
   const log = full ? items : items.slice(-30);
+  seenUpTo(log);
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
@@ -2150,6 +2151,11 @@ function markSeen(names) {
   }
   localStorage.setItem("seen", JSON.stringify(seen));
 }
+// a message shown in a Combined pane has been seen, as an agent's card counts its own as seen
+function seenUpTo(items) {
+  for (const it of items) if (SEEN_KINDS.includes(it.kind) && it.ts > (seen[it._agent] || "")) seen[it._agent] = it.ts;
+  localStorage.setItem("seen", JSON.stringify(seen));
+}
 const unseenBadge = n => `<span class="unseen" title="${n} message${n > 1 ? "s" : ""} since you last looked">${n >= 10 ? "10+" : n}</span>`;
 function unseen(a) {
   if (!seen[a.name]) return 0;
@@ -2165,15 +2171,14 @@ function unseen(a) {
   return n;
 }
 
-// The column of every agent beside an open one, the open one marked: name, ticket, state and how long, context and burn.
-// The column of every agent beside an open one, the open one marked: name, unseen count, ticket, state and how long,
-// context and burn.
+// The column of every agent beside an open one, the open one marked: name with its state and unseen count (as a tab),
+// ticket, how long, context and burn.
 function minis(cur, agents = S.agents) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" title="Open ${esc(a.name)}">
-      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state" title="${STATE[st] || esc(st)}"><span class="dot"></span></span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}<a class="newtab" href="/?only#${encodeURIComponent(a.name)}" target="_blank" rel="noopener" title="Open ${esc(a.name)} in a new tab" onclick="event.stopPropagation()">↗</a></div>
+      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}<a class="newtab" href="/?only#${encodeURIComponent(a.name)}" target="_blank" rel="noopener" title="Open ${esc(a.name)} in a new tab" onclick="event.stopPropagation()">↗</a></div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
