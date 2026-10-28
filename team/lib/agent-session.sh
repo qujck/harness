@@ -11,8 +11,11 @@
 #     launch line, which has no tmux session of agent-spawn's making.
 # The record is what says whether it is mid-turn (`status`) and when it started (`startedAt`, ms).
 # A record counts only while its process is the session's own: Claude Code leaves a crashed session's record
-# behind, and its pid can be reused, so the process must have started no later than `startedAt` (a minute's
-# grace). A process that took the pid over started after the record was written.
+# behind, and its pid can be reused. The process is the session's own when it is Claude Code started for it
+# (resuming its conversation, or named for the agent, as agent-spawn.sh starts it), or else when it started no
+# later than `startedAt` (a minute's grace): a process that took the pid over started after the record was
+# written. The start time alone is not enough: a process's start is counted from boot, so a clock set after boot
+# (as WSL can) shifts every process started before by that much.
 #
 # Needs: jq, roster.sh sourced first (roster_lookup_email, roster_email_of_name), HARNESS_PROJECT.
 
@@ -28,6 +31,14 @@ agent_session_pid_since() {
   [[ "$el" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]] && (( $(date +%s) - el <= $2 / 1000 + 60 ))
 }
 
+# agent_session_claude_for <pid> <sessionId> <name> -> 0 when the process is Claude Code resuming that session's
+# conversation (--resume <id>) or named for the agent (--name/-n <name>).
+agent_session_claude_for() {
+  local args; args=" $(ps -o args= -p "$1" 2>/dev/null) "
+  [[ $args =~ [/\ ]claude\  ]] || return 1
+  [[ -n "$2" && $args == *" --resume $2 "* ]] || [[ -n "$3" && ( $args == *" --name $3 "* || $args == *" -n $3 "* ) ]]
+}
+
 agent_session_tmux_up() { # <name>
   command -v tmux >/dev/null 2>&1 || return 1
   tmux has-session -t "=$(agent_session_name "$1")" 2>/dev/null
@@ -36,20 +47,20 @@ agent_session_tmux_up() { # <name>
 # agent_session_record <name> -> "pid<TAB>status<TAB>startedAt-ms" of the newest live record that is
 # this agent's, or nothing. `status` is empty where the record carries none.
 agent_session_record() { # <name>
-  local name="$1" email dir f pid rname status started env_email best="" best_t=-1
+  local name="$1" email dir f pid rname status started sid env_email best="" best_t=-1
   email="$(roster_lookup_email "$name")"; [[ -n "$email" ]] || email="$(roster_email_of_name "$name")"
   dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
   for f in "$dir"/*.json; do
     [[ -r "$f" ]] || continue
     pid=${f##*/}; pid=${pid%.json}
     [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || continue
-    IFS=$'\x1f' read -r rname status started < <(
-      jq -r '[(.name // ""), (.status // ""), ((.startedAt // 0) | tostring)] | join("\u001f")' "$f" 2>/dev/null)
+    IFS=$'\x1f' read -r rname status started sid < <(
+      jq -r '[(.name // ""), (.status // ""), ((.startedAt // 0) | tostring), (.sessionId // "")] | join("\u001f")' "$f" 2>/dev/null)
     env_email=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^GIT_AUTHOR_EMAIL=//p' | head -1)
     if [[ -n "$env_email" ]]; then [[ "${env_email,,}" == "${email,,}" ]] || continue
     else [[ -n "$rname" && "${rname,,}" == "${name,,}" ]] || continue; fi
     [[ "${started:-0}" =~ ^[0-9]+$ ]] || started=0
-    agent_session_pid_since "$pid" "$started" || continue
+    agent_session_claude_for "$pid" "$sid" "$name" || agent_session_pid_since "$pid" "$started" || continue
     (( started > best_t )) && { best_t=$started; best="$pid"$'\t'"$status"$'\t'"$started"; }
   done
   [[ -n "$best" ]] && printf '%s\n' "$best"

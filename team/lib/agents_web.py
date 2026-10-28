@@ -228,6 +228,22 @@ def pid_since(pid, started_ms):
     return bool(started and started_ms) and started <= started_ms / 1000 + 60
 
 
+def claude_for(pid, sid, name):
+    """True when the process is Claude Code resuming that session's conversation (--resume <id>) or named for the agent
+    (--name/-n <name>), as agent-spawn.sh starts it: the session's own whatever its start time reads
+    (team/lib/agent-session.sh). Read from /proc, as proc_started is."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv = f.read().decode(errors="replace").split("\0")
+    except OSError:
+        return False
+    at = next((i for i, a in enumerate(argv) if os.path.basename(a) == "claude"), None)
+    if at is None:
+        return False
+    pairs = set(zip(argv[at + 1:], argv[at + 2:]))
+    return bool(sid) and ("--resume", sid) in pairs or bool(name) and bool({("--name", name), ("-n", name)} & pairs)
+
+
 def proc_started(pid):
     """When a process started, in epoch seconds, read from /proc, or None when it cannot be read. Not ps: ps reads every
     process on the box, which on a busy one (thousands, with agent stacks up) took 50-500 ms a call, once per session
@@ -245,7 +261,8 @@ def proc_started(pid):
 def live_sessions():
     """Roster name -> Claude Code's own record of the session, for every session whose process and socket are live.
     A session is the agent whose roster address its process carries in GIT_AUTHOR_EMAIL, else the one its record is
-    named, and only while its process is the session's own (team/lib/agent-session.sh)."""
+    named, and only while its process is the session's own: Claude Code started for it, or else started no later than
+    the session did (team/lib/agent-session.sh)."""
     people = roster()
     by_email = {r["email"]: r["name"] for r in people if r["email"]}
     by_name = {r["name"].lower(): r["name"] for r in people}
@@ -260,7 +277,8 @@ def live_sessions():
             continue
         sock, email = rec.get("messagingSocketPath"), proc_email(pid)
         name = by_email.get(email) if email else by_name.get((rec.get("name") or "").lower())
-        if not name or not sock or not os.path.exists(sock) or not pid_since(pid, rec.get("startedAt")):
+        if not name or not sock or not os.path.exists(sock) \
+                or not (claude_for(pid, rec.get("sessionId"), name) or pid_since(pid, rec.get("startedAt"))):
             continue
         at = rec.get("statusUpdatedAt") or rec.get("updatedAt") or 0
         _socket_names[sock] = name
@@ -2321,6 +2339,26 @@ def self_test():
         time.sleep(0.2)
         t("live sessions: by the address in the process's environment, else by the record's name; a stranger is no one,"
           " and a record older than the process on its pid is no one's", sorted(live_sessions()), ["Ada", "Lea"])
+        # Claude Code started for the session is its own even when its start, counted from boot, reads as after the
+        # record's (a clock set after boot); another conversation's Claude on that pid is not.
+        with open(T + "/bin/claude", "w") as f:
+            f.write("#!/usr/bin/env bash\nsleep 60\n")
+        os.chmod(T + "/bin/claude", 0o755)
+        for i, (args, want) in enumerate([(["--resume", "s7"], ["Ada", "Lea", "Tess"]), (["--name", "Tess"], ["Ada", "Lea", "Tess"]),
+                                          (["--resume", "s8"], ["Ada", "Lea"])]):
+            kid = subprocess.Popen(["bash", T + "/bin/claude"] + args, env=dict(env, GIT_AUTHOR_EMAIL="tess@proj.local"),
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            sock = f"{T}/socks/t{i}"
+            open(sock, "w").close()
+            with open(f"{T}/sessions/{kid.pid}.json", "w") as f:
+                json.dump({"name": "Tess", "sessionId": "s7", "status": "idle", "cwd": T, "messagingSocketPath": sock,
+                           "statusUpdatedAt": int(time.time() * 1000), "startedAt": int((time.time() - 7200) * 1000)}, f)
+            time.sleep(0.2)
+            t(f"  claude {' '.join(args)}: " + ("its own session, whatever its start reads" if "Tess" in want else "not the session's"),
+              sorted(live_sessions()), want)
+            kid.kill()
+            kid.wait()
+            os.remove(f"{T}/sessions/{kid.pid}.json")
 
         with open(T + "/dash/board", "w") as f:
             f.write("feat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\n")
