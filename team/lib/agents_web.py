@@ -1061,7 +1061,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 @keyframes pillflash{0%,100%{background:#8a5a00}50%{background:#ffc94d}}
 @keyframes ask{0%,100%{border-color:#c2410c;box-shadow:0 0 0 0 #ff7a1a00}50%{border-color:#ff9a3c;box-shadow:0 0 0 4px #ff7a1a99,0 0 22px 2px #ff7a1aaa}}
 .top{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
-.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:1px 8px;border-radius:5px;font-size:13.5px}
+/* a badge's text sits a pixel high of centre, as the font's descender space otherwise shows it low */
+.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:5px;font-size:13.5px}
 /* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
 .name,.tabbar button,.pbar em.on,#dbottom,.card .newest{color:var(--ownerfg)}
 .role{color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -1119,6 +1120,9 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 @keyframes livepulse{0%,100%{opacity:.45;box-shadow:none}50%{opacity:1;box-shadow:0 0 10px 1px var(--c,var(--green))}}
 .it.tools .tx{font:11px var(--mono);color:var(--faint);-webkit-line-clamp:1}
 .it.tools .tx b{color:var(--mute);font-weight:600}
+.it.tools .call{display:block}
+.it.tools .call + .call{padding-left:1.35em}
+.it.tools .call + .call{margin-top:2px}
 .it .ago{flex:none;margin-left:auto;color:var(--faint);font:10.5px var(--mono);padding-left:4px}
 code{font:11.5px var(--mono);background:var(--codebg);padding:0 4px;border-radius:4px;color:var(--text)}
 code.flat{padding:0;background:none;color:var(--mute)}
@@ -1166,8 +1170,10 @@ table.md th{background:var(--line);font-weight:600}
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
 .teamlog{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
-.teamlog .thead{flex:none;display:flex;align-items:baseline;gap:10px;padding:9px 12px;font-weight:650}
-.teamlog .thead > span:nth-child(2){font:11px var(--mono);font-weight:400;color:var(--mute)}
+.teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:13.5px;font-weight:650}
+.teamlog .thead{position:relative;padding-right:40px}
+.teamlog .thead .maxbtn{position:absolute;top:8px;right:10px}
+.teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
 .teamlog .tfs{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;font-size:10.5px;font-weight:600}
 .teamlog .tf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
 .teamlog .tf.on{background:var(--c);color:var(--ownerfg)}
@@ -1175,6 +1181,17 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 .teamlog .it .who.to::before{content:"→ "}
+.teamlog .it .who.ag{background:var(--pc);color:var(--ownerfg)}
+.teamlog .it .who.ag:not(.to)::before{content:none}
+.teamlog .it.tools .who.ag{margin-right:6px}
+.teamlog .cf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
+.teamlog .cf.on{background:var(--c);color:var(--ownerfg)}
+.teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
+.teamlog .thead > span:nth-child(2):has(.name){display:flex;gap:4px;font:600 12px var(--sans)}
+.teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
+.teamlog.combined .tfs{flex-basis:100%;margin-left:0}
+.teamlog .clanes b{padding:1px 5px;font-size:10px}
+.teamlog .it[data-agent]{cursor:pointer}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
    burn line under them */
 .pbody{container-type:inline-size}
@@ -1278,7 +1295,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name, ticket, state, how long, context; the ticket gives way first, then the state's word. */
-.mini .name{flex:none;font-family:var(--sans);font-size:12px;padding:0 6px}
+.mini .name{flex:none;font-family:var(--sans);font-size:12px;line-height:13px;padding:0 6px 2px}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
 .mini .mtop .state{flex:0 1 auto;min-width:0;overflow:hidden;font:600 11.5px var(--sans)}
 .mini .mtop .dot{flex:none}
@@ -1487,11 +1504,16 @@ addEventListener("keydown", e => {
   if (e.key === "+" || e.key === "=") lbZoom(1.25); else if (e.key === "-") lbZoom(0.8); else if (e.key === "0") lbZoom(0);
 });
 
-function item(it, compact, agent) {
+// With tag, the item names the agent it came from (a pane mixing several agents): before it, or after the owner's
+// words and another agent's message to it, as "→ agent".
+function item(it, compact, agent, tag) {
+  const ag = to => tag ? `<span class="who ag${to ? " to" : ""}" style="--pc:${colours[agent] || "#888"}">${esc(agent)}</span>` : "";
   if (it.kind === "tools") {
-    const t = it.calls.map(c => `<b>${esc(c.who)}</b> ${esc(c.text)}`).join(" · ");
+    // on a card, one line run together; in a conversation shown whole, a line for each call
+    const t = compact ? "⚙ " + it.calls.map(c => `<b>${esc(c.who)}</b> ${esc(c.text)}`).join(" · ")
+      : it.calls.map((c, i) => `<span class="call">${i ? "" : "⚙ "}<b>${esc(c.who)}</b> ${esc(c.text)}</span>`).join("");
     const c = colours[it.with], pc = c ? ` style="--pc:${c}"` : "";
-    return `<div class="it tools l-${it.lane}"${pc}><span class="tx">⚙ ${t}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span></div>`;
+    return `<div class="it tools l-${it.lane}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${ag(false)}<span class="tx">${t}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span></div>`;
   }
   // a message of the owner's still queued behind the agent's turn, which can be taken back out to edit
   if (it.kind === "pending") {
@@ -1500,12 +1522,14 @@ function item(it, compact, agent) {
   // the agent's own words carry its name, as the owner's carry theirs
   const who = it.kind === "said" ? agent || "" : it.who;
   const c = colours[it.kind === "said" ? agent : it.with || it.who], pc = c ? ` style="--pc:${c}"` : "";
-  const pics = thumbs(it.text, it.images, agent);
-  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}>${who ? `<span class="who">${esc(who)}</span>` : ""}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  const pics = thumbs(it.text, it.images, agent), own = who ? `<span class="who">${esc(who)}</span>` : "";
+  const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
+  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${heads}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
 
 // Which lanes of an agent's conversation are shown - the owner's, the team's, automation's - each on or off, chosen
-// per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed.
+// per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed,
+// and a card's in a tabs pane sets every agent's in that pane.
 const LANES = [["owner", ""], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
 const LANE_TIP = {owner: "Your messages, and the agent's words to you", team: "Messages between this agent and the others",
   auto: "Tool calls, the nudger and other plugins, background tasks and commands"};
@@ -1515,10 +1539,11 @@ function laneOf(name) {
   const m = lanes(), v = name in m ? m[name] : m[""];
   return Array.isArray(v) ? v : ALL.includes(v) ? [v] : ALL;
 }
-function toggleLane(name, lane) {
+function toggleLane(name, lane, also = []) {
   const set = laneOf(name).includes(lane) ? laneOf(name).filter(l => l !== lane) : [...laneOf(name), lane];
   const m = lanes();
   if (name === "") for (const a of S.agents) m[a.name] = set;
+  for (const n of also) m[n] = set;
   m[name] = set;
   localStorage.setItem("lanes", JSON.stringify(m));
 }
@@ -1530,17 +1555,17 @@ function laneSeg(name) {
 // A conversation as shown: the chosen lanes only (an open prompt and the working line always), with each run of automated events folded
 // into one line; in the agent view a folded run opens on a click.
 const openRuns = new Set();
-function feedHtml(items, name, compact) {
-  const on = laneOf(name), shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending"].includes(it.kind)), out = [];
+function feedHtml(items, name, compact, on = laneOf(name)) {
+  const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending"].includes(it.kind)), out = [];
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
-    if (j === i) { out.push(item(shown[i], compact, name)); continue; }
+    if (j === i) { out.push(item(shown[i], compact, shown[i]._agent || name, !!shown[i]._agent)); continue; }
     const run = shown.slice(i, j + 1), key = run[0].ts + run[0].who, n = {};
     run.forEach(it => n[it.who] = (n[it.who] || 0) + 1);
     const what = Object.entries(n).map(([w, c]) => `${esc(w)}${c > 1 ? ` <span class="n">×${c}</span>` : ""}`).join(" · ");
     out.push(`<div class="it event folded l-auto" data-run="${esc(key)}"><span class="who">${run.length} automated</span><span class="tx">${what}</span><span class="ago" data-ts="${esc(run[run.length - 1].ts || "")}">${since(run[run.length - 1].ts)}</span></div>`);
-    if (!compact && openRuns.has(key)) out.push(...run.map(it => item(it, compact, name)));
+    if (!compact && openRuns.has(key)) out.push(...run.map(it => item(it, compact, it._agent || name, !!it._agent)));
     i = j;
   }
   return out.length ? out.join("") : `<div class="empty">${on.length ? "nothing here lately" : "nothing shown"}</div>`;
@@ -1548,7 +1573,8 @@ function feedHtml(items, name, compact) {
 function laneClicks(root) {
   root.querySelectorAll(".lanes b").forEach(b => b.onclick = e => {
     e.stopPropagation();
-    toggleLane(b.parentElement.dataset.name, b.dataset.lane);
+    const pane = b.closest("#main .pane"), n = pane && nodeAt(layout().root, pane.dataset.path);
+    toggleLane(b.parentElement.dataset.name, b.dataset.lane, n?.show === "tabs" ? paneAgents(n).map(a => a.name) : []);
     draw(); if (open) { renderConv(); $("#dhead .lanes").outerHTML = laneSeg(open); laneClicks($("#dhead")); }
   });
 }
@@ -1830,7 +1856,7 @@ function fitBench() {
 // lose their bars and the dividers stay put.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
@@ -1847,10 +1873,11 @@ function roleList() {
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
 function customHtml(ceil, tabRow) {
   const l = layout();
-  // A maximised pane is one agent's card filling the layout: an agent pane's own, or one card of a grid or tabs pane.
+  // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
+  // or a Team or Combined pane.
   let maxed = localStorage.getItem("custom:max");
   const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
-  const maxName = maxNode && (maxNode.show === "agent" ? maxNode.name
+  const maxName = maxNode && (maxNode.show === "team" || maxNode.show === "combined" ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
@@ -1874,8 +1901,10 @@ function customHtml(ceil, tabRow) {
         : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
+    } else if (n.show === "combined") {
+      body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
-      body = teamHtml(path, fullView(n), new Set(n.hide || []));
+      body = teamHtml(path, fullView(n) || path === maxed, new Set(n.hide || []), path === maxed);
     } else if (n.show === "grid" && of.length) {
       const el = $(`#main .pane[data-path="${path}"] .pbody`), c = el ? cols(of.length, el.clientWidth, el.clientHeight) : Math.ceil(Math.sqrt(of.length));
       body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => fullView(n)
@@ -1897,10 +1926,10 @@ function customHtml(ceil, tabRow) {
   };
   const node = (n, path) => !n.split ? pane(n, path)
     : `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="flex-grow:${n.at}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="flex-grow:${1 - n.at}">${node(n.b, path + "b")}</div></div>`;
-  return maxed ? pane({...maxNode, show: "agent", name: maxName}, maxed) : node(l.root, "r");
+  return !maxed ? node(l.root, "r") : maxNode.show === "team" || maxNode.show === "combined" ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
-// An agent pane can fill the whole layout for a while, from the button at the end of its card's header or Shift+F11
+// An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
@@ -1938,24 +1967,39 @@ async function loadTeam() {
     if (text !== teamText) { teamLog = d; teamText = text; teamVer++; }
   } catch (e) {}
 }
-function teamHtml(path, full, hide) {
+function teamHtml(path, full, hide, big) {
   const order = S.agents.map(a => a.name), names = [...new Set(teamLog.flatMap(m => [m.from, m.to]))]
     .sort((a, b) => ((order.indexOf(a) + 1) || 999) - ((order.indexOf(b) + 1) || 999) || a.localeCompare(b));
   const shown = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? shown : shown.slice(-30);
   const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
   const chips = names.map(x => `<em class="tf${hide.has(x) ? "" : " on"}" style="--c:${colours[x] || "#888"}" data-v="${esc(x)}" title="${hide.has(x) ? "Show" : "Leave out"} ${esc(x)}'s messages">${esc(x)}</em>`).join("");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
-  const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}"><span class="who">${esc(m.from)}</span>` +
+  const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(m.from)}</span>` +
     `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(m.to)}</span><span class="tx">${md(m.text)}</span>` +
     `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
-  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span><span class="tfs">${chips}</span></div>` +
+  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span><span class="tfs">${chips}</span>${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
+}
+// The Combined pane: the conversations of the running agents in the roles chosen with its role buttons as one, in time
+// order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
+// Full and Summary as the Team pane. The roles are chosen while the layout is being changed, as a grid's are.
+function combinedHtml(path, n, full, big) {
+  const chosen = paneAgents(n).map(a => a.name), on = Array.isArray(n.lanes) ? n.lanes : ALL;
+  const items = chosen.flatMap(a => (paneConv[a] || []).filter(it => (it.ts || it.kind === "ask") && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
+    .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0);
+  const log = full ? items : items.slice(-30);
+  const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
+  const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
+  const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
+  const seg = `<span class="seg clanes">${LANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc("Show or hide: " + LANE_TIP[l].replace(/^\w/, c => c.toLowerCase()))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : `<span class="tfs">${chips}</span>`}${maxButton(big)}</div>` +
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, on)}</div></div>`;
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
   await loadTeam();
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
-    !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
+    n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
     try {
       const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
@@ -1988,17 +2032,34 @@ function customClicks() {
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
     });
   });
+  main.querySelectorAll(".teamlog .cf").forEach(el => el.onclick = () => { change(l => {
+    const n = nodeAt(l.root, el.closest(".pane").dataset.path), rs = new Set(n.roles || []);
+    rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs];
+  }); setTimeout(load); });
+  main.querySelectorAll(".teamlog .clanes b").forEach(el => el.onclick = () => change(l => {
+    const n = nodeAt(l.root, el.closest(".pane").dataset.path), on = Array.isArray(n.lanes) ? n.lanes : ALL;
+    n.lanes = on.includes(el.dataset.lane) ? on.filter(x => x !== el.dataset.lane) : [...on, el.dataset.lane];
+  }));
   main.querySelectorAll(".teamlog .tf").forEach(el => el.onclick = () => change(l => {
     const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
     hide.has(el.dataset.v) ? hide.delete(el.dataset.v) : hide.add(el.dataset.v); n.hide = [...hide];
   }));
-  // The list ("others") has every agent: a click on one with a card in a pane puts the cursor in its message box, on any other opens its view.
-  // One in a tabs pane behind another tab is brought to the front first.
-  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => {
-    const name = m.dataset.name, box = () => main.querySelector(`.pane .card[data-name="${CSS.escape(name)}"] .say`);
+  // An agent in the list ("others"), a name in a Combined pane's header, or a turn in a Team or Combined pane (the
+  // agent on the name clicked, else the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
+  // a tabs pane behind another tab is brought to the front first.
+  const goTo = name => {
+    const box = () => main.querySelector(`.pane .card[data-name="${CSS.escape(name)}"] .say`);
     const tabs = !box() && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
+  };
+  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => goTo(m.dataset.name));
+  main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.textContent));
+  main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
+    const row = e.target.closest(".it[data-agent]");
+    if (!row || !getSelection().isCollapsed || e.target.closest("a, img, .thumbs, pre, [data-run]")) return;
+    const named = e.target.closest(".who")?.textContent, name = S.agents.some(a => a.name === named) ? named : row.dataset.agent;
+    if (S.agents.some(a => a.name === name)) goTo(name);
   });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
@@ -2010,7 +2071,7 @@ function customClicks() {
   });
   main.querySelectorAll(".pane .maxbtn").forEach(b => b.onclick = e => {
     e.stopPropagation();
-    if (!unmax()) { localStorage.setItem("custom:max", b.closest(".pane").dataset.path); localStorage.setItem("custom:maxname", b.closest(".card").dataset.name); load(); }
+    if (!unmax()) { localStorage.setItem("custom:max", b.closest(".pane").dataset.path); localStorage.setItem("custom:maxname", b.closest("[data-name]").dataset.name); load(); }
   });
   main.querySelectorAll(".card.full").forEach(c => {
     const f = c.querySelector(".feed"), btn = c.querySelector(".newest");
@@ -2018,7 +2079,7 @@ function customClicks() {
     f.onscroll = show; show();
     btn.onclick = e => { e.stopPropagation(); f.scrollTo({top: f.scrollHeight, behavior: "smooth"}); };
   });
-  main.querySelectorAll(".card.full .folded").forEach(f => f.onclick = e => { e.stopPropagation(); const k = f.dataset.run; openRuns.has(k) ? openRuns.delete(k) : openRuns.add(k); draw(); });
+  main.querySelectorAll(":is(.card.full, .teamlog) .folded").forEach(f => f.onclick = e => { e.stopPropagation(); const k = f.dataset.run; openRuns.has(k) ? openRuns.delete(k) : openRuns.add(k); draw(); });
   main.querySelectorAll(".divider.drag").forEach(d => d.onpointerdown = e => {
     e.preventDefault(); d.setPointerCapture(e.pointerId); d.classList.add("moving");
     const lay = d.parentElement, row = lay.classList.contains("row"), r = lay.getBoundingClientRect(), [h1, h2] = lay.querySelectorAll(":scope > .half");
