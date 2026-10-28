@@ -997,7 +997,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
-.pill.tally .dot.on{box-shadow:0 0 0 0 #3fb95099;animation:ping 1.4s infinite}
+.pill.tally .dot.on{animation:ping 1.4s infinite}
 .pill.tally .wait{position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
@@ -1042,7 +1042,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
 #lock:hover{opacity:1;background:var(--line2)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
-.tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);
+.tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
   color:#000;font:600 12.5px var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
 .tabbar button.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
@@ -1070,10 +1070,13 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:12px var(--mono);color:var(--mute)}
 .state{display:flex;align-items:center;gap:6px;color:var(--text);font-family:var(--sans);font-weight:600}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
-.busy .dot{background:var(--green);box-shadow:0 0 0 0 #3fb95099;animation:ping 1.4s infinite}
+.busy .dot{background:var(--green);animation:ping 1.4s infinite}
 .waiting .dot{background:var(--amber)}
 .waiting .state{color:var(--amber)}
-@keyframes ping{70%{box-shadow:0 0 0 7px #3fb95000}100%{box-shadow:0 0 0 0 #3fb95000}}
+@keyframes ping{0%{box-shadow:0 0 0 0 #3fb950f0,0 0 6px 1px #3fb950}70%{box-shadow:0 0 0 10px #3fb95000,0 0 6px 1px #3fb95000}100%{box-shadow:0 0 0 0 #3fb95000,0 0 6px 1px #3fb95000}}
+/* on an agent's coloured name box the ring is drawn in the name's own colour, which stands out against the box */
+.tabbar button.busy .dot,.mini.busy .name .dot{animation-name:pingfg}
+@keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}60%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ownerfg) 50%,transparent)}100%{box-shadow:0 0 0 7px color-mix(in srgb,var(--ownerfg) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ctx .meter{width:64px;height:6px}
 .model{color:var(--faint);overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -1312,7 +1315,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
-.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px}
+.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px;min-height:19px}   /* as tall with an unseen count as without, as a tab is */
 .mini .name .dot{flex:none}
 .mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:var(--ownerfg);color:var(--c)}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
