@@ -997,6 +997,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
+.pill.tally .dot.on{box-shadow:0 0 0 0 #3fb95099;animation:ping 1.4s infinite}
 .pill.tally .wait{position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
@@ -1044,7 +1045,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);
   color:#000;font:600 12.5px var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
-.tabbar button .dot{box-shadow:0 0 0 1.5px #000a}
+.tabbar button .dot{box-shadow:0 0 0 1.5px var(--ownerfg)}
 .tabbar button.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
 .card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:11px;border:1px solid var(--line2);
@@ -1160,8 +1161,9 @@ pre.code .copy.done{color:var(--green);border-color:var(--green)}
 #copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:6px;background:var(--green);color:#000;font:600 11px var(--sans);opacity:0;transition:opacity .25s}
 #copied.on{opacity:1}
 a.link{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
-table.md{border-collapse:collapse;margin:4px 0;white-space:normal;width:max-content;max-width:100%}
-table.md th,table.md td{border:1px solid var(--line2);padding:2px 8px;text-align:left;vertical-align:top}
+.mdtable{max-width:100%;overflow-x:auto;margin:4px 0}   /* a table wider than its turn scrolls sideways */
+table.md{border-collapse:collapse;white-space:normal}
+table.md th,table.md td{border:1px solid var(--line2);padding:2px 8px;text-align:left;vertical-align:top;min-width:8em}
 table.md th{background:var(--line);font-weight:600}
 .feed .it .tx{max-height:9em}
 /* an agent pane's card: its longer conversation, every turn in full, scrolled */
@@ -1310,7 +1312,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
 .mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px}
-.mini .name .dot{flex:none;box-shadow:0 0 0 1.5px #000a}
+.mini .name .dot{flex:none;box-shadow:0 0 0 1.5px var(--ownerfg)}
 .mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:var(--ownerfg);color:var(--c)}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
@@ -1420,7 +1422,7 @@ const inline = s => esc(s)
 // A table is a header row, a row of dashes and its rows, each line between pipes.
 const TABLE = /(^\|.*\|[ \t]*\n\|[ \t:|-]+\|[ \t]*(?:\n\|.*\|[ \t]*)*)\n?/gm;
 const cells = (row, tag) => row.trim().slice(1, -1).split("|").map(c => `<${tag}>${inline(c.trim())}</${tag}>`).join("");
-const table = t => { const [head, , ...rows] = t.trim().split("\n"); return `<table class="md"><tr>${cells(head, "th")}</tr>${rows.map(r => `<tr>${cells(r, "td")}</tr>`).join("")}</table>`; };
+const table = t => { const [head, , ...rows] = t.trim().split("\n"); return `<div class="mdtable"><table class="md"><tr>${cells(head, "th")}</tr>${rows.map(r => `<tr>${cells(r, "td")}</tr>`).join("")}</table></div>`; };
 const prose = s => s.split(TABLE).map((part, i) => i % 2 ? table(part) : inline(part)).join("");
 // A code box copies what is in it from a button in its corner, shown while it is hovered.
 const COPY = `<button class="copy" title="Copy"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></button>`;
@@ -1760,9 +1762,11 @@ function draw() {
   const n = st => S.agents.filter(a => a.status === st).length;
   // Working and idle as a dot and a number each, with a flashing badge on top when any agent is waiting.
   const waiting = n("waiting");
-  $("#counts").innerHTML = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
-    `<span class="dot" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
+  // the working dot pulses while any agent works; the counts are rewritten only when they change, so the pulse runs on
+  const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
+    `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
     (waiting ? `<span class="wait">${waiting} waiting</span>` : "") + `</span>`;
+  if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   // The benched developers and testers on one line in the header's free space, so the header never changes height;
   // those that do not fit are counted in a "+N" that names them.
   $("#bench").innerHTML = S.bench.length ? `<span>bench</span><span class="rrow">${S.bench.map(b => `<em style="--c:${b.colour}" title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench">${esc(b.name)}</em>`).join("")}</span>` : "";
