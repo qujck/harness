@@ -10,7 +10,9 @@
 # opens the agent's own view: its longer conversation and its terminal as it is on screen. Across the top: the
 # week against the budget (green on it, amber while the week's contingency is being spent, red past an even share
 # of the whole allowance), the team's combined activity, the disk (AGENT_DISK_WATCH) and the developers and testers
-# on the bench. The page can also be laid out as tabs, or as a custom set of panes saved in the browser.
+# on the bench. The page can also be laid out as tabs, or as a custom set of panes saved in the browser; one kind of
+# pane is the Team transcript, every message between agents on the roster, with a name button to leave each agent out.
+# A shell command the owner runs with ! in an agent's prompt shows as the owner's, with what it printed.
 #
 # WHAT IT DOES. Each card and view has a message box: a message is typed into the agent's tmux pane and Enter
 # pressed, as agent-spawn.sh types a first prompt; images pasted into the page go with it as attachments; Esc stops

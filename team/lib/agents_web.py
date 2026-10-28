@@ -4,6 +4,7 @@
   /                 the page: the week, the disk and every running agent on the roster, in sections by role, each
                     with its state, context, burn, ticket and the last turns of its conversation
   /api/state        everything the page draws, as JSON
+  /api/team         every message between the running agents, as one transcript
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
@@ -462,6 +463,13 @@ def user_items(text):
     if m:
         a = re.search(r"<command-args>(.*?)</command-args>", text, re.S)
         return [{"kind": "event", "who": "command", "text": (m.group(1) + " " + (a.group(1) if a else "")).strip()}]
+    # a shell command the owner ran with "!" in the agent's prompt, and what it printed
+    m = re.match(r"\s*<bash-input>(.*?)</bash-input>", text, re.S)
+    if m:
+        return [{"kind": "owner", "who": setting("AGENT_OWNER_NAME") or "Owner", "text": "`! " + m.group(1).strip() + "`"}]
+    if re.match(r"\s*<bash-std(out|err)>", text):
+        out = "\n".join(x.strip("\n") for x in re.findall(r"<bash-std(?:out|err)>(.*?)</bash-std(?:out|err)>", text, re.S) if x.strip())
+        return [{"kind": "shell", "who": "output", "text": "```\n" + out + "\n```" if out else "no output"}]
     if text.startswith("[Request interrupted"):
         return [{"kind": "event", "who": "interrupted", "text": "the turn was stopped"}]
     m = re.match(r"(?:\[[^\]]*\]\s*)?The ([\w-]+) plugin sent a message:\s*(.*)", text, re.S)
@@ -514,7 +522,7 @@ def owner_turn(content):
     return items
 
 
-LANE = {"owner": "owner", "said": "owner", "peer": "team", "sent": "team", "event": "auto", "tool": "auto"}
+LANE = {"owner": "owner", "said": "owner", "shell": "owner", "peer": "team", "sent": "team", "event": "auto", "tool": "auto"}
 
 
 # Queued text that is not the owner's: other agents' messages, task notices, nudges and mods' messages.
@@ -777,6 +785,24 @@ def agent_json(name):
                        "cols": (where or {}).get("cols", 0), "rows": (where or {}).get("rows", 0)}).encode()
 
 
+def team_json():
+    """Every message between running agents, oldest first, the last 200: each taken from its recipient's conversation,
+    so a message is listed once, not again as its sender's. Only senders on the roster count, benched or not: a helper
+    an agent starts for itself (Claude Code's Explore, say) hands its report back the same way, but it is not on the team."""
+    try:
+        with open(ROSTER) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    team, msgs = {a.get("name") for a in (data.get("agents") or []) + (data.get("assistants") or [])} - {None}, []
+    for name, rec in live_sessions().items():
+        for it in feed(rec.get("sessionId"), 400):
+            if it["kind"] == "peer" and it["who"] in team:
+                msgs.append({"from": it["who"], "to": name, "text": it["text"], "ts": it["ts"]})
+    msgs.sort(key=lambda m: m["ts"] or "")
+    return json.dumps(msgs[-200:]).encode()
+
+
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 PASTED = os.path.join(STATE_DIR, "pasted")   # images and files added in the page, kept for the agents to read
 
@@ -794,6 +820,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/":
             self.send(200, PAGE.encode(), "text/html; charset=utf-8")
+        elif path == "/api/team":
+            self.send(200, team_json(), "application/json")
         elif path == "/api/state":
             self.send(200, state_json(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -1056,7 +1084,8 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
 .it.sent .who::before{content:"→ "}
 .it.event .tx{color:var(--mute);font-style:italic}
-.it.event .who{color:var(--mute);border:1px solid var(--line2)}
+.it.event .who,.it.shell .who{color:var(--mute);border:1px solid var(--line2)}
+.it.shell .tx{color:var(--mute)}
 .it.ask{position:relative;z-index:1;flex-direction:column;gap:4px;padding:8px 10px;border:2px solid #ff7a1a;border-radius:8px;background:#ff7a1a1f;animation:ask 1s ease-in-out infinite}
 .it.ask::after{content:"";position:absolute;inset:0;border-radius:6px;background:#ff7a1a;pointer-events:none;animation:wash 1s ease-in-out infinite}
 .it.ask .who{align-self:flex-start;background:#ff7a1a;color:#000;text-transform:uppercase;letter-spacing:.06em}
@@ -1117,6 +1146,17 @@ table.md th{background:var(--line);font-weight:600}
 .card.full .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 .card.full .feed > :first-child{margin-top:auto}
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
+/* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
+.teamlog{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
+.teamlog .thead{flex:none;display:flex;align-items:baseline;gap:10px;padding:9px 12px;font-weight:650}
+.teamlog .thead > span:nth-child(2){font:11px var(--mono);font-weight:400;color:var(--mute)}
+.teamlog .tfs{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;font-size:10.5px;font-weight:600}
+.teamlog .tf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
+.teamlog .tf.on{background:var(--c);color:var(--ownerfg)}
+.teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
+.teamlog:not(.summary) .feed > :first-child{margin-top:auto}
+.teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
+.teamlog .it .who.to::before{content:"→ "}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
    burn line under them */
 .pbody{container-type:inline-size}
@@ -1772,7 +1812,7 @@ function fitBench() {
 // lose their bars and the dividers stay put.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
@@ -1816,6 +1856,8 @@ function customHtml(ceil, tabRow) {
         : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
+    } else if (n.show === "team") {
+      body = teamHtml(path, fullView(n), new Set(n.hide || []));
     } else if (n.show === "grid" && of.length) {
       const el = $(`#main .pane[data-path="${path}"] .pbody`), c = el ? cols(of.length, el.clientWidth, el.clientHeight) : Math.ceil(Math.sqrt(of.length));
       body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => fullView(n)
@@ -1867,8 +1909,33 @@ function paneTermHtml(name, t) {
   return `<div class="termwrap${big ? " big" : ""}" title="${big ? "" : "Expand"}"><div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(name)} — ${t.cols}×${t.rows}</span><b class="pzoom">${big ? "⤡" : "⤢"}</b></div>` +
     `<div class="screen"><pre style="font-size:${size.toFixed(2)}px;width:${(t.cols * charW * size).toFixed(1)}px;height:${(t.rows * 1.25 * size).toFixed(1)}px">${t.screen || ""}</pre></div></div><span class="x" title="Close (Esc)">✕</span></div>`;
 }
+// The Team pane's transcript: every message between agents, fetched with each load while a Team pane is laid out.
+// Full scrolls through all of them, each whole; Summary shows the newest that fit, each cut to a few lines, as a card does.
+// A name button for each agent in it, saved with the pane, leaves out or brings back the messages that agent sent or received.
+let teamLog = [], teamVer = 0, teamText = "";
+async function loadTeam() {
+  if (!leaves(layout().root).some(([, n]) => n.show === "team")) return;
+  try {
+    const d = await (await fetch("/api/team", {cache: "no-store"})).json(), text = JSON.stringify(d);
+    if (text !== teamText) { teamLog = d; teamText = text; teamVer++; }
+  } catch (e) {}
+}
+function teamHtml(path, full, hide) {
+  const order = S.agents.map(a => a.name), names = [...new Set(teamLog.flatMap(m => [m.from, m.to]))]
+    .sort((a, b) => ((order.indexOf(a) + 1) || 999) - ((order.indexOf(b) + 1) || 999) || a.localeCompare(b));
+  const shown = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? shown : shown.slice(-30);
+  const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
+  const chips = names.map(x => `<em class="tf${hide.has(x) ? "" : " on"}" style="--c:${colours[x] || "#888"}" data-v="${esc(x)}" title="${hide.has(x) ? "Show" : "Leave out"} ${esc(x)}'s messages">${esc(x)}</em>`).join("");
+  const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
+  const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}"><span class="who">${esc(m.from)}</span>` +
+    `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(m.to)}</span><span class="tx">${md(m.text)}</span>` +
+    `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
+  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span><span class="tfs">${chips}</span></div>` +
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
+}
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
+  await loadTeam();
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -1882,11 +1949,12 @@ async function loadPaneConvs() {
 }
 // A pane's conversation stays at its newest turn unless it has been scrolled up.
 const atEnd = f => f.scrollHeight - f.scrollTop - f.clientHeight < 40;
-function paneEnds() { return new Set([...document.querySelectorAll("#main .card.full .feed")].filter(atEnd).map(f => f.closest(".card").dataset.name)); }
+const FEEDS = "#main :is(.card.full, .teamlog:not(.summary)) .feed";
+function paneEnds() { return new Set([...document.querySelectorAll(FEEDS)].filter(atEnd).map(f => f.parentElement.closest("[data-name]").dataset.name)); }
 const paneFeeds = new WeakSet();   // the panes' conversations already placed, so a new one starts at its end
 function toPaneEnds(ends) {
-  document.querySelectorAll("#main .card.full .feed .ago[data-ts]").forEach(s => { const t = since(s.dataset.ts); if (s.textContent !== t) s.textContent = t; });
-  document.querySelectorAll("#main .card.full .feed").forEach(f => { if (ends.has(f.closest(".card").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); });
+  document.querySelectorAll(FEEDS + " .ago[data-ts]").forEach(s => { const t = since(s.dataset.ts); if (s.textContent !== t) s.textContent = t; });
+  document.querySelectorAll(FEEDS).forEach(f => { if (ends.has(f.parentElement.closest("[data-name]").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); });
 }
 function customClicks() {
   const main = $("#main"), change = f => { const l = layout(); f(l); saveLayout(l); draw(); };
@@ -1902,6 +1970,10 @@ function customClicks() {
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
     });
   });
+  main.querySelectorAll(".teamlog .tf").forEach(el => el.onclick = () => change(l => {
+    const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
+    hide.has(el.dataset.v) ? hide.delete(el.dataset.v) : hide.add(el.dataset.v); n.hide = [...hide];
+  }));
   // The list ("others") has every agent: a click on one with a card in a pane puts the cursor in its message box, on any other opens its view.
   // One in a tabs pane behind another tab is brought to the front first.
   main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => {
@@ -1996,7 +2068,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" title="Open ${esc(a.name)}">
-      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[st] || esc(st)}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name">${esc(a.name)}</span>${n ? unseenBadge(n) : ""}${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="state" title="${STATE[st] || esc(st)}"><span class="dot"></span></span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -2361,6 +2433,22 @@ def self_test():
           [("owner", "owner"), ("said", "owner"), ("tools", "auto"), ("pending", "owner")])
         t("  a message from another session is the team's",
           user_items('<cross-session-message from-name="Lea">hello</cross-session-message>')[0]["kind"], "peer")
+        os.environ["AGENT_OWNER_NAME"] = "Pat"
+        t("  a shell command the owner ran with ! is the owner's",
+          user_items("<bash-input>git status</bash-input>"), [{"kind": "owner", "who": "Pat", "text": "`! git status`"}])
+        t("  and what it printed follows it, in the owner's lane",
+          [(i["kind"], i["text"], LANE[i["kind"]]) for i in user_items("<bash-stdout>clean\n</bash-stdout><bash-stderr>warn\n</bash-stderr>")],
+          [("shell", "```\nclean\nwarn\n```", "owner")])
+        t("  or says it printed nothing", user_items("<bash-stdout></bash-stdout><bash-stderr></bash-stderr>")[0]["text"], "no output")
+
+        # Lea's conversation (s1) holds messages from Ada, from Old (retired, still on the roster) and from a helper.
+        team_lines = [{"type": "user", "timestamp": f"2026-10-27T11:0{i}:00Z", "message": {"content":
+                       f'<cross-session-message from-name="{who}">note {i}</cross-session-message>'}}
+                      for i, who in enumerate(["Ada", "Explore", "Old"])]
+        with open(T + "/projects/p/s1.jsonl", "w") as f:
+            f.write("\n".join(json.dumps(x) for x in team_lines) + "\n")
+        t("team: every message between agents, from its recipient's conversation, oldest first; a helper's is left out",
+          [(m["from"], m["to"], m["text"]) for m in json.loads(team_json())], [("Ada", "Lea", "note 0"), ("Old", "Lea", "note 2")])
 
         os.environ.update(AGENT_OWNER_NAME="Pat", AGENT_WEEK_PCT_PER_HOUR="2")
         st = state()
@@ -2387,6 +2475,7 @@ def self_test():
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "disk", "even", "now", "owner", "plan", "tabs", "week"])
+        t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
         t("  and one from another site", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1", "Origin": "http://evil.example"}), b'{"text":"hi"}')[0], 403)
