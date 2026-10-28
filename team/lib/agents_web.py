@@ -1097,7 +1097,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .lanes{margin-left:auto;flex:none}
 /* the maximise button docked in the head's top-right corner, so it stays there when a narrow head wraps */
 .card > .top:has(> .maxbtn){padding-right:38px}
-.card > .top > .maxbtn{position:absolute;top:9px;right:10px}
+.card > .top > .maxbtn{position:absolute;top:11px;right:10px}
 .card .top{flex-wrap:wrap;row-gap:4px}
 .lanes b,.termseg b,.railseg b{padding:1px 5px;font-size:10px}
 .it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
@@ -1172,7 +1172,7 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
 .teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:13.5px;font-weight:650}
 .teamlog .thead{position:relative;padding-right:40px}
-.teamlog .thead .maxbtn{position:absolute;top:8px;right:10px}
+.teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
 .teamlog .tfs{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;font-size:10.5px;font-weight:600}
 .teamlog .tf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
@@ -1187,7 +1187,9 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .cf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
 .teamlog .cf.on{background:var(--c);color:var(--ownerfg)}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
-.teamlog .thead > span:nth-child(2):has(.name){display:flex;gap:4px;font:600 12px var(--sans)}
+/* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
+.teamlog .thead:has(> span:nth-child(2) .name){align-items:flex-start}
+.teamlog .thead > span:nth-child(2):has(.name){flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
 .teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
 .teamlog.combined .tfs{flex-basis:100%;margin-left:0}
 .teamlog .clanes b{padding:1px 5px;font-size:10px}
@@ -1242,7 +1244,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
   .card.full > .top > .lanes{grid-column:7;margin:0 0 0 4px}
-  .card.full > .top > .maxbtn{grid-column:8;margin-right:10px;position:static}
+  .card.full > .top > .maxbtn{grid-column:8;margin:4px 10px 0 0;position:static}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
