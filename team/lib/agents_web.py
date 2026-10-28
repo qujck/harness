@@ -1076,6 +1076,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 @keyframes ping{0%{box-shadow:0 0 0 0 #3fb950f0,0 0 6px 1px #3fb950}70%{box-shadow:0 0 0 10px #3fb95000,0 0 6px 1px #3fb95000}100%{box-shadow:0 0 0 0 #3fb95000,0 0 6px 1px #3fb95000}}
 /* on an agent's coloured name box the ring is drawn in the name's own colour, which stands out against the box */
 .tabbar button.busy .dot,.mini.busy .name .dot{animation-name:pingfg}
+/* an agent in its shell: on its name box, a dot in the name's colour pulsing the same */
+.tabbar button.shell .dot,.mini.shell .name .dot{background:var(--ownerfg);animation:pingfg 1.4s infinite}
 @keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}60%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ownerfg) 50%,transparent)}100%{box-shadow:0 0 0 7px color-mix(in srgb,var(--ownerfg) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ctx .meter{width:64px;height:6px}
