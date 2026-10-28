@@ -85,6 +85,9 @@ BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 LEDGER_SH="${AGENT_SPAWN_LEDGER:-bash $_here/../scripts/ledger-db.sh}"
 CLAIM_WAIT_S="${AGENT_SPAWN_CLAIM_WAIT_S:-600}"
 CLAIM_POLL_S="${AGENT_SPAWN_CLAIM_POLL_S:-5}"
+# The size of the agent's tmux session, columns x rows: tmux's own default is 80x24, which the agent's screen (and its
+# terminal on the team page) wraps at until someone attaches.
+SIZE="${AGENT_SESSION_SIZE:-240x60}"; [[ "$SIZE" =~ ^[0-9]+x[0-9]+$ ]] || SIZE=240x60
 
 # PURE: are these the owner's words? Not blank; not another flag (--dry-run after --owner-ok must not become the
 # words, and start a real spawn); not the script's own "<their words>" placeholder pasted unedited; one line (a tab or
@@ -338,7 +341,7 @@ EOF
   _t "  on budget, recorded with no owner words" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'on|-'
   local line; line="$(grep '^new-session' "$T/tmux.log")"
   _has "  the session starts claude with Remote Control on, named for the tmux session" "$line" "--remote-control proj-ada"
-  _has "it starts a detached tmux session named for the agent, in the project root" "$line" "new-session -d -s proj-ada -c $T/repo env"
+  _has "it starts a detached tmux session named for the agent, at AGENT_SESSION_SIZE, in the project root" "$line" "new-session -d -s proj-ada -x 240 -y 60 -c $T/repo env"
   _has "  with the roster identity" "$line" "GIT_AUTHOR_NAME=Ada GIT_AUTHOR_EMAIL=ada@proj.local GIT_COMMITTER_NAME=Ada GIT_COMMITTER_EMAIL=ada@proj.local"
   _has "  in the agent's own worktree, named in the session" "$line" "claude --worktree proj-ada --name Ada"
   _has "  on the role's model (AGENT_MODEL_DEV)" "$line" "--model sonnet"
@@ -598,7 +601,7 @@ fi
 
 command -v tmux >/dev/null 2>&1 || { echo "agent-spawn: tmux is not on PATH" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "agent-spawn: claude is not on PATH" >&2; exit 1; }
-tmux new-session -d -s "$SESSION" -c "$HARNESS_ROOT" "${CMD[@]}" \
+tmux new-session -d -s "$SESSION" -x "${SIZE%x*}" -y "${SIZE#*x}" -c "$HARNESS_ROOT" "${CMD[@]}" \
   || { echo "agent-spawn: tmux could not start session $SESSION for $NAME" >&2; exit 1; }
 tmux has-session -t "=$SESSION" 2>/dev/null \
   || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
