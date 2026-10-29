@@ -245,7 +245,8 @@ role_colour() {
   key=AGENT_COLOUR_${1^^}; key=${key//-/_}
   case "$1" in
     delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
-    code-reviewer) def=cyan ;; process-improvement) def=pink ;; assistant) def=green ;; *) def="" ;;
+    code-reviewer) def=cyan ;; production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
+    *) def="" ;;
   esac
   case "${!key-$def}" in
     red) bg=167 ;; green) bg=35 ;; yellow) bg=178 ;; blue) bg=110 ;; cyan) bg=37 ;; pink) bg=175 ;;

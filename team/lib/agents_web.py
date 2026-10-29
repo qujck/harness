@@ -77,6 +77,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "tester": ("tester", "Tester", "Testers", "yellow"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
+         "production-support": ("support", "Production Support", "Others", "orange"),
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
          "assistant": ("pa", "Assistant", "Others", "green")}
 TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
@@ -1364,8 +1365,6 @@ body.resizing-row{cursor:row-resize;user-select:none}
 .pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
 .pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:11px;color:var(--mute)}
 .pbar select{font:12px var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
-.pbar em{font-style:normal;padding:0 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute);cursor:pointer}
-.pbar em.on{background:var(--c);color:#000}
 .pbar .pacts{display:flex;gap:2px;margin-left:auto}
 .pbar .pacts b{padding:1px 6px;border-radius:5px;font-size:13px;font-weight:400;cursor:pointer}
 .pbar .pacts b:hover{background:var(--on);color:var(--text)}
@@ -1422,7 +1421,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 /* a badge's text sits a pixel high of centre, as the font's descender space otherwise shows it low */
 .name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:5px;font-size:13.5px}
 /* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
-.name,.tabbar button,.pbar em.on,#dbottom,.card .newest{color:var(--ownerfg)}
+.name,.tabbar button,#dbottom,.card .newest{color:var(--ownerfg)}
 .role{color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ticket{white-space:nowrap;flex:none;margin-left:auto;font:600 11.5px var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:5px}
 .row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:12px var(--mono);color:var(--mute)}
@@ -1474,6 +1473,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
 .fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer;font-weight:500}
 .fbtn svg{width:13px;height:13px;stroke-width:1.5}
+.fbtn:has(span){padding:0 6px}
 .fbtn:hover{background:var(--on);color:var(--text)}
 .fbtn.some{color:var(--text)}
 .it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
@@ -1551,9 +1551,6 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .thead{position:relative;padding-right:34px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
-.teamlog .tfs{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;font-size:10.5px;font-weight:600}
-.teamlog .tf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
-.teamlog .tf.on{background:var(--c);color:var(--ownerfg)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* the Combined pane's turns fade out at the top, just under the line beneath its head */
 .teamlog.combined .feed{mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 28px)}
@@ -1563,14 +1560,11 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .it .who.ag{background:var(--pc);color:var(--ownerfg)}
 .teamlog .it .who.ag:not(.to)::before{content:none}
 .teamlog .it.tools .who.ag{margin-right:6px}
-.teamlog .cf{font-style:normal;padding:0 6px;border-radius:5px;border:1.5px solid var(--c);color:var(--mute);cursor:pointer;user-select:none}
-.teamlog .cf.on{background:var(--c);color:var(--ownerfg)}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
 .teamlog .thead:has(> span:nth-child(2) .name){align-items:flex-start}
 .teamlog .thead > span:nth-child(2):has(.name){flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
 .teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
-.teamlog.combined .tfs{flex-basis:100%;margin-left:0}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
@@ -1715,6 +1709,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
 #menu .mi svg.off{visibility:hidden}
 #menu .mi svg.tick{margin-left:auto}
+#menu .mi .dot{flex:none;width:10px;height:10px;margin:0 2px;border-radius:50%;background:var(--c)}
 #menu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
@@ -2339,13 +2334,14 @@ function fitBench() {
 
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
 // one above the other ("col"), at a fraction "at", and whose leaves are panes showing an agent's card ("agent"),
-// every agent as a list ("others") or as portrait tiles ("characters"), a grid or tabs of the agents in some roles, or nothing yet. A pane is
+// every agent as a list ("others"), portrait tiles of every agent or those in some roles ("characters"), a grid or tabs
+// of the agents in some roles, or nothing yet. A pane is
 // named by its path from the root ("r", then "a" or "b" for each split), which also keys its tabs. Locked, the panes
 // lose their bars and the dividers stay put.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
 const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters"};
-const ROLE_ORDER = ["lead", "dev", "tester", "hot", "review", "process", "pa"];
+const ROLE_ORDER = ["lead", "dev", "tester", "hot", "support", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
 function nodeAt(root, path) { let n = root; for (const c of path.slice(1)) n = n[c]; return n; }
@@ -2359,6 +2355,12 @@ function roleList() {
 // A grid or tabs pane's agents, role by role in the order the roles were picked (n.roles keeps it), roster order
 // within a role.
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
+// A Characters pane's agents: those in its roles, the same way, or every agent until roles are chosen for it.
+const chrAgents = n => Array.isArray(n.roles) ? paneAgents(n) : S.agents;
+// A pane's Roles button and its menu: each role with a dot in its colour, ticked while the pane shows it.
+const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
+const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
+const rolesBtn = (path, n) => filterBtn("roles", "roles:" + path, rolesOn(n), roleList().map(r => r.role), roleItems(), "");
 function customHtml(ceil, tabRow) {
   const l = layout();
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
@@ -2390,7 +2392,8 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "characters") {
-      body = `<div class="chrs">${tiles()}</div>`;
+      const them = chrAgents(n);
+      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     } else if (n.show === "combined") {
       body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
@@ -2410,29 +2413,40 @@ function customHtml(ceil, tabRow) {
       ${n.show && n.show !== "others" && n.show !== "characters" ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
-      ${n.show === "grid" || n.show === "tabs" ? roleList().map(r => `<em style="--c:${r.colour}" class="${(n.roles || []).includes(r.role) ? "on" : ""}" data-act="role" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("") : ""}
+      ${["grid", "tabs", "characters"].includes(n.show) ? rolesBtn(path, n) : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
     return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${body}</div></div>`;
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
-    const side = tileSide(n), grow = s => side ? (s === side ? `flex:0 0 ${tilesWidth(tileCols(n, path + side))}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
+    const side = tileSide(n), count = side && chrAgents(n[side]).length;
+    const size = side && (n.split === "row" ? tilesWidth(tileCols(n, path + side, count)) : tilesHeight(tileRows(n, path + side, count), path + side));
+    const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
   return !maxed ? node(l.root, "r") : maxNode.show === "team" || maxNode.show === "combined" ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
 // A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
-// snaps between them, and more while its tiles would otherwise need scrolling.
-const tileSide = n => n.split === "row" && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
+// snaps between them, and more while its tiles would otherwise need scrolling. One above or below another is a whole
+// number of rows high in the same way (one unless set).
+const tileSide = n => !!n.split && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
 const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
+// the pane's border, its bar (none when locked), the grid's padding and the rows of 112px tiles 8px apart
+const tilesHeight = (r, path) => 18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (layout().locked ? 0 : 38)) + 120 * (r ?? 1);
 // The columns a snapped Characters pane shows: its own setting, or more when the tiles would not fit its height in that many.
 // A pane not yet on the page has no height to go by; tileGuess has the page draw again once it is.
 let tileGuess = false;
-function tileCols(n, path) {
+function tileCols(n, path, count) {
   const h = $(`#main .pane[data-path="${path}"] .chrs`)?.clientHeight, rows = h ? Math.max(1, Math.floor((h - 16) / 120)) : 0;
   if (!h) tileGuess = true;
-  return Math.max(n.tiles || 2, rows ? Math.ceil(S.agents.length / rows) : 0);
+  return Math.max(n.tiles || 2, rows ? Math.ceil(count / rows) : 0);
+}
+// The rows a snapped Characters pane above or below another shows: its own setting, or more when the tiles would not fit its width.
+function tileRows(n, path, count) {
+  const w = $(`#main .pane[data-path="${path}"] .chrs`)?.clientWidth, cols = w ? Math.max(1, Math.floor((w - 7) / 120)) : 0;
+  if (!w) tileGuess = true;
+  return Math.max(n.tiles || 1, cols ? Math.ceil(count / cols) : 0);
 }
 // An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
@@ -2464,7 +2478,7 @@ function paneTermHtml(name, t) {
 }
 // The Team pane's transcript: every message between agents, fetched with each load while a Team pane is laid out.
 // Full scrolls through all of them, each whole; Summary shows the newest that fit, each cut to a few lines, as a card does.
-// A name button for each agent in it, saved with the pane, leaves out or brings back the messages that agent sent or received.
+// Its Agents menu, saved with the pane, leaves out or brings back the messages an agent sent or received.
 let teamLog = [], teamVer = 0, teamText = "";
 async function loadTeam() {
   if (!leaves(layout().root).some(([, n]) => n.show === "team")) return;
@@ -2473,20 +2487,25 @@ async function loadTeam() {
     if (text !== teamText) { teamLog = d; teamText = text; teamVer++; }
   } catch (e) {}
 }
-function teamHtml(path, full, hide, big) {
-  const order = S.agents.map(a => a.name), names = [...new Set(teamLog.flatMap(m => [m.from, m.to]))]
+// the agents in the Team transcript, in the roster's order, then any others by name
+function teamNames() {
+  const order = S.agents.map(a => a.name);
+  return [...new Set(teamLog.flatMap(m => [m.from, m.to]))]
     .sort((a, b) => ((order.indexOf(a) + 1) || 999) - ((order.indexOf(b) + 1) || 999) || a.localeCompare(b));
+}
+const teamItems = () => teamNames().map(x => [x, x, `<span class="dot" style="--c:${colours[x] || "#888"}"></span>`]);
+function teamHtml(path, full, hide, big) {
+  const names = teamNames();
   const shown = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? shown : shown.slice(-30);
   const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
-  const chips = names.map(x => `<em class="tf${hide.has(x) ? "" : " on"}" style="--c:${colours[x] || "#888"}" data-v="${esc(x)}" title="${hide.has(x) ? "Show" : "Leave out"} ${esc(x)}'s messages">${esc(x)}</em>`).join("");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(m.from)}</span>` +
     `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(m.to)}</span><span class="tx">${md(m.text)}</span>` +
     `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
-  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span><span class="tfs">${chips}</span>${maxButton(big)}</div>` +
+  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span>${filterBtn("agents", "agents:" + path, names.filter(x => !hide.has(x)), names, teamItems(), "Agents")}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
 }
-// The Combined pane: the conversations of the running agents in the roles chosen with its role buttons as one, in time
+// The Combined pane: the conversations of the running agents in the roles chosen from its Roles menu as one, in time
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
 // Full and Summary as the Team pane. The roles are chosen while the layout is being changed, as a grid's are.
 // Its lanes split the owner's: Owner is the owner's messages, Said each agent's own words, so either can go alone.
@@ -2504,9 +2523,8 @@ function combinedHtml(path, n, full, big) {
   seenUpTo(log);
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
-  const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
   const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : `<span class="tfs">${chips}</span>`}${maxButton(big)}</div>` +
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : rolesBtn(path, n)}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}</div>`;
 }
 async function loadPaneConvs() {
@@ -2540,15 +2558,15 @@ function customClicks() {
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
       if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
-      else if (act === "role") { const rs = new Set(n.roles || []); rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs]; }
       else if (act === "row" || act === "col") putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
     });
   });
-  main.querySelectorAll(".teamlog .cf").forEach(el => el.onclick = () => { change(l => {
-    const n = nodeAt(l.root, el.closest(".pane").dataset.path), rs = new Set(n.roles || []);
-    rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs];
-  }); setTimeout(load); });
+  main.querySelectorAll(".pane .roles.fbtn").forEach(el => {
+    const path = el.closest(".pane").dataset.path;
+    filterButton(el, roleItems(), () => rolesOn(nodeAt(layout().root, path)), r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`,
+      r => { change(l => { const n = nodeAt(l.root, path), on = rolesOn(n); n.roles = on.includes(r) ? on.filter(x => x !== r) : [...on, r]; }); setTimeout(load); }, "Roles");
+  });
   main.querySelectorAll(".teamlog .clanes").forEach(el => {
     const path = el.closest(".pane").dataset.path;
     filterButton(el, CLANES, () => clanesOf(nodeAt(layout().root, path)), l => CLANE_TIP[l], lane => change(l => {
@@ -2557,10 +2575,14 @@ function customClicks() {
       delete n.lanes;
     }));
   });
-  main.querySelectorAll(".teamlog .tf").forEach(el => el.onclick = () => change(l => {
-    const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
-    hide.has(el.dataset.v) ? hide.delete(el.dataset.v) : hide.add(el.dataset.v); n.hide = [...hide];
-  }));
+  main.querySelectorAll(".teamlog .agents.fbtn").forEach(el => {
+    const path = el.closest(".pane").dataset.path;
+    filterButton(el, teamItems(), () => { const hide = nodeAt(layout().root, path).hide || []; return teamNames().filter(x => !hide.includes(x)); },
+      x => `Show or leave out ${x}'s messages`, x => change(l => {
+        const n = nodeAt(l.root, path), hide = new Set(n.hide || []);
+        hide.has(x) ? hide.delete(x) : hide.add(x); n.hide = [...hide];
+      }), "Agents");
+  });
   // An agent in the list ("others") or a tile ("characters"), a name in a Combined pane's header, or a turn in a Team or Combined pane (the
   // agent on the name clicked, else the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
   // a tabs pane behind another tab is brought to the front first.
@@ -2617,10 +2639,16 @@ function customClicks() {
     const side = tileSide(nodeAt(layout().root, d.dataset.path));
     let at = null, tiles = null;
     d.onpointermove = mv => {
-      if (side) {
+      if (side && row) {
         const w = side === "a" ? mv.clientX - r.left : r.right - mv.clientX;
         tiles = Math.max(1, Math.min(3, Math.round((w - 18) / 120)));
         (side === "a" ? h1 : h2).style.flexBasis = tilesWidth(tiles) + "px";
+        return;
+      }
+      if (side) {
+        const h = side === "a" ? mv.clientY - r.top : r.bottom - mv.clientY, bar = tilesHeight(0, d.dataset.path + side);
+        tiles = Math.max(1, Math.min(3, Math.round((h - bar) / 120)));
+        (side === "a" ? h1 : h2).style.flexBasis = tilesHeight(tiles, d.dataset.path + side) + "px";
         return;
       }
       at = Math.max(0.1, Math.min(0.9, row ? (mv.clientX - r.left) / r.width : (mv.clientY - r.top) / r.height));
@@ -2701,13 +2729,16 @@ function minis(cur, agents = S.agents) {
 // the portrait: its last activity (green within the minute) and how long ago, its context, its unseen count, its
 // ticket and its activity.
 // A shadow for an agent with no portrait: a head and shoulders in its colour, faint, with its role's prop in the full
-// colour (the lead's cap, a developer's headphones, a tester's magnifier, the reviewer's glasses and pen, process
-// improvement's hard hat, the assistant's hair and bow tie) and, for a developer or tester, its number on the chest.
+// colour (the lead's cap, a developer's headphones, a tester's clipboard, the head of testing's clipboard and crown,
+// production support's on-call beacon, the reviewer's glasses and pen, process improvement's hard hat, the assistant's
+// hair and bow tie) and, for a developer or tester, its number on the chest.
 const PROPS = {
   lead: `<path d="M29 33 L25 21 Q50 9 75 21 L71 33 Z" class="p"/><path d="M28 33 H72 V37 H28 Z" class="k"/><path d="M33 37 Q50 47 67 37 Z" class="k"/><circle cx="50" cy="24" r="3.2" class="b"/>`,
   dev: `<path d="M30 45 A20 20 0 0 1 70 45" class="s" stroke-width="5"/><rect x="25" y="40" width="9" height="15" rx="3.5" class="p"/><rect x="66" y="40" width="9" height="15" rx="3.5" class="p"/>`,
-  tester: `<circle cx="59" cy="44" r="9.5" class="s" stroke-width="4" fill-opacity=".25"/><path d="M66 51 L81 67" class="s" stroke-width="6" stroke-linecap="round"/>`,
+  tester: `<rect x="62" y="66" width="22" height="28" rx="3" class="p"/><rect x="65" y="71" width="16" height="20" rx="1" class="b"/><rect x="68" y="63" width="10" height="6" rx="2" class="k"/><path d="M68.5 81 l4 4 l7 -8" class="s" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+  hot: `<rect x="62" y="66" width="22" height="28" rx="3" class="p"/><rect x="65" y="71" width="16" height="20" rx="1" class="b"/><rect x="68" y="63" width="10" height="6" rx="2" class="k"/><path d="M68.5 81 l4 4 l7 -8" class="s" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M36 31 L38 17 L44 24 L50 14 L56 24 L62 17 L64 31 Z" class="p"/>`,
   review: `<path d="M34 45 h13 a6.5 6.5 0 0 1 -13 0z M53 45 h13 a6.5 6.5 0 0 1 -13 0z" class="p"/><path d="M47 45 h6" class="s" stroke-width="2"/><path d="M80 96 L88 62" class="s" stroke-width="5" stroke-linecap="round"/><path d="M86 61 L89 54 L91 62 Z" class="p"/>`,
+  support: `<path d="M50 8 V13 M37 12 L40.5 16 M63 12 L59.5 16 M32 20 L36.5 21.5 M68 20 L63.5 21.5" class="s" stroke-width="2.6" stroke-linecap="round"/><path d="M42.5 25 A7.5 7.5 0 0 1 57.5 25 Z" class="k"/><rect x="39" y="25" width="22" height="5" rx="1.5" class="p"/>`,
   process: `<path d="M31 37 A19 18 0 0 1 69 37 Z" class="p"/><path d="M24 36 H76 V41 H24 Z" class="p"/><path d="M50 20 V36" class="k" stroke-width="3"/>`,
   pa: `<path d="M33 40 Q34 25 50 25 Q66 25 67 40 Q61 31 50 32 Q39 31 33 40 Z" class="p"/><path d="M38 64 L50 70 L38 76 Z M62 64 L50 70 L62 76 Z" class="p"/><circle cx="50" cy="70" r="3" class="p"/>`,
 };
@@ -2719,9 +2750,9 @@ function shadow(a) {
     `<g fill="${c}" fill-opacity=".38"><circle cx="50" cy="44" r="17"/><path d="M14 100 C14 77 30 66 50 66 C70 66 86 77 86 100 Z"/></g>${prop}` +
     (a.seat ? `<text x="50" y="87" text-anchor="middle" dominant-baseline="central">${a.seat}</text>` : "") + `</svg>`;
 }
-function tiles() {
+function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
-  return S.agents.map(a => {
+  return them.map(a => {
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
@@ -3267,8 +3298,8 @@ function filterMenu(btn, list, on, tip, flip, rested, head) {
   const key = btn.dataset.menu;
   if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
   const ticks = () => menu.querySelectorAll(".mi").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off", !on().includes(mi.dataset.lane)));
-  menuAt(btn, key, `<div class="hd"><div>${head}</div></div>` + list.map(([l, t]) =>
-    `<div class="mi" data-lane="${l}" title="${esc(tip(l))}">${MENU_ICON[l] || ""}${esc(t || S.owner)}${MENU_ICON.check.replace("<svg", '<svg class="tick"')}</div>`).join(""), false);
+  menuAt(btn, key, `<div class="hd"><div>${head}</div></div>` + list.map(([l, t, icon]) =>
+    `<div class="mi" data-lane="${esc(l)}" title="${esc(tip(l))}">${icon ?? MENU_ICON[l] ?? ""}${esc(t || S.owner)}${MENU_ICON.check.replace("<svg", '<svg class="tick"')}</div>`).join(""), false);
   ticks();
   if (rested) menu.dataset.rested = "1";
   menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => { flip(mi.dataset.lane); ticks(); });
