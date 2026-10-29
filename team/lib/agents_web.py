@@ -1537,9 +1537,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .tr b{font:700 11px/1 var(--mono);color:var(--text)}
 .chr .tr b.hi{color:var(--chhigh)}
 .chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:700 9.5px/16px var(--sans);background:var(--c);color:var(--ownerfg)}
-.chr .tk{position:absolute;left:5px;bottom:6px;max-width:46px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 3px;border-radius:4px;
-  font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--text) 9%,transparent)}
-.chr .sp{position:absolute;right:5px;bottom:5px;width:56px;height:16px}
+/* the activity line runs the width of the tile; the ticket, whole, sits over its left end */
+.chr .tk{position:absolute;z-index:1;left:5px;bottom:6px;max-width:calc(100% - 10px);white-space:nowrap;padding:2px 3px;border-radius:4px;
+  font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--chtile) 65%,transparent)}
+.chr .sp{position:absolute;left:5px;right:5px;bottom:5px;height:16px}
 .chr .sp svg.spark{height:16px}
 /* the page's menu: a Characters tile's (the agent, then ways to open it) or a filter button's (the lanes, ticked when shown) */
 #menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
