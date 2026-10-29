@@ -1383,18 +1383,18 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #pagemode,#pagelanes{display:flex}
 #help{width:30px;padding:0;font:700 13px var(--sans)}
 #teamctl{display:flex}
-#teamctl .fbtn{color:var(--text);gap:6px}
-#teamctl .fbtn svg{width:16px;height:16px;stroke-width:1.7}
 #teamctl{gap:6px}
-#teamctl .fbtn.paused{color:var(--amber);border-color:var(--amber)}
-#teamctl .fbtn.down{color:var(--mute)}
-#teamctl .fbtn.warn{color:var(--red);border-color:var(--red)}
-#teamctl .fbtn.starting{color:var(--green)}
-#teamctl .fbtn.stopping{color:var(--red)}
-#teamctl .fbtn:is(.starting,.stopping) svg,#teamctl .nudger.paused svg{animation:iconpulse 1.4s ease-in-out infinite}
-@keyframes iconpulse{0%,100%{opacity:.45;filter:none}50%{opacity:1;filter:drop-shadow(0 0 4px currentColor)}}
-#teamctl .fbtn:not(:has(span)){padding:0 9px}
-#pagelanes .fbtn,#pagemode .fbtn,#help,#teamctl .fbtn{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
+#teamctl .fbtn{gap:6px}
+#teamctl .fbtn svg{flex:none;width:16px;height:16px;stroke-width:1.7}
+/* the team's play, pause and stop: off an outline in the text colour, on filled in its colour, fading in and out
+   while the page waits for the change it was asked for */
+#pagelanes .fbtn,#pagemode .fbtn,#help{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
+#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:12px}
+#teamctl .fbtn:hover{background:var(--on)}
+#teamctl .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
+#teamctl .fbtn.going{animation:switching 1.4s ease-in-out infinite}
+#teamctl .fbtn.warn{color:var(--red);border-color:var(--red);padding:0 12px}
+#teamctl .fbtn.idle{cursor:default}
 #pagemode .fbtn{color:var(--text)}
 #lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
 #lock:hover{opacity:1;background:var(--line2)}
@@ -3272,47 +3272,47 @@ function menuSoon(el, wait) {
   clearTimeout(menuShow); clearTimeout(menuHide);
   menuShow = setTimeout(() => agentMenu(el, el.dataset.name, true, wait > 0), wait);
 }
-// The team's button, an icon. Up (the lead running): the power icon, and a click asks the lead to wind the team down
-// after a second click to confirm. Stopping (from that click until team/team-paused.sh says so and no running agent is
-// busy or waiting): a square pulsing red. Down: the play icon, amber while wound down (stopped from the page, paused
-// and nobody working) and faint while nobody runs, and a click starts those running when the page last stopped the
-// team (everyone when there is no record). Starting: the play icon pulsing green.
-// Beside it, the nudger's own button: the pause icon, amber, pulsing and saying Paused while the nudger is paused; a
-// click pauses or resumes it, the button fading in and out and saying Pausing… or Resuming… until the page sees the change.
-let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click on its button is waiting to see
+// The team's play, pause and stop buttons, one of them on at a time: stop (red) while nobody runs or the page has wound
+// the team down (team/team-paused.sh says so and nobody is working), pause (amber) while the nudger is paused, play (green) while the
+// team runs. Play starts a stopped team (those running when the page last stopped it, else everyone with a Session) or
+// resumes the nudger; pause pauses the nudger; stop asks the lead to wind the team down, after a second click to
+// confirm. The button clicked fades in and out in its colour until the page sees the change.
+let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is waiting to see
 function teamButton() {
   const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
   const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
   const woundDown = !starting && !stopping && !!S.teamUp && S.teamPaused && !working.length;
-  const up = !starting && !stopping && !woundDown && !!lead?.live;
-  if (!up) { clearTimeout(teamAsk); teamAsk = null; }
-  const running = S.agents.some(a => a.live), cls = starting ? " starting" : stopping ? " stopping" : teamAsk ? " warn"
-    : !running ? " down" : woundDown ? " paused" : "";
-  const text = teamAsk ? "Stop the team?" : "", tip = starting ? "Starting the team"
-    : stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
-    : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
-    : up ? `Stop the team: ask ${lead.name} to wind everyone down`
-    : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team"}`;
+  const down = !starting && !stopping && (woundDown || !lead?.live);
   if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
-  const key = [text, cls, up, starting, stopping, tip, S.nudgerPaused, nudgerTo].join("|");
-  if ($("#teamctl").dataset.text === key) return;
-  const icon = up ? MENU_ICON.power : stopping ? MENU_ICON.stop : MENU_ICON.start;
-  const nudger = nudgerTo != null ? [`fbtn nudger switching${S.nudgerPaused ? " paused" : ""}`, nudgerTo ? "Pausing the nudger" : "Resuming the nudger"]
-    : S.nudgerPaused ? ["fbtn nudger paused", "The nudger is paused: click to resume it"] : ["fbtn nudger", "Pause the nudger"];
-  const word = nudgerTo != null ? (nudgerTo ? "Pausing…" : "Resuming…") : S.nudgerPaused ? "Paused" : "";
-  $("#teamctl").innerHTML = `<b class="fbtn team${cls}" title="${esc(tip)}">${icon}${text ? `<span>${text}</span>` : ""}</b>` +
-    `<b class="${nudger[0]}" title="${nudger[1]}">${MENU_ICON.pause}${word ? `<span>${word}</span>` : ""}</b>`;
-  $("#teamctl").dataset.text = key;
-  $("#teamctl .nudger").onclick = () => {
-    if (nudgerTo != null) return;
-    nudgerTo = !S.nudgerPaused; teamButton();
-    setTimeout(() => { if (nudgerTo != null) { nudgerTo = null; teamButton(); } }, 10000);   // a request that went wrong stops waiting
-    post(nudgerTo ? "/api/nudger/pause" : "/api/nudger/resume");
+  if (down || stopping || starting) { clearTimeout(teamAsk); teamAsk = null; }
+  const on = starting || stopping || nudgerTo != null ? "" : down ? "stop" : S.nudgerPaused ? "pause" : "play";
+  const go = starting || nudgerTo === false ? "play" : stopping ? "stop" : nudgerTo ? "pause" : "";
+  const tips = {
+    play: starting ? "Starting the team" : nudgerTo === false ? "Resuming the nudger" : on === "play" ? "The team is running"
+      : on === "pause" ? "Resume the nudger"
+      : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team: everyone with a Session on the roster"}`,
+    pause: nudgerTo ? "Pausing the nudger" : on === "pause" ? "The nudger is paused" : on === "play" ? "Pause the nudger" : "",
+    stop: stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
+      : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
+      : on === "stop" ? "The team is stopped" : lead ? `Stop the team: ask ${lead.name} to wind everyone down` : "",
   };
-  $("#teamctl .team").onclick = () => {
-    if (starting || stopping) return;
-    if (!up) return post("/api/team/start");
+  const key = [on, go, !!teamAsk, ...Object.values(tips)].join("|");
+  if ($("#teamctl").dataset.text === key) return;
+  const COLOUR = {play: "var(--green)", pause: "var(--amber)", stop: "var(--red)"}, ICON = {play: "start", pause: "pause", stop: "stop"};
+  const btn = k => `<b class="fbtn tc-${k}${on === k ? " lit" : ""}${go === k ? " going" : ""}${k === "stop" && teamAsk ? " warn" : ""}${tips[k] ? "" : " idle"}" ` +
+    `style="--c:${COLOUR[k]}" title="${esc(tips[k])}">${MENU_ICON[ICON[k]]}${k === "stop" && teamAsk ? "<span>Stop the team?</span>" : ""}</b>`;
+  $("#teamctl").innerHTML = btn("play") + btn("pause") + btn("stop");
+  $("#teamctl").dataset.text = key;
+  const nudge = paused => {
+    nudgerTo = paused; teamButton();
+    setTimeout(() => { if (nudgerTo != null) { nudgerTo = null; teamButton(); } }, 10000);   // a request that went wrong stops waiting
+    post(paused ? "/api/nudger/pause" : "/api/nudger/resume");
+  };
+  $("#teamctl .tc-play").onclick = () => { if (go) return; if (on === "stop") post("/api/team/start"); else if (on === "pause") nudge(false); };
+  $("#teamctl .tc-pause").onclick = () => { if (!go && on === "play") nudge(true); };
+  $("#teamctl .tc-stop").onclick = () => {
+    if (go || on === "stop" || !lead) return;
     if (!teamAsk) { teamAsk = setTimeout(() => { teamAsk = null; teamButton(); }, 4000); return teamButton(); }
     clearTimeout(teamAsk); teamAsk = null; post("/api/team/stop"); teamButton();
   };
