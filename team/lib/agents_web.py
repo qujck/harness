@@ -2313,8 +2313,13 @@ function draw() {
   // Picking a tab puts the cursor in that agent's message box, ready to type.
   document.querySelectorAll(".tabbar [data-tab]").forEach(b => b.onclick = () => {
     const sec = b.parentElement.dataset.sec, name = CSS.escape(b.dataset.tab);
-    localStorage.setItem("tab:" + sec, b.dataset.tab); draw();
+    menuOff(true); localStorage.setItem("tab:" + sec, b.dataset.tab); draw();
     document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
+  });
+  // A tile in a card-badge tab row opens its agent's menu like any other tile: on a rest or a right-click.
+  document.querySelectorAll(".chrtabs .chr").forEach(m => {
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
   if (pageMode === "grid") grips(tabs.map(t => t.name));
   if (pageMode === "custom") customClicks();
