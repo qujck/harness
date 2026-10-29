@@ -1681,6 +1681,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
 .chr .por text{font:700 26px Oswald,"Bebas Neue",Impact,"Arial Narrow",sans-serif;fill:var(--text)}
+/* the name of an agent whose role's shadow it shares with others, on the shadow's chest */
+.chr .nm{position:absolute;left:50%;top:68px;transform:translateX(-50%);max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  padding:1px 5px;border-radius:5px;border:1px solid var(--c);font:700 10px/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
+/* clear of a clipboard on the right */
+.chr .nm.left{left:41px;max-width:50px}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
 .chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
@@ -2761,7 +2766,8 @@ function minis(cur, agents = S.agents) {
 // A shadow for an agent with no portrait: a head and shoulders in its colour, faint, with its role's prop in the full
 // colour (the lead's cap, a developer's headphones, a tester's clipboard, the head of testing's clipboard and crown,
 // production support's on-call beacon, the reviewer's glasses and pen, process improvement's hard hat, the assistant's
-// hair and bow tie) and, for a developer or tester, its number on the chest.
+// hair and bow tie) and, for a developer or tester, its number on the chest. Where its role has more than one
+// agent the shadows would look alike, so its name sits on the chest instead (tiles, .nm).
 const PROPS = {
   lead: `<path d="M29 33 L25 21 Q50 9 75 21 L71 33 Z" class="p"/><path d="M28 33 H72 V37 H28 Z" class="k"/><path d="M33 37 Q50 47 67 37 Z" class="k"/><circle cx="50" cy="24" r="3.2" class="b"/>`,
   dev: `<path d="M30 45 A20 20 0 0 1 70 45" class="s" stroke-width="5"/><rect x="25" y="40" width="9" height="15" rx="3.5" class="p"/><rect x="66" y="40" width="9" height="15" rx="3.5" class="p"/>`,
@@ -2772,21 +2778,23 @@ const PROPS = {
   process: `<path d="M31 37 A19 18 0 0 1 69 37 Z" class="p"/><path d="M24 36 H76 V41 H24 Z" class="p"/><path d="M50 20 V36" class="k" stroke-width="3"/>`,
   pa: `<path d="M33 40 Q34 25 50 25 Q66 25 67 40 Q61 31 50 32 Q39 31 33 40 Z" class="p"/><path d="M38 64 L50 70 L38 76 Z M62 64 L50 70 L62 76 Z" class="p"/><circle cx="50" cy="70" r="3" class="p"/>`,
 };
-function shadow(a) {
+const shared = a => S.agents.filter(x => x.role === a.role).length > 1;
+function shadow(a, named) {
   const c = a.colour;
   const prop = (PROPS[a.role] || "").replace(/class="p"/g, `fill="${c}"`).replace(/class="k"/g, `fill="${c}" stroke="${c}" fill-opacity=".7"`)
     .replace(/class="b"/g, `fill="var(--chtile)"`).replace(/class="s"/g, `fill="none" stroke="${c}"`);
   return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="18" fill="${c}" fill-opacity=".1"/>` +
     `<g fill="${c}" fill-opacity=".38"><circle cx="50" cy="44" r="17"/><path d="M14 100 C14 77 30 66 50 66 C70 66 86 77 86 100 Z"/></g>${prop}` +
-    (a.seat ? `<text x="50" y="87" text-anchor="middle" dominant-baseline="central">${a.seat}</text>` : "") + `</svg>`;
+    (a.seat && !named ? `<text x="50" y="87" text-anchor="middle" dominant-baseline="central">${a.seat}</text>` : "") + `</svg>`;
 }
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
-    const st = stOf(a), n = unseen(a);
+    const st = stOf(a), n = unseen(a), named = !a.portrait && shared(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
-      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
+      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a, named)}</span>` +
+      (named ? `<span class="nm${a.role === "tester" || a.role === "hot" ? " left" : ""}">${esc(a.name)}</span>` : "") +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
