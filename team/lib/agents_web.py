@@ -1329,7 +1329,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
 /* Characters: every agent as a portrait tile, in a custom pane */
-.chrs{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+/* the tiles' panel follows the pane's rounded corners: the bottom two under the pane bar, all four when locked */
+.chrs{border-radius:0 0 13px 13px;flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+.pane > .pbody:first-child > .chrs{border-radius:13px}
 .chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:10px;border:1px solid var(--line2);border-bottom:3px solid var(--c);
   background:var(--chtile);color:var(--chmute);font:10px/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
