@@ -25,6 +25,10 @@
 # call count and context size, the two levers an agent actually holds. READS and MSGS count the Read and
 # SendMessage tool calls: one file per model call, and one message per wake of a 150k session, were the two
 # habits that made the morning of 2026-10-29 expensive, and each is a rule that exists in prose already.
+# Each tool_use block counts once by its id (a transcript writes one line per block today; if it ever repeats
+# a block across lines the count holds). READS is the Read tool alone: a file read through Bash (cat, sed,
+# head), which auto mode steers towards, is not counted. MSGS is messages SENT; what each one costs is the
+# wake of the receiving session, which is spend on the receiver's row, not this one.
 #
 # Reads CONTEXT_DIR (default ~/.local/state/<project>/context) and TRANSCRIPTS_DIR (default
 # ~/.claude/projects). The reset is found in local time with `date`, so a reset that straddles a DST change
@@ -70,6 +74,7 @@ if not files:
     print("agents-spend: no transcript written since %s under %s" % (datetime.datetime.fromtimestamp(since).strftime('%a %H:%M'), tr_dir), file=sys.stderr)
     sys.exit(2)
 seen_by = collections.defaultdict(set)
+seen_blocks = set()
 for p, sid in files:
     seen = seen_by[sid]
     with open(p, errors='replace') as fh:
@@ -92,8 +97,17 @@ for p, sid in files:
             a = agg.setdefault(sid, collections.Counter())
             if j.get('type') == 'assistant' and isinstance(m.get('content'), list):
                 for b in m['content']:
-                    if isinstance(b, dict) and b.get('type') == 'tool_use':
-                        a['reads' if b.get('name') == 'Read' else 'msgs' if b.get('name') == 'SendMessage' else 'tools'] += 1
+                    if not (isinstance(b, dict) and b.get('type') == 'tool_use'):
+                        continue
+                    bid = b.get('id')
+                    if bid:
+                        if bid in seen_blocks:
+                            continue
+                        seen_blocks.add(bid)
+                    if b.get('name') == 'Read':
+                        a['reads'] += 1
+                    elif b.get('name') == 'SendMessage':
+                        a['msgs'] += 1
             if m.get('id') and m.get('id') in seen:
                 continue
             if m.get('id'):
@@ -143,8 +157,9 @@ self_test() {
   }
   { line 2026-10-29T06:00:00Z m1 10 100 1000 200000; line 2026-10-29T06:00:00Z m1 10 100 1000 200000   # the same message, twice (two content blocks)
     line 2026-10-29T06:10:00Z m2 10 100 0 230000; line 2026-10-29T04:00:00Z m0 10 9999 0 999999         # m0 is before the reset
-    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:00Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","name":"Read","input":{}}]}}\n'
-    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:01Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","name":"Read","input":{}},{"type":"tool_use","name":"Bash","input":{}}]}}\n'
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:00Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","id":"toolu_r1","name":"Read","input":{}}]}}\n'
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:01Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","id":"toolu_r2","name":"Read","input":{}},{"type":"tool_use","id":"toolu_b1","name":"Bash","input":{}}]}}\n'
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:02Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","id":"toolu_r1","name":"Read","input":{}},{"type":"tool_use","name":"Read","input":{}}]}}\n'
     printf 'not json\n{"type":"user","timestamp":"2026-10-29T06:11:00Z","message":{"content":"hi"}}\n'; } > "$T/tr/proj/aaaa-1.jsonl"
   mkdir -p "$T/tr/proj/aaaa-1/subagents"
   line 2026-10-29T06:12:00Z s1 10 100 0 100000 > "$T/tr/proj/aaaa-1/subagents/agent-1.jsonl"   # Ed's subagent: Ed's spend
@@ -154,7 +169,7 @@ self_test() {
   line 2026-10-29T06:06:00Z z1 5 50 0 50000 > "$T/tr/proj/cccc-3.jsonl"   # no context row: unknown agent
   local since out rc; since="$(date -d '2026-10-29T05:00:00Z' +%s)"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/tr" spend "$since" table 2>&1)"; rc=$?
-  check "two blocks of one message count once, a call before the reset not at all, a subagent's call as its parent's; two Reads over three blocks of one message" 0 "Ed              3      2     0     231k       177k       0k      0.5 M" "$out" "$rc"
+  check "two blocks of one message count once, a call before the reset not at all, a subagent's call as its parent's; Reads: two ids over four blocks of one message, a block repeated by id once, an id-less block as it comes" 0 "Ed              3      3     0     231k       177k       0k      0.5 M" "$out" "$rc"
   check "two lines with no id are two calls; one SendMessage" 0 "Carl            3      0     1     150k        56k       0k      0.2 M" "$out" "$rc"
   check "the header totals the window" 0 "3 sessions, 7 calls, 0.8 M tokens in" "$out" "$rc"
   check "a session with no context row prints as ? and its id" 0 "?cccc-3" "$out" "$rc"
