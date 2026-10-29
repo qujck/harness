@@ -1353,8 +1353,11 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
-.face{flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
+.face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
+.face .ini{position:absolute;left:50%;top:19px;transform:translateX(-50%);min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
+  font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, as a tile's name */
+.face .ini.left{left:12px}   /* clear of a clipboard */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
@@ -2807,8 +2810,9 @@ function shadow(a) {
 }
 // Shadows with a clipboard on the right have the name to its left.
 const LEFT_BADGE = new Set(["tester", "hot"]);
-// An agent as a small Characters tile: its portrait, else its role's shadow, over a bar in its colour.
-const face = (a, attrs, cls = "") => `<span class="face${cls}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a)}</span>`;
+// An agent as a small Characters tile: its portrait, else its role's shadow with the agent's initial on its chest, over
+// a bar in its colour.
+const face = (a, attrs, cls = "") => `<span class="face${cls}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc([...a.name][0] || "")}</span>`}</span>`;
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
