@@ -3305,7 +3305,8 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
 // A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
 function menuSoon(el, wait) {
   clearTimeout(menuShow); clearTimeout(menuHide);
-  menuShow = setTimeout(() => agentMenu(el, el.dataset.name, true, wait > 0), wait);
+  // A redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner.
+  menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, wait > 0), wait);
 }
 // The team's play, pause and stop buttons, one of them on at a time: stop (red) while nobody runs or the page has wound
 // the team down (team/team-paused.sh says so and nobody is working), pause (amber) while the nudger is paused, play (green) while the
@@ -3363,7 +3364,7 @@ function menuButton(btn, open) {
   btn.onclick = e => { e.stopPropagation(); clearTimeout(menuShow); open(false); };
   btn.onmouseenter = () => {
     clearTimeout(menuHide); if (menuOn(btn.dataset.menu)) return;
-    clearTimeout(menuShow); menuShow = setTimeout(() => open(true), 350);
+    clearTimeout(menuShow); menuShow = setTimeout(() => btn.isConnected && open(true), 350);   // as menuSoon
   };
   btn.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
 }
