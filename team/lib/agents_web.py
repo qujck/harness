@@ -1353,8 +1353,8 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
-.bench .face{flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
-.bench .face img,.bench .face svg{display:block;width:100%;height:100%;object-fit:cover}
+.face{flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
+.face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
@@ -1576,12 +1576,16 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .it.tools .who.ag{margin-right:6px}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
-.teamlog .thead:has(> .cnames .name, > .cnames .chr){align-items:flex-start}
+.teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
 .teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
 .teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
 /* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
 .tabbar.chrtabs{gap:8px}
 .chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
+.tabbar.icontabs{gap:8px;padding:6px 4px}
+.icontabs .face,.iconrow .face{cursor:pointer}
+.icontabs .face.sel{outline:2px solid var(--c);outline-offset:2px}
+.teamlog .thead > .cnames.iconrow{gap:6px}
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
@@ -2250,7 +2254,7 @@ function draw() {
   const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !layout().locked;
   $("#bench").innerHTML = S.bench.length ? `<span>bench${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "card"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
     const tip = `title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench" data-name="${esc(b.name)}"`;
-    return style === "card" ? `<span class="face" style="--c:${b.colour}" ${tip}>${b.portrait ? `<img src="${esc(b.portrait)}" alt="${esc(b.name)}">` : shadow(b)}</span>`
+    return style === "card" ? face(b, tip)
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
   if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "card" ? "portrait" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
@@ -2285,6 +2289,8 @@ function draw() {
   // A row of tabs, one per agent; the picked one is remembered under "tab:" + key.
   const tabRow = (key, agents, badge) => {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || agents[0];
+    if (badge === "icon")
+      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.name)}"`, a === sel ? " sel" : "")).join("")}</div>`];
     if (badge === "card")
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace('<div class="chr ', `<div data-tab="${esc(a.name)}" title="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
@@ -2324,7 +2330,7 @@ function draw() {
     document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
   });
   // A tile in a card-badge tab row opens its agent's menu like any other tile: on a rest or a right-click.
-  document.querySelectorAll(".chrtabs .chr").forEach(m => {
+  document.querySelectorAll(".chrtabs .chr, .icontabs .face").forEach(m => {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
@@ -2401,8 +2407,9 @@ function roleList() {
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
 // A Characters pane's agents: those in its roles, the same way, or every agent until roles are chosen for it.
 const chrAgents = n => Array.isArray(n.roles) ? paneAgents(n) : S.agents;
-// How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default) or as their Characters tiles ("card").
-const BADGES = [["name", "Name"], ["card", "Card"]];
+// How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default), as their Characters tiles
+// ("card"), or as the bench's small tiles ("icon").
+const BADGES = [["name", "Name"], ["card", "Card"], ["icon", "Icon"]];
 // A pane's Roles button and its menu: each role with a dot in its colour, ticked while the pane shows it.
 const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
@@ -2571,7 +2578,8 @@ function combinedHtml(path, n, full, big) {
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
+    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}</div>`;
 }
 async function loadPaneConvs() {
@@ -2646,7 +2654,7 @@ function customClicks() {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
-  main.querySelectorAll(".chrs .chr, .chrrow .chr").forEach(m => {
+  main.querySelectorAll(".chrs .chr, .chrrow .chr, .iconrow .face").forEach(m => {
     m.onclick = () => open(m);
     m.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(m); } };
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
@@ -2778,7 +2786,8 @@ function minis(cur, agents = S.agents) {
 // A shadow for an agent with no portrait: a head and shoulders in its colour, faint, with its role's prop in the full
 // colour (the lead's cap, a developer's headphones, a tester's clipboard, the head of testing's clipboard and crown,
 // production support's on-call beacon, the reviewer's glasses and pen, process improvement's hard hat, the assistant's
-// hair and bow tie). Every tile, portrait or shadow, carries the agent's name on its chest (tiles, .nm).
+// hair and bow tie). A tile showing a shadow carries the agent's name on its chest (tiles, .nm); a portrait is left
+// as drawn.
 const PROPS = {
   lead: `<path d="M29 33 L25 21 Q50 9 75 21 L71 33 Z" class="p"/><path d="M28 33 H72 V37 H28 Z" class="k"/><path d="M33 37 Q50 47 67 37 Z" class="k"/><circle cx="50" cy="24" r="3.2" class="b"/>`,
   dev: `<path d="M30 45 A20 20 0 0 1 70 45" class="s" stroke-width="5"/><rect x="25" y="40" width="9" height="15" rx="3.5" class="p"/><rect x="66" y="40" width="9" height="15" rx="3.5" class="p"/>`,
@@ -2798,6 +2807,8 @@ function shadow(a) {
 }
 // Shadows with a clipboard on the right have the name to its left.
 const LEFT_BADGE = new Set(["tester", "hot"]);
+// An agent as a small Characters tile: its portrait, else its role's shadow, over a bar in its colour.
+const face = (a, attrs, cls = "") => `<span class="face${cls}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a)}</span>`;
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
@@ -2805,7 +2816,7 @@ function tiles(them) {
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      `<span class="nm${a.portrait || !LEFT_BADGE.has(a.role) ? "" : " left"}">${esc(a.name)}</span>` +
+      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(a.name)}</span>`) +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
