@@ -22,7 +22,9 @@
 #
 # WHAT IS NOT. Dollars or the account's own weighting of cached reads: the week percentage is Anthropic's
 # and this cannot reproduce it. Shares are of tokens in, which is the one figure that rises with both
-# call count and context size, the two levers an agent actually holds.
+# call count and context size, the two levers an agent actually holds. READS and MSGS count the Read and
+# SendMessage tool calls: one file per model call, and one message per wake of a 150k session, were the two
+# habits that made the morning of 2026-10-29 expensive, and each is a rule that exists in prose already.
 #
 # Reads CONTEXT_DIR (default ~/.local/state/<project>/context) and TRANSCRIPTS_DIR (default
 # ~/.claude/projects). The reset is found in local time with `date`, so a reset that straddles a DST change
@@ -85,11 +87,17 @@ for p, sid in files:
                 t = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
             except Exception:
                 continue
-            if t < since or (m.get('id') and m.get('id') in seen):
+            if t < since:
+                continue
+            a = agg.setdefault(sid, collections.Counter())
+            if j.get('type') == 'assistant' and isinstance(m.get('content'), list):
+                for b in m['content']:
+                    if isinstance(b, dict) and b.get('type') == 'tool_use':
+                        a['reads' if b.get('name') == 'Read' else 'msgs' if b.get('name') == 'SendMessage' else 'tools'] += 1
+            if m.get('id') and m.get('id') in seen:
                 continue
             if m.get('id'):
                 seen.add(m.get('id'))
-            a = agg.setdefault(sid, collections.Counter())
             a['calls'] += 1
             a['input'] += u.get('input_tokens', 0) or 0
             a['output'] += u.get('output_tokens', 0) or 0
@@ -99,7 +107,9 @@ rows = []
 for sid, a in agg.items():
     name, ctx = who.get(sid, ('?', 0))
     tin = a['input'] + a['cache_w'] + a['cache_r']
-    rows.append(dict(agent=name if name != '?' else '?' + sid[:8], session=sid, calls=a['calls'], ctx_now=ctx,
+    if not a['calls']:
+        continue
+    rows.append(dict(agent=name if name != '?' else '?' + sid[:8], session=sid, calls=a['calls'], ctx_now=ctx, reads=a['reads'], msgs=a['msgs'],
                      tokens_in=tin, per_call=(tin // a['calls']) if a['calls'] else 0, output=a['output'],
                      cache_read=a['cache_r']))
 rows.sort(key=lambda r: -r['tokens_in'])
@@ -112,9 +122,9 @@ if mode == 'json':
 print("spend since %s: %d sessions, %d calls, %.1f M tokens in, %.0f k out" % (
     datetime.datetime.fromtimestamp(since).strftime('%a %H:%M'), len(rows), sum(r['calls'] for r in rows),
     total / 1e6, sum(r['output'] for r in rows) / 1e3))
-print("%-10s %6s %8s %10s %8s %10s %6s" % ("AGENT", "CALLS", "CTX-NOW", "IN/CALL", "OUT", "TOKENS-IN", "SHARE"))
+print("%-10s %6s %6s %5s %8s %10s %8s %10s %6s" % ("AGENT", "CALLS", "READS", "MSGS", "CTX-NOW", "IN/CALL", "OUT", "TOKENS-IN", "SHARE"))
 for r in rows:
-    print("%-10s %6d %7dk %9dk %7dk %8.1f M %5.0f%%" % (r['agent'][:10], r['calls'], r['ctx_now'] // 1000,
+    print("%-10s %6d %6d %5d %7dk %9dk %7dk %8.1f M %5.0f%%" % (r['agent'][:10], r['calls'], r['reads'], r['msgs'], r['ctx_now'] // 1000,
           r['per_call'] // 1000, r['output'] // 1000, r['tokens_in'] / 1e6, r['share_pct']))
 PY
 }
@@ -133,21 +143,24 @@ self_test() {
   }
   { line 2026-10-29T06:00:00Z m1 10 100 1000 200000; line 2026-10-29T06:00:00Z m1 10 100 1000 200000   # the same message, twice (two content blocks)
     line 2026-10-29T06:10:00Z m2 10 100 0 230000; line 2026-10-29T04:00:00Z m0 10 9999 0 999999         # m0 is before the reset
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:00Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","name":"Read","input":{}}]}}\n'
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:10:01Z","message":{"id":"m2","usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":230000},"content":[{"type":"tool_use","name":"Read","input":{}},{"type":"tool_use","name":"Bash","input":{}}]}}\n'
     printf 'not json\n{"type":"user","timestamp":"2026-10-29T06:11:00Z","message":{"content":"hi"}}\n'; } > "$T/tr/proj/aaaa-1.jsonl"
   mkdir -p "$T/tr/proj/aaaa-1/subagents"
   line 2026-10-29T06:12:00Z s1 10 100 0 100000 > "$T/tr/proj/aaaa-1/subagents/agent-1.jsonl"   # Ed's subagent: Ed's spend
   { line 2026-10-29T06:05:00Z c1 5 50 0 150000
+    printf '{"type":"assistant","timestamp":"2026-10-29T06:05:01Z","message":{"id":"c1","usage":{"input_tokens":5,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":150000},"content":[{"type":"tool_use","name":"SendMessage","input":{}}]}}\n'
     line 2026-10-29T06:07:00Z null 5 50 0 10000 | sed 's/"id":"null",//'; line 2026-10-29T06:08:00Z null 5 50 0 10000 | sed 's/"id":"null",//'; } > "$T/tr/proj/bbbb-2.jsonl"   # two lines with no id: two calls
   line 2026-10-29T06:06:00Z z1 5 50 0 50000 > "$T/tr/proj/cccc-3.jsonl"   # no context row: unknown agent
   local since out rc; since="$(date -d '2026-10-29T05:00:00Z' +%s)"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/tr" spend "$since" table 2>&1)"; rc=$?
-  check "two blocks of one message count once, a call before the reset not at all, a subagent's call as its parent's" 0 "Ed              3     231k       177k       0k      0.5 M" "$out" "$rc"
-  check "two lines with no id are two calls" 0 "Carl            3     150k        56k       0k      0.2 M" "$out" "$rc"
+  check "two blocks of one message count once, a call before the reset not at all, a subagent's call as its parent's; two Reads over three blocks of one message" 0 "Ed              3      2     0     231k       177k       0k      0.5 M" "$out" "$rc"
+  check "two lines with no id are two calls; one SendMessage" 0 "Carl            3      0     1     150k        56k       0k      0.2 M" "$out" "$rc"
   check "the header totals the window" 0 "3 sessions, 7 calls, 0.8 M tokens in" "$out" "$rc"
   check "a session with no context row prints as ? and its id" 0 "?cccc-3" "$out" "$rc"
   check "the heaviest agent is first" 0 "$(printf 'SHARE\nEd ')" "$out" "$rc"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/tr" spend "$since" json 2>&1)"; rc=$?
-  check "json carries the same rows" 0 '"agent": "Carl", "session": "bbbb-2", "calls": 3, "ctx_now": 150000, "tokens_in": 170015' "$out" "$rc"
+  check "json carries the same rows" 0 '"agent": "Carl", "session": "bbbb-2", "calls": 3, "ctx_now": 150000, "reads": 0, "msgs": 1, "tokens_in": 170015' "$out" "$rc"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/none" spend "$since" table 2>&1)"; rc=$?
   check "no transcripts is could-not-look, not an empty table" 2 "no transcript written since" "$out" "$rc"
   out="$(AGENT_WEEK_RESET='Thu 05:00' NOW_S="$(date -d '2026-10-29T06:22:00' +%s)" reset_epoch)"
