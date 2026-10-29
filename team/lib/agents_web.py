@@ -1061,7 +1061,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .seg b{padding:2px 9px;font-weight:500;font-size:11px;cursor:pointer;color:var(--mute)}
 .seg b.on{background:var(--on);color:var(--text)}
 #pagemode,#pagelanes{display:flex}
-#pagelanes .fbtn,#pagemode .fbtn{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
+#help{width:30px;padding:0;font:700 13px var(--sans)}
+#pagelanes .fbtn,#pagemode .fbtn,#help{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
 #pagemode .fbtn{color:var(--text)}
 #lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
 #lock:hover{opacity:1;background:var(--line2)}
@@ -1360,7 +1361,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
 #menu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
 #menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
-#menu .mi:hover{background:var(--on)}
+#menu .mi:hover,#menu .mi.at{background:var(--on)}
+#menu[data-key="help"]{width:340px}
+#menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:12px;color:var(--mute)}
+#menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);color:var(--text);white-space:nowrap}
+#menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
 #menu .mi svg.off{visibility:hidden}
 #menu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
@@ -1472,7 +1477,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div>
   <div class="counts" id="counts"></div>
   <div class="bench" id="bench"></div>
-  <div class="counts"><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span></div>
+  <div class="counts"><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
 </header>
 <main id="main"></main>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
@@ -2062,13 +2067,14 @@ const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maxi
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
 let paneUnder = null;
 document.addEventListener("mouseover", e => { paneUnder = e.target.closest?.("#main .pane") || paneUnder; });
-addEventListener("keydown", e => {
-  if (e.key !== "F11" || !e.shiftKey || (localStorage.getItem("page") || "grid") !== "custom" || open) return;
-  e.preventDefault();
-  if (unmax()) return;
+addEventListener("keydown", e => { if (e.key === "F11" && e.shiftKey && maxToggle()) e.preventDefault(); });
+function maxToggle() {
+  if ((localStorage.getItem("page") || "grid") !== "custom" || open) return false;
+  if (unmax()) return true;
   const at = document.activeElement?.closest?.("#main .pane .card") || (paneUnder?.isConnected ? paneUnder : null);
   at?.querySelector(".maxbtn")?.click();
-});
+  return true;
+}
 function unmax() { if (!localStorage.getItem("custom:max")) return false; localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); return true; }
 // Each agent pane's longer conversation, as the agent's own view reads it, fetched with every load of the page, and
 // its terminal as it is on screen, shown in a maximised pane. A conversation's version goes up only when it changes,
@@ -2702,7 +2708,72 @@ function menuOff(now) {
 }
 menu.onmouseenter = () => clearTimeout(menuHide);
 menu.onmouseleave = () => { if (menu.dataset.key?.startsWith("tile:") || menu.dataset.rested) menuOff(); };
-addEventListener("keydown", e => { if (e.key === "Escape") menuOff(true); });
+// Esc with a menu open closes the menu and nothing else.
+addEventListener("keydown", e => { if (e.key === "Escape" && menu.classList.contains("on")) { e.stopPropagation(); menuOff(true); } }, true);
+// An open menu's items by keyboard, unless it opened from a moment's rest: arrows move, Enter or Space picks or ticks.
+addEventListener("keydown", e => {
+  if (!menu.classList.contains("on") || menu.dataset.rested || !["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) return;
+  const items = [...menu.querySelectorAll(".mi")], at = items.findIndex(m => m.classList.contains("at"));
+  if (!items.length) return;
+  e.preventDefault(); e.stopPropagation();
+  if (e.key === "Enter" || e.key === " ") { items[at]?.click(); return; }
+  const down = e.key === "ArrowDown", next = at < 0 ? (down ? 0 : items.length - 1) : (at + (down ? 1 : items.length - 1)) % items.length;
+  items.forEach((m, i) => m.classList.toggle("at", i === next));
+}, true);
+
+// Keyboard shortcuts, listed by the ? at the top right (or ? and Alt+/). Those with Alt work while typing in a box;
+// "this agent" is the one whose box is being typed in, else the one open, else the one under the pointer.
+const SHORTCUTS = [
+  ["Agents", [["Alt+1 … 9", "That agent's message box, in list order"], ["Alt+↑ / ↓", "The agent before or after this one"],
+    ["Alt+W", "The agent waiting longest"], ["Alt+Enter", "Open this agent's view, or close it"]]],
+  ["Page", [["Alt+V", "Choose the view"], ["Alt+L", "This agent's filter, else the page's"], ["Alt+M", "Maximise this pane, or restore it"]]],
+  ["Message box", [["Enter", "Send"], ["Ctrl+Enter", "New line"], ["Esc Esc", "Clear the box"], ["Ctrl+U", "Add images or files"]]],
+  ["Anywhere", [["Esc", "Close what is open"], ["Ctrl+Click", "Open an agent in a new tab"], ["? or Alt+/", "These shortcuts"]]],
+  ["Menus", [["↑ / ↓", "Move"], ["Enter / Space", "Pick, or tick"], ["Esc", "Close"]]],
+];
+function helpMenu(rested) {
+  if (menuOn("help")) { if (!rested) menuOff(true); return; }
+  menuAt($("#help"), "help", SHORTCUTS.map(([h, rows]) => `<div class="hd"><div>${h}</div></div>` +
+    rows.map(([k, what]) => `<div class="sc"><span>${esc(what)}</span><kbd>${esc(k)}</kbd></div>`).join("")).join(""), false);
+  if (rested) menu.dataset.rested = "1";
+}
+menuButton($("#help"), helpMenu);
+const here = () => {
+  const a = document.activeElement;
+  if (a?.id === "dsay") return open;
+  if (a?.matches?.("#main .say")) return a.dataset.name;
+  return open || document.querySelector("#main .card[data-name]:hover, .mini[data-name]:hover, .chr[data-name]:hover")?.dataset.name || null;
+};
+// An agent's message box: its card's, where one shows; else its tab is brought forward; else its view opens.
+const shownBox = name => [...document.querySelectorAll(`#main .say[data-name="${CSS.escape(name)}"]`)].find(b => b.offsetParent);
+function focusAgent(name) {
+  if (!name) return;
+  if (open) return name === open ? $("#dsay").focus() : openDetail(name);
+  const box = () => shownBox(name);
+  if (!box()) {
+    const pane = (localStorage.getItem("page") || "grid") === "custom" && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
+    if (pane) { localStorage.setItem("tab:pane:" + pane[0], name); draw(); }
+    else $(`#main .tabbar button[data-tab="${CSS.escape(name)}"]`)?.click();
+  }
+  box() ? box().focus() : openDetail(name);
+}
+addEventListener("keydown", e => {
+  const typing = e.target.closest?.("textarea, input, select");
+  if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === "?" && !typing) { e.preventDefault(); helpMenu(false); return; }
+  if (!e.altKey || e.ctrlKey || e.metaKey || !S) return;
+  const names = S.agents.map(a => a.name), cur = here(), digit = /^Digit([1-9])$/.exec(e.code), at = names.indexOf(cur);
+  const step = d => names[at < 0 ? (d > 0 ? 0 : names.length - 1) : (at + d + names.length) % names.length];
+  const act = digit ? () => focusAgent(names[digit[1] - 1])
+    : e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
+    : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
+    : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) shownBox(cur)?.focus(); }
+    : e.code === "KeyV" ? () => $("#pagemode .viewbtn")?.click()
+    : e.code === "KeyL" ? () => ((cur && open === cur && $("#dhead .lanes")) || (cur && $(`#main .card[data-name="${CSS.escape(cur)}"] .lanes`)) || $("#pagelanes .fbtn")).click()
+    : e.code === "KeyM" ? () => maxToggle()
+    : e.code === "Slash" ? () => helpMenu(false) : null;
+  if (!act) return;
+  e.preventDefault(); e.stopPropagation(); act();
+}, true);
 addEventListener("mousedown", e => {
   if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
 }, true);
@@ -2727,7 +2798,10 @@ function menuSoon(tile, wait) {
 // after a moment's rest on the button, going again when the pointer has left both, or at once on a click, staying
 // until a click elsewhere; a click on the button while it shows keeps a rested-on menu, else closes it.
 function filterButton(btn, list, on, tip, flip, head = "Show") {
-  const open = rested => filterMenu(btn, list, on, tip, flip, rested, head);
+  menuButton(btn, rested => filterMenu(btn, list, on, tip, flip, rested, head));
+}
+// A button whose menu opens after a moment's rest on it or at once on a click (open(rested) draws it).
+function menuButton(btn, open) {
   btn.onclick = e => { e.stopPropagation(); clearTimeout(menuShow); open(false); };
   btn.onmouseenter = () => {
     clearTimeout(menuHide); if (menuOn(btn.dataset.menu)) return;
