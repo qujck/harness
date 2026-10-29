@@ -6,7 +6,9 @@ allows another start (`agents-budget.sh`), and watch the team (`agents-dash.sh`,
 status-line row `statusline-publish.sh` publishes; the row's contract is `docs/context-publisher.md`). The row's
 `activity` comes from `activity-hook.sh`, which the hooks call on every prompt, tool call, permission request and
 stop, so a session blocked on a prompt or busy in a long tool call is not taken for idle. `install-claude-code.sh`
-wires all three into `~/.claude/settings.json` once per box, asking first.
+wires all three into `~/.claude/settings.json` once per box, asking first. The page's team button starts the team
+through `team-start.sh` and, after a wind-down, waits on `team-paused.sh`: both are placeholders to wire up on the
+workstation that runs the team.
 
 **Needs.** The process section (`scripts/`: the roster, `harness.env`, the ledger's claims board), tmux, and a
 Claude subscription whose usage the status line can read. Nothing in `scripts/` depends on this section.

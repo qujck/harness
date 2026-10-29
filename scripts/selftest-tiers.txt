@@ -67,6 +67,8 @@ team/agents-web.sh	verify
 scripts/check-context-is-never-a-reason-to-do-less.sh	verify
 team/agent-spawn.sh	verify
 team/agent-bench.sh	verify
+team/team-start.sh	verify
+team/team-paused.sh	verify
 team/lib/agent-session.sh	nowhere	a sourced helper with no flag of its own; its arms run inside agent-spawn.sh's and agent-bench.sh's self-tests
 team/lib/week-usage.sh	nowhere	a sourced library: its arms run in team/agents-budget.sh --self-test and the panel's
 scripts/check-tooling-hints-never-say-closes.sh	verify
