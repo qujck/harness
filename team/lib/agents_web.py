@@ -761,7 +761,7 @@ def state():
             "model": row.get("model", ""), "effort": row.get("effort", ""),
             "ticket": held.get(name.lower(), ""),
             "cwd": row.get("worktree") or os.path.basename((rec or {}).get("cwd", "")),
-            "series": ser, "rate": last_minute(ser, now),
+            "series": ser, "rate": last_minute(ser, now), "portrait": portrait(name),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
         })
     # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
@@ -777,6 +777,21 @@ def state():
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
     }
+
+
+# Portraits for the Characters layout: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
+# ~/.claude/agents-portraits), served at /portraits/.
+PORTRAITS = os.environ.get("AGENTS_PORTRAITS") or os.path.join(HOME, ".claude", "agents-portraits")
+PORTRAIT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}
+
+
+def portrait(name):
+    """The page's address for an agent's portrait, with its change time so a new picture shows at once; "" for none."""
+    for ext in PORTRAIT_TYPES:
+        f = os.path.join(PORTRAITS, name.lower() + ext)
+        if os.path.isfile(f):
+            return f"/portraits/{name.lower()}{ext}?v={int(os.path.getmtime(f))}"
+    return ""
 
 
 _state = {"at": 0, "body": b""}
@@ -846,6 +861,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, agent_json(path[11:]), "application/json")
         elif path == "/img":
             self.image()
+        elif m := re.fullmatch(r"/portraits/([a-z][a-z0-9_-]*)(\.png|\.webp|\.jpg)", path):
+            f = os.path.join(PORTRAITS, m[1] + m[2])
+            if not os.path.isfile(f):
+                return self.send(404, b"no such portrait\n", "text/plain")
+            with open(f, "rb") as fh:
+                self.send(200, fh.read(), PORTRAIT_TYPES[m[2]], "private, max-age=86400")
         else:
             self.send(404, b"not found\n", "text/plain")
 
@@ -959,6 +980,7 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Team</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -966,6 +988,7 @@ PAGE = r"""<!doctype html>
   --codebg:#ffffff12; --box:#0d1117; --glow1:#1f6feb22; --glow2:#a371f71c; --thumb:#ffffff1c; --ownerbg:#f0f6fc; --ownerfg:#000;
   --bg:#07090d; --panel:#0d1117cc; --line:#ffffff14; --line2:#ffffff22; --on:#ffffff38; --text:#e6edf3; --mute:#8b949e; --faint:#545d68;
   --green:#3fb950; --amber:#e3b341; --red:#f85149; --cyan:#39c5cf;
+  --chpanel:#0c0e13; --chtile:#171b24; --chmute:#9aa3b2; --chhigh:#e3b341;
   --sans:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif; --mono:"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
 }
 :root.light{
@@ -973,6 +996,7 @@ PAGE = r"""<!doctype html>
   --green:#1a7f37; --amber:#d29a00; --red:#cf222e; --cyan:#0969da;
   --track:#0000000f; --soft:#ffffff; --section:#ffffffb0; --card1:#ffffff; --card2:#fbfcfd; --hover:#00000033; --text2:#31373e;
   --codebg:#0000000c; --box:#ffffff; --glow1:#54aeff26; --glow2:#c297ff1f; --thumb:#00000024; --ownerbg:#1f2328; --ownerfg:#fff;
+  --chpanel:#f6f7f9; --chtile:#ffffff; --chmute:#5b6472; --chhigh:#8a6100;
 }
 :root.light .card{box-shadow:0 1px 2px #0000000d,0 4px 14px -6px #0000001a}
 :root.light .card.busy{box-shadow:0 0 0 1px #1a7f3733,0 6px 20px -8px #1a7f3755}
@@ -1296,6 +1320,32 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .rail{grid-column:2;grid-row:2;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--line)}
 #detail .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
+/* Characters: every agent as a portrait tile, two to a row, in the column on the left of the open agent's view */
+#detail .box.chars{--rail:257px}
+#detail .box.chars .rail{display:grid;grid-template-columns:repeat(2,112px);grid-auto-rows:112px;gap:8px;padding:12px;align-content:start;background:var(--chpanel)}
+#detail .box.chars .railseg{display:none}
+.chrs{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+.chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:10px;border:1px solid var(--line2);border-bottom:3px solid var(--c);
+  background:var(--chtile);color:var(--chmute);font:10px/1 var(--mono);cursor:pointer;overflow:hidden}
+.chr:hover{filter:brightness(1.08)}
+.chr.cur{outline:2px solid var(--c);outline-offset:1px;cursor:default}
+.chr.off{opacity:.5}
+.chr.waiting{animation:alarm 1s ease-in-out infinite}
+.chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
+.chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
+.chr .por svg{width:100%;height:100%;display:block;overflow:visible}
+.chr .por text{font:700 38px Oswald,"Bebas Neue",Impact,"Arial Narrow",sans-serif;fill:var(--text)}
+.chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
+.chr .tl i{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.chr .tl i.now{background:var(--green)}
+.chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.chr .tr b{font:700 11px/1 var(--mono);color:var(--text)}
+.chr .tr b.hi{color:var(--chhigh)}
+.chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:700 9.5px/16px var(--sans);background:var(--c);color:var(--ownerfg)}
+.chr .tk{position:absolute;left:5px;bottom:6px;max-width:46px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 3px;border-radius:4px;
+  font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--text) 9%,transparent)}
+.chr .sp{position:absolute;right:5px;bottom:5px;width:56px;height:16px}
+.chr .sp svg.spark{height:16px}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
 #detail .box.rail-top,#detail .box.rail-bottom{grid-template-columns:minmax(0,1fr)}
@@ -1706,8 +1756,8 @@ pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset
 function seg(mode, sec) {
   const tip = {grid: sec ? `Every agent in ${sec} as a card` : "Every section side by side",
     tabs: sec ? `${sec} as tabs, one agent at a time` : "Every agent as one row of tabs, one at a time",
-    custom: "Your own layout of panes"};
-  return `<span class="seg mode"${sec ? ` data-sec="${esc(sec)}"` : ""}>${(sec ? ["grid", "tabs"] : ["grid", "tabs", "custom"]).map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}${m === "custom" && mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`).join("")}</span>`;
+    custom: "Your own layout of panes", characters: "Every agent as a portrait; the one picked opens beside them"};
+  return `<span class="seg mode"${sec ? ` data-sec="${esc(sec)}"` : ""}>${(sec ? ["grid", "tabs"] : ["grid", "tabs", "custom", "characters"]).map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}${m === "custom" && mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`).join("")}</span>`;
 }
 
 // Text being selected is left alone: redrawing it would drop the selection's start, so while the mouse is down or a
@@ -1814,7 +1864,7 @@ function draw() {
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
   };
   let html;
-  if (pageMode === "tabs") {
+  if (pageMode === "tabs" || pageMode === "characters") {
     html = "";   // the agent's view, docked over the page's body, takes its place
   } else if (pageMode === "custom") {
     html = customHtml(ceil, tabRow);
@@ -1837,7 +1887,7 @@ function draw() {
   const ends = paneEnds();
   patch(main, html);
   toPaneEnds(ends);
-  dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
+  dock((pageMode === "tabs" || pageMode === "characters") && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => {
     const sec = b.parentElement.dataset.sec;
     localStorage.setItem(sec ? "mode:" + sec : "page", b.dataset.mode); draw();
@@ -1885,12 +1935,12 @@ function fitBench() {
 
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
 // one above the other ("col"), at a fraction "at", and whose leaves are panes showing an agent's card ("agent"),
-// every agent as a list ("others"), a grid or tabs of the agents in some roles, or nothing yet. A pane is
+// every agent as a list ("others") or as portrait tiles ("characters"), a grid or tabs of the agents in some roles, or nothing yet. A pane is
 // named by its path from the root ("r", then "a" or "b" for each split), which also keys its tabs. Locked, the panes
 // lose their bars and the dividers stay put.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
@@ -1935,6 +1985,8 @@ function customHtml(ceil, tabRow) {
         : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
+    } else if (n.show === "characters") {
+      body = `<div class="chrs">${tiles("")}</div>`;
     } else if (n.show === "combined") {
       body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
@@ -1950,19 +2002,25 @@ function customHtml(ceil, tabRow) {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
     const bar = l.locked ? "" : `<div class="pbar">
-      <span class="seg">${Object.entries(PANE_TYPES).map(([t, label]) => `<b data-act="show" data-v="${t}" class="${t === n.show ? "on" : ""}">${label}</b>`).join("")}</span>
-      <span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
-        `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>
+      <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
+      ${n.show && n.show !== "others" && n.show !== "characters" ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+        `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       ${n.show === "grid" || n.show === "tabs" ? roleList().map(r => `<em style="--c:${r.colour}" class="${(n.roles || []).includes(r.role) ? "on" : ""}" data-act="role" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("") : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
     return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${body}</div></div>`;
   };
-  const node = (n, path) => !n.split ? pane(n, path)
-    : `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="flex-grow:${n.at}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="flex-grow:${1 - n.at}">${node(n.b, path + "b")}</div></div>`;
+  const node = (n, path) => {
+    if (!n.split) return pane(n, path);
+    const side = tileSide(n), grow = s => side ? (s === side ? `flex:0 0 ${tilesWidth(n.tiles)}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
+    return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
+  };
   return !maxed ? node(l.root, "r") : maxNode.show === "team" || maxNode.show === "combined" ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
+// A Characters pane beside another is exactly one, two or three tiles wide (two unless set): its divider snaps between them.
+const tileSide = n => n.split === "row" && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
+const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
 // An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
@@ -2064,11 +2122,10 @@ function customClicks() {
   const main = $("#main"), change = f => { const l = layout(); f(l); saveLayout(l); draw(); };
   main.querySelectorAll(".pbar [data-act]").forEach(el => {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
-    if (act === "name") { el.onchange = () => change(l => { nodeAt(l.root, path).name = el.value; }); return; }
+    if (act === "name" || act === "show") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
-      if (act === "show") { n.show = el.dataset.v; }
-      else if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
+      if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
       else if (act === "role") { const rs = new Set(n.roles || []); rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs]; }
       else if (act === "row" || act === "col") putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
       else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
@@ -2087,7 +2144,7 @@ function customClicks() {
     const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
     hide.has(el.dataset.v) ? hide.delete(el.dataset.v) : hide.add(el.dataset.v); n.hide = [...hide];
   }));
-  // An agent in the list ("others"), a name in a Combined pane's header, or a turn in a Team or Combined pane (the
+  // An agent in the list ("others") or a tile ("characters"), a name in a Combined pane's header, or a turn in a Team or Combined pane (the
   // agent on the name clicked, else the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
   // a tabs pane behind another tab is brought to the front first.
   const goTo = name => {
@@ -2096,7 +2153,7 @@ function customClicks() {
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
   };
-  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => goTo(m.dataset.name));
+  main.querySelectorAll(":is(.others .mini, .chrs .chr)").forEach(m => m.onclick = () => goTo(m.dataset.name));
   main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.textContent));
   main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
     const row = e.target.closest(".it[data-agent]");
@@ -2127,14 +2184,22 @@ function customClicks() {
     e.preventDefault(); d.setPointerCapture(e.pointerId); d.classList.add("moving");
     const lay = d.parentElement, row = lay.classList.contains("row"), r = lay.getBoundingClientRect(), [h1, h2] = lay.querySelectorAll(":scope > .half");
     document.body.classList.add(row ? "resizing" : "resizing-row"); resizing = true;
-    let at = null;
+    const side = tileSide(nodeAt(layout().root, d.dataset.path));
+    let at = null, tiles = null;
     d.onpointermove = mv => {
+      if (side) {
+        const w = side === "a" ? mv.clientX - r.left : r.right - mv.clientX;
+        tiles = Math.max(1, Math.min(3, Math.round((w - 18) / 120)));
+        (side === "a" ? h1 : h2).style.flexBasis = tilesWidth(tiles) + "px";
+        return;
+      }
       at = Math.max(0.1, Math.min(0.9, row ? (mv.clientX - r.left) / r.width : (mv.clientY - r.top) / r.height));
       h1.style.flexGrow = at; h2.style.flexGrow = 1 - at;
     };
     d.onpointerup = () => {
       d.onpointermove = null; d.classList.remove("moving"); document.body.classList.remove("resizing", "resizing-row"); resizing = false;
-      if (at != null) change(l => { nodeAt(l.root, d.dataset.path).at = +at.toFixed(3); });
+      if (tiles != null) change(l => { nodeAt(l.root, d.dataset.path).tiles = tiles; });
+      else if (at != null) change(l => { nodeAt(l.root, d.dataset.path).at = +at.toFixed(3); });
     };
   });
 }
@@ -2198,11 +2263,60 @@ function minis(cur, agents = S.agents) {
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
+// Characters: each agent's tile. Its portrait is <name>.png/.webp/.jpg in ~/.claude/agents-portraits when there is
+// one, else an emblem of its own - a shape from EMBLEMS, outlined and tinted in its colour, with its initial. Round
+// the portrait: its last activity (green within the minute) and how long ago, its context, its unseen count, its
+// ticket and its activity.
+const EMBLEMS = (() => {
+  const poly = pts => `<polygon points="${pts}"/>`, round = (n, r1, r2, off = 0) => poly(Array.from({length: n * 2}, (_, i) => {
+    const r = i % 2 ? r2 : r1, t = Math.PI * i / n - Math.PI / 2 + off; return `${(50 + r * Math.cos(t)).toFixed(1)},${(50 + r * Math.sin(t)).toFixed(1)}`; }).join(" "));
+  const gear = poly(Array.from({length: 32}, (_, i) => { const t = 2 * Math.PI * i / 32 - Math.PI / 2, r = [46, 46, 36, 36][i % 4];
+    return `${(50 + r * Math.cos(t)).toFixed(1)},${(50 + r * Math.sin(t)).toFixed(1)}`; }).join(" "));
+  return [
+    `<path d="M50 4 L90 17 V47 C90 72 72 88 50 96 C28 88 10 72 10 47 V17 Z"/>`,                    // shield
+    poly("50,3 95,50 50,97 5,50"),                                                                 // diamond
+    poly("50,3 93,47 67,47 67,96 33,96 33,47 7,47"),                                               // arrow
+    poly("50,3 91,27 91,73 50,97 9,73 9,27"),                                                      // hexagon
+    round(5, 47, 20),                                                                              // star
+    gear,                                                                                          // gear
+    `<circle cx="50" cy="34" r="30"/><path d="M43 64 H57 V96 H43 Z M57 74 H72 V82 H57 Z M57 87 H67 V94 H57 Z"/>`, // key
+    `<circle cx="50" cy="50" r="46"/>`,                                                            // circle
+    poly("50,5 96,90 4,90"),                                                                       // triangle
+    round(8, 47, 47, Math.PI / 8).replace(/points="([^"]*)"/, (m, p) => `points="${p.split(" ").filter((_, i) => i % 2 === 0).join(" ")}"`), // octagon
+    poly("50,3 95,36 78,94 22,94 5,36"),                                                           // pentagon
+    poly("36,4 64,4 64,36 96,36 96,64 64,64 64,96 36,96 36,64 4,64 4,36 36,36"),                   // cross
+    `<path d="M50 92 C20 70 4 52 4 32 C4 16 16 6 30 6 C40 6 46 12 50 20 C54 12 60 6 70 6 C84 6 96 16 96 32 C96 52 80 70 50 92 Z"/>`, // heart
+    poly("58,3 18,56 46,56 38,97 82,40 54,40"),                                                    // lightning
+    `<rect x="8" y="8" width="84" height="84" rx="22"/>`,                                          // rounded square
+    `<path d="M50 3 C64 28 84 46 84 64 A34 34 0 0 1 16 64 C16 46 36 28 50 3 Z"/>`,                 // drop
+    poly("6,82 12,22 32,52 50,12 68,52 88,22 94,82"),                                              // crown
+    round(6, 47, 30),                                                                              // six-point star
+  ];
+})();
+function emblem(a) {
+  const names = [...new Set([...S.agents, ...S.bench].map(x => x.name))].sort();
+  const shape = EMBLEMS[names.indexOf(a.name) % EMBLEMS.length];
+  return `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="${a.colour}" fill-opacity=".22" stroke="${a.colour}" stroke-width="4" stroke-linejoin="round">${shape}</g>` +
+    `<text x="50" y="52" text-anchor="middle" dominant-baseline="central">${esc(a.name[0].toUpperCase())}</text></svg>`;
+}
+function tiles(cur) {
+  const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
+  return S.agents.map(a => {
+    const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
+    const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
+    return `<button class="chr ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}" title="${esc(a.name)} · ${STATE[st] || esc(st)}">` +
+      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : emblem(a)}</span>` +
+      `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
+      `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
+      (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
+      `<span class="sp">${spark(a.series, ceil, a.colour)}</span></button>`;
+  }).join("");
+}
 function rail() {
   if (!open || !S) return;
   markSeen(S.agents.filter(a => !seen[a.name] || a.name === open).map(a => a.name));
-  patch($("#drail"), minis(open));
-  document.querySelectorAll("#drail .mini").forEach(m => m.onclick = m.matches(".cur") ? null : () => openDetail(m.dataset.name));
+  patch($("#drail"), charsOn() ? tiles(open) : minis(open));
+  document.querySelectorAll("#drail :is(.mini, .chr)").forEach(m => m.onclick = m.matches(".cur") ? null : () => openDetail(m.dataset.name));
   beat();
 }
 
@@ -2225,8 +2339,11 @@ function showTerm() { $("#detail .box").classList.toggle("noterm", !termOn()); }
 // The edge the other agents' column sits on, moved round clockwise from the header and remembered.
 const EDGES = {right: "→", bottom: "↓", left: "←", top: "↑"};
 const railEdge = () => EDGES[localStorage.getItem("rail")] ? localStorage.getItem("rail") : "right";
+// Characters keeps its tiles on the left of a docked view, whatever edge the cards are set to.
+const charsOn = () => (localStorage.getItem("page") || "grid") === "characters" && $("#detail").classList.contains("docked");
 function showRail() {
-  const box = $("#detail .box"), edge = railEdge();
+  const box = $("#detail .box"), edge = charsOn() ? "left" : railEdge();
+  box.classList.toggle("chars", charsOn());
   for (const e in EDGES) box.classList.toggle("rail-" + e, e === edge && e !== "right");
   const b = $("#dhead .railseg b");
   if (b) b.textContent = "Cards " + EDGES[edge];
@@ -2498,7 +2615,7 @@ function dock(a) {
   if (!a) { if (was) { d.classList.remove("docked"); d.style.inset = ""; closeDetail(); } return; }
   const r = $("#main").getBoundingClientRect();
   d.style.inset = `${r.top}px ${innerWidth - r.right}px ${innerHeight - r.bottom}px ${r.left}px`;
-  d.classList.add("docked");
+  d.classList.add("docked"); showRail();
   if (open !== a.name) openDetail(a.name);
 }
 function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
