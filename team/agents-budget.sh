@@ -118,6 +118,8 @@ budget_self_test() {
   [[ "$(rows)" == 1 ]] && printf '  ok   one entry recorded\n' || { printf '  FAIL entries: %s\n' "$(rows)"; fails=$((fails+1)); }
   verb "  and at close of day the plan is 60%" 0 "of 60% planned so far (owner +6)" "2026-10-21 17:00" 59 "2026-10-21 16:59"
   verb "  the entry holds for the rest of the week: Saturday plans 90 + 6" 0 "of 96% planned so far (owner +6)" "2026-10-24 10:00" 89 "2026-10-24 09:59"
+  verb "the plan stops at 100%, however much the owner adds" 0 "week 99% used of 100% planned so far (owner +26)" "2026-10-24 10:00" 99 "2026-10-24 09:59" adjust +20 "more than the week"
+  verb "  and taking it back plans 96 again" 0 "of 96% planned so far (owner +6)" "2026-10-24 10:00" 89 "2026-10-24 09:59" adjust -20 "back to the plan"
   verb "  and is not counted after the reset" 2 "planned 0%)" "2026-10-25 08:00" 1 "2026-10-24 09:59"
   verb "adjust -6 takes it back from now" 0 "of 44% planned so far" "2026-10-21 12:00" 41 "2026-10-21 11:59" adjust -6 "too much"
   verb "  with the sum shown as 0" 0 "(owner +0)" "2026-10-21 12:00" 41 "2026-10-21 11:59"
@@ -288,7 +290,7 @@ esac
 
 awk -v plan="$plan" -v sum="$sum" -v cnt="$cnt" -v used="${used:--1}" -v at="${at:-0}" -v nows="$NOW_S" -v re="$reset_epoch" '
   BEGIN {
-    total = plan + sum
+    total = plan + sum; if (total > 100) total = 100   # the plan stops at the whole week; use past it is over
     owner = (cnt > 0) ? sprintf(" (owner %s%.4g)", (sum >= 0 ? "+" : ""), sum) : ""   # said whenever the week has an entry, even at +0
     if (used < 0 || at < re) {
       printf "budget  no reading of the week since it reset: ask the owner (planned %.0f%%%s)\n", total, owner; exit 2 }
