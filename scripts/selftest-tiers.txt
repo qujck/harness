@@ -21,6 +21,7 @@
 # mistyped `--slef-test` must exit 2, never fall through to the script's real action.
 scripts/agent-onboard.sh	verify
 team/agents-budget.sh	verify
+team/agents-spend.sh	verify
 scripts/check-docs-markers-match-landed-children.sh	verify
 scripts/check-merge-seat-count.sh	verify
 scripts/check-mods-tests-pass.sh	verify
