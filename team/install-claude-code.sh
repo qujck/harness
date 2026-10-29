@@ -13,7 +13,7 @@
 #   env.CLAUDE_CODE_PLUGIN_DIRS  <repo>/claude-code appended to whatever is listed (the three mods load in every session);
 #                                a stale <repo>/mods entry (the folder's name before 2f96cd0, 2026-10-26) is dropped,
 #                                not kept beside it: a box left on it loads no mods in any new session
-#   hooks                      bash <repo>/team/activity-hook.sh <Event> for the eight events it records;
+#   hooks                      bash <repo>/team/activity-hook.sh <Event> for the nine events it records;
 #                              the four tool events carry matcher "*"
 # The file is Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, default ~/.claude), not the
 # repo's .claude/settings.json: the row, the mods and the hooks are per session on the box, not per repo.
@@ -22,7 +22,7 @@ set -uo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 . "$HERE/../scripts/lib/selftest-flag.sh"
 
-EVENTS='["UserPromptSubmit","Stop","SessionStart","SessionEnd"]'
+EVENTS='["UserPromptSubmit","Stop","SessionStart","SessionEnd","PreCompact"]'
 TOOL_EVENTS='["PreToolUse","PermissionRequest","PostToolUse","PostToolUseFailure"]'
 
 # merge_settings <repo root> : current settings JSON on stdin -> merged JSON on stdout   (pure)
@@ -63,7 +63,7 @@ if selftest_is_flag "${1:-}"; then
   m="$(merge_settings /r <<<'{}')"
   _t "an empty file gains the publisher as its status line" "bash /r/team/statusline-publish.sh" "$(jq -r .statusLine.command <<<"$m")"
   _t "and the mods folder" "/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m")"
-  _t "and a hook for each of the eight events" 8 "$(jq -r '.hooks | length' <<<"$m")"
+  _t "and a hook for each of the nine events" 9 "$(jq -r '.hooks | length' <<<"$m")"
   _t "a tool event's hook carries matcher *" '*' "$(jq -r '.hooks.PreToolUse[0].matcher' <<<"$m")"
   _t "a stop's hook carries none" null "$(jq -r '.hooks.Stop[0].matcher' <<<"$m")"
   _t "the hook names its event" "bash /r/team/activity-hook.sh PermissionRequest" "$(jq -r '.hooks.PermissionRequest[0].hooks[0].command' <<<"$m")"
@@ -77,13 +77,13 @@ if selftest_is_flag "${1:-}"; then
   m4="$(merge_settings /r <<<'{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/x:/r/mods"}}')"
   _t "the pre-2f96cd0 mods folder is replaced, not kept beside the new one" "/x:/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m4")"
   _t "an event that already runs an activity hook gains no second one" 1 "$(jq -r '.hooks.Stop | length' <<<"$m3")"
-  _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit" "$(additions "$own" "$m3")"
+  _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreCompact, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit" "$(additions "$own" "$m3")"
   # the real action against a throwaway config dir: a dry run writes nothing; --yes writes and keeps a .bak
   mkdir -p "$d/cfg"; printf '{"permissions":{}}\n' > "$d/cfg/settings.json"
   CLAUDE_CONFIG_DIR="$d/cfg" bash "$HERE/install-claude-code.sh" --dry-run >/dev/null 2>&1
   _t "a dry run leaves the file as it was" '{"permissions":{}}' "$(jq -c . "$d/cfg/settings.json")"
   CLAUDE_CONFIG_DIR="$d/cfg" bash "$HERE/install-claude-code.sh" --yes >/dev/null 2>&1
-  _t "--yes writes the merge" 8 "$(jq -r '.hooks | length' "$d/cfg/settings.json")"
+  _t "--yes writes the merge" 9 "$(jq -r '.hooks | length' "$d/cfg/settings.json")"
   _t "and keeps what was there" '{}' "$(jq -c .permissions "$d/cfg/settings.json")"
   _t "and the old file as .bak" '{"permissions":{}}' "$(jq -c . "$d/cfg/settings.json.bak")"
   _t "a second --yes says there is nothing to add" "install-claude-code: nothing to add" "$(CLAUDE_CONFIG_DIR="$d/cfg" bash "$HERE/install-claude-code.sh" --yes 2>&1 | tail -1)"

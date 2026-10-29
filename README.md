@@ -204,7 +204,7 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    It adds three things to `~/.claude/settings.json`, the user file rather than the repo's, because all
    three act per session on the box: the status line `team/statusline-publish.sh`, which publishes each
    session's row; `CLAUDE_CODE_PLUGIN_DIRS` naming the `claude-code` folder, so the three mods load; and
-   hooks calling `team/activity-hook.sh` on prompts, tool calls, permission requests and stops, so the row
+   hooks calling `team/activity-hook.sh` on prompts, tool calls, permission requests, stops and compactions, so the row
    says whether a session is working, waiting or idle. Nothing the person already set is replaced. The
    `compact-after.json` line sets the self-compact soft point: `default` is the token count at which an agent
    is nudged to compact itself (200k against a 300k `autoCompactWindow`); `agents` overrides it by launch-line
