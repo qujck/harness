@@ -63,6 +63,13 @@
 #
 # AGENT_SPAWN_BUDGET names a stand-in for agents-budget.sh (the self-test's hook, like agents-dash.sh's).
 #
+# THE CAP (owner, 2026-10-29: "make it configurable - start with 10"). AGENT_MAX_WORKING in harness.env is how
+# many sessions may be WORKING at once; a spawn of EITHER role at or over it is refused unless the owner's words
+# are on --owner-ok, exactly as the budget gates a developer. Working = a context row (docs/context-publisher.md)
+# with activity "working" written in the last two minutes, one per agent. Unset = no cap, and the line says so.
+# Measured 2026-10-29: twelve sessions woke together at 06:03 and read 52 M tokens by 06:40; every one of them
+# pays its whole context on every call, so the number working at once is the rate.
+#
 # Exit: 0 started (or a dry run said what it would start) · 1 refused, or started but the claim never appeared ·
 # 2 a usage error.
 set -uo pipefail
@@ -105,6 +112,19 @@ spawn_budget_rule() {
   if [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
 }
 
+# PURE: how many agents are working now: context rows with activity "working" written in the last 120 s, one per
+# agent. $1 dir · $2 now (epoch) -> a count (0 with no rows or no jq)
+spawn_working_count() {
+  cat "$1"/*.json 2>/dev/null | jq -rR --argjson now "$2" 'fromjson? // empty
+    | select(.activity == "working" and (((.ts | fromdateiso8601?) // 0) >= $now - 120)) | .agent // "?"' 2>/dev/null \
+    | sort -u | grep -c . || true
+}
+# PURE: what the cap means now. $1 AGENT_MAX_WORKING (may be empty) · $2 working -> none | open | full | bad
+spawn_cap_rule() {
+  [[ -n "${1-}" ]] || { printf 'none'; return; }
+  [[ "$1" =~ ^[1-9][0-9]*$ ]] || { printf 'bad'; return; }
+  if (( $2 >= $1 )); then printf 'full'; else printf 'open'; fi
+}
 # PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
 spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+)$ ]]; }
 # PURE: who holds the row, from a ticket-owner line. The database store answers `owner:<name>\tstood-down-by:<x>`;
@@ -183,6 +203,17 @@ spawn_self_test() {
   _t "rule: a developer with no budget reading asks" "$(spawn_budget_rule developer 2)" ask
   _t "rule: a tester over budget is information only" "$(spawn_budget_rule tester 1)" info
   _t "rule: a tester with no reading is information only" "$(spawn_budget_rule tester 2)" info
+  _t "cap: unset is no cap" "$(spawn_cap_rule '' 12)" none
+  _t "cap: below it is open" "$(spawn_cap_rule 10 9)" open
+  _t "cap: at it is full" "$(spawn_cap_rule 10 10)" full
+  _t "cap: over it is full" "$(spawn_cap_rule 10 12)" full
+  _t "cap: a non-number is bad" "$(spawn_cap_rule ten 1)" bad
+  local CD; CD="$(mktemp -d)"; local nowz; nowz="$(date -u +%s)"
+  row() { printf '{"agent":"%s","activity":"%s","ts":"%s"}\n' "$1" "$2" "$(date -u -d "@$3" +%Y-%m-%dT%H:%M:%SZ)" > "$CD/$1.json"; }
+  row A working "$nowz"; row B working "$((nowz - 60))"; row C idle "$nowz"; row D working "$((nowz - 600))"; printf 'not json\n' > "$CD/E.json"
+  _t "working count: fresh working rows only, not idle, not a ten-minute-old one, not junk" "$(spawn_working_count "$CD" "$nowz")" 2
+  _t "working count: no rows is 0" "$(spawn_working_count "$CD/none" "$nowz")" 0
+  rm -rf "$CD"
 
   # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
   # throwaway config dir. Nothing here can start a real session: the only tmux on PATH is the stand-in.
@@ -292,6 +323,33 @@ EOF
   out="$(run tester --ticket HAR-12)"; rc=$?
   _t "a tester spawn off budget starts without any OK" "$rc" 0
   _t "  and is recorded with no owner words" "$(awk -F'\t' '$2=="Tess"{print $3"|"$6"|"$7}' "$T/spawns.tsv")" 'tester|over|-'
+  # ── THE CAP GATES EVERY ROLE (owner, 2026-10-29) ──
+  printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Tess is free again
+  for a in P Q R; do printf '{"agent":"%s","activity":"working","ts":"%s"}\n' "$a" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$T/ctx/$a.json"; done
+  out="$(run tester --ticket HAR-12 --dry-run)"
+  _has "with no cap set the dry run counts the working sessions and says there is no cap" "$out" "working 3 sessions now (no cap: AGENT_MAX_WORKING in harness.env)"
+  printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=3\n' > "$T/repo/harness.env"
+  : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  out="$(run tester --ticket HAR-12)"; rc=$?
+  _t "a tester spawn at the cap without the owner's OK is refused" "$rc" 1
+  _has "  naming the cap" "$out" "working 3 of up to 3 sessions: at the cap"
+  _t "  starting nothing, recording nothing" "$(grep -c '^new-session' "$T/tmux.log")/$(wc -l < "$T/spawns.tsv")" "0/$before"
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a developer spawn ON budget but at the cap is refused too" "$rc" 1
+  out="$(run developer --ticket HAR-12 --dry-run)"
+  _has "a dry run at the cap says to ask whatever the role" "$out" "at the cap (working 3 of up to 3 sessions): ask the owner first"
+  out="$(run tester --ticket HAR-12 --owner-ok 'yes, one more, Peter')"; rc=$?
+  _t "a tester spawn at the cap WITH the owner's OK starts" "$rc" 0
+  _has "  and prints the cap line" "$out" "working 3 of up to 3 sessions"
+  printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=4\n' > "$T/repo/harness.env"
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run tester --ticket HAR-12)"; rc=$?
+  _t "below the cap a tester starts as before" "$rc" 0
+  printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=ten\n' > "$T/repo/harness.env"
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "a cap that is not a number is a usage error" "$rc" 2
+  rm -f "$T/ctx"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; printf 'over\n' > "$T/budget.mode"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --owner-ok 'yes, start her, Peter')"; rc=$?
   _t "a developer spawn off budget WITH the owner's OK starts" "$rc" 0
@@ -573,6 +631,15 @@ fi
 BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
 case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
+WORKING_N="$(spawn_working_count "${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT}/context}" "$(date -u +%s)")"
+CAP_RULE="$(spawn_cap_rule "${AGENT_MAX_WORKING:-}" "$WORKING_N")"
+case "$CAP_RULE" in
+  none) CAP_LINE="working $WORKING_N sessions now (no cap: AGENT_MAX_WORKING in harness.env)" ;;
+  bad)  echo "agent-spawn: AGENT_MAX_WORKING='${AGENT_MAX_WORKING}' is not a whole number of sessions; nothing started." >&2; exit 2 ;;
+  *)    CAP_LINE="working $WORKING_N of up to $AGENT_MAX_WORKING sessions" ;;
+esac
+# at the cap, either role asks; the owner's words start it, as they do a developer off budget
+[[ "$CAP_RULE" == full ]] && RULE=ask
 
 if (( DRY )); then
   printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
@@ -583,14 +650,23 @@ if (( DRY )); then
   printf '  first prompt: %s\n' "$PROMPT"
   [[ -z "$TICKET_LINE" ]] || printf '%s\n' "$TICKET_LINE"
   printf '%s\n' "$BUDGET_LINE"
-  case "$RULE" in
+  printf '%s\n' "$CAP_LINE"
+  if [[ "$CAP_RULE" == full ]]; then
+    printf '  at the cap (%s): ask the owner first, in one line, whatever the role; start it with their words on --owner-ok.\n' "$CAP_LINE"
+  else case "$RULE" in
     start) printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n' ;;
     ask)   printf '  developer, off budget (or no reading): ask the owner first, in one line; start it with their words on --owner-ok.\n' ;;
     info)  printf '  tester: start it whatever the budget line says; testers are not budget-gated (owner, 2026-10-25). The line is information.\n' ;;
-  esac
+  esac; fi
   exit 0
 fi
 
+if [[ "$CAP_RULE" == full && -z "$OWNER_OK" ]]; then
+  printf 'agent-spawn: %s: at the cap\n' "$CAP_LINE" >&2
+  printf '  a spawn at the cap needs the owner'"'"'s OK whatever the role: ask in one line (ticket, name, the line above), then start it with\n' >&2
+  printf '  their words on the line: %s %s --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
+  exit 1
+fi
 if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
@@ -611,6 +687,7 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
 printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
 printf '  %s\n' "$BUDGET_LINE"
+printf '  %s\n' "$CAP_LINE"
 printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"
 [[ -z "$TICKET_LINE" ]] || printf '  %s\n' "$TICKET_LINE"
 
