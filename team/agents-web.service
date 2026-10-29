@@ -1,0 +1,19 @@
+# team/agents-web.service — a reference systemd user unit that keeps team/agents-web.sh running.
+#
+#   cp team/agents-web.service ~/.config/systemd/user/   (set the path in ExecStart to this checkout first)
+#   systemctl --user daemon-reload && systemctl --user enable --now agents-web
+#
+# KillMode=process matters: the page's start button runs team/team-start.sh from this service, so the agents it
+# starts run in the unit, and the default (control-group) would end every one of them when the page restarts or
+# crashes. With it, only the page itself is stopped.
+[Unit]
+Description=The agent team as a web page on http://127.0.0.1:8787 (agents-web)
+
+[Service]
+ExecStart=/bin/bash %h/harness/team/agents-web.sh
+Restart=on-failure
+RestartSec=5
+KillMode=process
+
+[Install]
+WantedBy=default.target

@@ -69,6 +69,7 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
   agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
   agents-web.sh          # the team as a web page on 127.0.0.1 (python3): a card per running agent in sections by role, its conversation and terminal, a message box that types into its tmux pane; the week amber while it spends the contingency
+  agents-web.service     # a reference systemd user unit for the page (KillMode=process keeps the agents it started through a restart)
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
   activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
   install-claude-code.sh # once per box: adds the status line, the mods folder and the activity hooks to ~/.claude/settings.json, asking first
@@ -240,7 +241,7 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    `http://127.0.0.1:8787` (`AGENT_WEB_PORT`) until stopped: the same readings as a card per running agent,
    in sections by role, with each agent's conversation and its terminal, and a message box on each that
    types into the agent's tmux pane as `agent-spawn.sh` types a first prompt. Only the page itself can send,
-   and it listens on this machine only. To keep it running, make it a `systemd --user` service.
+   and it listens on this machine only. To keep it running, make it a `systemd --user` service: `team/agents-web.service` is one to start from, with `KillMode=process` so a restart of the page does not end the agents it started.
 
 7. **A custom status line must publish the panel's fields.** The panel, `agent-context.sh` and the
    nudger read the rows the status line writes ([docs/context-publisher.md](docs/context-publisher.md)).
