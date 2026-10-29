@@ -9,10 +9,13 @@
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
-  POST /api/team/start       team/team-start.sh, then the delivery lead is told the team is back up to start the day
+  POST /api/team/start       team/team-start.sh, then each agent the page stopped is compacted once it is up, and the
+                             delivery lead is told the team is back up to start the day
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
-  POST /api/agent/NAME/start team/team-start.sh --only NAME, for an agent outside the developers and testers
+  POST /api/agent/NAME/start team/team-start.sh --only NAME, for an agent outside the developers and testers,
+                             compacted once it is up if the page stopped it
   POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
+  POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
 
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
 (docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
@@ -50,6 +53,7 @@ LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/led
 CLAUDE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
 SESSIONS = os.path.join(CLAUDE, "sessions")
 PROJECTS = os.path.join(CLAUDE, "projects")
+ACTIVITY = os.environ.get("ACTIVITY_DIR") or os.path.join(STATE_DIR, "activity")   # "<state> <epoch>" per session id, from team/activity-hook.sh
 CONTEXT_DIR = os.environ.get("CONTEXT_DIR") or os.path.join(STATE_DIR, "context")
 CACHE = os.environ.get("AGENTS_DASH_CACHE") or os.path.join(STATE_DIR, "dash")
 BURN = os.path.join(CACHE, "burn.json")
@@ -59,6 +63,7 @@ TEAM_START_SH = os.environ.get("TEAM_START") or os.path.join(ROOT, "team/team-st
 TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-paused.sh")   # exits 0 once it is wound down
 TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
+COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
 STANDING = {"lead", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
@@ -463,6 +468,48 @@ AGENT_STOP = ("Finish what you're on at a clean point, bring your durable record
               "the owner is stopping you from the team page, and your pane closes once you are idle.")
 _starting, _halting = set(), set()   # "team" or agent names being started; "team" or agent names being stopped
 _team_stop = {"at": 0}   # when the page last asked the lead to wind the team down
+COMPACT_NOW = ("/compact The owner asked for this compaction from the team page. Keep who you are and your role, "
+               "what you are doing and what comes next.")
+_compacting = set()   # agents the page is compacting
+
+
+def compact_soon(name):
+    """Once the agent is not working (up to ten minutes), types /compact into its pane and waits for it to finish."""
+    try:
+        status = lambda: (live_sessions().get(name) or {}).get("status")
+        if wait_for(lambda: status() not in ("busy", "waiting"), 600) and type_into(name, COMPACT_NOW):
+            wait_for(lambda: status() == "busy", 30, 1)
+            wait_for(lambda: status() != "busy", 600)
+    finally:
+        _compacting.discard(name)
+        with _lock:
+            _state["at"] = 0
+
+
+COMPACT = ("/compact The owner stopped you from the team page and has started you again. Keep who you are and your "
+           "role, and that your durable record is up to date: read it first and carry on from it.")
+
+
+def compact_later(names):
+    """Marks agents the page is stopping, so the start that resumes their conversation compacts it first."""
+    os.makedirs(COMPACT_ON_START, exist_ok=True)
+    for n in names:
+        open(os.path.join(COMPACT_ON_START, n), "w").close()
+
+
+def compact_when_up(name, limit=180):
+    """Once a marked agent is up and idle, types /compact into its pane and waits for the compaction to finish; returns
+    once it is up and idle again, marked or not (False if it never came up)."""
+    idle = lambda: (live_sessions().get(name) or {}).get("status") == "idle" and name in panes()
+    if not wait_for(idle, limit):
+        return False
+    mark = os.path.join(COMPACT_ON_START, name)
+    if os.path.exists(mark):
+        os.remove(mark)
+        if type_into(name, COMPACT):
+            wait_for(lambda: (live_sessions().get(name) or {}).get("status") == "busy", 30, 1)
+            return wait_for(idle, 600)
+    return True
 
 
 def wait_for(test, limit, step=2):
@@ -514,7 +561,10 @@ def start_team(lead, names):
             os.remove(TEAM_UP)
         except OSError:
             pass
-        if wait_for(lambda: (live_sessions().get(lead) or {}).get("status") == "idle" and lead in panes(), 180):
+        for n in names or [r["name"] for r in roster()]:
+            if n != lead:
+                threading.Thread(target=compact_when_up, args=(n,), daemon=True).start()
+        if compact_when_up(lead):
             type_into(lead, TEAM_START)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -525,7 +575,7 @@ def start_team(lead, names):
 def start_one(name):
     try:
         restore("--only", name)
-        wait_for(lambda: name in live_sessions(), 120)
+        compact_when_up(name)
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
@@ -559,6 +609,64 @@ def transcript(sid):
         hits = glob.glob(os.path.join(PROJECTS, "*", sid + ".jsonl"))
         _paths[sid] = hits[0] if hits else None
     return _paths[sid]
+
+
+def hook_compacting(sid, now):
+    """Whether the session's PreCompact hook has fired and its SessionStart has not yet followed: compacting. A mark
+    older than half an hour is taken to be from a session that died mid-compaction."""
+    try:
+        with open(os.path.join(ACTIVITY, sid)) as f:
+            st, at = f.read().split()[:2]
+        return st == "compacting" and now - int(at) < 1800
+    except (OSError, ValueError):
+        return False
+
+
+_compacts = {}   # transcript path -> ((size, mtime), its last compaction)
+BOUNDARY = b'"subtype":"compact_boundary"'
+
+
+def last_compact(sid):
+    """The session's last compaction, from the compact_boundary entry it left in the transcript: when, manual or auto,
+    the tokens before it and how long it took; None for none. The transcript is read backwards from its end until one
+    is found, and the answer kept until the file changes."""
+    path = transcript(sid) if sid else None
+    try:
+        st = os.stat(path) if path else None
+    except OSError:
+        st = None
+    if not st:
+        return None
+    key = (st.st_size, st.st_mtime)
+    with _lock:
+        hit = _compacts.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    found, end, chunk = None, st.st_size, 4_000_000
+    with open(path, "rb") as f:
+        while end > 0 and not found:
+            start = max(0, end - chunk)
+            f.seek(start)
+            lines = f.read(end - start).split(b"\n")
+            # a chunk's first line may be cut short, so it is read whole as the end of the next chunk back; a line
+            # longer than a chunk is a tool result or an image, never a compaction, and is stepped over
+            first = lines.pop(0) if start else b""
+            end = start + len(first) if len(first) < end - start else start
+            for line in reversed(lines):
+                if BOUNDARY not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if e.get("subtype") == "compact_boundary":
+                    m = e.get("compactMetadata") or {}
+                    found = {"ts": e.get("timestamp"), "trigger": m.get("trigger"), "pre": m.get("preTokens"),
+                             "post": m.get("postTokens"), "ms": m.get("durationMs")}
+                    break
+    with _lock:
+        _compacts[path] = (key, found)
+    return found
 
 
 def short(s, n):
@@ -891,12 +999,13 @@ def state():
             "ticket": held.get(name.lower(), ""),
             "cwd": row.get("worktree") or os.path.basename((rec or {}).get("cwd", "")),
             "series": ser, "rate": last_minute(ser, now), "portrait": portrait(name),
+            "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(sid),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
         })
     # the team has stopped once team/team-paused.sh says so and no running agent is busy or waiting; a lead that has
     # not marked it paused ten minutes after being asked is taken not to be stopping it
     paused = team_paused()
-    if paused and not any(a["live"] and a["status"] in ("busy", "waiting") for a in agents) or not paused and now - _team_stop["at"] > 600:
+    if paused and not any(a["live"] and (a["status"] in ("busy", "waiting") or a["compacting"]) for a in agents) or not paused and now - _team_stop["at"] > 600:
         _halting.discard("team")
     # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
     # agent with no pane there (its own spawn session, or none) goes in its role's section, after them.
@@ -910,7 +1019,8 @@ def state():
         "disk": disk(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
-        "nudgerPaused": paused, "starting": sorted(_starting), "halting": sorted(_halting), "teamUp": team_up(),
+        "nudgerPaused": paused, "starting": sorted(_starting), "halting": sorted(_halting),
+        "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
 
 
@@ -1026,7 +1136,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, f.read(), kind, "private, max-age=300")
 
     def do_POST(self):
-        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop|start|halt)", self.path)
+        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop|start|halt|compact)", self.path)
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
         if not m and not team and self.path != "/api/paste":
             return self.send(404, b"not found\n", "text/plain")
@@ -1041,6 +1151,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.paste()
         if m.group(2) == "stop":
             return self.stop(m.group(1))
+        if m.group(2) == "compact":
+            return self.compact(m.group(1))
         if m.group(2) in ("start", "halt"):
             return self.standing(m.group(1), m.group(2))
         try:
@@ -1088,6 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.makedirs(STATE_DIR, exist_ok=True)
                 with open(TEAM_UP, "w") as f:
                     f.write("".join(n + "\n" for n in running))
+                compact_later(running)
                 _halting.add("team"); _team_stop["at"] = time.time()
             return self.send(200 if ok else 500, json.dumps({"asked": lead}).encode(), "application/json")
         if not os.path.isfile(TEAM_START_SH):
@@ -1097,6 +1210,16 @@ class Handler(BaseHTTPRequestHandler):
         _starting.update(["team", *(names or [r["name"] for r in roster()])])
         threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
         self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
+
+    def compact(self, name):
+        """Compacts a running agent's conversation once it is not working: /compact typed into its pane."""
+        if not any(r["name"] == name for r in roster()) or name not in live_sessions():
+            return self.send(409, b"that agent is not running\n", "text/plain")
+        if name in _compacting:
+            return self.send(409, b"already compacting\n", "text/plain")
+        _compacting.add(name)
+        threading.Thread(target=compact_soon, args=(name,), daemon=True).start()
+        self.send(202, json.dumps({"compacting": name}).encode(), "application/json")
 
     def standing(self, name, what):
         """Starts one standing agent (team/team-start.sh --only), or asks it to finish and stop, closing its pane once it
@@ -1120,6 +1243,7 @@ class Handler(BaseHTTPRequestHandler):
         if ok is None:
             return self.send(409, b"that agent is not running\n", "text/plain")
         _halting.add(name)
+        compact_later([name])
         threading.Thread(target=halt_when_idle, args=(name,), daemon=True).start()
         self.send(202, json.dumps({"stopping": name}).encode(), "application/json")
 
@@ -1285,11 +1409,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .busy .dot{background:var(--green);animation:ping 1.4s infinite}
 .waiting .dot{background:var(--amber)}
 .waiting .state{color:var(--amber)}
+/* compacting: a cyan dot pulsing cyan */
+.compacting .dot{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
+.compacting .state{color:var(--cyan)}
 /* a pulse: a ring that grows out of the dot in its colour (--pulse, else green) and fades into the page's background as it
    spreads, to --reach (9px unless set) */
 @keyframes ping{0%{box-shadow:0 0 0 0 var(--pulse,var(--green))}80%{box-shadow:0 0 0 var(--reach,9px) var(--bg)}100%{box-shadow:0 0 0 calc(var(--reach,9px) + 1px) color-mix(in srgb,var(--bg) 0%,transparent)}}
 /* on an agent's coloured name box the ring is drawn in the name's own colour, which stands out against the box */
-.tabbar button.busy .dot,.mini.busy .name .dot{animation-name:pingfg}
+.tabbar button.busy .dot,.mini.busy .name .dot,.tabbar button.compacting .dot,.mini.compacting .name .dot{background:var(--faint);animation-name:pingfg}
 /* an agent in its shell: on its name box, a dot in the name's colour pulsing the same */
 .tabbar button.shell .dot,.mini.shell .name .dot{background:var(--ownerfg);animation:pingfg 1.4s infinite}
 /* an agent that is not running: on its name box, a square in the name's colour */
@@ -1533,6 +1660,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .tl i.now{background:var(--green)}
 .chr.busy .tl i{background:var(--green);animation:ping 1.4s infinite}
 .chr.waiting .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
+.chr.compacting .tl i{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .chr .tr b{font:700 11px/1 var(--mono);color:var(--text)}
 .chr .tr b.hi{color:var(--chhigh)}
@@ -1736,7 +1864,9 @@ const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
-const STATE = {busy: "working", waiting: "waiting", idle: "idle", shell: "in shell", off: "not running"};
+const STATE = {busy: "working", waiting: "waiting", idle: "idle", shell: "in shell", off: "not running", compacting: "compacting"};
+// what an agent is doing, for its classes and words: not running, compacting, or its session's own status
+const stOf = a => !a.live ? "off" : a.compacting ? "compacting" : a.status;
 let S = null, colours = {}, open = null;
 
 function since(ts) { return ts ? ago(Math.max(0, Math.round(Date.now() / 1000 - Date.parse(ts) / 1000))) : ""; }
@@ -1850,6 +1980,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
   said: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
   auto: '<rect x="3" y="5.5" width="10" height="8" rx="2"/><path d="M8 5.5V3"/><circle cx="8" cy="2.4" r=".7"/><circle cx="6" cy="9.5" r=".8"/><circle cx="10" cy="9.5" r=".8"/><path d="M1.5 8.5v2.5M14.5 8.5v2.5"/>',
+  compact: '<path d="M2 2h12M2 14h12M8 4v3M6.3 5.3 8 7l1.7-1.7M8 12V9M6.3 10.7 8 9l1.7 1.7"/>',
   more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
@@ -1912,7 +2043,7 @@ function spark(series, ceil, colour) {
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
 function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
-  const cls = a.live ? a.status : "off";
+  const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
@@ -2112,7 +2243,7 @@ function draw() {
   const tabRow = (key, agents) => {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || agents[0];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
-      return `<button class="${a.live ? a.status : "off"}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
+      return `<button class="${stOf(a)}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
   };
   let html;
@@ -2171,6 +2302,7 @@ function draw() {
     if (!i.parentElement.previousElementSibling.children.length) showAtt(i.dataset.name);
   });
   fitBench(); beat();
+  if (tileGuess) { tileGuess = false; draw(); }   // a Characters pane drawn for the first time is sized again, now it can be measured
 }
 function fitBench() {
   const row = $("#bench .rrow"), chips = row ? [...row.children] : [];
@@ -2272,8 +2404,11 @@ const fullView = n => n.view !== "summary";
 const tileSide = n => n.split === "row" && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
 const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
 // The columns a snapped Characters pane shows: its own setting, or more when the tiles would not fit its height in that many.
+// A pane not yet on the page has no height to go by; tileGuess has the page draw again once it is.
+let tileGuess = false;
 function tileCols(n, path) {
   const h = $(`#main .pane[data-path="${path}"] .chrs`)?.clientHeight, rows = h ? Math.max(1, Math.floor((h - 16) / 120)) : 0;
+  if (!h) tileGuess = true;
   return Math.max(n.tiles || 2, rows ? Math.ceil(S.agents.length / rows) : 0);
 }
 // An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
@@ -2532,7 +2667,7 @@ const switching = a => (a.live ? S.halting : S.starting).includes(a.name) ? " sw
 function minis(cur, agents = S.agents) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
   return agents.map(a => {
-    const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
+    const st = stOf(a), n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
       <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
@@ -2564,7 +2699,7 @@ function shadow(a) {
 function tiles() {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return S.agents.map(a => {
-    const st = a.live ? a.status : "off", n = unseen(a);
+    const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
@@ -2591,7 +2726,7 @@ function rail() {
 function facts() {
   const a = open && S && S.agents.find(x => x.name === open), el = $("#dfacts");
   if (!a || !el) return;
-  const st = a.live ? a.status : "off";
+  const st = stOf(a);
   const ctx = a.ctxUsed == null ? "" : `<span title="Context used of the window">${k(a.ctxUsed)} / ${k(a.ctxWindow)} <b style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</b></span>`;
   patch(el, [`<span class="state ${st}"><span class="dot"></span>${STATE[st] || esc(st)} ${ago(a.held)}</span>`,
     a.model ? `<span title="Model and effort">${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}</span>` : "",
@@ -3003,16 +3138,26 @@ addEventListener("mousedown", e => {
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
 // (as a click on it), Open in a new tab and Open in a new window, and for a standing agent Start, or Stop, which asks
 // again first. The delivery lead stops only with the team.
+// its last compaction, for the menu's header: how long ago, manual or auto, the context before and after, how long it took
+function lastCompact(a) {
+  const c = a.lastCompact, at = c && Date.parse(c.ts);
+  if (!at) return "";
+  const took = c.ms == null ? "" : c.ms < 60000 ? ` in ${Math.round(c.ms / 1000)}s` : ` in ${Math.floor(c.ms / 60000)}m ${Math.round(c.ms % 60000 / 1000)}s`;
+  const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
+  return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
+}
 const STANDING_ROLES = new Set(["lead", "review", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const a = S.agents.find(x => x.name === name), key = "agent:" + name;
   if (!a || !stay && !anchor.isConnected) return;
   if (menuOn(key) && !confirm && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
-  const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+  const st = stOf(a), ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+  const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until it is done
+  const compact = S.compacting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.compact)}Compacting…</div>`
+    : `<div class="mi" data-go="compact">${MENU_ICON.compact}Compact now</div>`;
   let power = "";
   if (STANDING_ROLES.has(a.role)) {
-    const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until the agent is up or gone
     power = S.starting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.start)}Starting…</div>`
       : S.halting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.stop)}Stopping…</div>`
       : !a.live ? `<div class="mi" data-go="start">${MENU_ICON.start}Start ${esc(name)}</div>`
@@ -3022,11 +3167,11 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
   }
   menuAt(anchor, key, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
-    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div></div>` +
+    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${lastCompact(a)}</div>` +
     (!a.live ? power :   // an agent that is not running has nothing to open
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
-      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` + (power ? `<div class="sep"></div>${power}` : "")), beside, stay);
+      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div><div class="sep"></div>${compact}${power}`), beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
   menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
@@ -3034,7 +3179,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     if (go === "ask") return agentMenu(anchor, name, beside, false, true);
     menuOff(true);
     if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
-    else if (go === "halt") post(`/api/agent/${encodeURIComponent(name)}/halt`);
+    else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
     else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : menuGo))(name);   // with a view open, Open shows the agent there
   });
 }
@@ -3053,7 +3198,7 @@ function menuSoon(el, wait) {
 let teamAsk = null;
 function teamButton() {
   const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
-  const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting")).map(a => a.name);
+  const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && (S.halting.includes("team") || S.nudgerPaused) && !(S.nudgerPaused && !working.length);
   const up = !starting && !stopping && !!lead?.live && !S.nudgerPaused;
   if (!up) { clearTimeout(teamAsk); teamAsk = null; }
@@ -3267,7 +3412,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)

@@ -6,8 +6,9 @@
 #   bash team/activity-hook.sh --self-test
 #
 # Writes "<state> <epoch>" to $ACTIVITY_DIR/<session id> (default ~/.local/state/<HARNESS_PROJECT>/activity),
-# where <state> is working, waiting or idle: a tool call or a prompt is working, a permission prompt or a
-# question to the person is waiting, a stop is idle, and a session's end removes its file. The publisher
+# where <state> is working, waiting, idle or compacting: a tool call or a prompt is working, a permission prompt or a
+# question to the person is waiting, a stop is idle, a compaction is compacting until the SessionStart that follows
+# it, and a session's end removes its file. The publisher
 # (team/statusline-publish.sh) reads it into the row's `activity` and `idle_s` (docs/context-publisher.md),
 # because a long tool call or a permission prompt writes nothing to the transcript, so the transcript
 # alone makes a busy or blocked agent look idle. Best effort: it never fails the hook it runs from.
@@ -21,6 +22,7 @@ state_of() {
   case "$1" in
     PreToolUse) [[ "$2" == AskUserQuestion ]] && printf 'waiting' || printf 'working' ;;
     PermissionRequest) printf 'waiting' ;;
+    PreCompact) printf 'compacting' ;;
     UserPromptSubmit|PostToolUse|PostToolUseFailure) printf 'working' ;;
     Stop|SessionStart) printf 'idle' ;;
     SessionEnd) printf 'gone' ;;
@@ -57,6 +59,7 @@ if selftest_is_flag "${1:-}"; then
   _t "a question to the person is waiting" waiting "$(state_of PreToolUse AskUserQuestion)"
   _t "a permission prompt is waiting" waiting "$(state_of PermissionRequest '')"
   _t "a stop is idle" idle "$(state_of Stop '')"
+  _t "a compaction is compacting" compacting "$(state_of PreCompact '')"
   _t "an unknown event is nothing" "" "$(state_of Notification '')"
   record "$d" PreToolUse '{"session_id":"s1","tool_name":"Bash"}' 100
   _t "the file carries the state and the time" "working 100" "$(cat "$d/s1")"
