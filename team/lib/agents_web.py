@@ -1061,8 +1061,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .seg b{padding:2px 9px;font-weight:500;font-size:11px;cursor:pointer;color:var(--mute)}
 .seg b.on{background:var(--on);color:var(--text)}
 #pagemode,#pagelanes{display:flex}
-#pagemode .seg,#pagelanes .seg{border-radius:999px;background:var(--soft)}
-#pagemode .seg b,#pagelanes .seg b{display:flex;align-items:center;padding:0 12px;font-size:12px}
+#pagelanes .fbtn,#pagemode .fbtn{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
+#pagemode .fbtn{color:var(--text)}
 #lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
 #lock:hover{opacity:1;background:var(--line2)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
@@ -1127,10 +1127,16 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 #detail .conv .it.folded{cursor:pointer}
 .lanes{margin-left:auto;flex:none}
 /* the maximise button docked in the head's top-right corner, so it stays there when a narrow head wraps */
-.card > .top:has(> .maxbtn){padding-right:38px}
-.card > .top > .maxbtn{position:absolute;top:11px;right:10px}
+.card > .top:has(> .maxbtn){padding-right:34px}   /* the maximise button, 10px in, and 2px before it */
+.card > .top > .maxbtn{position:absolute;top:10px;right:10px}
+.card > .top > .lanes{align-self:flex-start}   /* level with the maximise button whatever the line's height */
 .card .top{flex-wrap:wrap;row-gap:4px}
-.lanes b,.termseg b,.railseg b{padding:1px 5px;font-size:10px}
+.termseg b,.railseg b{padding:1px 5px;font-size:10px}
+/* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
+.fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer;font-weight:500}
+.fbtn svg{width:13px;height:13px;stroke-width:1.5}
+.fbtn:hover{background:var(--on);color:var(--text)}
+.fbtn.some{color:var(--text)}
 .it.peer .who,.it.sent .who,.it.said .who{background:var(--pc,#444);color:var(--ownerfg)}
 .it.sent .who::before{content:"→ "}
 .it.event .tx{color:var(--mute);font-style:italic}
@@ -1203,7 +1209,7 @@ table.md th{background:var(--line);font-weight:600}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
 .teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
 .teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:13.5px;font-weight:650}
-.teamlog .thead{position:relative;padding-right:40px}
+.teamlog .thead{position:relative;padding-right:34px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
 .teamlog .tfs{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto;font-size:10.5px;font-weight:600}
@@ -1226,7 +1232,6 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .thead > span:nth-child(2):has(.name){flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
 .teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
 .teamlog.combined .tfs{flex-basis:100%;margin-left:0}
-.teamlog .clanes b{padding:1px 5px;font-size:10px}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
@@ -1277,8 +1282,8 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .top + .row2{grid-column:4;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top > .lanes{grid-column:7;margin:0 0 0 4px}
-  .card.full > .top > .maxbtn{grid-column:8;margin:4px 10px 0 0;position:static}
+  .card.full > .top > .lanes{grid-column:7;align-self:start;margin:10px -8px 0 4px}
+  .card.full > .top > .maxbtn{grid-column:8;align-self:start;margin:10px 10px 0 0;position:static}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -1346,17 +1351,19 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--text) 9%,transparent)}
 .chr .sp{position:absolute;right:5px;bottom:5px;width:56px;height:16px}
 .chr .sp svg.spark{height:16px}
-/* a Characters tile's menu, beside the tile while the pointer rests on it or on a right-click: the agent, then ways to open it */
-#chmenu{position:fixed;z-index:60;width:236px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
+/* the page's menu: a Characters tile's (the agent, then ways to open it) or a filter button's (the lanes, ticked when shown) */
+#menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
   box-shadow:0 12px 32px #0007;font:12.5px var(--sans);color:var(--text);display:none}
-#chmenu.on{display:block}
-#chmenu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
-#chmenu .hd .name{display:inline-block;margin-bottom:4px}
-#chmenu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
-#chmenu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
-#chmenu .mi:hover{background:var(--on)}
-#chmenu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
-#chmenu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
+#menu.on{display:block}
+#menu[data-key^="tile:"]{width:236px}
+#menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+#menu .hd .name{display:inline-block;margin-bottom:4px}
+#menu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
+#menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+#menu .mi:hover{background:var(--on)}
+#menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
+#menu .mi svg.off{visibility:hidden}
+#menu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
 #detail .box.rail-top,#detail .box.rail-bottom{grid-template-columns:minmax(0,1fr)}
@@ -1468,7 +1475,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="counts"><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span></div>
 </header>
 <main id="main"></main>
-<div id="pop"></div><div id="chmenu"></div><div id="copied">Copied</div>
+<div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
@@ -1623,6 +1630,18 @@ function item(it, compact, agent, tag) {
 // Which lanes of an agent's conversation are shown - the owner's, the team's, automation's - each on or off, chosen
 // per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed.
 const LANES = [["owner", ""], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
+// The menus' icons, drawn in the text colour.
+const MENU_ICON = Object.fromEntries(Object.entries({
+  open: '<rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/>',
+  tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
+  window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
+  check: '<path d="M3 8.5 6.5 12 13 4.5"/>',
+  chev: '<path d="M4.5 6.5 8 10l3.5-3.5"/>',
+  filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+// A filter button: its icon (and, on the page's, its name), lit while something is left out; a click opens its menu.
+const filterBtn = (cls, key, on, all, list, label) => `<b class="${cls} fbtn${on.length < all.length ? " some" : ""}" data-menu="${esc(key)}" ` +
+  `title="${esc("Showing: " + (list.filter(([l]) => on.includes(l)).map(([l, t]) => t || S.owner).join(", ") || "nothing"))}">${MENU_ICON.filter}${label ? `<span>${label}</span>` : ""}</b>`;
 const LANE_TIP = {owner: "Your messages, and the agent's words to you", team: "Messages between this agent and the others",
   auto: "Tool calls, the nudger and other plugins, background tasks and commands"};
 const lanes = () => JSON.parse(localStorage.getItem("lanes") || "{}");
@@ -1638,11 +1657,7 @@ function toggleLane(name, lane) {
   m[name] = set;
   localStorage.setItem("lanes", JSON.stringify(m));
 }
-function laneSeg(name) {
-  const on = laneOf(name);
-  const tip = l => `Show or hide${name ? "" : " on every agent"}: ${LANE_TIP[l].replace(/^\w/, c => c.toLowerCase())}`;
-  return `<span class="seg lanes" data-name="${esc(name)}">${LANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc(tip(l))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
-}
+const laneSeg = name => filterBtn("lanes", "lanes:" + name, laneOf(name), ALL, LANES, name ? "" : "Filter").replace("<b ", `<b data-name="${esc(name)}" `);
 // A conversation as shown: the chosen lanes only (an open prompt and the working line always), with each run of automated events folded
 // into one line; in the agent view a folded run opens on a click.
 const openRuns = new Set();
@@ -1662,10 +1677,12 @@ function feedHtml(items, name, compact, on = laneOf(name)) {
   return out.length ? out.join("") : `<div class="empty">${on.length ? "nothing here lately" : "nothing shown"}</div>`;
 }
 function laneClicks(root) {
-  root.querySelectorAll(".lanes b").forEach(b => b.onclick = e => {
-    e.stopPropagation();
-    toggleLane(b.parentElement.dataset.name, b.dataset.lane);
-    draw(); if (open) { renderConv(); $("#dhead .lanes").outerHTML = laneSeg(open); laneClicks($("#dhead")); }
+  root.querySelectorAll(".lanes").forEach(b => {
+    const name = b.dataset.name;
+    filterButton(b, LANES, () => laneOf(name), l => `${LANE_TIP[l]}${name ? "" : ", on every agent"}`, l => {
+      toggleLane(name, l);
+      draw(); if (open) { renderConv(); $("#dhead .lanes").outerHTML = laneSeg(open); laneClicks($("#dhead")); }
+    });
   });
 }
 
@@ -1763,12 +1780,15 @@ function showPop(tx) {
 
 pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset.name; pop.classList.remove("on"); popFor = null; if (name) openDetail(name); };
 
-// A Grid / Tabs switch, for the page (no section) or for one section.
+// The page's view, a button naming it (with the custom layout's padlock) whose menu picks Grid, Tabs or Custom; and a
+// Grid / Tabs switch for one section.
+const VIEWS = [["grid", "Grid"], ["tabs", "Tabs"], ["custom", "Custom"]];
+const VIEW_TIP = {grid: "Every section side by side", tabs: "Every agent as one row of tabs, one at a time", custom: "Your own layout of panes"};
+const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${VIEWS.find(v => v[0] === mode)[1]}` +
+  `${mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}${MENU_ICON.chev}</b>`;
 function seg(mode, sec) {
-  const tip = {grid: sec ? `Every agent in ${sec} as a card` : "Every section side by side",
-    tabs: sec ? `${sec} as tabs, one agent at a time` : "Every agent as one row of tabs, one at a time",
-    custom: "Your own layout of panes"};
-  return `<span class="seg mode"${sec ? ` data-sec="${esc(sec)}"` : ""}>${(sec ? ["grid", "tabs"] : ["grid", "tabs", "custom"]).map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}${m === "custom" && mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`).join("")}</span>`;
+  const tip = {grid: `Every agent in ${sec} as a card`, tabs: `${sec} as tabs, one agent at a time`};
+  return `<span class="seg mode" data-sec="${esc(sec)}">${["grid", "tabs"].map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}</b>`).join("")}</span>`;
 }
 
 // Text being selected is left alone: redrawing it would drop the selection's start, so while the mouse is down or a
@@ -1862,7 +1882,8 @@ function draw() {
   const saved = JSON.parse(localStorage.getItem("cols") || "{}");
   main.style.gridTemplateColumns = pageMode !== "grid" ? "minmax(0,1fr)"
     : tabs.map((t, i) => `minmax(0,${saved[t.name] ?? (t.name === "Lead" ? 1.5 : shares[i].share)}fr)`).join(" ");
-  $("#pagemode").innerHTML = seg(pageMode);
+  $("#pagemode").innerHTML = viewButton(pageMode);
+  filterButton($("#pagemode .viewbtn"), VIEWS, () => [pageMode], m => VIEW_TIP[m], m => { menuOff(true); localStorage.setItem("page", m); draw(); }, "View");
   if (pageMode === "custom") $("#lock").onclick = e => { e.stopPropagation(); const l = layout(); l.locked = !l.locked; saveLayout(l); draw(); };
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
   const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart] : null;
@@ -1899,10 +1920,7 @@ function draw() {
   patch(main, html);
   toPaneEnds(ends);
   dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
-  document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => {
-    const sec = b.parentElement.dataset.sec;
-    localStorage.setItem(sec ? "mode:" + sec : "page", b.dataset.mode); draw();
-  });
+  document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => { localStorage.setItem("mode:" + b.parentElement.dataset.sec, b.dataset.mode); draw(); });
   // Picking a tab puts the cursor in that agent's message box, ready to type.
   document.querySelectorAll(".tabbar button").forEach(b => b.onclick = () => {
     const sec = b.parentElement.dataset.sec, name = CSS.escape(b.dataset.tab);
@@ -2108,7 +2126,7 @@ function combinedHtml(path, n, full, big) {
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const chips = roleList().map(r => `<em class="cf${(n.roles || []).includes(r.role) ? " on" : ""}" style="--c:${r.colour}" data-v="${esc(r.role)}">${esc(r.name)}</em>`).join("");
-  const seg = `<span class="seg clanes">${CLANES.map(([l, t]) => `<b data-lane="${l}" class="${on.includes(l) ? "on" : ""}" title="${esc("Show or hide: " + CLANE_TIP[l].replace(/^\w/, c => c.toLowerCase()))}">${esc(t || S.owner)}</b>`).join("")}</span>`;
+  const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : `<span class="tfs">${chips}</span>`}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}</div>`;
 }
@@ -2152,11 +2170,14 @@ function customClicks() {
     const n = nodeAt(l.root, el.closest(".pane").dataset.path), rs = new Set(n.roles || []);
     rs.has(el.dataset.v) ? rs.delete(el.dataset.v) : rs.add(el.dataset.v); n.roles = [...rs];
   }); setTimeout(load); });
-  main.querySelectorAll(".teamlog .clanes b").forEach(el => el.onclick = () => change(l => {
-    const n = nodeAt(l.root, el.closest(".pane").dataset.path), on = clanesOf(n);
-    n.clanes = on.includes(el.dataset.lane) ? on.filter(x => x !== el.dataset.lane) : [...on, el.dataset.lane];
-    delete n.lanes;
-  }));
+  main.querySelectorAll(".teamlog .clanes").forEach(el => {
+    const path = el.closest(".pane").dataset.path;
+    filterButton(el, CLANES, () => clanesOf(nodeAt(layout().root, path)), l => CLANE_TIP[l], lane => change(l => {
+      const n = nodeAt(l.root, path), on = clanesOf(n);
+      n.clanes = on.includes(lane) ? on.filter(x => x !== lane) : [...on, lane];
+      delete n.lanes;
+    }));
+  });
   main.querySelectorAll(".teamlog .tf").forEach(el => el.onclick = () => change(l => {
     const n = nodeAt(l.root, el.closest(".pane").dataset.path), hide = new Set(n.hide || []);
     hide.has(el.dataset.v) ? hide.delete(el.dataset.v) : hide.add(el.dataset.v); n.hide = [...hide];
@@ -2658,46 +2679,72 @@ const AGENT_AT = "#main .card[data-name], .mini[data-name], .chr[data-name], .te
 function agentAt(e) {
   const el = e.target.closest?.(AGENT_AT);
   const name = el && (el.dataset.name || el.dataset.agent || el.textContent);
-  return S && S.agents.some(a => a.name === name) && !e.target.closest("a, textarea, button, .seg") ? name : null;
+  return S && S.agents.some(a => a.name === name) && !e.target.closest("a, textarea, button, .seg, .fbtn") ? name : null;
 }
 const inNewTab = name => window.open("/?only#" + encodeURIComponent(name), "_blank", "noopener");
 const inWindow = name => window.open("/?only#" + encodeURIComponent(name), "_blank", "noopener,popup,width=960,height=1000");
-// The Characters tiles' menu: who the agent is and what it is doing, then Open (as a click on the tile), Open in a new
-// tab and Open in a new window. It shows beside the tile after a moment's rest or at once on a right-click, and goes
-// when the pointer has left both.
-const chmenu = $("#chmenu");
-const MENU_ICON = Object.fromEntries(Object.entries({
-  open: '<rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/>',
-  tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
-  window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
-}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+// The page's menu, one at a time, kept at its anchor (data-menu names it, so a click on the anchor of the open menu
+// closes it): a Characters tile's beside the tile, after a moment's rest or at once on a right-click, going when the
+// pointer has left both; a filter button's under the button on a click, going on a click elsewhere. Esc closes either.
+const menu = $("#menu");
 let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, as the custom layout's own click on a tile
+function menuAt(anchor, key, html, beside) {
+  menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.classList.add("on");
+  const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
+  const left = beside ? (r.right + 6 + w <= innerWidth ? r.right + 6 : r.left - 6 - w) : Math.min(r.right - w, innerWidth - w - 6);
+  const top = beside ? r.top : r.bottom + 4 + h <= innerHeight ? r.bottom + 4 : r.top - 4 - h;
+  menu.style.left = Math.max(6, left) + "px"; menu.style.top = Math.max(6, Math.min(top, innerHeight - h - 6)) + "px";
+}
+const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
+function menuOff(now) {
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuHide = setTimeout(() => { menu.classList.remove("on"); delete menu.dataset.key; delete menu.dataset.rested; }, now ? 0 : 200);
+}
+menu.onmouseenter = () => clearTimeout(menuHide);
+menu.onmouseleave = () => { if (menu.dataset.key?.startsWith("tile:") || menu.dataset.rested) menuOff(); };
+addEventListener("keydown", e => { if (e.key === "Escape") menuOff(true); });
+addEventListener("mousedown", e => {
+  if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
+}, true);
+// A Characters tile's: who the agent is and what it is doing, then Open (as a click on the tile), Open in a new tab and
+// Open in a new window.
 function menuSoon(tile, wait) {
   clearTimeout(menuShow); clearTimeout(menuHide);
   menuShow = setTimeout(() => {
     const a = S.agents.find(x => x.name === tile.dataset.name); if (!a || !tile.isConnected) return;
     const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
-    chmenu.innerHTML = `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+    menuAt(tile, "tile:" + a.name, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
       `<div>${STATE[st] || esc(st)} · ${ago(a.held)}${ctx}</div></div>` +
       `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>` +
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
-      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`;
-    chmenu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
+      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`, true);
+    menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
       menuOff(true); ({tab: inNewTab, window: inWindow}[mi.dataset.go] || menuGo)(a.name);
     });
-    chmenu.classList.add("on");
-    const r = tile.getBoundingClientRect(), w = chmenu.offsetWidth, h = chmenu.offsetHeight;
-    chmenu.style.left = (r.right + 6 + w <= innerWidth ? r.right + 6 : Math.max(6, r.left - 6 - w)) + "px";
-    chmenu.style.top = Math.max(6, Math.min(r.top, innerHeight - h - 6)) + "px";
   }, wait);
 }
-function menuOff(now) {
-  clearTimeout(menuShow); clearTimeout(menuHide);
-  menuHide = setTimeout(() => chmenu.classList.remove("on"), now ? 0 : 200);
+// A filter button's: each lane, ticked while it is shown; a click shows or hides it and leaves the menu open. It opens
+// after a moment's rest on the button, going again when the pointer has left both, or at once on a click, staying
+// until a click elsewhere; a click on the button while it shows keeps a rested-on menu, else closes it.
+function filterButton(btn, list, on, tip, flip, head = "Show") {
+  const open = rested => filterMenu(btn, list, on, tip, flip, rested, head);
+  btn.onclick = e => { e.stopPropagation(); clearTimeout(menuShow); open(false); };
+  btn.onmouseenter = () => {
+    clearTimeout(menuHide); if (menuOn(btn.dataset.menu)) return;
+    clearTimeout(menuShow); menuShow = setTimeout(() => open(true), 350);
+  };
+  btn.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
 }
-chmenu.onmouseenter = () => clearTimeout(menuHide);
-chmenu.onmouseleave = () => menuOff();
-addEventListener("keydown", e => { if (e.key === "Escape") menuOff(true); });
+function filterMenu(btn, list, on, tip, flip, rested, head) {
+  const key = btn.dataset.menu;
+  if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
+  const ticks = () => menu.querySelectorAll(".mi").forEach(mi => mi.querySelector("svg").classList.toggle("off", !on().includes(mi.dataset.lane)));
+  menuAt(btn, key, `<div class="hd"><div>${head}</div></div>` + list.map(([l, t]) =>
+    `<div class="mi" data-lane="${l}" title="${esc(tip(l))}">${MENU_ICON.check}${esc(t || S.owner)}</div>`).join(""), false);
+  ticks();
+  if (rested) menu.dataset.rested = "1";
+  menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => { flip(mi.dataset.lane); ticks(); });
+}
 addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("auxclick", e => { const name = e.button === 1 && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("mousedown", e => { if (e.button === 1 && agentAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
