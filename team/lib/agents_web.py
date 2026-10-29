@@ -12,6 +12,7 @@
   POST /api/team/start       team/team-start.sh, then each agent the page stopped is compacted once it is up, and the
                              delivery lead is told the team is back up to start the day
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
+  POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
   POST /api/agent/NAME/start team/team-start.sh --only NAME, for an agent outside the developers and testers,
                              compacted once it is up if the page stopped it
   POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
@@ -62,6 +63,7 @@ BOARD_EVERY = 60
 TEAM_START_SH = os.environ.get("TEAM_START") or os.path.join(ROOT, "team/team-start.sh")   # starts the team, or named agents
 TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-paused.sh")   # exits 0 once it is wound down
 TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
+NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
 STANDING = {"lead", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
@@ -555,13 +557,14 @@ def team_up():
 def start_team(lead, names):
     """team/team-start.sh for the named agents (the whole team for None), then, once the lead is up and ready
     for a message, the lead is told to start the day. The record of who was running is used up."""
+    started = names or [r["name"] for r in roster()]
     try:
         restore(*[a for n in names for a in ("--only", n)]) if names else restore()
         try:
             os.remove(TEAM_UP)
         except OSError:
             pass
-        for n in names or [r["name"] for r in roster()]:
+        for n in started:
             if n != lead:
                 threading.Thread(target=compact_when_up, args=(n,), daemon=True).start()
         if compact_when_up(lead):
@@ -569,7 +572,7 @@ def start_team(lead, names):
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
-        _starting.difference_update(["team", *(names or [])])
+        _starting.difference_update(["team", *started])
 
 
 def start_one(name):
@@ -1019,7 +1022,7 @@ def state():
         "disk": disk(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
-        "nudgerPaused": paused, "starting": sorted(_starting), "halting": sorted(_halting),
+        "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
 
@@ -1138,7 +1141,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop|start|halt|compact)", self.path)
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
-        if not m and not team and self.path != "/api/paste":
+        nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
+        if not m and not team and not nudger and self.path != "/api/paste":
             return self.send(404, b"not found\n", "text/plain")
         here = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
         origin = self.headers.get("Origin")
@@ -1147,6 +1151,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, b"only the team page can send\n", "text/plain")
         if team:
             return self.team(team.group(1))
+        if nudger:
+            return self.nudger(nudger.group(1) == "pause")
         if not m:
             return self.paste()
         if m.group(2) == "stop":
@@ -1210,6 +1216,17 @@ class Handler(BaseHTTPRequestHandler):
         _starting.update(["team", *(names or [r["name"] for r in roster()])])
         threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
         self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
+
+    def nudger(self, pause):
+        """Pauses the waiting-agents nudger (its pause file) or resumes it."""
+        if pause:
+            open(NUDGER_PAUSED, "a").close()
+        else:
+            try:
+                os.remove(NUDGER_PAUSED)
+            except FileNotFoundError:
+                pass
+        self.send(200, json.dumps({"nudgerPaused": pause}).encode(), "application/json")
 
     def compact(self, name):
         """Compacts a running agent's conversation once it is not working: /compact typed into its pane."""
@@ -1365,9 +1382,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #teamctl{display:flex}
 #teamctl .fbtn{color:var(--text);gap:6px}
 #teamctl .fbtn svg{width:16px;height:16px;stroke-width:1.7}
-#teamctl .fbtn.paused{color:var(--amber)}
+#teamctl{gap:6px}
+#teamctl .fbtn.paused{color:var(--amber);border-color:var(--amber)}
 #teamctl .fbtn.down{color:var(--mute)}
 #teamctl .fbtn.warn{color:var(--red);border-color:var(--red)}
+#teamctl .fbtn.starting{color:var(--green)}
+#teamctl .fbtn.stopping{color:var(--red)}
+#teamctl .fbtn:is(.starting,.stopping) svg,#teamctl .nudger.paused svg{animation:iconpulse 1.4s ease-in-out infinite}
+@keyframes iconpulse{0%,100%{opacity:.45;filter:none}50%{opacity:1;filter:drop-shadow(0 0 4px currentColor)}}
 #teamctl .fbtn:not(:has(span)){padding:0 9px}
 #pagelanes .fbtn,#pagemode .fbtn,#help,#teamctl .fbtn{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
 #pagemode .fbtn{color:var(--text)}
@@ -1973,6 +1995,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   close: '<path d="M4 4l8 8M12 4l-8 8"/>',
   start: '<path d="M5 3.2v9.6L12.8 8z"/>',
   stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>',
+  pause: '<path d="M5.5 3v10M10.5 3v10"/>',
   grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
   tabs: '<path d="M2 6.5h12v7H2zM2 6.5V3h5.5v3.5"/>',
   custom: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M7 2.5v11M7 8h7"/>',
@@ -3188,32 +3211,37 @@ function menuSoon(el, wait) {
   clearTimeout(menuShow); clearTimeout(menuHide);
   menuShow = setTimeout(() => agentMenu(el, el.dataset.name, true, wait > 0), wait);
 }
-// The team's: Start the team (restore-claude.sh, then the delivery lead starts the day) and Stop the team, which asks
-// again first and then asks the lead to wind the team down, as the owner does before a shutdown.
-// The team's button, an icon. Up (the lead running, the nudger not paused): the power icon, and a click asks the lead
-// to wind the team down after a second click to confirm. Stopping (from that click, or once the nudger is paused, until
-// it is paused and no running agent is busy or waiting): a pulsing square. Down: the play icon, amber while wound down
-// and faint while nobody runs, and a click starts those running when the page last stopped the team (everyone with a
-// Session when there is no record). Starting: a pulsing play icon.
+// The team's button, an icon. Up (the lead running): the power icon, and a click asks the lead to wind the team down
+// after a second click to confirm. Stopping (from that click until team/team-paused.sh says so and no running agent is
+// busy or waiting): a square pulsing red. Down: the play icon, amber while wound down (stopped from the page, paused
+// and nobody working) and faint while nobody runs, and a click starts those running when the page last stopped the
+// team (everyone when there is no record). Starting: the play icon pulsing green.
+// Beside it, the nudger's own button: the pause icon, amber, pulsing and saying Paused while the nudger is paused; a
+// click pauses or resumes it.
 let teamAsk = null;
 function teamButton() {
   const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
   const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
-  const stopping = !starting && (S.halting.includes("team") || S.nudgerPaused) && !(S.nudgerPaused && !working.length);
-  const up = !starting && !stopping && !!lead?.live && !S.nudgerPaused;
+  const stopping = !starting && S.halting.includes("team");
+  const woundDown = !starting && !stopping && !!S.teamUp && S.teamPaused && !working.length;
+  const up = !starting && !stopping && !woundDown && !!lead?.live;
   if (!up) { clearTimeout(teamAsk); teamAsk = null; }
-  const running = S.agents.some(a => a.live), cls = teamAsk ? " warn" : !running ? " down" : S.nudgerPaused && !stopping ? " paused" : "";
+  const running = S.agents.some(a => a.live), cls = starting ? " starting" : stopping ? " stopping" : teamAsk ? " warn"
+    : !running ? " down" : woundDown ? " paused" : "";
   const text = teamAsk ? "Stop the team?" : "", tip = starting ? "Starting the team"
     : stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
     : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
     : up ? `Stop the team: ask ${lead.name} to wind everyone down`
     : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team"}`;
-  const key = [text, cls, up, starting, stopping, tip].join("|");
+  const key = [text, cls, up, starting, stopping, tip, S.nudgerPaused].join("|");
   if ($("#teamctl").dataset.text === key) return;
   const icon = up ? MENU_ICON.power : stopping ? MENU_ICON.stop : MENU_ICON.start;
-  $("#teamctl").innerHTML = `<b class="fbtn${cls}${starting || stopping ? " switching" : ""}" title="${esc(tip)}">${icon}${text ? `<span>${text}</span>` : ""}</b>`;
+  const nudger = S.nudgerPaused ? ["fbtn nudger paused", "The nudger is paused: click to resume it"] : ["fbtn nudger", "Pause the nudger"];
+  $("#teamctl").innerHTML = `<b class="fbtn team${cls}" title="${esc(tip)}">${icon}${text ? `<span>${text}</span>` : ""}</b>` +
+    `<b class="${nudger[0]}" title="${nudger[1]}">${MENU_ICON.pause}${S.nudgerPaused ? "<span>Paused</span>" : ""}</b>`;
   $("#teamctl").dataset.text = key;
-  $("#teamctl .fbtn").onclick = () => {
+  $("#teamctl .nudger").onclick = () => post(S.nudgerPaused ? "/api/nudger/resume" : "/api/nudger/pause");
+  $("#teamctl .team").onclick = () => {
     if (starting || stopping) return;
     if (!up) return post("/api/team/start");
     if (!teamAsk) { teamAsk = setTimeout(() => { teamAsk = null; teamButton(); }, 4000); return teamButton(); }
@@ -3412,7 +3440,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
