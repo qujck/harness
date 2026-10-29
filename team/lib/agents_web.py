@@ -2244,15 +2244,15 @@ function draw() {
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
   // The benched developers and testers on one line in the header's free space, so the header never changes height;
-  // those that do not fit are counted in a "+N" that names them. Its filter button shows them by name or as small
-  // Characters tiles (their portrait, else their role's shadow); until one is picked, tiles while a Characters pane is
-  // on the page.
-  const style = benchStyle();
-  $("#bench").innerHTML = S.bench.length ? `<span>bench${filterBtn("benchsel", "bench", [style], ["name", "card"], BENCH_STYLES, "")}</span><span class="rrow">${S.bench.map(b => {
+  // those that do not fit are counted in a "+N" that names them. Its filter button, there only while a custom layout is
+  // unlocked, shows them by name or as small Characters tiles (their portrait, else their role's shadow); until one is
+  // picked, tiles while a Characters pane is on the page.
+  const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !layout().locked;
+  $("#bench").innerHTML = S.bench.length ? `<span>bench${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "card"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
     const tip = `title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench" data-name="${esc(b.name)}"`;
     return style === "card" ? `<span class="face" style="--c:${b.colour}" ${tip}>${b.portrait ? `<img src="${esc(b.portrait)}" alt="${esc(b.name)}">` : shadow(b)}</span>`
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
-  if (S.bench.length) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "card" ? "portrait" : "name"}`,
+  if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "card" ? "portrait" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
 
