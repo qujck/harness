@@ -15,7 +15,8 @@
 # WHAT IS COUNTED. Every assistant message in a session's transcript (~/.claude/projects/*/<session>.jsonl)
 # carries the request's usage: input, output, cache written, cache read. A transcript logs ONE LINE PER
 # CONTENT BLOCK and each repeats the same usage, so lines are deduplicated by message.id first — without that
-# the figures read about 2.2x high (Rowan, 2026-10-09). "Tokens in" is input + cache written + cache read:
+# the figures read about 2.2x high (Rowan, 2026-10-09); a line with NO id is counted as it comes. A subagent's
+# transcript sits under <session>/subagents/ and is counted as its parent's spend. "Tokens in" is input + cache written + cache read:
 # what the model read for the call, and so what the context size costs on EVERY call. Session → agent comes
 # from the context rows (docs/context-publisher.md); a session with no row prints as `?` and its id.
 #
@@ -24,7 +25,8 @@
 # call count and context size, the two levers an agent actually holds.
 #
 # Reads CONTEXT_DIR (default ~/.local/state/<project>/context) and TRANSCRIPTS_DIR (default
-# ~/.claude/projects). Exit: 0 printed · 2 usage, no python3, or no transcripts to read.
+# ~/.claude/projects). The reset is found in local time with `date`, so a reset that straddles a DST change
+# lands an hour off that week; the box runs UTC. Exit: 0 printed · 2 usage, no python3, or no transcripts.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../scripts/lib/selftest-flag.sh
@@ -59,13 +61,15 @@ for f in glob.glob(os.path.join(ctx_dir, '*.json')):
     except Exception:
         pass
 agg = {}
-files = [p for p in glob.glob(os.path.join(tr_dir, '*', '*.jsonl')) if os.path.getmtime(p) >= since]
+files = [(p, os.path.basename(p)[:-6]) for p in glob.glob(os.path.join(tr_dir, '*', '*.jsonl'))]
+files += [(p, os.path.basename(os.path.dirname(os.path.dirname(p)))) for p in glob.glob(os.path.join(tr_dir, '*', '*', 'subagents', '*.jsonl'))]
+files = [(p, sid) for p, sid in files if os.path.getmtime(p) >= since]
 if not files:
     print("agents-spend: no transcript written since %s under %s" % (datetime.datetime.fromtimestamp(since).strftime('%a %H:%M'), tr_dir), file=sys.stderr)
     sys.exit(2)
-for p in files:
-    sid = os.path.basename(p)[:-6]
-    seen = set()
+seen_by = collections.defaultdict(set)
+for p, sid in files:
+    seen = seen_by[sid]
     with open(p, errors='replace') as fh:
         for line in fh:
             try:
@@ -81,9 +85,10 @@ for p in files:
                 t = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
             except Exception:
                 continue
-            if t < since or m.get('id') in seen:
+            if t < since or (m.get('id') and m.get('id') in seen):
                 continue
-            seen.add(m.get('id'))
+            if m.get('id'):
+                seen.add(m.get('id'))
             a = agg.setdefault(sid, collections.Counter())
             a['calls'] += 1
             a['input'] += u.get('input_tokens', 0) or 0
@@ -129,16 +134,20 @@ self_test() {
   { line 2026-10-29T06:00:00Z m1 10 100 1000 200000; line 2026-10-29T06:00:00Z m1 10 100 1000 200000   # the same message, twice (two content blocks)
     line 2026-10-29T06:10:00Z m2 10 100 0 230000; line 2026-10-29T04:00:00Z m0 10 9999 0 999999         # m0 is before the reset
     printf 'not json\n{"type":"user","timestamp":"2026-10-29T06:11:00Z","message":{"content":"hi"}}\n'; } > "$T/tr/proj/aaaa-1.jsonl"
-  line 2026-10-29T06:05:00Z c1 5 50 0 150000 > "$T/tr/proj/bbbb-2.jsonl"
+  mkdir -p "$T/tr/proj/aaaa-1/subagents"
+  line 2026-10-29T06:12:00Z s1 10 100 0 100000 > "$T/tr/proj/aaaa-1/subagents/agent-1.jsonl"   # Ed's subagent: Ed's spend
+  { line 2026-10-29T06:05:00Z c1 5 50 0 150000
+    line 2026-10-29T06:07:00Z null 5 50 0 10000 | sed 's/"id":"null",//'; line 2026-10-29T06:08:00Z null 5 50 0 10000 | sed 's/"id":"null",//'; } > "$T/tr/proj/bbbb-2.jsonl"   # two lines with no id: two calls
   line 2026-10-29T06:06:00Z z1 5 50 0 50000 > "$T/tr/proj/cccc-3.jsonl"   # no context row: unknown agent
   local since out rc; since="$(date -d '2026-10-29T05:00:00Z' +%s)"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/tr" spend "$since" table 2>&1)"; rc=$?
-  check "two blocks of one message count once, a call before the reset not at all" 0 "Ed              2     231k       215k       0k      0.4 M" "$out" "$rc"
-  check "the header totals the window" 0 "3 sessions, 4 calls, 0.6 M tokens in" "$out" "$rc"
+  check "two blocks of one message count once, a call before the reset not at all, a subagent's call as its parent's" 0 "Ed              3     231k       177k       0k      0.5 M" "$out" "$rc"
+  check "two lines with no id are two calls" 0 "Carl            3     150k        56k       0k      0.2 M" "$out" "$rc"
+  check "the header totals the window" 0 "3 sessions, 7 calls, 0.8 M tokens in" "$out" "$rc"
   check "a session with no context row prints as ? and its id" 0 "?cccc-3" "$out" "$rc"
   check "the heaviest agent is first" 0 "$(printf 'SHARE\nEd ')" "$out" "$rc"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/tr" spend "$since" json 2>&1)"; rc=$?
-  check "json carries the same rows" 0 '"agent": "Carl", "session": "bbbb-2", "calls": 1, "ctx_now": 150000, "tokens_in": 150005' "$out" "$rc"
+  check "json carries the same rows" 0 '"agent": "Carl", "session": "bbbb-2", "calls": 3, "ctx_now": 150000, "tokens_in": 170015' "$out" "$rc"
   out="$(CONTEXT_DIR="$T/ctx" TRANSCRIPTS_DIR="$T/none" spend "$since" table 2>&1)"; rc=$?
   check "no transcripts is could-not-look, not an empty table" 2 "no transcript written since" "$out" "$rc"
   out="$(AGENT_WEEK_RESET='Thu 05:00' NOW_S="$(date -d '2026-10-29T06:22:00' +%s)" reset_epoch)"
