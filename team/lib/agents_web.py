@@ -1339,7 +1339,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #dbottom:hover,.card .newest:hover,.teamlog .newest:hover{filter:brightness(1.15)}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
-.sayrow{flex:none;display:flex;align-items:flex-end;gap:6px;margin:0 10px 10px}
+.sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 10px 10px}
 .say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);
   color:var(--text);font:12.5px/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
 .say::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
@@ -1363,6 +1363,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   font:12px/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
 .att .file b{line-height:normal}
 #detail .say{padding:9px 12px;font-size:13.5px;max-height:35vh}
+/* where a card or the agent's own view is tall enough, its box starts three lines tall */
+.card,#detail .left{container:sayroom/size}
+@container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);cursor:pointer}
 .stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:2px;background:var(--text)}
 .stop:hover{border-color:var(--red)}
@@ -2301,8 +2304,15 @@ function syncStop() {
   const a = S.agents.find(x => x.name === open) || {};
   $("#dstop").style.display = a.status === "busy" ? "" : "none"; $("#dstop").disabled = false;
 }
+// Esc twice in quick succession in a box with text in it clears the box (and its draft); there, Esc never closes the view.
+let escAt = 0;
 function keys(e, box, name) {
   if (e.ctrlKey && e.key.toLowerCase() === "u") { e.preventDefault(); pick(name, box); return; }
+  if (e.key === "Escape" && box.value) {
+    e.stopPropagation();
+    if (Date.now() - escAt < 600) { box.value = ""; grow(box); keep(box); escAt = 0; } else escAt = Date.now();
+    return;
+  }
   if (e.key !== "Enter") return;
   e.preventDefault();
   if (e.ctrlKey) { box.setRangeText("\n", box.selectionStart, box.selectionEnd, "end"); grow(box); }
@@ -2320,9 +2330,21 @@ async function say(name, input) {
     if (!r.ok) throw new Error(await r.text());
     atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name);
     flash(box(), "sent");
-    setTimeout(load, 1500); if (open === name) setTimeout(() => refreshDetail(false), 1500);
+    chase(name, text);
   } catch (e) { const b = box(); b.value = text; grow(b); keep(b); flash(b, "failed"); b.title = String(e.message || e); }
   input.disabled = false; box().focus();
+}
+// After a message is sent, that agent alone is asked for its conversation every half second until the message shows
+// in it (as the owner's turn, or queued), for up to ten seconds; the page and its view then refresh at once rather
+// than at the next poll.
+async function chase(name, text) {
+  const want = text.slice(0, 80);
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const d = await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"}).then(r => r.json()).catch(() => null);
+    if (d && d.feed.some(it => ["owner", "pending"].includes(it.kind) && (it.text || "").includes(want))) break;
+  }
+  load(); if (open === name) refreshDetail(false);
 }
 // An image pasted into a message box is kept by the server as a file and waits above the box, removable, until the
 // message goes (kept in this browser across reloads); it is sent as an attachment, as if dragged into the agent's terminal.
