@@ -1691,9 +1691,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* the agent's name, on the chest of its portrait or shadow */
 .chr .nm{position:absolute;left:50%;top:68px;transform:translateX(-50%);max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   padding:1px 5px;border-radius:5px;border:1px solid var(--c);font:700 10px/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
-/* clear of a clipboard or pen on the right */
+/* clear of a clipboard on the right */
 .chr .nm.left{left:41px;max-width:50px}
-.chr .nm.left.pen{left:45px;max-width:60px}   /* the pen is further right than a clipboard */
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
 .chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
@@ -2792,8 +2791,8 @@ function shadow(a) {
   return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="18" fill="${c}" fill-opacity=".1"/>` +
     `<g fill="${c}" fill-opacity=".38"><circle cx="50" cy="44" r="17"/><path d="M14 100 C14 77 30 66 50 66 C70 66 86 77 86 100 Z"/></g>${prop}</svg>`;
 }
-// Shadows with a prop on the right (a clipboard, a pen) have the name to its left.
-const LEFT_BADGE = new Set(["tester", "hot", "review"]);
+// Shadows with a clipboard on the right have the name to its left.
+const LEFT_BADGE = new Set(["tester", "hot"]);
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
@@ -2801,7 +2800,7 @@ function tiles(them) {
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      `<span class="nm${a.portrait || !LEFT_BADGE.has(a.role) ? "" : a.role === "review" ? " left pen" : " left"}">${esc(a.name)}</span>` +
+      `<span class="nm${a.portrait || !LEFT_BADGE.has(a.role) ? "" : " left"}">${esc(a.name)}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
