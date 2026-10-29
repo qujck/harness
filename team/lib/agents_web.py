@@ -9,11 +9,17 @@
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
+  POST /api/team/start       team/team-start.sh, then the delivery lead is told the team is back up to start the day
+  POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
+  POST /api/agent/NAME/start team/team-start.sh --only NAME, for an agent outside the developers and testers
+  POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
 
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
 (docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
 agent's pane (the session agent-spawn.sh starts, <project>-<name>) and the tail of each agent's transcript for its
-conversation. What it does is type into an agent's pane, as agent-spawn.sh types a first prompt. Only this page can
+conversation. What it does is type into an agent's pane, as agent-spawn.sh types a first prompt, and start or stop
+the team or one of its standing agents (team/team-start.sh to start; a message, and then closing its pane, to
+stop; team/team-paused.sh says when a wound-down team has stopped). Only this page can
 send: the request must be addressed to this host and port, carry the X-Team-Say header (which another site's page
 cannot send without a CORS preflight this server never answers), and, where the browser names an Origin, come from
 here. It listens on 127.0.0.1 only: nothing off this machine can reach it.
@@ -49,6 +55,11 @@ CACHE = os.environ.get("AGENTS_DASH_CACHE") or os.path.join(STATE_DIR, "dash")
 BURN = os.path.join(CACHE, "burn.json")
 BOARD = os.path.join(CACHE, "board")   # the claims board as the panel caches it: id|area|claimed_by
 BOARD_EVERY = 60
+TEAM_START_SH = os.environ.get("TEAM_START") or os.path.join(ROOT, "team/team-start.sh")   # starts the team, or named agents
+TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-paused.sh")   # exits 0 once it is wound down
+TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
+TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
+STANDING = {"lead", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
 TAIL_MAX = 64_000_000     # how far back it is read, four times further each time, while turns are short
@@ -444,6 +455,100 @@ def type_into(name, text, images=()):
     return ok
 
 
+# ── starting and stopping ─────────────────────────────────────────────────────
+TEAM_STOP = ("Wind down the team for shutdown: ask everyone to stop at a clean point, mark the team paused (as "
+             "team/team-paused.sh reads it), and tell me once all have stopped.")
+TEAM_START = "The team is back up: start the day."
+AGENT_STOP = ("Finish what you're on at a clean point, bring your durable record up to date, and stop: "
+              "the owner is stopping you from the team page, and your pane closes once you are idle.")
+_starting, _halting = set(), set()   # "team" or agent names being started; "team" or agent names being stopped
+_team_stop = {"at": 0}   # when the page last asked the lead to wind the team down
+
+
+def wait_for(test, limit, step=2):
+    """Polls test() until it is true or limit seconds pass; returns whether it came true."""
+    end = time.time() + limit
+    while time.time() < end:
+        if test():
+            return True
+        time.sleep(step)
+    return test()
+
+
+def restore(*args):
+    """team/team-start.sh through the owner's interactive login shell, so the agents it starts get the PATH and
+    settings a terminal gives them, not this service's; its output is kept in TEAM_START_LOG."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(TEAM_START_LOG, "a") as log:
+        log.write(f"\n{time.strftime('%Y-%m-%d %H:%M:%S')} team-start.sh {' '.join(args)}\n")
+        log.flush()
+        subprocess.run(["bash", "-lic", 'exec bash "$0" "$@"', TEAM_START_SH, *args], stdin=subprocess.DEVNULL,
+                       stdout=log, stderr=subprocess.STDOUT, timeout=300)
+
+
+def team_paused():
+    """Whether team/team-paused.sh says the team is wound down."""
+    try:
+        return subprocess.run(["bash", TEAM_PAUSED_SH], stdin=subprocess.DEVNULL, capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def team_up():
+    """Who the next start brings back: those running when the page last stopped the team who are still on the roster,
+    the lead always among them; None with no record, when the whole team starts."""
+    try:
+        with open(TEAM_UP) as f:
+            names = {n.strip() for n in f if n.strip()}
+    except OSError:
+        return None
+    return [r["name"] for r in roster() if r["name"] in names or role_of(r["role"])[0] == "lead"]
+
+
+def start_team(lead, names):
+    """team/team-start.sh for the named agents (the whole team for None), then, once the lead is up and ready
+    for a message, the lead is told to start the day. The record of who was running is used up."""
+    try:
+        restore(*[a for n in names for a in ("--only", n)]) if names else restore()
+        try:
+            os.remove(TEAM_UP)
+        except OSError:
+            pass
+        if wait_for(lambda: (live_sessions().get(lead) or {}).get("status") == "idle" and lead in panes(), 180):
+            type_into(lead, TEAM_START)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        _starting.difference_update(["team", *(names or [])])
+
+
+def start_one(name):
+    try:
+        restore("--only", name)
+        wait_for(lambda: name in live_sessions(), 120)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        _starting.discard(name)
+
+
+def halt_when_idle(name):
+    """After the stop message: waits for the agent to take it up and finish (up to five minutes), then closes its pane,
+    which ends its tmux session when it is the only one there."""
+    try:
+        status = lambda: (live_sessions().get(name) or {}).get("status")
+        wait_for(lambda: status() == "busy", 30, 1)
+        wait_for(lambda: status() != "busy", 300)
+        where = panes().get(name)
+        if where:
+            subprocess.run(["tmux", "kill-pane", "-t", where["pane"]])
+        wait_for(lambda: name not in live_sessions(), 20, 1)
+    finally:
+        _halting.discard(name)
+        with _lock:
+            _state["at"] = 0
+
+
 # ── the conversation ──────────────────────────────────────────────────────────
 _paths, _feeds = {}, {}
 _lock = threading.Lock()
@@ -788,6 +893,11 @@ def state():
             "series": ser, "rate": last_minute(ser, now), "portrait": portrait(name),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
         })
+    # the team has stopped once team/team-paused.sh says so and no running agent is busy or waiting; a lead that has
+    # not marked it paused ten minutes after being asked is taken not to be stopping it
+    paused = team_paused()
+    if paused and not any(a["live"] and a["status"] in ("busy", "waiting") for a in agents) or not paused and now - _team_stop["at"] > 600:
+        _halting.discard("team")
     # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
     # agent with no pane there (its own spawn session, or none) goes in its role's section, after them.
     sessions = sorted({where[a["name"]]["session"] for a in agents if where.get(a["name"], {}).get("session")})
@@ -800,6 +910,7 @@ def state():
         "disk": disk(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
+        "nudgerPaused": paused, "starting": sorted(_starting), "halting": sorted(_halting), "teamUp": team_up(),
     }
 
 
@@ -915,18 +1026,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, f.read(), kind, "private, max-age=300")
 
     def do_POST(self):
-        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop)", self.path)
-        if not m and self.path != "/api/paste":
+        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop|start|halt)", self.path)
+        team = re.fullmatch(r"/api/team/(start|stop)", self.path)
+        if not m and not team and self.path != "/api/paste":
             return self.send(404, b"not found\n", "text/plain")
         here = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
         origin = self.headers.get("Origin")
         if self.headers.get("Host") not in here or self.headers.get("X-Team-Say") != "1" or \
                 (origin and origin.removeprefix("http://") not in here):
             return self.send(403, b"only the team page can send\n", "text/plain")
+        if team:
+            return self.team(team.group(1))
         if not m:
             return self.paste()
         if m.group(2) == "stop":
             return self.stop(m.group(1))
+        if m.group(2) in ("start", "halt"):
+            return self.standing(m.group(1), m.group(2))
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(min(n, 20000)) or b"{}")
@@ -955,6 +1071,57 @@ class Handler(BaseHTTPRequestHandler):
         with _lock:
             _state["at"] = 0
         self.send(200 if ok else 500, json.dumps({"stopped": ok}).encode(), "application/json")
+
+    def team(self, what):
+        """Starts the team (team/team-start.sh for those in TEAM_UP, else the whole team, then the lead is told to start
+        the day once it is up), or asks the lead to wind it down, as the owner asks before a shutdown: the lead stops
+        everyone and marks the team paused, and who was running is kept in TEAM_UP for the next start."""
+        lead = next((r["name"] for r in roster() if role_of(r["role"])[0] == "lead"), None)
+        if not lead:
+            return self.send(409, b"no delivery lead on the roster\n", "text/plain")
+        if what == "stop":
+            running = [r["name"] for r in roster() if r["name"] in live_sessions()]
+            ok = type_into(lead, TEAM_STOP)
+            if ok is None:
+                return self.send(409, f"{lead} is not running\n".encode(), "text/plain")
+            if ok:
+                os.makedirs(STATE_DIR, exist_ok=True)
+                with open(TEAM_UP, "w") as f:
+                    f.write("".join(n + "\n" for n in running))
+                _halting.add("team"); _team_stop["at"] = time.time()
+            return self.send(200 if ok else 500, json.dumps({"asked": lead}).encode(), "application/json")
+        if not os.path.isfile(TEAM_START_SH):
+            return self.send(500, f"{TEAM_START_SH} is not there\n".encode(), "text/plain")
+        names = team_up()
+        _halting.discard("team")
+        _starting.update(["team", *(names or [r["name"] for r in roster()])])
+        threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
+        self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
+
+    def standing(self, name, what):
+        """Starts one standing agent (team/team-start.sh --only), or asks it to finish and stop, closing its pane once it
+        has. Developers and testers are not started or stopped here, and the lead stops only with the team."""
+        r = next((r for r in roster() if r["name"] == name), None)
+        if not r or role_of(r["role"])[0] not in STANDING:
+            return self.send(409, b"only a standing agent on the roster\n", "text/plain")
+        if what == "start":
+            if name in live_sessions():
+                return self.send(409, b"that agent is running\n", "text/plain")
+            if not os.path.isfile(TEAM_START_SH):
+                return self.send(500, f"{TEAM_START_SH} is not there\n".encode(), "text/plain")
+            _starting.add(name)
+            threading.Thread(target=start_one, args=(name,), daemon=True).start()
+            return self.send(202, json.dumps({"starting": name}).encode(), "application/json")
+        if role_of(r["role"])[0] == "lead":
+            return self.send(409, b"the delivery lead stops with the team\n", "text/plain")
+        if name in _halting:
+            return self.send(409, b"already stopping\n", "text/plain")
+        ok = type_into(name, AGENT_STOP)
+        if ok is None:
+            return self.send(409, b"that agent is not running\n", "text/plain")
+        _halting.add(name)
+        threading.Thread(target=halt_when_idle, args=(name,), daemon=True).start()
+        self.send(202, json.dumps({"stopping": name}).encode(), "application/json")
 
     def paste(self):
         """Keeps an image pasted into the page, or any file picked, as a file in PASTED, for a message to attach;
@@ -1071,7 +1238,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .seg b.on{background:var(--on);color:var(--text)}
 #pagemode,#pagelanes{display:flex}
 #help{width:30px;padding:0;font:700 13px var(--sans)}
-#pagelanes .fbtn,#pagemode .fbtn,#help{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
+#teamctl{display:flex}
+#teamctl .fbtn{color:var(--text);gap:6px}
+#teamctl .fbtn svg{width:16px;height:16px;stroke-width:1.7}
+#teamctl .fbtn.paused{color:var(--amber)}
+#teamctl .fbtn.down{color:var(--mute)}
+#teamctl .fbtn.warn{color:var(--red);border-color:var(--red)}
+#teamctl .fbtn:not(:has(span)){padding:0 9px}
+#pagelanes .fbtn,#pagemode .fbtn,#help,#teamctl .fbtn{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
 #pagemode .fbtn{color:var(--text)}
 #lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
 #lock:hover{opacity:1;background:var(--line2)}
@@ -1090,6 +1264,10 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .card.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .card.idle:not(.full) .feed{opacity:.8}
 .card.off{opacity:.45}
+/* an agent the page is starting or stopping fades in and out until it is up or its pane closes */
+@keyframes switching{0%,100%{opacity:1}50%{opacity:.4}}
+.switching{animation:switching 2.4s ease-in-out infinite}
+.switching.waiting,.tabbar button.switching.waiting{animation:alarm 1s ease-in-out infinite,switching 2.4s ease-in-out infinite}
 @keyframes alarm{0%,100%{border-color:#b87400;box-shadow:0 0 0 0 #ffb02000,0 0 10px 0 #ffb02044}50%{border-color:#ffc94d;box-shadow:0 0 0 4px #ffb02088,0 0 46px 6px #ffb020cc}}
 @keyframes wash{0%,100%{opacity:.06}50%{opacity:.3}}
 @keyframes pillflash{0%,100%{background:#8a5a00}50%{background:#ffc94d}}
@@ -1368,6 +1546,12 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   box-shadow:0 12px 32px #0007;font:12.5px var(--sans);color:var(--text);display:none}
 #menu.on{display:block}
 #menu[data-key^="agent:"]{width:236px}
+#menu .sep{margin:4px 0;border-top:1px solid var(--line)}
+#menu .mi.off{cursor:default;color:var(--mute)}
+#menu .mi.off:hover{background:none}
+#menu .mi.warn{color:var(--red)}
+#menu .mi.warn svg{color:var(--red)}
+#menu .ask{padding:6px 8px 4px;font-size:11.5px;line-height:1.45;color:var(--mute);white-space:normal}
 #menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
 #menu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
@@ -1490,7 +1674,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div>
   <div class="counts" id="counts"></div>
   <div class="bench" id="bench"></div>
-  <div class="counts"><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
+  <div class="counts"><span id="teamctl"></span><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
 </header>
 <main id="main"></main>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
@@ -1654,6 +1838,10 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
   window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
   check: '<path d="M3 8.5 6.5 12 13 4.5"/>',
+  power: '<path d="M8 1.5v6"/><path d="M4.3 3.6a5.5 5.5 0 1 0 7.4 0"/>',
+  close: '<path d="M4 4l8 8M12 4l-8 8"/>',
+  start: '<path d="M5 3.2v9.6L12.8 8z"/>',
+  stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>',
   grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
   tabs: '<path d="M2 6.5h12v7H2zM2 6.5V3h5.5v3.5"/>',
   custom: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M7 2.5v11M7 8h7"/>',
@@ -1728,7 +1916,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = 
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
-  return `<div class="card ${cls}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
@@ -1916,13 +2104,14 @@ function draw() {
   filterButton($("#pagemode .viewbtn"), VIEWS, () => [pageMode], m => VIEW_TIP[m], m => { menuOff(true); localStorage.setItem("page", m); draw(); }, "View");
   if (pageMode === "custom") $("#lock").onclick = e => { e.stopPropagation(); const l = layout(); l.locked = !l.locked; saveLayout(l); draw(); };
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
+  teamButton();
   const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart] : null;
   document.querySelectorAll("#main .say").forEach(i => { if (i.value) typed[i.dataset.name] = i.value; });
   // A row of tabs, one per agent; the picked one is remembered under "tab:" + key.
   const tabRow = (key, agents) => {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || agents[0];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
-      return `<button class="${a.live ? a.status : "off"}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
+      return `<button class="${a.live ? a.status : "off"}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
   };
   let html;
@@ -2337,11 +2526,13 @@ function unseen(a) {
 
 // The column of every agent beside an open one, the open one marked: name with its state and unseen count (as a tab),
 // ticket, how long, context and burn.
+// " switching" while the page is starting the agent (alone or with the team) or stopping it, for its card, tab, List row and tile.
+const switching = a => (a.live ? S.halting : S.starting).includes(a.name) ? " switching" : "";
 function minis(cur, agents = S.agents) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
-    return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+    return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
       <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
@@ -2374,7 +2565,7 @@ function tiles() {
   return S.agents.map(a => {
     const st = a.live ? a.status : "off", n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
-    return `<div class="chr ${st}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
+    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
@@ -2811,22 +3002,39 @@ addEventListener("mousedown", e => {
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
 // (as a click on it), Open in a new tab and Open in a new window, and for a standing agent Start, or Stop, which asks
 // again first. The delivery lead stops only with the team.
-function agentMenu(anchor, name, beside, rested, stay) {
+const STANDING_ROLES = new Set(["lead", "review", "process", "pa"]);
+const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
+function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const a = S.agents.find(x => x.name === name), key = "agent:" + name;
   if (!a || !stay && !anchor.isConnected) return;
-  if (menuOn(key) && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
+  if (menuOn(key) && !confirm && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
   const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+  let power = "";
+  if (STANDING_ROLES.has(a.role)) {
+    const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until the agent is up or gone
+    power = S.starting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.start)}Starting…</div>`
+      : S.halting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.stop)}Stopping…</div>`
+      : !a.live ? `<div class="mi" data-go="start">${MENU_ICON.start}Start ${esc(name)}</div>`
+      : a.role === "lead" ? ""
+      : confirm ? `<div class="ask">Ask ${esc(name)} to finish, update its record and stop? Its pane closes once it is idle.</div>` +
+        `<div class="mi warn" data-go="halt">${MENU_ICON.power}Stop ${esc(name)}</div><div class="mi" data-go="cancel">${MENU_ICON.close}Cancel</div>`
+      : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
+  }
   menuAt(anchor, key, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div></div>` +
-    (!a.live ? "" :   // an agent that is not running has nothing to open
+    (!a.live ? power :   // an agent that is not running has nothing to open
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
-      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`), beside, stay);
+      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` + (power ? `<div class="sep"></div>${power}` : "")), beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
-  menu.refresh = () => agentMenu(anchor, name, beside, false, true);
+  menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
+    const go = mi.dataset.go;
+    if (go === "ask") return agentMenu(anchor, name, beside, false, true);
     menuOff(true);
-    ({tab: inNewTab, window: inWindow}[mi.dataset.go] || (open ? openDetail : menuGo))(name);   // with a view open, Open shows the agent there
+    if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
+    else if (go === "halt") post(`/api/agent/${encodeURIComponent(name)}/halt`);
+    else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : menuGo))(name);   // with a view open, Open shows the agent there
   });
 }
 // A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
@@ -2836,6 +3044,36 @@ function menuSoon(el, wait) {
 }
 // The team's: Start the team (restore-claude.sh, then the delivery lead starts the day) and Stop the team, which asks
 // again first and then asks the lead to wind the team down, as the owner does before a shutdown.
+// The team's button, an icon. Up (the lead running, the nudger not paused): the power icon, and a click asks the lead
+// to wind the team down after a second click to confirm. Stopping (from that click, or once the nudger is paused, until
+// it is paused and no running agent is busy or waiting): a pulsing square. Down: the play icon, amber while wound down
+// and faint while nobody runs, and a click starts those running when the page last stopped the team (everyone with a
+// Session when there is no record). Starting: a pulsing play icon.
+let teamAsk = null;
+function teamButton() {
+  const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
+  const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting")).map(a => a.name);
+  const stopping = !starting && (S.halting.includes("team") || S.nudgerPaused) && !(S.nudgerPaused && !working.length);
+  const up = !starting && !stopping && !!lead?.live && !S.nudgerPaused;
+  if (!up) { clearTimeout(teamAsk); teamAsk = null; }
+  const running = S.agents.some(a => a.live), cls = teamAsk ? " warn" : !running ? " down" : S.nudgerPaused && !stopping ? " paused" : "";
+  const text = teamAsk ? "Stop the team?" : "", tip = starting ? "Starting the team"
+    : stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
+    : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
+    : up ? `Stop the team: ask ${lead.name} to wind everyone down`
+    : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team"}`;
+  const key = [text, cls, up, starting, stopping, tip].join("|");
+  if ($("#teamctl").dataset.text === key) return;
+  const icon = up ? MENU_ICON.power : stopping ? MENU_ICON.stop : MENU_ICON.start;
+  $("#teamctl").innerHTML = `<b class="fbtn${cls}${starting || stopping ? " switching" : ""}" title="${esc(tip)}">${icon}${text ? `<span>${text}</span>` : ""}</b>`;
+  $("#teamctl").dataset.text = key;
+  $("#teamctl .fbtn").onclick = () => {
+    if (starting || stopping) return;
+    if (!up) return post("/api/team/start");
+    if (!teamAsk) { teamAsk = setTimeout(() => { teamAsk = null; teamButton(); }, 4000); return teamButton(); }
+    clearTimeout(teamAsk); teamAsk = null; post("/api/team/stop"); teamButton();
+  };
+}
 // A filter button's: each lane, ticked while it is shown; a click shows or hides it and leaves the menu open. It opens
 // after a moment's rest on the button, going again when the pointer has left both, or at once on a click, staying
 // until a click elsewhere; a click on the button while it shows keeps a rested-on menu, else closes it.
@@ -2892,7 +3130,9 @@ def self_test():
             os.makedirs(os.path.join(T, d))
         g.update(HOME=T, PROJECT="proj", SESSIONS=T + "/sessions", PROJECTS=T + "/projects", CONTEXT_DIR=T + "/context",
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
-                 ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", PASTED=T + "/pasted")
+                 ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", PASTED=T + "/pasted", STATE_DIR=T + "/state",
+                 TEAM_UP=T + "/state/team-up", TEAM_START_LOG=T + "/state/team-start.log",
+                 TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused")
         with open(T + "/roster.json", "w") as f:
             json.dump({"agents": [
                 {"name": "Lea", "email": "lea@proj.local", "role": "delivery-lead", "status": "active"},
@@ -3026,13 +3266,26 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "disk", "even", "now", "owner", "plan", "tabs", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
         t("  and one from another site", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1", "Origin": "http://evil.example"}), b'{"text":"hi"}')[0], 403)
         t("  and one with nothing in it", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), b'{"text":"  "}')[0], 400)
         t("a stop for an agent that is not working is refused", code("/api/agent/Lea/stop", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
+        with open(T + "/bin/team-start", "w") as f:
+            f.write(f'echo "$*" >> {T}/started\n')
+        os.makedirs(T + "/state", exist_ok=True)
+        with open(T + "/state/team-up", "w") as f:
+            f.write("Ada\nGone\n")
+        t("the next start brings back those recorded who are still on the roster, and the lead", team_up(), ["Lea", "Ada"])
+        t("a team start without the page's header is refused", code("/api/team/start", "POST", {}, b"")[0], 403)
+        t("a team start is taken", code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
+        wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
+        t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
+        t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
+        t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
+        t("the lead is not stopped on its own", code("/api/agent/Lea/halt", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         t("an image from outside the home directory is not served", code("/img?p=/etc/passwd")[0], 404)
         up = lambda h, body=b"PK\x03\x04": json.loads(code("/api/paste", "POST", dict(h, **{"X-Team-Say": "1"}), body)[1] or b"{}")
         z = up({"Content-Type": "application/zip", "X-File-Name": "my%20logs%20(2).zip"})

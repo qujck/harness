@@ -14,14 +14,18 @@
 # pane is the Team transcript, every message between agents on the roster, with a name button to leave each agent out;
 # another, Combined, is the conversations of every agent in the roles chosen as one, in time order, with its own lanes.
 # A click on a turn in either goes to its agent. The Combined pane's lanes split the owner's: Owner is the owner's messages,
-# Said each agent's own words. An agent opens alone in a new tab from the ↗ in its view or its list row, or a Ctrl- or
-# middle click on it.
+# Said each agent's own words. An agent's menu (a rest on, or a right click on, its row, tile or view header) opens
+# it, or opens it alone in a new tab or window, as a Ctrl- or middle click on it does.
 # A shell command the owner runs with ! in an agent's prompt shows as the owner's, with what it printed.
 #
 # WHAT IT DOES. Each card and view has a message box: a message is typed into the agent's tmux pane and Enter
 # pressed, as agent-spawn.sh types a first prompt; images pasted into the page go with it as attachments; Esc stops
 # a working turn. Only the page itself can send (its host and port, an X-Team-Say header another site's page cannot
-# send, its own Origin), and it listens on 127.0.0.1 only.
+# send, its own Origin), and it listens on 127.0.0.1 only. The header's power button asks the delivery lead to wind
+# the team down, recording who was running, and pulses a square until team/team-paused.sh says it is paused and no
+# agent is busy; then it shows ▶, which runs team/team-start.sh for those recorded and tells the lead to start the
+# day. The lead, reviewer, process improvement and assistant start and stop one by one from their menus. Both
+# scripts are placeholders until wired up on the workstation that runs the team.
 #
 # WHERE THE NUMBERS COME FROM. What team/agents-dash.sh reads (agents/roster.json, Claude Code's session records,
 # the context rows of docs/context-publisher.md, the panel's burn cache and claims board, team/agents-budget.sh),

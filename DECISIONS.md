@@ -623,3 +623,18 @@ the nudger, and a start runs its restore script for those who were running. The 
 (each agent's tmux session is started by `team/agent-spawn.sh`) and no nudger pause, so there is nothing for the
 buttons to drive. The seeded project also numbers a developer's or tester's shadow from its PR name; the roster
 here has no such column, so the shadows carry no number.
+
+
+## 2026-10-29 — The team's start and stop buttons, on placeholder scripts (ported from the seeded project)
+
+**Decision.** The page's power button and the standing agents' Start and Stop are ported after all (the entry
+above left them out), driven by two scripts to be wired up on the workstation that runs the team:
+`team/team-start.sh` (the whole team, or `--only NAME` repeated) and `team/team-paused.sh` (exit 0 once the team
+is wound down). Until wired up, `team-start.sh` starts nothing and exits 3, and `team-paused.sh` reports
+`~/.local/state/<project>/team.paused`, which the lead's wind-down is asked to create. Stop asks the lead to wind
+down and records who was running in `~/.local/state/<project>/team-up`; Start runs `team-start.sh --only` for
+them (the whole team with no record) and tells the lead to start the day once it is up and idle.
+
+**Why placeholders.** The owner wants the buttons in the template so that a workstation pulling it has them ready
+to wire up; how agents start and how a team pauses differ by workstation, so the template fixes only the
+scripts' contracts and the page's side.
