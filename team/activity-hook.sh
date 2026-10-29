@@ -33,6 +33,10 @@ record() {
   local dir="$1" ev="$2" in="$3" now="$4" sid tool st
   sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null)"
   [[ -n "$sid" && "$sid" != */* ]] || return 0
+  # A subagent's hooks carry its parent's session_id plus an agent_id. Background side agents (a feedback
+  # draft, a peer send) run after the parent's Stop, so letting them write left idle sessions "working"
+  # (2026-10-29: 7 of 16 live sessions, and #108's cap read 9-11 against 1-3 busy).
+  [[ -z "$(jq -r '.agent_id // empty' <<<"$in" 2>/dev/null)" ]] || return 0
   tool="$(jq -r '.tool_name // empty' <<<"$in" 2>/dev/null)"
   st="$(state_of "$ev" "$tool")"
   case "$st" in
@@ -58,6 +62,8 @@ if selftest_is_flag "${1:-}"; then
   _t "the file carries the state and the time" "working 100" "$(cat "$d/s1")"
   record "$d" Stop '{"session_id":"s1"}' 160
   _t "a later event replaces it" "idle 160" "$(cat "$d/s1")"
+  record "$d" PreToolUse '{"session_id":"s1","agent_id":"a1","tool_name":"SendMessage"}' 180
+  _t "a subagent's tool call after the stop leaves it idle" "idle 160" "$(cat "$d/s1")"
   record "$d" Notification '{"session_id":"s1"}' 200
   _t "an ignored event leaves it" "idle 160" "$(cat "$d/s1")"
   record "$d" SessionEnd '{"session_id":"s1"}' 300
