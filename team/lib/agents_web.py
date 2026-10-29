@@ -779,7 +779,7 @@ def state():
     }
 
 
-# Portraits for the Characters layout: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
+# Portraits for the Characters pane: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
 # ~/.claude/agents-portraits), served at /portraits/.
 PORTRAITS = os.environ.get("AGENTS_PORTRAITS") or os.path.join(HOME, ".claude", "agents-portraits")
 PORTRAIT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}
@@ -1021,7 +1021,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
-.pill.tally .dot.on{animation:ping 1.4s infinite}
+.pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
@@ -1097,12 +1097,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .busy .dot{background:var(--green);animation:ping 1.4s infinite}
 .waiting .dot{background:var(--amber)}
 .waiting .state{color:var(--amber)}
-@keyframes ping{0%{box-shadow:0 0 0 0 #3fb950f0,0 0 6px 1px #3fb950}70%{box-shadow:0 0 0 10px #3fb95000,0 0 6px 1px #3fb95000}100%{box-shadow:0 0 0 0 #3fb95000,0 0 6px 1px #3fb95000}}
+/* a pulse: a ring that grows out of the dot in its colour (--pulse, else green) and fades into the page's background as it
+   spreads, to --reach (9px unless set) */
+@keyframes ping{0%{box-shadow:0 0 0 0 var(--pulse,var(--green))}80%{box-shadow:0 0 0 var(--reach,9px) var(--bg)}100%{box-shadow:0 0 0 calc(var(--reach,9px) + 1px) color-mix(in srgb,var(--bg) 0%,transparent)}}
 /* on an agent's coloured name box the ring is drawn in the name's own colour, which stands out against the box */
 .tabbar button.busy .dot,.mini.busy .name .dot{animation-name:pingfg}
 /* an agent in its shell: on its name box, a dot in the name's colour pulsing the same */
 .tabbar button.shell .dot,.mini.shell .name .dot{background:var(--ownerfg);animation:pingfg 1.4s infinite}
-@keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}60%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ownerfg) 50%,transparent)}100%{box-shadow:0 0 0 7px color-mix(in srgb,var(--ownerfg) 0%,transparent)}}
+@keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}80%{box-shadow:0 0 0 5px var(--c)}100%{box-shadow:0 0 0 6px color-mix(in srgb,var(--c) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ctx .meter{width:64px;height:6px}
 .model{color:var(--faint);overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -1320,15 +1322,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .rail{grid-column:2;grid-row:2;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--line)}
 #detail .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
-/* Characters: every agent as a portrait tile, two to a row, in the column on the left of the open agent's view */
-#detail .box.chars{--rail:257px}
-#detail .box.chars .rail{display:grid;grid-template-columns:repeat(2,112px);grid-auto-rows:112px;gap:8px;padding:12px;align-content:start;background:var(--chpanel)}
-#detail .box.chars .railseg{display:none}
+/* Characters: every agent as a portrait tile, in a custom pane */
 .chrs{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
 .chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:10px;border:1px solid var(--line2);border-bottom:3px solid var(--c);
   background:var(--chtile);color:var(--chmute);font:10px/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
-.chr.cur{outline:2px solid var(--c);outline-offset:1px;cursor:default}
 .chr.off{opacity:.5}
 .chr.waiting{animation:alarm 1s ease-in-out infinite}
 .chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
@@ -1336,8 +1334,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
 .chr .por text{font:700 38px Oswald,"Bebas Neue",Impact,"Arial Narrow",sans-serif;fill:var(--text)}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
-.chr .tl i{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
+.chr.busy .tl i{background:var(--green);animation:ping 1.4s infinite}
+.chr.waiting .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
 .chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .chr .tr b{font:700 11px/1 var(--mono);color:var(--text)}
 .chr .tr b.hi{color:var(--chhigh)}
@@ -1346,6 +1346,17 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--text) 9%,transparent)}
 .chr .sp{position:absolute;right:5px;bottom:5px;width:56px;height:16px}
 .chr .sp svg.spark{height:16px}
+/* a Characters tile's menu, beside the tile while the pointer rests on it or on a right-click: the agent, then ways to open it */
+#chmenu{position:fixed;z-index:60;width:236px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
+  box-shadow:0 12px 32px #0007;font:12.5px var(--sans);color:var(--text);display:none}
+#chmenu.on{display:block}
+#chmenu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+#chmenu .hd .name{display:inline-block;margin-bottom:4px}
+#chmenu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
+#chmenu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+#chmenu .mi:hover{background:var(--on)}
+#chmenu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
+#chmenu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
 #detail .box.rail-top,#detail .box.rail-bottom{grid-template-columns:minmax(0,1fr)}
@@ -1457,7 +1468,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="counts"><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span></div>
 </header>
 <main id="main"></main>
-<div id="pop"></div><div id="copied">Copied</div>
+<div id="pop"></div><div id="chmenu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
@@ -1756,8 +1767,8 @@ pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset
 function seg(mode, sec) {
   const tip = {grid: sec ? `Every agent in ${sec} as a card` : "Every section side by side",
     tabs: sec ? `${sec} as tabs, one agent at a time` : "Every agent as one row of tabs, one at a time",
-    custom: "Your own layout of panes", characters: "Every agent as a portrait; the one picked opens beside them"};
-  return `<span class="seg mode"${sec ? ` data-sec="${esc(sec)}"` : ""}>${(sec ? ["grid", "tabs"] : ["grid", "tabs", "custom", "characters"]).map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}${m === "custom" && mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`).join("")}</span>`;
+    custom: "Your own layout of panes"};
+  return `<span class="seg mode"${sec ? ` data-sec="${esc(sec)}"` : ""}>${(sec ? ["grid", "tabs"] : ["grid", "tabs", "custom"]).map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}${m === "custom" && mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`).join("")}</span>`;
 }
 
 // Text being selected is left alone: redrawing it would drop the selection's start, so while the mouse is down or a
@@ -1838,7 +1849,7 @@ function draw() {
   const total = tabs.reduce((s, t) => s + t.agents.length, 0) || 1;
   // The page shows every section side by side (Grid), or one agent's view at a time, picked from the column of them
   // all beside it (Tabs).
-  const pageMode = localStorage.getItem("page") || "grid";
+  const pageMode = ["tabs", "custom"].includes(localStorage.getItem("page")) ? localStorage.getItem("page") : "grid";
   // Developers and Testers, where agents come and go, are at most three cards wide and grow by rows; the other
   // sections take the shape that suits their few cards. Each section's width follows its columns, so every card
   // is about as wide as any other.
@@ -1864,7 +1875,7 @@ function draw() {
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
   };
   let html;
-  if (pageMode === "tabs" || pageMode === "characters") {
+  if (pageMode === "tabs") {
     html = "";   // the agent's view, docked over the page's body, takes its place
   } else if (pageMode === "custom") {
     html = customHtml(ceil, tabRow);
@@ -1887,7 +1898,7 @@ function draw() {
   const ends = paneEnds();
   patch(main, html);
   toPaneEnds(ends);
-  dock((pageMode === "tabs" || pageMode === "characters") && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
+  dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => {
     const sec = b.parentElement.dataset.sec;
     localStorage.setItem(sec ? "mode:" + sec : "page", b.dataset.mode); draw();
@@ -1986,7 +1997,7 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "others") {
       body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "characters") {
-      body = `<div class="chrs">${tiles("")}</div>`;
+      body = `<div class="chrs">${tiles()}</div>`;
     } else if (n.show === "combined") {
       body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
@@ -2012,15 +2023,21 @@ function customHtml(ceil, tabRow) {
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
-    const side = tileSide(n), grow = s => side ? (s === side ? `flex:0 0 ${tilesWidth(n.tiles)}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
+    const side = tileSide(n), grow = s => side ? (s === side ? `flex:0 0 ${tilesWidth(tileCols(n, path + side))}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider${l.locked ? "" : " drag"}" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
   return !maxed ? node(l.root, "r") : maxNode.show === "team" || maxNode.show === "combined" ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
-// A Characters pane beside another is exactly one, two or three tiles wide (two unless set): its divider snaps between them.
+// A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
+// snaps between them, and more while its tiles would otherwise need scrolling.
 const tileSide = n => n.split === "row" && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
 const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
+// The columns a snapped Characters pane shows: its own setting, or more when the tiles would not fit its height in that many.
+function tileCols(n, path) {
+  const h = $(`#main .pane[data-path="${path}"] .chrs`)?.clientHeight, rows = h ? Math.max(1, Math.floor((h - 16) / 120)) : 0;
+  return Math.max(n.tiles || 2, rows ? Math.ceil(S.agents.length / rows) : 0);
+}
 // An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
@@ -2153,7 +2170,14 @@ function customClicks() {
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
   };
-  main.querySelectorAll(":is(.others .mini, .chrs .chr)").forEach(m => m.onclick = () => goTo(m.dataset.name));
+  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => goTo(m.dataset.name));
+  main.querySelectorAll(".chrs .chr").forEach(m => {
+    m.onclick = () => { menuOff(true); goTo(m.dataset.name); };
+    m.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo(m.dataset.name); } };
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => menuOff();
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+  });
+  menuGo = goTo;
   main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.textContent));
   main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
     const row = e.target.closest(".it[data-agent]");
@@ -2299,24 +2323,24 @@ function emblem(a) {
   return `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="${a.colour}" fill-opacity=".22" stroke="${a.colour}" stroke-width="4" stroke-linejoin="round">${shape}</g>` +
     `<text x="50" y="52" text-anchor="middle" dominant-baseline="central">${esc(a.name[0].toUpperCase())}</text></svg>`;
 }
-function tiles(cur) {
+function tiles() {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return S.agents.map(a => {
-    const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
+    const st = a.live ? a.status : "off", n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
-    return `<button class="chr ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}" title="${esc(a.name)} · ${STATE[st] || esc(st)}">` +
+    return `<div class="chr ${st}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : emblem(a)}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
-      `<span class="sp">${spark(a.series, ceil, a.colour)}</span></button>`;
+      `<span class="sp">${spark(a.series, ceil, a.colour)}</span></div>`;
   }).join("");
 }
 function rail() {
   if (!open || !S) return;
   markSeen(S.agents.filter(a => !seen[a.name] || a.name === open).map(a => a.name));
-  patch($("#drail"), charsOn() ? tiles(open) : minis(open));
-  document.querySelectorAll("#drail :is(.mini, .chr)").forEach(m => m.onclick = m.matches(".cur") ? null : () => openDetail(m.dataset.name));
+  patch($("#drail"), minis(open));
+  document.querySelectorAll("#drail .mini").forEach(m => m.onclick = m.matches(".cur") ? null : () => openDetail(m.dataset.name));
   beat();
 }
 
@@ -2339,11 +2363,8 @@ function showTerm() { $("#detail .box").classList.toggle("noterm", !termOn()); }
 // The edge the other agents' column sits on, moved round clockwise from the header and remembered.
 const EDGES = {right: "→", bottom: "↓", left: "←", top: "↑"};
 const railEdge = () => EDGES[localStorage.getItem("rail")] ? localStorage.getItem("rail") : "right";
-// Characters keeps its tiles on the left of a docked view, whatever edge the cards are set to.
-const charsOn = () => (localStorage.getItem("page") || "grid") === "characters" && $("#detail").classList.contains("docked");
 function showRail() {
-  const box = $("#detail .box"), edge = charsOn() ? "left" : railEdge();
-  box.classList.toggle("chars", charsOn());
+  const box = $("#detail .box"), edge = railEdge();
   for (const e in EDGES) box.classList.toggle("rail-" + e, e === edge && e !== "right");
   const b = $("#dhead .railseg b");
   if (b) b.textContent = "Cards " + EDGES[edge];
@@ -2615,7 +2636,7 @@ function dock(a) {
   if (!a) { if (was) { d.classList.remove("docked"); d.style.inset = ""; closeDetail(); } return; }
   const r = $("#main").getBoundingClientRect();
   d.style.inset = `${r.top}px ${innerWidth - r.right}px ${innerHeight - r.bottom}px ${r.left}px`;
-  d.classList.add("docked"); showRail();
+  d.classList.add("docked");
   if (open !== a.name) openDetail(a.name);
 }
 function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
@@ -2633,13 +2654,50 @@ load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
 // Team or Combined pane - opens its view in a new tab instead, as the ↗ in the view's head does. That tab (?only)
 // is the agent alone: its view fills the window, with no page behind it, no other agents beside it and no way to close it.
-const AGENT_AT = "#main .card[data-name], .mini[data-name], .teamlog .thead .name, .teamlog .it[data-agent]";
+const AGENT_AT = "#main .card[data-name], .mini[data-name], .chr[data-name], .teamlog .thead .name, .teamlog .it[data-agent]";
 function agentAt(e) {
   const el = e.target.closest?.(AGENT_AT);
   const name = el && (el.dataset.name || el.dataset.agent || el.textContent);
   return S && S.agents.some(a => a.name === name) && !e.target.closest("a, textarea, button, .seg") ? name : null;
 }
 const inNewTab = name => window.open("/?only#" + encodeURIComponent(name), "_blank", "noopener");
+const inWindow = name => window.open("/?only#" + encodeURIComponent(name), "_blank", "noopener,popup,width=960,height=1000");
+// The Characters tiles' menu: who the agent is and what it is doing, then Open (as a click on the tile), Open in a new
+// tab and Open in a new window. It shows beside the tile after a moment's rest or at once on a right-click, and goes
+// when the pointer has left both.
+const chmenu = $("#chmenu");
+const MENU_ICON = Object.fromEntries(Object.entries({
+  open: '<rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/>',
+  tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
+  window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, as the custom layout's own click on a tile
+function menuSoon(tile, wait) {
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuShow = setTimeout(() => {
+    const a = S.agents.find(x => x.name === tile.dataset.name); if (!a || !tile.isConnected) return;
+    const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+    chmenu.innerHTML = `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+      `<div>${STATE[st] || esc(st)} · ${ago(a.held)}${ctx}</div></div>` +
+      `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>` +
+      `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
+      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`;
+    chmenu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
+      menuOff(true); ({tab: inNewTab, window: inWindow}[mi.dataset.go] || menuGo)(a.name);
+    });
+    chmenu.classList.add("on");
+    const r = tile.getBoundingClientRect(), w = chmenu.offsetWidth, h = chmenu.offsetHeight;
+    chmenu.style.left = (r.right + 6 + w <= innerWidth ? r.right + 6 : Math.max(6, r.left - 6 - w)) + "px";
+    chmenu.style.top = Math.max(6, Math.min(r.top, innerHeight - h - 6)) + "px";
+  }, wait);
+}
+function menuOff(now) {
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuHide = setTimeout(() => chmenu.classList.remove("on"), now ? 0 : 200);
+}
+chmenu.onmouseenter = () => clearTimeout(menuHide);
+chmenu.onmouseleave = () => menuOff();
+addEventListener("keydown", e => { if (e.key === "Escape") menuOff(true); });
 addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("auxclick", e => { const name = e.button === 1 && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("mousedown", e => { if (e.button === 1 && agentAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
