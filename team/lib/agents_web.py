@@ -1227,6 +1227,8 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(NUDGER_PAUSED)
             except FileNotFoundError:
                 pass
+        with _lock:
+            _state["at"] = 0
         self.send(200, json.dumps({"nudgerPaused": pause}).encode(), "application/json")
 
     def compact(self, name):
@@ -1343,7 +1345,9 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
-.bench .face{flex:none;width:34px;height:34px;border-radius:7px;object-fit:cover}   /* as the Characters pane shows them, smaller */
+.bench .face{flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
+.bench .face img,.bench .face svg{display:block;width:100%;height:100%;object-fit:cover}
+.bench > span:first-child{display:flex;align-items:center;gap:2px}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
 .colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
@@ -1552,8 +1556,10 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
-/* the Combined pane's turns fade out at the top, just under the line beneath its head */
-.teamlog.combined .feed{mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 28px)}
+/* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
+   (edges() sets --ft and --fb), keeping a feed's line beneath its head */
+.card.full .feed,.teamlog:not(.summary) .feed,.fdoc,.others,.chrs{
+  mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 calc(1px + var(--ft,0px)),#000 calc(100% - var(--fb,0px)),transparent)}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 .teamlog .it .who.to::before{content:"→ "}
@@ -1562,9 +1568,13 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .it.tools .who.ag{margin-right:6px}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
-.teamlog .thead:has(> span:nth-child(2) .name){align-items:flex-start}
-.teamlog .thead > span:nth-child(2):has(.name){flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
+.teamlog .thead:has(> .cnames .name, > .cnames .chr){align-items:flex-start}
+.teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
 .teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
+/* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
+.tabbar.chrtabs{gap:8px}
+.chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
+.teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
@@ -2222,13 +2232,16 @@ function draw() {
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
   // The benched developers and testers on one line in the header's free space, so the header never changes height;
-  // those that do not fit are counted in a "+N" that names them. With a Characters pane on the page, one with a
-  // portrait is just its picture.
-  const faces = localStorage.getItem("page") === "custom" && leaves(layout().root).some(([, n]) => n.show === "characters");
-  $("#bench").innerHTML = S.bench.length ? `<span>bench</span><span class="rrow">${S.bench.map(b => {
+  // those that do not fit are counted in a "+N" that names them. Its filter button shows them by name or as small
+  // Characters tiles (their portrait, else their role's shadow); until one is picked, tiles while a Characters pane is
+  // on the page.
+  const style = benchStyle();
+  $("#bench").innerHTML = S.bench.length ? `<span>bench${filterBtn("benchsel", "bench", [style], ["name", "card"], BENCH_STYLES, "")}</span><span class="rrow">${S.bench.map(b => {
     const tip = `title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench" data-name="${esc(b.name)}"`;
-    return faces && b.portrait ? `<img class="face" style="--c:${b.colour}" src="${esc(b.portrait)}" alt="${esc(b.name)}" ${tip}>`
+    return style === "card" ? `<span class="face" style="--c:${b.colour}" ${tip}>${b.portrait ? `<img src="${esc(b.portrait)}" alt="${esc(b.name)}">` : shadow(b)}</span>`
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
+  if (S.bench.length) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "card" ? "portrait" : "name"}`,
+    v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
 
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
@@ -2258,8 +2271,10 @@ function draw() {
   const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart] : null;
   document.querySelectorAll("#main .say").forEach(i => { if (i.value) typed[i.dataset.name] = i.value; });
   // A row of tabs, one per agent; the picked one is remembered under "tab:" + key.
-  const tabRow = (key, agents) => {
+  const tabRow = (key, agents, badge) => {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || agents[0];
+    if (badge === "card")
+      return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace('<div class="chr ', `<div data-tab="${esc(a.name)}" title="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
       return `<button class="${stOf(a)}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
@@ -2291,7 +2306,7 @@ function draw() {
   dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => { localStorage.setItem("mode:" + b.parentElement.dataset.sec, b.dataset.mode); draw(); });
   // Picking a tab puts the cursor in that agent's message box, ready to type.
-  document.querySelectorAll(".tabbar button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabbar [data-tab]").forEach(b => b.onclick = () => {
     const sec = b.parentElement.dataset.sec, name = CSS.escape(b.dataset.tab);
     localStorage.setItem("tab:" + sec, b.dataset.tab); draw();
     document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
@@ -2300,6 +2315,7 @@ function draw() {
   if (pageMode === "custom") customClicks();
   if (!open) markSeen([...[...main.querySelectorAll(".card")].map(c => c.dataset.name), ...S.agents.filter(a => !seen[a.name]).map(a => a.name)]);
   rail(); facts(); syncStop();
+  main.querySelectorAll(FADES).forEach(edges);
   document.querySelectorAll("#main .stop").forEach(b => b.onclick = e => { e.stopPropagation(); stopAgent(b.dataset.name, b); });
   main.querySelectorAll(".add").forEach(b => b.onclick = e => { e.stopPropagation(); pick(b.dataset.name, b.nextElementSibling); });
   // In a custom layout a click on a card puts the cursor in its message box, and a double-click opens it.
@@ -2322,6 +2338,17 @@ function draw() {
   fitBench(); beat();
   if (tileGuess) { tileGuess = false; draw(); }   // a Characters pane drawn for the first time is sized again, now it can be measured
 }
+const BENCH_STYLES = [["name", "Name"], ["card", "Card"]];
+const benchStyle = () => localStorage.getItem("bench")
+  || (localStorage.getItem("page") === "custom" && leaves(layout().root).some(([, n]) => n.show === "characters") ? "card" : "name");
+// A pane's scrolling part fades at an edge while there is more beyond it.
+const FADES = ".card.full .feed, .teamlog:not(.summary) .feed, .fdoc, .others, .chrs";
+function edges(el) {
+  el.style.setProperty("--ft", el.scrollTop > 1 ? "28px" : "0px");
+  el.style.setProperty("--fb", el.scrollTop + el.clientHeight < el.scrollHeight - 1 ? "28px" : "0px");
+}
+document.addEventListener("scroll", e => { if (e.target.matches?.(FADES)) edges(e.target); }, true);
+addEventListener("resize", () => document.querySelectorAll("#main :is(" + FADES + ")").forEach(edges));
 function fitBench() {
   const row = $("#bench .rrow"), chips = row ? [...row.children] : [];
   if (!row || row.scrollWidth <= row.clientWidth) return;
@@ -2357,6 +2384,8 @@ function roleList() {
 const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
 // A Characters pane's agents: those in its roles, the same way, or every agent until roles are chosen for it.
 const chrAgents = n => Array.isArray(n.roles) ? paneAgents(n) : S.agents;
+// How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default) or as their Characters tiles ("card").
+const BADGES = [["name", "Name"], ["card", "Card"]];
 // A pane's Roles button and its menu: each role with a dot in its colour, ticked while the pane shows it.
 const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
@@ -2403,7 +2432,7 @@ function customHtml(ceil, tabRow) {
       body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => fullView(n)
         ? `<div class="cell">${paneCard(n, a, path)}</div>` : paneCard(n, a, path)).join("")}</div>`;
     } else if (n.show === "tabs" && of.length) {
-      const [sel, row] = tabRow("pane:" + path, of);
+      const [sel, row] = tabRow("pane:" + path, of, n.badge);
       body = `${row}<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, sel, path)}</div>`;
     } else if (n.show === "grid" || n.show === "tabs") {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
@@ -2412,8 +2441,9 @@ function customHtml(ceil, tabRow) {
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
       ${n.show && n.show !== "others" && n.show !== "characters" ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
+      ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
-      ${["grid", "tabs", "characters"].includes(n.show) ? rolesBtn(path, n) : ""}
+      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
     return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${body}</div></div>`;
   };
@@ -2507,7 +2537,7 @@ function teamHtml(path, full, hide, big) {
 }
 // The Combined pane: the conversations of the running agents in the roles chosen from its Roles menu as one, in time
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
-// Full and Summary as the Team pane. The roles are chosen while the layout is being changed, as a grid's are.
+// Full and Summary as the Team pane. The roles are chosen from the pane bar while the layout is being changed, as a grid's are.
 // Its lanes split the owner's: Owner is the owner's messages, Said each agent's own words, so either can go alone.
 const CLANES = [["owner", ""], ["said", "Said"], ["team", "Team"], ["auto", "Auto"]], CALL = CLANES.map(l => l[0]);
 const CLANE_TIP = {owner: "Your messages to the agents", said: "Each agent's own words: its answers and its thinking aloud",
@@ -2524,7 +2554,7 @@ function combinedHtml(path, n, full, big) {
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead"><span>Combined</span><span title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "no agents"}</span>${seg}${layout().locked ? "" : rolesBtn(path, n)}${maxButton(big)}</div>` +
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}</div>`;
 }
 async function loadPaneConvs() {
@@ -2554,7 +2584,7 @@ function customClicks() {
   const main = $("#main"), change = f => { const l = layout(); f(l); saveLayout(l); draw(); };
   main.querySelectorAll(".pbar [data-act]").forEach(el => {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
-    if (act === "name" || act === "show") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
+    if (act === "name" || act === "show" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
       if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
@@ -2599,14 +2629,14 @@ function customClicks() {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
-  main.querySelectorAll(".chrs .chr").forEach(m => {
+  main.querySelectorAll(".chrs .chr, .chrrow .chr").forEach(m => {
     m.onclick = () => open(m);
     m.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(m); } };
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
   menuGo = goTo;
-  main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.textContent));
+  main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.dataset.name));
   main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
     const row = e.target.closest(".it[data-agent]");
     if (!row || !getSelection().isCollapsed || e.target.closest("a, img, .thumbs, pre, [data-run]")) return;
@@ -3248,8 +3278,8 @@ function menuSoon(el, wait) {
 // and nobody working) and faint while nobody runs, and a click starts those running when the page last stopped the
 // team (everyone when there is no record). Starting: the play icon pulsing green.
 // Beside it, the nudger's own button: the pause icon, amber, pulsing and saying Paused while the nudger is paused; a
-// click pauses or resumes it.
-let teamAsk = null;
+// click pauses or resumes it, the button fading in and out and saying Pausing… or Resuming… until the page sees the change.
+let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click on its button is waiting to see
 function teamButton() {
   const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
   const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
@@ -3264,14 +3294,22 @@ function teamButton() {
     : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
     : up ? `Stop the team: ask ${lead.name} to wind everyone down`
     : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team"}`;
-  const key = [text, cls, up, starting, stopping, tip, S.nudgerPaused].join("|");
+  if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
+  const key = [text, cls, up, starting, stopping, tip, S.nudgerPaused, nudgerTo].join("|");
   if ($("#teamctl").dataset.text === key) return;
   const icon = up ? MENU_ICON.power : stopping ? MENU_ICON.stop : MENU_ICON.start;
-  const nudger = S.nudgerPaused ? ["fbtn nudger paused", "The nudger is paused: click to resume it"] : ["fbtn nudger", "Pause the nudger"];
+  const nudger = nudgerTo != null ? [`fbtn nudger switching${S.nudgerPaused ? " paused" : ""}`, nudgerTo ? "Pausing the nudger" : "Resuming the nudger"]
+    : S.nudgerPaused ? ["fbtn nudger paused", "The nudger is paused: click to resume it"] : ["fbtn nudger", "Pause the nudger"];
+  const word = nudgerTo != null ? (nudgerTo ? "Pausing…" : "Resuming…") : S.nudgerPaused ? "Paused" : "";
   $("#teamctl").innerHTML = `<b class="fbtn team${cls}" title="${esc(tip)}">${icon}${text ? `<span>${text}</span>` : ""}</b>` +
-    `<b class="${nudger[0]}" title="${nudger[1]}">${MENU_ICON.pause}${S.nudgerPaused ? "<span>Paused</span>" : ""}</b>`;
+    `<b class="${nudger[0]}" title="${nudger[1]}">${MENU_ICON.pause}${word ? `<span>${word}</span>` : ""}</b>`;
   $("#teamctl").dataset.text = key;
-  $("#teamctl .nudger").onclick = () => post(S.nudgerPaused ? "/api/nudger/resume" : "/api/nudger/pause");
+  $("#teamctl .nudger").onclick = () => {
+    if (nudgerTo != null) return;
+    nudgerTo = !S.nudgerPaused; teamButton();
+    setTimeout(() => { if (nudgerTo != null) { nudgerTo = null; teamButton(); } }, 10000);   // a request that went wrong stops waiting
+    post(nudgerTo ? "/api/nudger/pause" : "/api/nudger/resume");
+  };
   $("#teamctl .team").onclick = () => {
     if (starting || stopping) return;
     if (!up) return post("/api/team/start");
