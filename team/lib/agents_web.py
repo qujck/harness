@@ -439,6 +439,10 @@ def panes():
     return by_name
 
 
+# A message's whole body, a long paste included: Claude Code takes a paste of this size as one block.
+SAY_MAX_BYTES = 4 << 20
+
+
 def type_into(name, text, images=()):
     """Types a message into the agent's pane, then Enter; None when it is in no pane, else whether tmux took it.
     The text goes in as one bracketed paste, as a terminal pastes, so its line breaks stay line breaks in the agent's
@@ -1164,11 +1168,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.standing(m.group(1), m.group(2))
         try:
             n = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(min(n, 20000)) or b"{}")
+            if n > SAY_MAX_BYTES:
+                while n > 0 and self.rfile.read(min(n, 1 << 20)):
+                    n -= 1 << 20
+                return self.send(413, b"too long to send: over %d MB\n" % (SAY_MAX_BYTES >> 20), "text/plain")
+            body = json.loads(self.rfile.read(n) or b"{}")
             text, images = str(body.get("text", "")), [str(i) for i in body.get("images") or []][:8]
         except (ValueError, json.JSONDecodeError, AttributeError, TypeError):
             return self.send(400, b"bad request\n", "text/plain")
-        text = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]+", " ", text.replace("\r\n", "\n")).strip()[:4000]
+        text = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]+", " ", text.replace("\r\n", "\n")).strip()
         if any(os.path.dirname(os.path.realpath(i)) != PASTED or not os.path.isfile(i) for i in images):
             return self.send(400, b"an image is not one pasted here\n", "text/plain")
         if not text and not images:
@@ -2967,7 +2975,7 @@ const draft = name => drafts()[name] || "";
 function keep(box) {
   const d = drafts(), name = box.id === "dsay" ? open : box.dataset.name;
   if (box.value) d[name] = box.value; else delete d[name];
-  localStorage.setItem("drafts", JSON.stringify(d));
+  try { localStorage.setItem("drafts", JSON.stringify(d)); } catch (e) {}   // a paste too big to keep still sends
   for (const b of [...document.querySelectorAll("#main .say"), $("#dsay")]) {
     if (b !== box && (b.id === "dsay" ? open : b.dataset.name) === name && b.value !== box.value) { b.value = box.value; grow(b); }
   }
@@ -3454,7 +3462,8 @@ def self_test():
         del os.environ["AGENT_COLOUR_DEVELOPER"]
 
         with open(T + "/bin/tmux", "w") as f:
-            f.write("#!/usr/bin/env bash\n[ \"$1\" = list-panes ] && printf '%s\\n' "
+            f.write(f"#!/usr/bin/env bash\n[ \"$1\" = load-buffer ] && {{ cat > {T}/loaded; exit 0; }}\n"
+                    "[ \"$1\" = list-panes ] && printf '%s\\n' "
                     "'proj-ada\t%1\t✳ Ada\tnode\t120\t40' 'Work-3\t%2\t✳ Lea\tclaude\t100\t30' 'Work\t%2\t✳ Lea\tclaude\t100\t30' 'other\t%3\t✳ Nobody\tclaude\t80\t24'\n")
         with open(T + "/bin/budget", "w") as f:
             f.write("#!/usr/bin/env bash\necho 'budget  over: week 38% used of 36% planned so far'\n")
@@ -3523,6 +3532,10 @@ def self_test():
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
         t("  and one from another site", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1", "Origin": "http://evil.example"}), b'{"text":"hi"}')[0], 403)
         t("  and one with nothing in it", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), b'{"text":"  "}')[0], 400)
+        long_text = "line of a long paste\n" * 20000
+        code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), json.dumps({"text": long_text}).encode())
+        t("a long paste (400 KB) reaches the pane whole", os.path.getsize(T + "/loaded") if os.path.exists(T + "/loaded") else 0, len(long_text.strip()) + 1)
+        t("  and one over the limit is refused as too long", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), b" " * (SAY_MAX_BYTES + 1))[0], 413)
         t("a stop for an agent that is not working is refused", code("/api/agent/Lea/stop", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         with open(T + "/bin/team-start", "w") as f:
             f.write(f'echo "$*" >> {T}/started\n')
