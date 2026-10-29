@@ -70,6 +70,13 @@
 # the context rows' activity: that comes from a state file the activity hook leaves at "working" after Stop, so
 # on 2026-10-29 the rows said 9–11 working while the session records said 1–3 (Alfred's review of #108); a cap
 # counted from the rows would have refused every spawn. Unset = no cap, and the line says so.
+# What the count is (Stephanie's review of #108/#110): the whole box, not one project, because every session
+# on it draws on the one account; it includes the session running this spawn, so a cap of 10 is the caller and
+# nine others; a session at "shell" may be a background command after the model went idle (box load, not
+# tokens); and it is SOFT: a session just started is idle until its first prompt lands, so two spawns in one
+# turn can both pass. If live records exist but none carries a status (the record's shape changed under a
+# Claude Code update), the count is "?" and a spawn under a cap asks the owner, rather than reading 0 and
+# never firing.
 # Measured 2026-10-29: twelve sessions woke together at 06:03 and read 52 M tokens by 06:40; every one of them
 # pays its whole context on every call, so the number working at once is the rate.
 #
@@ -116,23 +123,31 @@ spawn_budget_rule() {
 }
 
 # How many sessions are working now: session records (<pid>.json) whose pid is alive and whose status is busy
-# (in a model call or a tool) or shell (running a command), one per session id. $1 the sessions dir -> a count
-# (0 with no records, no live process, or no jq). A record whose pid is gone is a session that ended.
+# (in a model call or a tool) or shell (a command running, possibly after the model went idle), one per session
+# id. $1 the sessions dir -> a count (0 with no records, no live process, or no jq), or "?" when live records
+# exist but none carries a status (the shape has changed: say so rather than read 0). A record whose pid is
+# gone is a session that ended.
 spawn_working_count() {
-  local f pid n=0 ids=""
+  local f pid n=0 live=0 with_status=0 ids=""
   for f in "$1"/*.json; do
     [[ -e "$f" ]] || continue
     pid="$(basename -- "$f" .json)"; [[ "$pid" =~ ^[0-9]+$ ]] || continue
     kill -0 "$pid" 2>/dev/null || continue
+    jq -e . "$f" >/dev/null 2>&1 || continue
+    live=$((live + 1))
+    jq -e '.status | strings' "$f" >/dev/null 2>&1 && with_status=$((with_status + 1))
     ids+="$(jq -r 'select(.status == "busy" or .status == "shell") | .sessionId // "?"' "$f" 2>/dev/null)"$'\n'
   done
+  if (( live > 0 && with_status == 0 )); then printf '?'; return; fi
   n="$(printf '%s' "$ids" | sort -u | grep -c .)" || true
   printf '%s' "$n"
 }
-# PURE: what the cap means now. $1 AGENT_MAX_WORKING (may be empty) · $2 working -> none | open | full | bad
+# PURE: what the cap means now. $1 AGENT_MAX_WORKING (may be empty) · $2 working (a count, or "?")
+#   -> none | open | full | unknown | bad   (unknown = a cap is set but the count cannot be read: ask)
 spawn_cap_rule() {
   [[ -n "${1-}" ]] || { printf 'none'; return; }
   [[ "$1" =~ ^[1-9][0-9]*$ ]] || { printf 'bad'; return; }
+  [[ "$2" =~ ^[0-9]+$ ]] || { printf 'unknown'; return; }
   if (( $2 >= $1 )); then printf 'full'; else printf 'open'; fi
 }
 # PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
@@ -218,15 +233,20 @@ spawn_self_test() {
   _t "cap: at it is full" "$(spawn_cap_rule 10 10)" full
   _t "cap: over it is full" "$(spawn_cap_rule 10 12)" full
   _t "cap: a non-number is bad" "$(spawn_cap_rule ten 1)" bad
+  _t "cap: a count that cannot be read is unknown under a cap" "$(spawn_cap_rule 10 '?')" unknown
+  _t "cap: and none without one" "$(spawn_cap_rule '' '?')" none
   local CD; CD="$(mktemp -d)"
   rec() { printf '{"pid":%s,"sessionId":"%s","status":"%s"}\n' "$1" "$2" "$3" > "$CD/$1.json"; }   # <pid> <session> <status>
   rec $$ s-busy busy; rec $PPID s-shell shell; printf 'not json\n' > "$CD/junk.json"
   _t "working count: a live busy and a live shell record are two" "$(spawn_working_count "$CD")" 2
   rec $$ s-busy idle
   _t "working count: a live idle record is not working" "$(spawn_working_count "$CD")" 1
-  rec 4000000 s-dead busy
+  true & local DEAD=$!; wait "$DEAD"   # a pid that has certainly exited (pid_max is not a dead pid)
+  rec "$DEAD" s-dead busy
   _t "working count: a busy record whose process is gone is a session that ended" "$(spawn_working_count "$CD")" 1
   _t "working count: no records is 0" "$(spawn_working_count "$CD/none")" 0
+  rm -f "$CD"/*.json; rec $$ s-busy busy; sed -i 's/"status"/"state"/' "$CD/$$.json"
+  _t "working count: live records with no status field cannot be read: ? not 0" "$(spawn_working_count "$CD")" '?'
   rm -rf "$CD"
 
   # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
@@ -341,9 +361,10 @@ EOF
   printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx" "$T/claude/sessions"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Tess is free again
   # Session records are what count: three live busy/shell ones, one busy whose process is gone, and a context row
   # left at "working" for an agent with no busy record (the activity hook leaves that behind after Stop).
-  sleep 300 & local SLP=$!
+  sleep 300 & local SLP=$!; trap 'kill "$SLP" 2>/dev/null' RETURN
+  true & local DEAD=$!; wait "$DEAD"
   mk() { printf '{"pid":%s,"sessionId":"%s","status":"%s"}\n' "$1" "$2" "$3" > "$T/claude/sessions/$1.json"; }
-  mk $$ s1 busy; mk $PPID s2 shell; mk 4000000 s3 busy
+  mk $$ s1 busy; mk $PPID s2 shell; mk "$DEAD" s3 busy
   printf '{"agent":"Zoe","activity":"working","ts":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$T/ctx/Zoe.json"
   out="$(run tester --ticket HAR-12 --dry-run)"
   _has "a fresh working context row with no busy record is not counted, nor a busy record whose process is gone" "$out" "working 2 sessions now"
@@ -371,6 +392,16 @@ EOF
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12 --dry-run)"; rc=$?
   _t "a cap that is not a number is a usage error" "$rc" 2
+  printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=10\n' > "$T/repo/harness.env"
+  sed -i 's/"status"/"state"/' "$T/claude/sessions"/*.json; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  out="$(run tester --ticket HAR-12 --dry-run)"
+  _has "records with no status under a cap: the dry run says it cannot tell and asks" "$out" "cannot tell how many sessions are working (no status in"
+  _has "  the spawn line carries --owner-ok" "$out" '--owner-ok "<the owner'"'"'s words>"'
+  out="$(run tester --ticket HAR-12)"; rc=$?
+  _t "  and a real spawn is refused, not let through on a count of 0" "$rc" 1
+  _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log")/$(wc -l < "$T/spawns.tsv")" "0/$before"
+  out="$(run tester --ticket HAR-12 --owner-ok 'go on, Peter')"; rc=$?
+  _t "  the owner's words start it" "$rc" 0
   kill "$SLP" 2>/dev/null; rm -f "$T/ctx"/*.json "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; printf 'over\n' > "$T/budget.mode"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --owner-ok 'yes, start her, Peter')"; rc=$?
@@ -658,10 +689,11 @@ CAP_RULE="$(spawn_cap_rule "${AGENT_MAX_WORKING:-}" "$WORKING_N")"
 case "$CAP_RULE" in
   none) CAP_LINE="working $WORKING_N sessions now (no cap: AGENT_MAX_WORKING in harness.env)" ;;
   bad)  echo "agent-spawn: AGENT_MAX_WORKING='${AGENT_MAX_WORKING}' is not a whole number of sessions; nothing started." >&2; exit 2 ;;
+  unknown) CAP_LINE="cannot tell how many sessions are working (no status in ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/<pid>.json; cap $AGENT_MAX_WORKING)" ;;
   *)    CAP_LINE="working $WORKING_N of up to $AGENT_MAX_WORKING sessions" ;;
 esac
-# at the cap, either role asks; the owner's words start it, as they do a developer off budget
-[[ "$CAP_RULE" == full ]] && RULE=ask
+# at the cap, or unable to read the count under one, either role asks; the owner's words start it
+[[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
   printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
@@ -673,7 +705,7 @@ if (( DRY )); then
   [[ -z "$TICKET_LINE" ]] || printf '%s\n' "$TICKET_LINE"
   printf '%s\n' "$BUDGET_LINE"
   printf '%s\n' "$CAP_LINE"
-  if [[ "$CAP_RULE" == full ]]; then
+  if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]]; then
     printf '  at the cap (%s): ask the owner first, in one line, whatever the role; start it with their words on --owner-ok.\n' "$CAP_LINE"
   else case "$RULE" in
     start) printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n' ;;
@@ -683,7 +715,7 @@ if (( DRY )); then
   exit 0
 fi
 
-if [[ "$CAP_RULE" == full && -z "$OWNER_OK" ]]; then
+if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && [[ -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s: at the cap\n' "$CAP_LINE" >&2
   printf '  a spawn at the cap needs the owner'"'"'s OK whatever the role: ask in one line (ticket, name, the line above), then start it with\n' >&2
   printf '  their words on the line: %s %s --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
