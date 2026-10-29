@@ -1357,6 +1357,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
+.face.waiting{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
@@ -2810,8 +2811,9 @@ function shadow(a) {
 // Shadows with a clipboard on the right have the name to its left.
 const LEFT_BADGE = new Set(["tester", "hot"]);
 // An agent as a small Characters tile: its portrait, else its role's shadow with the agent's initial bottom left, over
-// a bar in its colour.
-const face = (a, attrs, cls = "") => `<span class="face${cls}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
+// a bar in its colour. A running agent's tile carries its state, so a waiting one flashes like its Characters tile; the
+// bench's have none.
+const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " " + stOf(a) : ""}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
