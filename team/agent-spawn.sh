@@ -65,8 +65,11 @@
 #
 # THE CAP (owner, 2026-10-29: "make it configurable - start with 10"). AGENT_MAX_WORKING in harness.env is how
 # many sessions may be WORKING at once; a spawn of EITHER role at or over it is refused unless the owner's words
-# are on --owner-ok, exactly as the budget gates a developer. Working = a context row (docs/context-publisher.md)
-# with activity "working" written in the last two minutes, one per agent. Unset = no cap, and the line says so.
+# are on --owner-ok, exactly as the budget gates a developer. Working = a Claude Code session record
+# (~/.claude/sessions/<pid>.json) whose process is alive and whose status is busy or shell, one per session. NOT
+# the context rows' activity: that comes from a state file the activity hook leaves at "working" after Stop, so
+# on 2026-10-29 the rows said 9–11 working while the session records said 1–3 (Alfred's review of #108); a cap
+# counted from the rows would have refused every spawn. Unset = no cap, and the line says so.
 # Measured 2026-10-29: twelve sessions woke together at 06:03 and read 52 M tokens by 06:40; every one of them
 # pays its whole context on every call, so the number working at once is the rate.
 #
@@ -112,12 +115,19 @@ spawn_budget_rule() {
   if [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
 }
 
-# PURE: how many agents are working now: context rows with activity "working" written in the last 120 s, one per
-# agent. $1 dir · $2 now (epoch) -> a count (0 with no rows or no jq)
+# How many sessions are working now: session records (<pid>.json) whose pid is alive and whose status is busy
+# (in a model call or a tool) or shell (running a command), one per session id. $1 the sessions dir -> a count
+# (0 with no records, no live process, or no jq). A record whose pid is gone is a session that ended.
 spawn_working_count() {
-  cat "$1"/*.json 2>/dev/null | jq -rR --argjson now "$2" 'fromjson? // empty
-    | select(.activity == "working" and (((.ts | fromdateiso8601?) // 0) >= $now - 120)) | .agent // "?"' 2>/dev/null \
-    | sort -u | grep -c . || true
+  local f pid n=0 ids=""
+  for f in "$1"/*.json; do
+    [[ -e "$f" ]] || continue
+    pid="$(basename -- "$f" .json)"; [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    ids+="$(jq -r 'select(.status == "busy" or .status == "shell") | .sessionId // "?"' "$f" 2>/dev/null)"$'\n'
+  done
+  n="$(printf '%s' "$ids" | sort -u | grep -c .)" || true
+  printf '%s' "$n"
 }
 # PURE: what the cap means now. $1 AGENT_MAX_WORKING (may be empty) · $2 working -> none | open | full | bad
 spawn_cap_rule() {
@@ -208,11 +218,15 @@ spawn_self_test() {
   _t "cap: at it is full" "$(spawn_cap_rule 10 10)" full
   _t "cap: over it is full" "$(spawn_cap_rule 10 12)" full
   _t "cap: a non-number is bad" "$(spawn_cap_rule ten 1)" bad
-  local CD; CD="$(mktemp -d)"; local nowz; nowz="$(date -u +%s)"
-  row() { printf '{"agent":"%s","activity":"%s","ts":"%s"}\n' "$1" "$2" "$(date -u -d "@$3" +%Y-%m-%dT%H:%M:%SZ)" > "$CD/$1.json"; }
-  row A working "$nowz"; row B working "$((nowz - 60))"; row C idle "$nowz"; row D working "$((nowz - 600))"; printf 'not json\n' > "$CD/E.json"
-  _t "working count: fresh working rows only, not idle, not a ten-minute-old one, not junk" "$(spawn_working_count "$CD" "$nowz")" 2
-  _t "working count: no rows is 0" "$(spawn_working_count "$CD/none" "$nowz")" 0
+  local CD; CD="$(mktemp -d)"
+  rec() { printf '{"pid":%s,"sessionId":"%s","status":"%s"}\n' "$1" "$2" "$3" > "$CD/$1.json"; }   # <pid> <session> <status>
+  rec $$ s-busy busy; rec $PPID s-shell shell; printf 'not json\n' > "$CD/junk.json"
+  _t "working count: a live busy and a live shell record are two" "$(spawn_working_count "$CD")" 2
+  rec $$ s-busy idle
+  _t "working count: a live idle record is not working" "$(spawn_working_count "$CD")" 1
+  rec 4000000 s-dead busy
+  _t "working count: a busy record whose process is gone is a session that ended" "$(spawn_working_count "$CD")" 1
+  _t "working count: no records is 0" "$(spawn_working_count "$CD/none")" 0
   rm -rf "$CD"
 
   # FIXTURES: a project root with a roster, a stand-in tmux and claude on PATH, Claude Code records in a
@@ -324,8 +338,16 @@ EOF
   _t "a tester spawn off budget starts without any OK" "$rc" 0
   _t "  and is recorded with no owner words" "$(awk -F'\t' '$2=="Tess"{print $3"|"$6"|"$7}' "$T/spawns.tsv")" 'tester|over|-'
   # ── THE CAP GATES EVERY ROLE (owner, 2026-10-29) ──
-  printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Tess is free again
-  for a in P Q R; do printf '{"agent":"%s","activity":"working","ts":"%s"}\n' "$a" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$T/ctx/$a.json"; done
+  printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx" "$T/claude/sessions"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Tess is free again
+  # Session records are what count: three live busy/shell ones, one busy whose process is gone, and a context row
+  # left at "working" for an agent with no busy record (the activity hook leaves that behind after Stop).
+  sleep 300 & local SLP=$!
+  mk() { printf '{"pid":%s,"sessionId":"%s","status":"%s"}\n' "$1" "$2" "$3" > "$T/claude/sessions/$1.json"; }
+  mk $$ s1 busy; mk $PPID s2 shell; mk 4000000 s3 busy
+  printf '{"agent":"Zoe","activity":"working","ts":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$T/ctx/Zoe.json"
+  out="$(run tester --ticket HAR-12 --dry-run)"
+  _has "a fresh working context row with no busy record is not counted, nor a busy record whose process is gone" "$out" "working 2 sessions now"
+  mk "$SLP" s4 busy
   out="$(run tester --ticket HAR-12 --dry-run)"
   _has "with no cap set the dry run counts the working sessions and says there is no cap" "$out" "working 3 sessions now (no cap: AGENT_MAX_WORKING in harness.env)"
   printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=3\n' > "$T/repo/harness.env"
@@ -349,7 +371,7 @@ EOF
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12 --dry-run)"; rc=$?
   _t "a cap that is not a number is a usage error" "$rc" 2
-  rm -f "$T/ctx"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; printf 'over\n' > "$T/budget.mode"
+  kill "$SLP" 2>/dev/null; rm -f "$T/ctx"/*.json "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; printf 'over\n' > "$T/budget.mode"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --owner-ok 'yes, start her, Peter')"; rc=$?
   _t "a developer spawn off budget WITH the owner's OK starts" "$rc" 0
@@ -631,7 +653,7 @@ fi
 BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
 case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
-WORKING_N="$(spawn_working_count "${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT}/context}" "$(date -u +%s)")"
+WORKING_N="$(spawn_working_count "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions")"
 CAP_RULE="$(spawn_cap_rule "${AGENT_MAX_WORKING:-}" "$WORKING_N")"
 case "$CAP_RULE" in
   none) CAP_LINE="working $WORKING_N sessions now (no cap: AGENT_MAX_WORKING in harness.env)" ;;
