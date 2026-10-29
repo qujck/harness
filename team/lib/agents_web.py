@@ -998,7 +998,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{animation:ping 1.4s infinite}
-.pill.tally .wait{position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+.pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
@@ -1769,11 +1769,14 @@ function draw() {
   const n = st => S.agents.filter(a => a.status === st).length;
   // Working and idle as a dot and a number each, with a flashing badge on top when any agent is waiting.
   const waiting = n("waiting");
+  // the badge opens the agent that has been waiting longest
+  const longest = S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name || "";
   // the working dot pulses while any agent works; the counts are rewritten only when they change, so the pulse runs on
   const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
     `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
-    (waiting ? `<span class="wait">${waiting} waiting</span>` : "") + `</span>`;
+    (waiting ? `<span class="wait" data-name="${esc(longest)}" title="Open ${esc(longest)}, waiting longest">${waiting} waiting</span>` : "") + `</span>`;
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
+  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
   // The benched developers and testers on one line in the header's free space, so the header never changes height;
   // those that do not fit are counted in a "+N" that names them.
   $("#bench").innerHTML = S.bench.length ? `<span>bench</span><span class="rrow">${S.bench.map(b => `<em style="--c:${b.colour}" title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench">${esc(b.name)}</em>`).join("")}</span>` : "";
