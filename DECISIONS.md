@@ -603,3 +603,23 @@ environment, and its pane is the tmux session `agent-spawn.sh` starts for it; a 
 while its process is the session's own, as in `team/lib/agent-session.sh`. The ticket is the first one the
 agent holds on the claims board.
 
+
+
+## 2026-10-29 — The page's agent menus, icons and role shadows (ported from the seeded project)
+
+**Decision.** The agent menu (a moment's rest on, or a right click on, an agent's row, tile or view header) is on
+List rows, the Tabs view's cards and the view's ⋯, and stays up to date while open; it offers no Open for the
+agent already in the view, and nothing for one that is not running. The view opened over the page is smaller and
+shows the agent alone (the column of other agents stays beside the Tabs view's docked one). The ↗ links give way
+to the menu. The View and Filter menus have an icon for each choice, and the View button shows the current one's
+icon in place of a chevron. With a Characters pane on the page the bench shows portraits. An agent with no
+portrait shows a shadow of its role: a head and shoulders in its colour, with the lead's cap, a developer's
+headphones, a tester's magnifier, the reviewer's glasses and pen, process improvement's hard hat or the
+assistant's bow tie.
+
+**Not ported, and why.** In the seeded project the header's power button starts and stops the team, and the
+standing agents start and stop from their menus: a stop asks the delivery lead to wind the team down and pause
+the nudger, and a start runs its restore script for those who were running. The harness has no restore script
+(each agent's tmux session is started by `team/agent-spawn.sh`) and no nudger pause, so there is nothing for the
+buttons to drive. The seeded project also numbers a developer's or tester's shadow from its PR name; the roster
+here has no such column, so the shadows carry no number.

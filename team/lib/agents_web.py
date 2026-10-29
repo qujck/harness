@@ -420,6 +420,30 @@ def panes():
     return by_name
 
 
+def type_into(name, text, images=()):
+    """Types a message into the agent's pane, then Enter; None when it is in no pane, else whether tmux took it.
+    The text goes in as one bracketed paste, as a terminal pastes, so its line breaks stay line breaks in the agent's
+    message box instead of sending it early. Each image follows as a paste of its path alone, which Claude Code
+    attaches as an image, as when a file is dragged in; any other file stays as its path, for the agent to open,
+    with a space after it so the next one does not run on."""
+    where = panes().get(name)
+    if not where:
+        return None
+    ok = True
+    parts = [i if os.path.splitext(i)[1].lower() in IMAGE_TYPES else i + " " for i in images]
+    for i, part in enumerate(([text + " "] if text else []) + parts):
+        if i:
+            time.sleep(0.3)
+        buf = "agents-web-" + uuid.uuid4().hex[:12]
+        ok = ok and subprocess.run(["tmux", "load-buffer", "-b", buf, "-"], input=part.encode()).returncode == 0
+        ok = ok and subprocess.run(["tmux", "paste-buffer", "-p", "-d", "-b", buf, "-t", where["pane"]]).returncode == 0
+    time.sleep(0.2)   # an Enter in the same burst as the paste can be swallowed
+    ok = ok and subprocess.run(["tmux", "send-keys", "-t", where["pane"], "Enter"]).returncode == 0
+    with _lock:
+        _state["at"] = 0
+    return ok
+
+
 # ── the conversation ──────────────────────────────────────────────────────────
 _paths, _feeds = {}, {}
 _lock = threading.Lock()
@@ -744,7 +768,7 @@ def state():
         if not rec and not where.get(name):
             # a developer or tester with no session is on the bench, waiting for agent-spawn.sh
             if role in ("dev", "tester"):
-                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"])})
+                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), "portrait": portrait(name)})
             continue
         sid = (rec or {}).get("sessionId")
         row = rows.get(sid, {}) if sid else {}
@@ -914,25 +938,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, b"an image is not one pasted here\n", "text/plain")
         if not text and not images:
             return self.send(400, b"nothing to send\n", "text/plain")
-        where = panes().get(m.group(1))
-        if not where:
+        ok = type_into(m.group(1), text, images)
+        if ok is None:
             return self.send(404, b"that agent is not in a pane\n", "text/plain")
-        # The text goes in as one bracketed paste, as a terminal pastes, so its line breaks stay line breaks in the
-        # agent's message box instead of sending it early. Each image follows as a paste of its path alone, which
-        # Claude Code attaches as an image, as when a file is dragged in; any other file stays as its path, for the
-        # agent to open, with a space after it so the next one does not run on.
-        ok = True
-        parts = [i if os.path.splitext(i)[1].lower() in IMAGE_TYPES else i + " " for i in images]
-        for i, part in enumerate(([text + " "] if text else []) + parts):
-            if i:
-                time.sleep(0.3)
-            buf = "agents-web-" + uuid.uuid4().hex[:12]
-            ok = ok and subprocess.run(["tmux", "load-buffer", "-b", buf, "-"], input=part.encode()).returncode == 0
-            ok = ok and subprocess.run(["tmux", "paste-buffer", "-p", "-d", "-b", buf, "-t", where["pane"]]).returncode == 0
-        time.sleep(0.2)   # an Enter in the same burst as the paste can be swallowed
-        ok = ok and subprocess.run(["tmux", "send-keys", "-t", where["pane"], "Enter"]).returncode == 0
-        with _lock:
-            _state["at"] = 0
         self.send(200 if ok else 500, json.dumps({"sent": ok}).encode(), "application/json")
 
     def stop(self, name):
@@ -1026,6 +1034,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
+.bench .face{flex:none;width:34px;height:34px;border-radius:7px;object-fit:cover}   /* as the Characters pane shows them, smaller */
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
 .colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
@@ -1105,6 +1114,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button.busy .dot,.mini.busy .name .dot{animation-name:pingfg}
 /* an agent in its shell: on its name box, a dot in the name's colour pulsing the same */
 .tabbar button.shell .dot,.mini.shell .name .dot{background:var(--ownerfg);animation:pingfg 1.4s infinite}
+/* an agent that is not running: on its name box, a square in the name's colour */
+.tabbar button.off .dot,.mini.off .name .dot{border-radius:1px;background:var(--ownerfg)}
 @keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}80%{box-shadow:0 0 0 5px var(--c)}100%{box-shadow:0 0 0 6px color-mix(in srgb,var(--c) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ctx .meter{width:64px;height:6px}
@@ -1292,12 +1303,12 @@ table.md th{background:var(--line);font-weight:600}
 b.h{display:block;margin-top:2px;font-weight:700}
 .empty{color:var(--faint);font-style:italic;font-size:12px}
 /* detail */
-#detail{position:fixed;inset:0;display:none;background:#000a;backdrop-filter:blur(6px);z-index:9;padding:3vh 3vw}
+#detail{position:fixed;inset:0;display:none;background:#000a;backdrop-filter:blur(6px);z-index:9;padding:6vh 8vw}
 #detail.open{display:flex}
 #detail.docked{background:none;backdrop-filter:none;padding:14px;z-index:2}
 #detail.docked .box{box-shadow:none;border-radius:14px}
 #detail.docked .head .x{display:none}
-html.only header,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .newtab, .x){display:none}
+html.only header,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .x){display:none}
 html.only #detail{background:none;backdrop-filter:none;padding:0}
 html.only #detail .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);border:0;border-radius:0;box-shadow:none}
 html.only #detail .box .left{grid-column:1;grid-row:2}
@@ -1305,13 +1316,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:16px;background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
 #detail .head{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
 #detail .head .lanes + .x{margin-left:14px}
-#detail .head .newtab{margin-left:10px;color:var(--mute);text-decoration:none;font-size:15px;line-height:1}
-#detail .head .newtab:hover{color:var(--text)}
 #emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 12px 30px #0008;font:12px var(--mono);color:var(--text2)}
 #emo div{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
 #emo div span{font-size:16px;width:20px;text-align:center}
 #emo div.on,#emo div:hover{background:var(--on);color:var(--text)}
-#detail .head .newtab + .x{margin-left:10px}
+#detail .head #dmore + .x{margin-left:10px}
 #detail .head .termseg{margin-left:auto;flex:none}
 #detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
 #detail .box.noterm .termwrap{display:none}
@@ -1340,7 +1349,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
 .chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
-.chr .por text{font:700 38px Oswald,"Bebas Neue",Impact,"Arial Narrow",sans-serif;fill:var(--text)}
+.chr .por text{font:700 26px Oswald,"Bebas Neue",Impact,"Arial Narrow",sans-serif;fill:var(--text)}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
 .chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
@@ -1358,7 +1367,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
   box-shadow:0 12px 32px #0007;font:12.5px var(--sans);color:var(--text);display:none}
 #menu.on{display:block}
-#menu[data-key^="tile:"]{width:236px}
+#menu[data-key^="agent:"]{width:236px}
 #menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
 #menu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
@@ -1370,6 +1379,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
 #menu .mi svg.off{visibility:hidden}
+#menu .mi svg.tick{margin-left:auto}
 #menu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
@@ -1380,12 +1390,16 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .box.rail-top .rail{grid-row:2;border-bottom:1px solid var(--line)}
 #detail .box.rail-top .left{grid-row:3}
 #detail .box.rail-bottom .rail{grid-row:3;border-top:1px solid var(--line)}
+/* opened over the page, the view is the agent alone: the other agents' column is only beside the Tabs page's docked view */
+#detail:not(.docked) :is(#drail, #drailgrip, #dhead .railseg){display:none}
+#detail:not(.docked) .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+#detail:not(.docked) .box .left{grid-column:1;grid-row:2}
 .mini{--c:#888;position:relative;flex:none;padding:8px 10px 4px;border-radius:9px;border:1px solid var(--line2);background:linear-gradient(180deg,var(--card1),var(--card2));
   cursor:pointer;overflow:hidden;transition:border-color .15s}
 .mini::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--c)}
 .mini:hover{border-color:var(--c)}
 .mini.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
-.mini.off{opacity:.45}
+.mini.off,.tabbar button.off{opacity:.45}
 .mini.cur:not(.waiting){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
 .mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
@@ -1398,11 +1412,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
-.mini .mtop .newtab{flex:none;color:var(--mute);text-decoration:none;font:13px/1 var(--sans);padding:0 1px}
-.mini .mtop .pct + .newtab{margin-left:2px}
-.mini .mtop .ago + .newtab{margin-left:auto}
-.mini .mtop .newtab:hover{color:var(--text)}
 .mini svg.spark{height:16px;margin-top:3px}
+.mini:not(:has(svg.spark)){padding-bottom:8px}   /* with no sparkline, as much space below the name as above */
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
@@ -1643,7 +1654,14 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
   window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
   check: '<path d="M3 8.5 6.5 12 13 4.5"/>',
-  chev: '<path d="M4.5 6.5 8 10l3.5-3.5"/>',
+  grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
+  tabs: '<path d="M2 6.5h12v7H2zM2 6.5V3h5.5v3.5"/>',
+  custom: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M7 2.5v11M7 8h7"/>',
+  owner: '<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14a5.2 5.2 0 0 1 10.4 0"/>',
+  team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
+  said: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
+  auto: '<rect x="3" y="5.5" width="10" height="8" rx="2"/><path d="M8 5.5V3"/><circle cx="8" cy="2.4" r=".7"/><circle cx="6" cy="9.5" r=".8"/><circle cx="10" cy="9.5" r=".8"/><path d="M1.5 8.5v2.5M14.5 8.5v2.5"/>',
+  more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // A filter button: its icon (and, on the page's, its name), lit while something is left out; a click opens its menu.
@@ -1791,8 +1809,8 @@ pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset
 // Grid / Tabs switch for one section.
 const VIEWS = [["grid", "Grid"], ["tabs", "Tabs"], ["custom", "Custom"]];
 const VIEW_TIP = {grid: "Every section side by side", tabs: "Every agent as one row of tabs, one at a time", custom: "Your own layout of panes"};
-const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${VIEWS.find(v => v[0] === mode)[1]}` +
-  `${mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}${MENU_ICON.chev}</b>`;
+const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${MENU_ICON[mode]}<span>${VIEWS.find(v => v[0] === mode)[1]}</span>` +
+  `${mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`;
 function seg(mode, sec) {
   const tip = {grid: `Every agent in ${sec} as a card`, tabs: `${sec} as tabs, one agent at a time`};
   return `<span class="seg mode" data-sec="${esc(sec)}">${["grid", "tabs"].map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}</b>`).join("")}</span>`;
@@ -1866,8 +1884,13 @@ function draw() {
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
   // The benched developers and testers on one line in the header's free space, so the header never changes height;
-  // those that do not fit are counted in a "+N" that names them.
-  $("#bench").innerHTML = S.bench.length ? `<span>bench</span><span class="rrow">${S.bench.map(b => `<em style="--c:${b.colour}" title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench">${esc(b.name)}</em>`).join("")}</span>` : "";
+  // those that do not fit are counted in a "+N" that names them. With a Characters pane on the page, one with a
+  // portrait is just its picture.
+  const faces = localStorage.getItem("page") === "custom" && leaves(layout().root).some(([, n]) => n.show === "characters");
+  $("#bench").innerHTML = S.bench.length ? `<span>bench</span><span class="rrow">${S.bench.map(b => {
+    const tip = `title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench" data-name="${esc(b.name)}"`;
+    return faces && b.portrait ? `<img class="face" style="--c:${b.colour}" src="${esc(b.portrait)}" alt="${esc(b.name)}" ${tip}>`
+      : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
 
 
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
@@ -1965,7 +1988,7 @@ function fitBench() {
   const more = Object.assign(document.createElement("em"), {style: "--c:var(--line2)"});
   row.append(more);
   const off = [];
-  while (chips.length && row.scrollWidth > row.clientWidth) { const c = chips.pop(); c.remove(); off.unshift(c.textContent); more.textContent = "+" + off.length; }
+  while (chips.length && row.scrollWidth > row.clientWidth) { const c = chips.pop(); c.remove(); off.unshift(c.dataset.name); more.textContent = "+" + off.length; }
   more.title = "Also on the bench: " + off.join(", ");
 }
 
@@ -2199,11 +2222,17 @@ function customClicks() {
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? box().focus() : openDetail(name);
   };
-  main.querySelectorAll(".others .mini").forEach(m => m.onclick = () => goTo(m.dataset.name));
+  // an agent that is not running has nothing to open: a click on its row or tile opens its menu instead
+  const open = m => m.classList.contains("off") ? menuSoon(m, 0) : (menuOff(true), goTo(m.dataset.name));
+  main.querySelectorAll(".others .mini").forEach(m => {
+    m.onclick = () => open(m);
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+  });
   main.querySelectorAll(".chrs .chr").forEach(m => {
-    m.onclick = () => { menuOff(true); goTo(m.dataset.name); };
-    m.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goTo(m.dataset.name); } };
-    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => menuOff();
+    m.onclick = () => open(m);
+    m.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(m); } };
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
   menuGo = goTo;
@@ -2268,6 +2297,7 @@ async function load() {
     await loadPaneConvs();
     colours = Object.fromEntries([...S.agents, ...S.bench].map(a => [a.name, a.colour]));
     draw();
+    if (menu.classList.contains("on")) menu.refresh?.();
   } catch (e) { $("#counts").innerHTML = `<span class="pill" style="color:var(--red)">offline</span>`; }
 }
 
@@ -2311,46 +2341,33 @@ function minis(cur, agents = S.agents) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
   return agents.map(a => {
     const st = a.live ? a.status : "off", n = a.name === cur ? 0 : unseen(a);
-    return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" title="Open ${esc(a.name)}">
-      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}<a class="newtab" href="/?only#${encodeURIComponent(a.name)}" target="_blank" rel="noopener" title="Open ${esc(a.name)} in a new tab" onclick="event.stopPropagation()">↗</a></div>
+    return `<div class="mini ${st}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
 // Characters: each agent's tile. Its portrait is <name>.png/.webp/.jpg in ~/.claude/agents-portraits when there is
-// one, else an emblem of its own - a shape from EMBLEMS, outlined and tinted in its colour, with its initial. Round
+// one, else the shadow of its role (shadow). Round
 // the portrait: its last activity (green within the minute) and how long ago, its context, its unseen count, its
 // ticket and its activity.
-const EMBLEMS = (() => {
-  const poly = pts => `<polygon points="${pts}"/>`, round = (n, r1, r2, off = 0) => poly(Array.from({length: n * 2}, (_, i) => {
-    const r = i % 2 ? r2 : r1, t = Math.PI * i / n - Math.PI / 2 + off; return `${(50 + r * Math.cos(t)).toFixed(1)},${(50 + r * Math.sin(t)).toFixed(1)}`; }).join(" "));
-  const gear = poly(Array.from({length: 32}, (_, i) => { const t = 2 * Math.PI * i / 32 - Math.PI / 2, r = [46, 46, 36, 36][i % 4];
-    return `${(50 + r * Math.cos(t)).toFixed(1)},${(50 + r * Math.sin(t)).toFixed(1)}`; }).join(" "));
-  return [
-    `<path d="M50 4 L90 17 V47 C90 72 72 88 50 96 C28 88 10 72 10 47 V17 Z"/>`,                    // shield
-    poly("50,3 95,50 50,97 5,50"),                                                                 // diamond
-    poly("50,3 93,47 67,47 67,96 33,96 33,47 7,47"),                                               // arrow
-    poly("50,3 91,27 91,73 50,97 9,73 9,27"),                                                      // hexagon
-    round(5, 47, 20),                                                                              // star
-    gear,                                                                                          // gear
-    `<circle cx="50" cy="34" r="30"/><path d="M43 64 H57 V96 H43 Z M57 74 H72 V82 H57 Z M57 87 H67 V94 H57 Z"/>`, // key
-    `<circle cx="50" cy="50" r="46"/>`,                                                            // circle
-    poly("50,5 96,90 4,90"),                                                                       // triangle
-    round(8, 47, 47, Math.PI / 8).replace(/points="([^"]*)"/, (m, p) => `points="${p.split(" ").filter((_, i) => i % 2 === 0).join(" ")}"`), // octagon
-    poly("50,3 95,36 78,94 22,94 5,36"),                                                           // pentagon
-    poly("36,4 64,4 64,36 96,36 96,64 64,64 64,96 36,96 36,64 4,64 4,36 36,36"),                   // cross
-    `<path d="M50 92 C20 70 4 52 4 32 C4 16 16 6 30 6 C40 6 46 12 50 20 C54 12 60 6 70 6 C84 6 96 16 96 32 C96 52 80 70 50 92 Z"/>`, // heart
-    poly("58,3 18,56 46,56 38,97 82,40 54,40"),                                                    // lightning
-    `<rect x="8" y="8" width="84" height="84" rx="22"/>`,                                          // rounded square
-    `<path d="M50 3 C64 28 84 46 84 64 A34 34 0 0 1 16 64 C16 46 36 28 50 3 Z"/>`,                 // drop
-    poly("6,82 12,22 32,52 50,12 68,52 88,22 94,82"),                                              // crown
-    round(6, 47, 30),                                                                              // six-point star
-  ];
-})();
-function emblem(a) {
-  const names = [...new Set([...S.agents, ...S.bench].map(x => x.name))].sort();
-  const shape = EMBLEMS[names.indexOf(a.name) % EMBLEMS.length];
-  return `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="${a.colour}" fill-opacity=".22" stroke="${a.colour}" stroke-width="4" stroke-linejoin="round">${shape}</g>` +
-    `<text x="50" y="52" text-anchor="middle" dominant-baseline="central">${esc(a.name[0].toUpperCase())}</text></svg>`;
+// A shadow for an agent with no portrait: a head and shoulders in its colour, faint, with its role's prop in the full
+// colour (the lead's cap, a developer's headphones, a tester's magnifier, the reviewer's glasses and pen, process
+// improvement's hard hat, the assistant's hair and bow tie) and, for a developer or tester, its number on the chest.
+const PROPS = {
+  lead: `<path d="M29 33 L25 21 Q50 9 75 21 L71 33 Z" class="p"/><path d="M28 33 H72 V37 H28 Z" class="k"/><path d="M33 37 Q50 47 67 37 Z" class="k"/><circle cx="50" cy="24" r="3.2" class="b"/>`,
+  dev: `<path d="M30 45 A20 20 0 0 1 70 45" class="s" stroke-width="5"/><rect x="25" y="40" width="9" height="15" rx="3.5" class="p"/><rect x="66" y="40" width="9" height="15" rx="3.5" class="p"/>`,
+  tester: `<circle cx="59" cy="44" r="9.5" class="s" stroke-width="4" fill-opacity=".25"/><path d="M66 51 L81 67" class="s" stroke-width="6" stroke-linecap="round"/>`,
+  review: `<path d="M34 45 h13 a6.5 6.5 0 0 1 -13 0z M53 45 h13 a6.5 6.5 0 0 1 -13 0z" class="p"/><path d="M47 45 h6" class="s" stroke-width="2"/><path d="M80 96 L88 62" class="s" stroke-width="5" stroke-linecap="round"/><path d="M86 61 L89 54 L91 62 Z" class="p"/>`,
+  process: `<path d="M31 37 A19 18 0 0 1 69 37 Z" class="p"/><path d="M24 36 H76 V41 H24 Z" class="p"/><path d="M50 20 V36" class="k" stroke-width="3"/>`,
+  pa: `<path d="M33 40 Q34 25 50 25 Q66 25 67 40 Q61 31 50 32 Q39 31 33 40 Z" class="p"/><path d="M38 64 L50 70 L38 76 Z M62 64 L50 70 L62 76 Z" class="p"/><circle cx="50" cy="70" r="3" class="p"/>`,
+};
+function shadow(a) {
+  const c = a.colour;
+  const prop = (PROPS[a.role] || "").replace(/class="p"/g, `fill="${c}"`).replace(/class="k"/g, `fill="${c}" stroke="${c}" fill-opacity=".7"`)
+    .replace(/class="b"/g, `fill="var(--chtile)"`).replace(/class="s"/g, `fill="none" stroke="${c}"`);
+  return `<svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="18" fill="${c}" fill-opacity=".1"/>` +
+    `<g fill="${c}" fill-opacity=".38"><circle cx="50" cy="44" r="17"/><path d="M14 100 C14 77 30 66 50 66 C70 66 86 77 86 100 Z"/></g>${prop}` +
+    (a.seat ? `<text x="50" y="87" text-anchor="middle" dominant-baseline="central">${a.seat}</text>` : "") + `</svg>`;
 }
 function tiles() {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
@@ -2358,7 +2375,7 @@ function tiles() {
     const st = a.live ? a.status : "off", n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
-      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : emblem(a)}</span>` +
+      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
@@ -2369,7 +2386,11 @@ function rail() {
   if (!open || !S) return;
   markSeen(S.agents.filter(a => !seen[a.name] || a.name === open).map(a => a.name));
   patch($("#drail"), minis(open));
-  document.querySelectorAll("#drail .mini").forEach(m => m.onclick = m.matches(".cur") ? null : () => openDetail(m.dataset.name));
+  document.querySelectorAll("#drail .mini").forEach(m => {
+    m.onclick = m.matches(".cur") ? null : () => m.matches(".off") ? menuSoon(m, 0) : (menuOff(true), openDetail(m.dataset.name));
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+  });
   beat();
 }
 
@@ -2406,8 +2427,9 @@ async function openDetail(name) {
   if (ONLY) document.title = name;
   const a = S.agents.find(x => x.name === name) || {};
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(name)}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<a class="newtab" href="/?only#${encodeURIComponent(name)}" target="_blank" rel="noopener" title="Open ${esc(name)} in a new tab">↗</a><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(name)}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
+  menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
   $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); fitTerm(); };
   showTerm(); showRail();
@@ -2681,7 +2703,7 @@ addEventListener("resize", draw);
 
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
-// Team or Combined pane - opens its view in a new tab instead, as the ↗ in the view's head does. That tab (?only)
+// Team or Combined pane - opens its view in a new tab instead, as its menu's "Open in new tab" does. That tab (?only)
 // is the agent alone: its view fills the window, with no page behind it, no other agents beside it and no way to close it.
 const AGENT_AT = "#main .card[data-name], .mini[data-name], .chr[data-name], .teamlog .thead .name, .teamlog .it[data-agent]";
 function agentAt(e) {
@@ -2695,9 +2717,16 @@ const inWindow = name => window.open("/?only#" + encodeURIComponent(name), "_bla
 // closes it): a Characters tile's beside the tile, after a moment's rest or at once on a right-click, going when the
 // pointer has left both; a filter button's under the button on a click, going on a click elsewhere. Esc closes either.
 const menu = $("#menu");
-let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, as the custom layout's own click on a tile
-function menuAt(anchor, key, html, beside) {
-  menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.classList.add("on");
+let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, the layout's way to show an agent (its box, else its view)
+// menuAt draws a menu at its anchor; with stay, an open one is drawn again where it is, keeping the item the keyboard
+// is on, as the page's refresh does to keep a menu up to date (menu.refresh, which a menu that changes sets).
+function menuAt(anchor, key, html, beside, stay) {
+  if (stay) {
+    const at = [...menu.querySelectorAll(".mi")].findIndex(m => m.classList.contains("at"));
+    menu.innerHTML = html; menu.querySelectorAll(".mi")[at]?.classList.add("at");
+    return;
+  }
+  menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
   const left = beside ? (r.right + 6 + w <= innerWidth ? r.right + 6 : r.left - 6 - w) : Math.min(r.right - w, innerWidth - w - 6);
   const top = beside ? r.top : r.bottom + 4 + h <= innerHeight ? r.bottom + 4 : r.top - 4 - h;
@@ -2706,10 +2735,10 @@ function menuAt(anchor, key, html, beside) {
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
-  menuHide = setTimeout(() => { menu.classList.remove("on"); delete menu.dataset.key; delete menu.dataset.rested; }, now ? 0 : 200);
+  menuHide = setTimeout(() => { menu.classList.remove("on"); delete menu.dataset.key; delete menu.dataset.rested; menu.refresh = null; }, now ? 0 : 200);
 }
 menu.onmouseenter = () => clearTimeout(menuHide);
-menu.onmouseleave = () => { if (menu.dataset.key?.startsWith("tile:") || menu.dataset.rested) menuOff(); };
+menu.onmouseleave = () => { if (menu.dataset.rested) menuOff(); };
 // Esc with a menu open closes the menu and nothing else.
 addEventListener("keydown", e => { if (e.key === "Escape" && menu.classList.contains("on")) { e.stopPropagation(); menuOff(true); } }, true);
 // An open menu's items by keyboard, unless it opened from a moment's rest: arrows move, Enter or Space picks or ticks.
@@ -2779,23 +2808,34 @@ addEventListener("keydown", e => {
 addEventListener("mousedown", e => {
   if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
 }, true);
-// A Characters tile's: who the agent is and what it is doing, then Open (as a click on the tile), Open in a new tab and
-// Open in a new window.
-function menuSoon(tile, wait) {
-  clearTimeout(menuShow); clearTimeout(menuHide);
-  menuShow = setTimeout(() => {
-    const a = S.agents.find(x => x.name === tile.dataset.name); if (!a || !tile.isConnected) return;
-    const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
-    menuAt(tile, "tile:" + a.name, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
-      `<div>${STATE[st] || esc(st)} · ${ago(a.held)}${ctx}</div></div>` +
-      `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>` +
+// An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
+// (as a click on it), Open in a new tab and Open in a new window, and for a standing agent Start, or Stop, which asks
+// again first. The delivery lead stops only with the team.
+function agentMenu(anchor, name, beside, rested, stay) {
+  const a = S.agents.find(x => x.name === name), key = "agent:" + name;
+  if (!a || !stay && !anchor.isConnected) return;
+  if (menuOn(key) && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
+  const st = a.live ? a.status : "off", ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+  menuAt(anchor, key, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div></div>` +
+    (!a.live ? "" :   // an agent that is not running has nothing to open
+      (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
-      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`, true);
-    menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
-      menuOff(true); ({tab: inNewTab, window: inWindow}[mi.dataset.go] || menuGo)(a.name);
-    });
-  }, wait);
+      `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>`), beside, stay);
+  if (rested && !stay) menu.dataset.rested = "1";
+  menu.refresh = () => agentMenu(anchor, name, beside, false, true);
+  menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
+    menuOff(true);
+    ({tab: inNewTab, window: inWindow}[mi.dataset.go] || (open ? openDetail : menuGo))(name);   // with a view open, Open shows the agent there
+  });
 }
+// A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
+function menuSoon(el, wait) {
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuShow = setTimeout(() => agentMenu(el, el.dataset.name, true, wait > 0), wait);
+}
+// The team's: Start the team (restore-claude.sh, then the delivery lead starts the day) and Stop the team, which asks
+// again first and then asks the lead to wind the team down, as the owner does before a shutdown.
 // A filter button's: each lane, ticked while it is shown; a click shows or hides it and leaves the menu open. It opens
 // after a moment's rest on the button, going again when the pointer has left both, or at once on a click, staying
 // until a click elsewhere; a click on the button while it shows keeps a rested-on menu, else closes it.
@@ -2814,16 +2854,18 @@ function menuButton(btn, open) {
 function filterMenu(btn, list, on, tip, flip, rested, head) {
   const key = btn.dataset.menu;
   if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
-  const ticks = () => menu.querySelectorAll(".mi").forEach(mi => mi.querySelector("svg").classList.toggle("off", !on().includes(mi.dataset.lane)));
+  const ticks = () => menu.querySelectorAll(".mi").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off", !on().includes(mi.dataset.lane)));
   menuAt(btn, key, `<div class="hd"><div>${head}</div></div>` + list.map(([l, t]) =>
-    `<div class="mi" data-lane="${l}" title="${esc(tip(l))}">${MENU_ICON.check}${esc(t || S.owner)}</div>`).join(""), false);
+    `<div class="mi" data-lane="${l}" title="${esc(tip(l))}">${MENU_ICON[l] || ""}${esc(t || S.owner)}${MENU_ICON.check.replace("<svg", '<svg class="tick"')}</div>`).join(""), false);
   ticks();
   if (rested) menu.dataset.rested = "1";
   menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => { flip(mi.dataset.lane); ticks(); });
 }
-addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
-addEventListener("auxclick", e => { const name = e.button === 1 && agentAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
-addEventListener("mousedown", e => { if (e.button === 1 && agentAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
+// only a running agent opens in a new tab: one that is not running has nothing to show
+const liveAt = e => { const name = agentAt(e); return name && S?.agents.find(a => a.name === name)?.live ? name : null; };
+addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && liveAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
+addEventListener("auxclick", e => { const name = e.button === 1 && liveAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
+addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
 setInterval(load, 4000); setInterval(() => refreshDetail(false), 2500);
 </script>
 </body>
