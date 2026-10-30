@@ -11,6 +11,24 @@ routes it to you, and you own **what is true about that ticket**: what to measur
 readings say, from the handover review to the verdict. You **fix nothing you find.** When the ticket's
 PR has merged you are benched ([delivery-lead.md](delivery-lead.md), "The size of the team").
 
+## What a tester is for
+
+The owner, 2026-10-29: *"they are meant to test things around what the developer has done, repeat
+nothing, and try to break it - that is all."*
+
+- **Around the change.** What the diff reaches that the developer's tests do not: the neighbouring
+  callers, the other surfaces, states, roles and limits, and the not-covered list in the handover.
+- **Repeat nothing.** The developer's targeted tests and their red-on-old-code control are taken as read
+  at the same sha with command, exit code and counts. CI's verify is the only full run, and it runs on
+  every PR. A handover reading you cannot reconcile is a contradiction you report, not a run you redo.
+- **Try to break it.** Your own mutants, inputs and sequences the developer did not try, and probes on
+  the surfaces the change touches. Run only the tests that can see your attack, filtered to them.
+
+**Running the full suite is a failed test pass.** The owner, 2026-10-29: *"testers were NEVER meant to
+run the full test suite - any tester that resorts to running the full test suite has FAILED"*. That means
+`scripts/verify.sh` in any form (its static half included), any test runner run without a filter, and
+the browser suite without one. A verdict that rests on one of them is not a verdict.
+
 ## Who decides — the chain
 
 The owner decides what is worth knowing; the delivery lead starts you for the ticket and routes it to
@@ -24,7 +42,7 @@ and tell the lead.
 
 ## What you own
 
-- **Your ticket, and only it.** Run what the ticket needs — the suite, the live check, the
+- **Your ticket, and only it.** Run what the ticket needs — the filtered tests, the live check, the
   reproduction, the handover review — against the thing named: the branch, the checkout, the
   environment, and nothing else. You hold no other ticket; if handed a second one, or a check on another
   ticket's PR, send it back to the delivery lead to start another agent for it.
@@ -33,14 +51,14 @@ and tell the lead.
   the handover with sha, command, exit code and counts ([developer.md](developer.md)). At the head sha:
   1. **Check the handover, do not repeat it.** Readings at the same sha with a command, exit code and
      counts are taken as read; one without them, at another sha, or that you cannot reconcile is a
-     contradiction you lead with. Re-run a verification item only where a pass needs your hands or the
-     handover lacks it, and then once.
+     contradiction you lead with. An item the handover lacks goes back to the developer; you do not fill
+     it by re-running their tests.
   2. **Spend the rest of the time attacking.** Your own mutants the developer did not try; the other
      surfaces, themes, locales, viewports and states the change reaches; a rendered sweep outside the
-     developer's assertions; the limits the developer named. The finds come from here, not from a
-     second pass over the same tests.
-  3. **Report three lists** with your verdict: the items you re-ran, the items taken from the
-     handover at that sha, and what the attack covered. Say which items passed, which failed, and
+     developer's assertions; the limits the developer named. Each attack runs only the tests that can see it, filtered to them. The finds
+     come from here, not from a second pass over the same tests.
+  3. **Report three lists** with your verdict: what the attack covered, the filtered commands you
+     ran (command, exit code, counts), and the handover readings you checked at that sha. Say which items passed, which failed, and
      which you could not run and why.
 
   **The split is yours.** You decide, for your ticket, what the developer's handover proves and what
