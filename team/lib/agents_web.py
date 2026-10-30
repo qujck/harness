@@ -1734,6 +1734,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu[data-key="help"]{width:340px}
 #menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:12px;color:var(--mute)}
 #menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);color:var(--text);white-space:nowrap}
+#menu .hd:has(.spark){min-width:200px}
+#menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
 #menu .mi svg.off{visibility:hidden}
@@ -3174,7 +3176,12 @@ function menuAt(anchor, key, html, beside, stay) {
   }
   menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
-  const left = beside ? (r.right + 6 + w <= innerWidth ? r.right + 6 : r.left - 6 - w) : Math.min(r.right - w, innerWidth - w - 6);
+  // a menu beside its tile would cover a tile next to it along a row, either side, so there it opens below (or above)
+  // the tile instead
+  const inRow = el => { const o = el?.getBoundingClientRect(); return !!o && o.width > 0 && o.top < r.bottom && o.bottom > r.top; };
+  const row = beside && (inRow(anchor.nextElementSibling) || inRow(anchor.previousElementSibling));
+  if (row) beside = false;
+  const left = beside ? (r.right + 6 + w <= innerWidth ? r.right + 6 : r.left - 6 - w) : row ? Math.min(r.left, innerWidth - w - 6) : Math.min(r.right - w, innerWidth - w - 6);
   const top = beside ? r.top : r.bottom + 4 + h <= innerHeight ? r.bottom + 4 : r.top - 4 - h;
   menu.style.left = Math.max(6, left) + "px"; menu.style.top = Math.max(6, Math.min(top, innerHeight - h - 6)) + "px";
 }
@@ -3273,6 +3280,9 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   if (menuOn(key) && !confirm && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
   const st = stOf(a), ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
   const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until it is done
+  // its model, effort and burn, over its usage graph drawn to the team's scale, as on its card
+  const usage = (a.model ? `<div>${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}${a.rate ? " · " + k(a.rate) + " tok/min" : ""}</div>` : "") +
+    spark(a.series, Math.max(1, ...S.agents.flatMap(x => x.series)), a.colour);
   const compact = S.compacting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.compact)}Compacting…</div>`
     : `<div class="mi" data-go="compact">${MENU_ICON.compact}Compact now</div>`;
   let power = "";
@@ -3286,7 +3296,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
   }
   menuAt(anchor, key, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
-    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${lastCompact(a)}</div>` +
+    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${usage}${lastCompact(a)}</div>` +
     (!a.live ? power :   // an agent that is not running has nothing to open
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
