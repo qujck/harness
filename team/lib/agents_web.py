@@ -1817,7 +1817,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .teamlog .chead .name{font-size:12px;line-height:13px;padding:0 6px 2px}
 .teamlog .chead .pick{cursor:pointer}
 .combined .cnames [data-name]{user-select:none}   /* a double-click opens a chat, not a selection */
-.teamlog .ctabs{flex:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line)}
+.pbody > .ctabs{flex:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;margin:6px 12px 6px;border-bottom:1px solid var(--line)}
 .ctabs .ctab{display:flex;align-items:center;gap:6px;padding:4px 10px 5px;margin-bottom:-1px;border:1px solid transparent;border-bottom:none;
   border-radius:7px 7px 0 0;font:600 12px var(--sans);color:var(--mute);cursor:pointer;user-select:none}
 .ctabs .ctab:hover{color:var(--text)}
@@ -1825,7 +1825,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .ctabs .cx{display:flex;opacity:.55}
 .ctabs .cx:hover{opacity:1}
 .ctabs .cx svg{width:11px;height:11px}
-.ctabs .cadd{margin:0 0 4px 4px}
 .ctabs .ctab.dragging{opacity:.4}
 .ctabs .ctab.before{box-shadow:inset 2px 0 0 var(--text)}
 .ctabs .ctab.after{box-shadow:inset -2px 0 0 var(--text)}
@@ -2475,6 +2474,14 @@ const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
 const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
 const rolesBtn = (path, n) => filterBtn("roles", "roles:" + path, rolesOn(n), roleList().map(r => r.role), roleItems(), "");
+// A pane's tabs over its body while it has two or more, each a configuration of its own (see TAB_KEYS): the showing
+// one renamed by a click on it, any dragged along the strip or closed while the layout is unlocked.
+function paneTabs(n, locked) {
+  const tabs = n.tabs || [];
+  return tabs.length < 2 ? "" : `<div class="ctabs">${tabs.map((t, i) => { const sel = i === (n.tab || 0);
+    return `<span class="ctab${sel ? " sel" : ""}" data-i="${i}"${locked ? "" : ' draggable="true"'} title="${sel && !locked ? "Click to rename" : ""}"><span class="ctl">${esc(t.title || "Tab " + (i + 1))}</span>` +
+      `${locked ? "" : `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>`}</span>`; }).join("")}</div>`;
+}
 function customHtml(ceil, tabRow) {
   const l = layout();
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
@@ -2522,6 +2529,7 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "grid" || n.show === "tabs") {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
+    const tabbed = TABBED.includes(n.show);
     const bar = l.locked ? "" : `<div class="pbar">
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
       ${n.show && n.show !== "others" && n.show !== "characters" ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
@@ -2529,8 +2537,9 @@ function customHtml(ceil, tabRow) {
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : ""}
+      ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
-    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${body}</div></div>`;
+    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, l.locked) : ""}${body}</div></div>`;
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
@@ -2638,19 +2647,14 @@ function combinedHtml(path, n, full, big) {
   seenUpTo(log);
   const key = ["combined", chosen.map(a => a + ":" + paneVer[a]), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
-  const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES), locked = layout().locked, tabs = n.tabs || [];
-  // its tabs, each a configuration of its own, over the header while there are two or more; + adds one (unlocked only)
-  const add = locked ? "" : `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>`;
-  const strip = tabs.length > 1 ? `<div class="ctabs">${tabs.map((t, i) => { const sel = i === (n.tab || 0);
-    return `<span class="ctab${sel ? " sel" : ""}" data-i="${i}"${locked ? "" : ' draggable="true"'} title="${sel && !locked ? "Click to rename" : ""}"><span class="ctl">${esc(t.title || "Tab " + (i + 1))}</span>` +
-      `${locked ? "" : `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>`}</span>`; }).join("")}${add}</div>` : "";
+  const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
   // the chat opened from an agent's menu in this pane: its badge and its message box, under the conversation
   const talk = S.agents.find(a => a.live && a.name === n.chat && chosen.includes(a.name));
   const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Chat with another agent"`;
   const chat = talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}">${strip}<div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
-    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${strip ? "" : add}${seg}${maxButton(big)}</div>` +
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
+    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
 async function loadPaneConvs() {
@@ -2676,9 +2680,12 @@ function toPaneEnds(ends) {
   document.querySelectorAll(FEEDS + " .ago[data-ts]").forEach(s => { const t = since(s.dataset.ts); if (s.textContent !== t) s.textContent = t; });
   document.querySelectorAll(FEEDS).forEach(f => { if (ends.has(f.parentElement.closest("[data-name]").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); });
 }
-// A Combined pane's tabs (n.tabs, n.tab the one showing): the showing tab's configuration lives on the pane itself,
-// where everything that draws the pane reads it; each tab's own is kept in n.tabs and swapped in when it is picked.
-const TAB_KEYS = ["roles", "clanes", "lanes", "badge", "view", "chat"];
+// The panes that can hold tabs (n.tabs, n.tab the one showing): the showing tab's configuration lives on the pane
+// itself, where everything that draws the pane reads it; each tab's own is kept in n.tabs and swapped in when it is
+// picked. A Combined pane's tab keeps its roles, lanes, badge, view and chat, a Team pane's who it leaves out and its
+// view, a Grid's its roles and view.
+const TABBED = ["combined", "team", "grid"];
+const TAB_KEYS = ["roles", "clanes", "lanes", "badge", "view", "chat", "hide"];
 function keepTab(n) {
   const t = n.tabs[n.tab || 0];
   for (const k of TAB_KEYS) if (k in n) t[k] = n[k]; else delete t[k];
@@ -2727,7 +2734,7 @@ function customClicks() {
       delete n.lanes;
     }));
   });
-  // a Combined pane's tabs: picked, added (a copy of the one showing), renamed or closed
+  // a pane's tabs: picked, added (a copy of the one showing), renamed or closed
   const tabbed = (el, f) => { const path = el.closest(".pane").dataset.path; change(l => f(nodeAt(l.root, path))); setTimeout(load); };
   // the tab showing is renamed in place: a click on it gives a box for its name, Enter or a click away keeps it, Esc
   // leaves it as it was
@@ -2744,7 +2751,7 @@ function customClicks() {
   };
   // a tab dragged along the strip is put where it is dropped, before or after the tab under the pointer
   let dragged = null;
-  main.querySelectorAll(".teamlog .ctab[draggable]").forEach(el => {
+  main.querySelectorAll(".pane .ctab[draggable]").forEach(el => {
     const side = e => { const r = el.getBoundingClientRect(); return e.clientX < r.left + r.width / 2 ? "before" : "after"; };
     const clear = () => main.querySelectorAll(".ctab.before, .ctab.after").forEach(t => t.classList.remove("before", "after"));
     el.ondragstart = e => { dragged = el; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); el.classList.add("dragging"); };
@@ -2760,13 +2767,13 @@ function customClicks() {
       tabbed(el, n => moveTab(n, from, at > from ? at - 1 : at));
     };
   });
-  main.querySelectorAll(".teamlog .ctab").forEach(el => el.onclick = e => {
+  main.querySelectorAll(".pane .ctab").forEach(el => el.onclick = e => {
     if (e.target.closest(".ctname")) return;
     if (e.target.closest(".cx")) tabbed(el, n => closeTab(n, +el.dataset.i));
     else if (el.classList.contains("sel")) rename(el);
     else tabbed(el, n => toTab(n, +el.dataset.i));
   });
-  main.querySelectorAll(".teamlog .cadd").forEach(el => el.onclick = () => {
+  main.querySelectorAll(".pane .cadd").forEach(el => el.onclick = () => {
     const path = el.closest(".pane").dataset.path;
     tabbed(el, n => {
       if (!n.tabs?.length) { n.tabs = [{title: "Tab 1"}]; n.tab = 0; }
