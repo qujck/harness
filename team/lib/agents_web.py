@@ -3451,7 +3451,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
-      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat</div>` : "") + `<div class="sep"></div>${compact}${power}`), beside, stay);
+      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat<kbd>Double-click</kbd></div>` : "") + `<div class="sep"></div>${compact}${power}`), beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
   menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
