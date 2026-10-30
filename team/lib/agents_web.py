@@ -1055,6 +1055,84 @@ def open_ask(name, pane):
     return ask_of(pane) if (live_sessions().get(name) or {}).get("status") == "waiting" else None
 
 
+def suggestion(pane):
+    """The prompt Claude Code suggests in the pane: the dim text alone on its input line (❯), before anything is typed;
+    "" for none."""
+    for line in reversed(run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()):
+        if "❯" not in ESCAPES.sub("", line):
+            continue
+        m = re.fullmatch(r"(?:\x1b\[[0-9;:]*m)*❯[\s\xa0]+\x1b\[2m([^\x1b]+)\x1b\[0m\s*", line.rstrip())
+        return m[1].strip() if m else ""
+    return ""
+
+
+def frontmatter(path):
+    """A command's or skill's name and description, from the front matter of its Markdown file; a value written over
+    several indented lines (>- or |) is joined into one."""
+    meta, key = {}, None
+    try:
+        with open(path) as f:
+            if f.readline().strip() == "---":
+                for line in f:
+                    if line.strip() == "---":
+                        break
+                    if key and line[:1] in " \t":
+                        meta[key] = (meta[key] + " " + line.strip()).strip()
+                        continue
+                    k, _, v = line.partition(":")
+                    key, v = k.strip(), v.strip()
+                    meta[key] = "" if v in (">", ">-", "|", "|-") else v.strip("\"'")
+    except OSError:
+        pass
+    return meta
+
+
+# Claude Code's own commands, for the message box's / list (its list in the terminal is not readable from here).
+BUILTIN_COMMANDS = {
+    "add-dir": "Add a working directory", "agents": "Manage subagents", "clear": "Clear the conversation",
+    "compact": "Compact the conversation, with optional focus", "config": "Open the settings",
+    "context": "Show what fills the context", "cost": "Show this session's cost and duration",
+    "doctor": "Check the installation", "effort": "Set the reasoning effort", "exit": "Exit Claude Code",
+    "export": "Export the conversation", "help": "Show help", "hooks": "Manage hooks", "init": "Write a CLAUDE.md",
+    "mcp": "Manage MCP servers", "memory": "Edit memory files", "model": "Choose the model",
+    "permissions": "Manage permissions", "plugin": "Manage plugins", "rename": "Rename the session",
+    "resume": "Resume a conversation", "review": "Review a pull request", "rewind": "Rewind the conversation",
+    "status": "Show status", "statusline": "Set up the status line", "todos": "Show the todo list",
+    "usage": "Show plan usage",
+}
+
+
+def commands():
+    """Every / command an agent's message box can offer: Claude Code's own, the user's and the team's commands and
+    skills, and the skills and commands of the plugins on this machine (plugin:name), each once."""
+    found = {n: {"name": n, "desc": d, "from": "built-in"} for n, d in BUILTIN_COMMANDS.items()}
+
+    def add(name, path, src):
+        if name and name not in found:
+            found[name] = {"name": name, "desc": frontmatter(path).get("description", "")[:160], "from": src}
+    for base, src in ((CLAUDE, "user"), (os.path.join(ROOT, ".claude"), "project")):
+        for f in sorted(glob.glob(os.path.join(base, "commands", "**", "*.md"), recursive=True)):
+            add(os.path.relpath(f, os.path.join(base, "commands"))[:-3].replace(os.sep, ":"), f, src)
+        for f in sorted(glob.glob(os.path.join(base, "skills", "**", "SKILL.md"), recursive=True)):
+            name = frontmatter(f).get("name") or os.path.basename(os.path.dirname(f))
+            synced = os.sep + "synced" + os.sep in f   # the account's skills, which Claude Code names anthropic-skills:
+            add(("anthropic-skills:" if synced else "") + name, f, "claude.ai" if synced else src)
+    for pj in sorted(glob.glob(os.path.join(CLAUDE, "plugins", "**", ".claude-plugin", "plugin.json"), recursive=True)):
+        if "/.trash/" in pj or "/marketplaces/" in pj:
+            continue
+        root = os.path.dirname(os.path.dirname(pj))
+        try:
+            with open(pj) as f:
+                plugin = json.load(f).get("name") or os.path.basename(root).split("~")[0]
+        except (OSError, json.JSONDecodeError):
+            continue
+        for f in sorted(glob.glob(os.path.join(root, "skills", "*", "SKILL.md"))):
+            add(f"{plugin}:{frontmatter(f).get('name') or os.path.basename(os.path.dirname(f))}", f, plugin)
+        for f in sorted(glob.glob(os.path.join(root, "commands", "*.md"))):
+            add(f"{plugin}:{os.path.basename(f)[:-3]}", f, plugin)
+    return sorted(found.values(), key=lambda c: c["name"])
+
+
 def field_of(pane, n):
     """What option n's text field holds while the pane's cursor is on it, its dim placeholder left out; None while the
     cursor is elsewhere. The field runs on over the indented lines under it, to a gap, a rule, the next option or a
@@ -1219,6 +1297,7 @@ def state():
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
+            "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
         })
     # the team has stopped once team/team-paused.sh says so and no running agent is busy or waiting; a lead that has
     # not marked it paused ten minutes after being asked is taken not to be stopping it
@@ -1233,7 +1312,7 @@ def state():
     tabs = sessions + [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     return {
-        "now": now, "week": account_pct(rows, "week"), "plan": (plan := budget_plan()), "even": even_plan(plan),
+        "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan),
         "disk": disk(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
@@ -1327,6 +1406,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, team_json(), "application/json")
         elif path == "/api/state":
             self.send(200, state_json(), "application/json")
+        elif path == "/api/commands":
+            self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
             self.send(200, agent_json(path[11:]), "application/json")
         elif path == "/img":
@@ -1565,27 +1646,27 @@ PAGE = r"""<!doctype html>
 :root.light .meter u{box-shadow:none}
 *{box-sizing:border-box;margin:0}
 html,body{height:100%;overflow:hidden}
-body{font:13px/1.45 var(--sans);color:var(--text);background:var(--bg);display:flex;flex-direction:column;
+body{font:calc(13px*var(--fs,1))/1.45 var(--sans);color:var(--text);background:var(--bg);display:flex;flex-direction:column;
   background-image:radial-gradient(1200px 600px at 10% -10%,var(--glow1),transparent 60%),radial-gradient(900px 500px at 110% 110%,var(--glow2),transparent 60%)}
 header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:1px solid var(--line);flex:none}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
-.stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
-.stat .v{font:600 13px var(--mono)}
+.stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.stat .v{font:600 calc(13px*var(--fs,1)) var(--mono)}
 #teamspark{width:190px;height:22px;color:var(--ownerbg)}#teamspark svg.spark{height:22px}
 .meter{position:relative;height:8px;border-radius:5px;background:var(--track);overflow:visible;width:190px}
 .meter i{position:absolute;inset:0 auto 0 0;border-radius:5px;transition:width .6s}
 .meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px;box-shadow:0 0 6px #fff8}
 .counts{flex:none;display:flex;gap:8px}
-.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;font:600 12px var(--mono);background:var(--soft);color:var(--text)}
+.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;font:600 calc(12px*var(--fs,1)) var(--mono);background:var(--soft);color:var(--text)}
 .pill.btn{cursor:pointer;color:var(--mute);font-family:var(--sans)}
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
-.pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 12.5px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
-.bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:11px}
+.pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 calc(12.5px*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+.bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
 .face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
@@ -1613,29 +1694,31 @@ body.resizing{cursor:col-resize;user-select:none}
 .divider.drag:hover::after,.divider.moving::after{background:var(--line2)}
 body.resizing-row{cursor:row-resize;user-select:none}
 .pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
-.pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:11px;color:var(--mute)}
-.pbar select{font:12px var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
+.pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:calc(11px*var(--fs,1));color:var(--mute)}
+.pbar select{font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
 .pbar .pacts{display:flex;gap:2px;margin-left:auto}
-.pbar .pacts b{padding:1px 6px;border-radius:5px;font-size:13px;font-weight:400;cursor:pointer}
+.pbar .pacts b{padding:1px 6px;border-radius:5px;font-size:calc(13px*var(--fs,1));font-weight:400;cursor:pointer}
 .pbar .pacts b:hover{background:var(--on);color:var(--text)}
 .pbody{flex:1;min-height:0;display:flex;flex-direction:column}
-.pbody .blank{margin:auto;color:var(--faint);font-size:12px}
+.pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
-section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
+section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(11px*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;letter-spacing:0;text-transform:none}
-.seg b{padding:2px 9px;font-weight:500;font-size:11px;cursor:pointer;color:var(--mute)}
+.seg b{padding:2px 9px;font-weight:500;font-size:calc(11px*var(--fs,1));cursor:pointer;color:var(--mute)}
 .seg b.on{background:var(--on);color:var(--text)}
 #pagemode,#pagelanes{display:flex}
-#help{width:30px;padding:0;font:700 13px var(--sans)}
+#help,#settings{width:30px;padding:0;font:700 calc(13px*var(--fs,1)) var(--sans)}
+#settings{display:inline-flex;align-items:center;justify-content:center}
+#settings svg{flex:none;width:calc(17px*var(--fs,1));height:calc(17px*var(--fs,1))}
 #teamctl{display:flex}
 #teamctl{gap:6px}
 #teamctl .fbtn{gap:6px}
 #teamctl .fbtn svg{flex:none;width:16px;height:16px;stroke-width:1.7}
 /* the team's play, pause and stop: off an outline in the text colour, on filled in its colour, fading in and out
    while the page waits for the change it was asked for */
-#pagelanes .fbtn,#pagemode .fbtn,#help{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:12px}
-#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:12px}
+#pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(12px*var(--fs,1))}
+#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(12px*var(--fs,1))}
 #teamctl .fbtn:hover{background:var(--on)}
 #teamctl .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
 #teamctl .fbtn.going{animation:switching 1.4s ease-in-out infinite}
@@ -1646,7 +1729,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #lock:hover{opacity:1;background:var(--line2)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
-  color:#000;font:600 12.5px var(--sans);cursor:pointer}
+  color:#000;font:600 calc(12.5px*var(--fs,1)) var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
 .tabbar button.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
@@ -1669,12 +1752,12 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 @keyframes ask{0%,100%{border-color:#c2410c;box-shadow:0 0 0 0 #ff7a1a00}50%{border-color:#ff9a3c;box-shadow:0 0 0 4px #ff7a1a99,0 0 22px 2px #ff7a1aaa}}
 .top{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
 /* a badge's text sits a pixel high of centre, as the font's descender space otherwise shows it low */
-.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:5px;font-size:13.5px}
+.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:5px;font-size:calc(13.5px*var(--fs,1))}
 /* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
 .name,.tabbar button,#dbottom,.card .newest{color:var(--ownerfg)}
-.role{color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.ticket{white-space:nowrap;flex:none;margin-left:auto;font:600 11.5px var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:5px}
-.row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:12px var(--mono);color:var(--mute)}
+.role{color:var(--mute);font-size:calc(11.5px*var(--fs,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ticket{white-space:nowrap;flex:none;margin-left:auto;font:600 calc(11.5px*var(--fs,1)) var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:5px}
+.row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
 .state{display:flex;align-items:center;gap:6px;color:var(--text);font-family:var(--sans);font-weight:600}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .busy .dot{background:var(--green);animation:ping 1.4s infinite}
@@ -1699,8 +1782,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 svg.spark{display:block;width:100%;height:26px;flex:none}
 .feed{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;padding:8px 12px 10px;border-top:1px solid var(--line);
   mask-image:linear-gradient(180deg,transparent,#000 28px)}
-.it{display:flex;gap:7px;font-size:12px;line-height:1.4;min-width:0}
-.it .who{flex:none;font-weight:650;font-size:10.5px;padding:1px 6px;border-radius:4px;height:fit-content;margin-top:1px;letter-spacing:.02em}
+.it{display:flex;gap:7px;font-size:calc(12px*var(--fs,1));line-height:1.4;min-width:0}
+.it .who{flex:none;font-weight:650;font-size:calc(10.5px*var(--fs,1));padding:1px 6px;border-radius:4px;height:fit-content;margin-top:1px;letter-spacing:.02em}
 .it .tx{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;white-space:pre-line;color:var(--text2)}
 .it.said .tx{color:var(--text)}
 .it.owner .who{background:var(--ownerbg);color:var(--ownerfg)}
@@ -1719,7 +1802,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top > .maxbtn{position:absolute;top:10px;right:10px}
 .card > .top > .lanes{align-self:flex-start}   /* level with the maximise button whatever the line's height */
 .card .top{flex-wrap:wrap;row-gap:4px}
-.termseg b,.railseg b{padding:1px 5px;font-size:10px}
+.termseg b,.railseg b{padding:1px 5px;font-size:calc(10px*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
 .fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer;font-weight:500}
 .fbtn svg{width:13px;height:13px;stroke-width:1.5}
@@ -1734,33 +1817,33 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.ask{position:relative;z-index:1;flex-direction:column;gap:4px;padding:8px 10px;border:2px solid #ff7a1a;border-radius:8px;background:#ff7a1a1f;animation:ask 1s ease-in-out infinite}
 .it.ask::after{content:"";position:absolute;inset:0;border-radius:6px;background:#ff7a1a;pointer-events:none;animation:wash 1s ease-in-out infinite}
 .it.ask .who{align-self:flex-start;background:#ff7a1a;color:#000;text-transform:uppercase;letter-spacing:.06em}
-.it.ask .tx{font:12px/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
+.it.ask .tx{font:calc(12px*var(--fs,1))/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
 .it.ask .ago{display:none}
 .it.ask .opts{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:6px}
-.it.ask .opt{padding:3px 10px;border-radius:6px;border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:600 12px var(--sans);cursor:pointer}
+.it.ask .opt{padding:3px 10px;border-radius:6px;border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:600 calc(12px*var(--fs,1)) var(--sans);cursor:pointer}
 .it.ask .opt:hover{background:#ff7a1a40}
 .it.ask .opt:disabled{opacity:.5;cursor:progress}
 .it.ask .typed{display:flex;flex:1 1 220px;min-width:0}
-.it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:6px 0 0 6px;background:var(--box);color:var(--text);font:12px var(--sans);outline:none}
+.it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:6px 0 0 6px;background:var(--box);color:var(--text);font:calc(12px*var(--fs,1)) var(--sans);outline:none}
 .it.ask .askin:focus{border-style:solid;box-shadow:0 0 0 2px #ff7a1a40}
 .it.ask .askin.failed{border-color:var(--red)}
 .it.ask .opt.go{border-radius:0 6px 6px 0;padding:3px 9px}
-.it.ask .reply{align-self:center;font:11.5px var(--mono);color:var(--text2)}
+.it.ask .reply{align-self:center;font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--text2)}
 .it.pending{align-items:flex-start;opacity:.8}
 .it.pending .tx{flex:1}
-.it.pending .badge{flex:none;font:600 10px var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:4px;padding:0 5px;margin-top:2px}
+.it.pending .badge{flex:none;font:600 calc(10px*var(--fs,1)) var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:4px;padding:0 5px;margin-top:2px}
 .it.live{align-items:center}
 .it.live .who{color:var(--c,var(--green));border:1px solid var(--c,var(--green));animation:livepulse 1.4s ease-in-out infinite}
-.it.live .tx{font:11.5px var(--mono);color:var(--c,var(--green));-webkit-line-clamp:1}
+.it.live .tx{font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--c,var(--green));-webkit-line-clamp:1}
 .it.live .ago{display:none}
 @keyframes livepulse{0%,100%{opacity:.45;box-shadow:none}50%{opacity:1;box-shadow:0 0 10px 1px var(--c,var(--green))}}
-.it.tools .tx{font:11px var(--mono);color:var(--faint);-webkit-line-clamp:1}
+.it.tools .tx{font:calc(11px*var(--fs,1)) var(--mono);color:var(--faint);-webkit-line-clamp:1}
 .it.tools .tx b{color:var(--mute);font-weight:600}
 .it.tools .call{display:block}
 .it.tools .call + .call{padding-left:1.35em}
 .it.tools .call + .call{margin-top:2px}
-.it .ago{flex:none;margin-left:auto;color:var(--faint);font:10.5px var(--mono);padding-left:4px}
-code{font:11.5px var(--mono);background:var(--codebg);padding:0 4px;border-radius:4px;color:var(--text)}
+.it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(10.5px*var(--fs,1)) var(--mono);padding-left:4px}
+code{font:calc(11.5px*var(--fs,1)) var(--mono);background:var(--codebg);padding:0 4px;border-radius:4px;color:var(--text)}
 code.flat{padding:0;background:none;color:var(--mute)}
 .it.pics{flex-wrap:wrap}
 .it .thumbs{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 2px 2px}
@@ -1768,7 +1851,7 @@ code.flat{padding:0;background:none;color:var(--mute)}
 .it .thumbs a:hover img{border-color:var(--c,var(--hover))}
 #detail .conv .it .thumbs img{height:auto;max-height:220px;max-width:360px;object-fit:contain}
 #pop{position:fixed;z-index:20;display:none;max-width:560px;max-height:60vh;overflow:auto;padding:10px 13px;border-radius:9px;
-  border:1px solid var(--line2);background:var(--box);color:var(--text);font-size:12.5px;line-height:1.45;white-space:pre-line;box-shadow:0 14px 40px #0009}
+  border:1px solid var(--line2);background:var(--box);color:var(--text);font-size:calc(12.5px*var(--fs,1));line-height:1.45;white-space:pre-line;box-shadow:0 14px 40px #0009}
 #pop.on{display:block;cursor:pointer}
 #lightbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #lightbox.on{display:flex}
@@ -1782,18 +1865,18 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #lightbox .zoom b{min-width:26px;padding:2px 8px;text-align:center;border:1px solid #fff4;border-radius:6px;color:#eee;cursor:pointer;font-weight:600}
 #lightbox .zoom b:hover{background:#fff2}
 #lbpct{min-width:44px;text-align:right;color:#aaa}
-#lightbox figcaption{display:flex;gap:16px;font:12px var(--mono);color:#ccc}
+#lightbox figcaption{display:flex;gap:16px;font:calc(12px*var(--fs,1)) var(--mono);color:#ccc}
 #lightbox figcaption a{color:#9cf}
-#lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:20px;line-height:1}
+#lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
 #lightbox .x:hover{color:#fff}
-pre.code{display:block;margin:5px 0;padding:7px 10px;font:11.5px/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:7px;color:var(--text)}
-#detail pre.code{font-size:12.5px;margin:6px 0}
+pre.code{display:block;margin:5px 0;padding:7px 10px;font:calc(11.5px*var(--fs,1))/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:7px;color:var(--text)}
+#detail pre.code{font-size:calc(12.5px*var(--fs,1));margin:6px 0}
 pre.code{position:relative}
 pre.code .copy{position:absolute;top:5px;right:5px;display:none;place-items:center;width:26px;height:24px;padding:0;border-radius:5px;border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
 pre.code:hover .copy{display:grid}
 pre.code .copy:hover{color:var(--text);border-color:var(--hover)}
 pre.code .copy.done{color:var(--green);border-color:var(--green)}
-#copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:6px;background:var(--green);color:#000;font:600 11px var(--sans);opacity:0;transition:opacity .25s}
+#copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:6px;background:var(--green);color:#000;font:600 calc(11px*var(--fs,1)) var(--sans);opacity:0;transition:opacity .25s}
 #copied.on{opacity:1}
 a.link{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
 .mdtable{max-width:100%;overflow-x:auto;margin:4px 0}   /* a table wider than its turn scrolls sideways */
@@ -1807,10 +1890,10 @@ table.md th{background:var(--line);font-weight:600}
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
 .teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
-.teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:13.5px;font-weight:650}
+.teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:calc(13.5px*var(--fs,1));font-weight:650}
 .teamlog .thead{position:relative;padding-right:34px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
-.teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px var(--mono);font-weight:400;color:var(--mute)}
+.teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(11px*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
    (edges() sets --ft and --fb), keeping a feed's line beneath its head */
@@ -1825,8 +1908,8 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
 .teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
-.teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 12px var(--sans)}
-.teamlog .thead .name{font-size:12px;line-height:13px;padding:0 6px 2px;cursor:pointer}
+.teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 calc(12px*var(--fs,1)) var(--sans)}
+.teamlog .thead .name{font-size:calc(12px*var(--fs,1));line-height:13px;padding:0 6px 2px;cursor:pointer}
 /* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
 .tabbar.chrtabs{gap:8px}
 .chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
@@ -1897,7 +1980,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > svg.spark{height:16px}
 }
 b.h{display:block;margin-top:2px;font-weight:700}
-.empty{color:var(--faint);font-style:italic;font-size:12px}
+.empty{color:var(--faint);font-style:italic;font-size:calc(12px*var(--fs,1))}
 /* detail */
 #detail{position:fixed;inset:0;display:none;background:#000a;backdrop-filter:blur(6px);z-index:9;padding:6vh 8vw}
 #detail.open{display:flex}
@@ -1912,9 +1995,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:16px;background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
 #detail .head{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
 #detail .head .lanes + .x{margin-left:14px}
-#emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 12px 30px #0008;font:12px var(--mono);color:var(--text2)}
+#emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 12px 30px #0008;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text2)}
 #emo div{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
-#emo div span{font-size:16px;width:20px;text-align:center}
+#emo div span{font-size:calc(16px*var(--fs,1));width:20px;text-align:center}
 #emo div.on,#emo div:hover{background:var(--on);color:var(--text)}
 #detail .head #dmore + .x{margin-left:10px}
 #detail .head .termseg{margin-left:auto;flex:none}
@@ -1924,10 +2007,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* the header keeps its name, role and switches whole; the facts take the room left and drop whole, from the end,
    when there is not room for them all */
 #detail .head > *{flex:none;white-space:nowrap}
-#detail .head .facts{flex:1 1 0;display:flex;flex-wrap:wrap;align-items:center;gap:40px 14px;height:18px;margin-left:10px;min-width:0;overflow:hidden;white-space:nowrap;font:12px/18px var(--mono);color:var(--mute)}
+#detail .head .facts{flex:1 1 0;display:flex;flex-wrap:wrap;align-items:center;gap:40px 14px;height:18px;margin-left:10px;min-width:0;overflow:hidden;white-space:nowrap;font:calc(12px*var(--fs,1))/18px var(--mono);color:var(--mute)}
 #detail .head .facts > *{flex:none}
 #detail .head .facts .state{display:flex;align-items:center;gap:6px;color:var(--text)}
-#detail .head .x{margin-left:auto;color:var(--mute);cursor:pointer;font-size:20px;line-height:1}
+#detail .head .x{margin-left:auto;color:var(--mute);cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
 /* every other agent in a column on the right, compressed to its status; a click moves to it. The header's edge
    button moves the column to the bottom, the left or the top, where the cards wrap in rows across the view. */
 #detail .rail{grid-column:2;grid-row:2;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--line)}
@@ -1938,7 +2021,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chrs{border-radius:0 0 13px 13px;flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
 .pane > .pbody:first-child > .chrs{border-radius:13px}
 .chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:10px;border:1px solid var(--line2);border-bottom:3px solid var(--c);
-  background:var(--chtile);color:var(--chmute);font:10px/1 var(--mono);cursor:pointer;overflow:hidden}
+  background:var(--chtile);color:var(--chmute);font:calc(10px*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
 .chr.off{opacity:.5}
 .chr.waiting{animation:alarm 1s ease-in-out infinite}
@@ -1947,7 +2030,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
 /* the agent's name, on the chest of its portrait or shadow */
 .chr .nm{position:absolute;left:50%;top:68px;transform:translateX(-50%);max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  padding:1px 5px;border-radius:5px;border:1px solid var(--c);font:700 10px/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
+  padding:1px 5px;border-radius:5px;border:1px solid var(--c);font:700 calc(10px*var(--fs,1))/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
 /* clear of a clipboard on the right */
 .chr .nm.left{left:41px;max-width:50px}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
@@ -1957,17 +2040,17 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr.waiting .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
 .chr.compacting .tl i{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-.chr .tr b{font:700 11px/1 var(--mono);color:var(--text)}
+.chr .tr b{font:700 calc(11px*var(--fs,1))/1 var(--mono);color:var(--text)}
 .chr .tr b.hi{color:var(--chhigh)}
-.chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:700 9.5px/16px var(--sans);background:var(--c);color:var(--ownerfg)}
+.chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:700 calc(9.5px*var(--fs,1))/16px var(--sans);background:var(--c);color:var(--ownerfg)}
 /* the activity line runs the width of the tile; the ticket, whole, sits over its left end */
 .chr .tk{position:absolute;z-index:1;left:5px;bottom:6px;max-width:calc(100% - 10px);white-space:nowrap;padding:2px 3px;border-radius:4px;
-  font-size:9px;color:var(--chmute);background:color-mix(in srgb,var(--chtile) 65%,transparent)}
+  font-size:calc(9px*var(--fs,1));color:var(--chmute);background:color-mix(in srgb,var(--chtile) 65%,transparent)}
 .chr .sp{position:absolute;left:5px;right:5px;bottom:5px;height:16px}
 .chr .sp svg.spark{height:16px}
 /* the page's menu: a Characters tile's (the agent, then ways to open it) or a filter button's (the lanes, ticked when shown) */
 #menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
-  box-shadow:0 12px 32px #0007;font:12.5px var(--sans);color:var(--text);display:none}
+  box-shadow:0 12px 32px #0007;font:calc(12.5px*var(--fs,1)) var(--sans);color:var(--text);display:none}
 #menu.on{display:block}
 #menu[data-key^="agent:"]{width:236px}
 #menu .sep{margin:4px 0;border-top:1px solid var(--line)}
@@ -1975,15 +2058,24 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi.off:hover{background:none}
 #menu .mi.warn{color:var(--red)}
 #menu .mi.warn svg{color:var(--red)}
-#menu .ask{padding:6px 8px 4px;font-size:11.5px;line-height:1.45;color:var(--mute);white-space:normal}
+#menu .ask{padding:6px 8px 4px;font-size:calc(11.5px*var(--fs,1));line-height:1.45;color:var(--mute);white-space:normal}
 #menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
-#menu .hd div{font-size:11.5px;color:var(--mute);line-height:1.45}
+#menu .hd div{font-size:calc(11.5px*var(--fs,1));color:var(--mute);line-height:1.45}
 #menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
 #menu .mi:hover,#menu .mi.at{background:var(--on)}
 #menu[data-key="help"]{width:340px}
-#menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:12px;color:var(--mute)}
-#menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);color:var(--text);white-space:nowrap}
+.it .tx{zoom:var(--conv,1)}
+#menu .set{display:flex;align-items:center;gap:12px;padding:3px 8px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
+#menu .set select{margin-left:auto;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
+#menu button[data-reset]{margin:6px 8px 2px;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 10px;cursor:pointer}
+#slash{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 8px 28px #0006}
+#slash .sl{display:flex;gap:10px;align-items:baseline;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:calc(12px*var(--fs,1)*var(--boxfs,1));min-width:0}
+#slash .sl b{flex:none;font:600 calc(12px*var(--fs,1)*var(--boxfs,1)) var(--mono);color:var(--text)}
+#slash .sl span{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#slash .sl.at{background:var(--soft)}
+#menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
+#menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap}
 #menu .hd:has(.spark){min-width:200px}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
@@ -1996,7 +2088,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi svg.off{visibility:hidden}
 #menu .mi svg.tick{margin-left:auto}
 #menu .mi .dot{flex:none;width:10px;height:10px;margin:0 2px;border-radius:50%;background:var(--c)}
-#menu .mi kbd{margin-left:auto;font:10.5px var(--mono);color:var(--mute)}
+#menu .mi kbd{margin-left:auto;font:calc(10.5px*var(--fs,1)) var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
 #detail .box.rail-top,#detail .box.rail-bottom{grid-template-columns:minmax(0,1fr)}
@@ -2018,14 +2110,14 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini.off,.tabbar button.off{opacity:.45}
 .mini.cur:not(.waiting){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
-.mini .mtop{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
-.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 10.5px/18px var(--sans);text-align:center}
+.mini .mtop{display:flex;align-items:center;gap:6px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
+.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 calc(10.5px*var(--fs,1))/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
-.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:12px;line-height:13px;padding:2px 6px 2px;min-height:19px}   /* as tall with an unseen count as without, as a tab is */
+.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:calc(12px*var(--fs,1));line-height:13px;padding:2px 6px 2px;min-height:19px}   /* as tall with an unseen count as without, as a tab is */
 .mini .name .dot{flex:none}
-.mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;background:var(--ownerfg);color:var(--c)}
-.mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:0 5px}
+.mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:calc(10px*var(--fs,1));line-height:15px;background:var(--ownerfg);color:var(--c)}
+.mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));padding:0 5px}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
 .mini svg.spark{height:16px;margin-top:3px}
@@ -2036,18 +2128,18 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .others .mini svg.spark,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini svg.spark{flex:0 1 16px;min-height:0;height:auto}
 #detail .left{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
 #dbottom,.card .newest,.teamlog .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
-  border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:600 12px var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
+  border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:600 calc(12px*var(--fs,1)) var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
 #dbottom.on,.card .newest.on,.teamlog .newest.on{display:block}
 #dbottom:hover,.card .newest:hover,.teamlog .newest:hover{filter:brightness(1.15)}
 .teamlog .chat{flex:none;border-top:1px solid var(--line);padding-top:8px}
 .teamlog .chead{display:flex;align-items:center;gap:6px;margin:0 10px 6px}
 .teamlog .chead .face{width:26px;height:26px;border-radius:6px;border-bottom-width:2px}
-.teamlog .chead .name{font-size:12px;line-height:13px;padding:0 6px 2px}
+.teamlog .chead .name{font-size:calc(12px*var(--fs,1));line-height:13px;padding:0 6px 2px}
 .teamlog .chead .pick{cursor:pointer}
 .combined .cnames [data-name]{user-select:none}   /* a double-click opens a chat, not a selection */
 .pbody > .ctabs{flex:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;margin:6px 12px 6px;border-bottom:1px solid var(--line)}
 .ctabs .ctab{display:flex;align-items:center;gap:6px;padding:4px 10px 5px;margin-bottom:-1px;border:1px solid transparent;border-bottom:none;
-  border-radius:7px 7px 0 0;font:600 12px var(--sans);color:var(--mute);cursor:pointer;user-select:none}
+  border-radius:7px 7px 0 0;font:600 calc(12px*var(--fs,1)) var(--sans);color:var(--mute);cursor:pointer;user-select:none}
 .ctabs .ctab:hover{color:var(--text)}
 .ctabs .ctab.sel{color:var(--text);background:var(--box);border-color:var(--line)}
 .ctabs .cx{display:flex;opacity:.55}
@@ -2066,7 +2158,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 10px 10px}
 .say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);
-  color:var(--text);font:12.5px/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
+  color:var(--text);font:calc(12.5px*var(--fs,1)*var(--boxfs,1))/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
 .say::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
 .say:focus{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 25%,transparent)}
 .say.sent{border-color:var(--green)}
@@ -2082,22 +2174,24 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .att{margin:0 14px 8px}
 .att span{position:relative;flex:none}
 .att img{display:block;height:48px;max-width:120px;object-fit:cover;border-radius:6px;border:1px solid var(--line2)}
-.att b{position:absolute;top:3px;right:3px;width:18px;height:18px;display:grid;place-items:center;border-radius:4px;background:#000a;color:#fff;font-size:11px;font-weight:400;cursor:pointer}
+.att b{position:absolute;top:3px;right:3px;width:18px;height:18px;display:grid;place-items:center;border-radius:4px;background:#000a;color:#fff;font-size:calc(11px*var(--fs,1));font-weight:400;cursor:pointer}
 .att b:hover{background:#000d}
 .att .file{height:48px;display:inline-block;max-width:220px;padding:0 30px 0 10px;border-radius:6px;border:1px solid var(--line2);
-  font:12px/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
+  font:calc(12px*var(--fs,1))/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
 .att .file b{line-height:normal}
-#detail .say{padding:9px 12px;font-size:13.5px;max-height:35vh}
+#detail .say{padding:9px 12px;font-size:calc(13.5px*var(--fs,1)*var(--boxfs,1));max-height:35vh}
 /* where a card or the agent's own view is tall enough, its box starts three lines tall */
 .card,#detail .left{container:sayroom/size}
 @container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
+.stop.going{cursor:default;animation:stopping .9s ease-in-out infinite}
+@keyframes stopping{50%{opacity:.3}}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);cursor:pointer}
 .stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:2px;background:var(--text)}
 .stop:hover{border-color:var(--red)}
 .stop:hover::before{background:var(--red)}
 #detail .stop,#detail .add{width:39px;height:39px}
 #detail .stop::before{width:12px;height:12px}
-#detail .conv .it{font-size:13px}
+#detail .conv .it{font-size:calc(13px*var(--fs,1))}
 #detail .conv .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap}
 #detail .conv .it.tools .tx{white-space:normal}
 /* the pane as a live thumbnail at the top right, in a terminal window of its own shape; a click expands it over
@@ -2106,15 +2200,15 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 :is(#detail,.card.full) .termwrap:hover .term{border-color:var(--c)}
 :is(#detail,.card.full) .termwrap.big{position:fixed;inset:0;z-index:40;display:flex;justify-content:center;align-items:center;padding:40px;cursor:default;
   background:#000c;backdrop-filter:blur(3px)}
-:is(#detail,.card.full) .termwrap .x{display:none;position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:20px;line-height:1}
+:is(#detail,.card.full) .termwrap .x{display:none;position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
 :is(#detail,.card.full) .termwrap.big .x{display:block}
 :is(#detail,.card.full) .termwrap .x:hover{color:#fff}
 :is(#detail,.card.full) .term{display:flex;flex-direction:column;border-radius:10px;overflow:hidden;background:#06080b;border:1px solid #ffffff1f;box-shadow:0 18px 50px #0008;transition:border-color .15s}
-:is(#detail,.card.full) .bar{flex:none;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#161b22;border-bottom:1px solid #ffffff14;font:12px var(--sans);color:#8b949e}
+:is(#detail,.card.full) .bar{flex:none;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#161b22;border-bottom:1px solid #ffffff14;font:calc(12px*var(--fs,1)) var(--sans);color:#8b949e}
 :is(#detail,.card.full) .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
 :is(#detail,.card.full) .bar i:nth-child(2){background:#febc2e}:is(#detail,.card.full) .bar i:nth-child(3){background:#28c840;margin-right:8px}
 :is(#detail,.card.full) .bar span{flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#detail,.card.full) .bar b{cursor:pointer;font-weight:400;font-size:14px;padding:0 2px;color:#8b949e}
+:is(#detail,.card.full) .bar b{cursor:pointer;font-weight:400;font-size:calc(14px*var(--fs,1));padding:0 2px;color:#8b949e}
 :is(#detail,.card.full) .bar b:hover{color:#e6edf3}
 :is(#detail,.card.full) .screen{overflow:hidden;padding:10px}
 #dscreen,.card.full .termwrap pre{margin:0;font-family:var(--mono);line-height:1.25;color:#d1d7e0;white-space:pre;overflow:hidden}
@@ -2125,11 +2219,12 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <header>
   <div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div>
   <div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div>
+  <div class="stat" id="sessstat" style="display:none"><div class="k">Session <span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div>
   <div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div>
   <div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div>
   <div class="counts" id="counts"></div>
   <div class="bench" id="bench"></div>
-  <div class="counts"><span id="teamctl"></span><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
+  <div class="counts"><span id="teamctl"></span><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
 </header>
 <main id="main"></main>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
@@ -2266,6 +2361,7 @@ addEventListener("keydown", e => {
 // With tag, the item names the agent it came from (a pane mixing several agents): before it, or after the owner's
 // words and another agent's message to it, as "→ agent".
 function item(it, compact, agent, tag) {
+  if (it.kind === "live" && stopping[agent]) it = {...it, text: "Stopping…"};
   const ag = to => tag ? `<span class="who ag${to ? " to" : ""}" style="--pc:${colours[agent] || "#888"}">${esc(agent)}</span>` : "";
   if (it.kind === "tools") {
     // on a card, one line run together; in a conversation shown whole, a line for each call
@@ -2275,6 +2371,9 @@ function item(it, compact, agent, tag) {
     return `<div class="it tools l-${it.lane}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${ag(false)}<span class="tx">${t}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span></div>`;
   }
   // a message of the owner's still queued behind the agent's turn, which can be taken back out to edit
+  if (it.kind === "echo") {
+    return `<div class="it owner pending echo"><span class="who">${esc(S.owner || "Owner")}</span><span class="tx">${md(it.text, compact === true)}</span><span class="badge" title="Sent from this page; it shows as the agent's own turn once its transcript has it">${it.state}</span></div>`;
+  }
   if (it.kind === "pending") {
     return `<div class="it owner pending"><span class="who">${esc(S.owner || "Owner")}</span><span class="tx">${md(it.text, compact === true)}</span><span class="badge" title="Queued: the agent reads it when its turn allows">pending</span></div>`;
   }
@@ -2308,7 +2407,8 @@ const askButtons = (it, agent) => {
 // would only choose the highlighted option; the prompt is answered with its own buttons.
 const openAsk = a => a?.status === "waiting" && (a.feed || []).find(it => it.kind === "ask" && (it.options || []).length);
 const ASK_SHUT = "A prompt is open in its pane: answer it with its buttons";
-const sayHint = a => openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it" : `Message ${a.name}…`;
+const sayHint = a => openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it"
+  : a.suggest && settings().suggest !== "off" ? `${a.suggest}   ⇥ Tab` : `Message ${a.name}…`;
 // a box is shut or opened again only when the prompt opens or closes, so a message on its way keeps its box disabled
 function shutBox(box, a) {
   const shut = !!openAsk(a);
@@ -2414,7 +2514,8 @@ const laneSeg = name => filterBtn("lanes", "lanes:" + name, laneOf(name), ALL, L
 // into one line; in the agent view a folded run opens on a click.
 const openRuns = new Set();
 function feedHtml(items, name, compact, on = laneOf(name)) {
-  const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending"].includes(it.kind)), out = [];
+  if (name) items = items.concat(echoItems(items, name));
+  const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending", "echo"].includes(it.kind)), out = [];
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
@@ -2594,6 +2695,11 @@ function draw() {
   $("#weektxt").innerHTML = w == null ? "· no reading" : `· <b style="color:${wc}">${w}%</b>${p != null ? ` of ${p}% planned` : ""}`;
   $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
+  // the five-hour session's use, when Settings shows it: amber from 75%, red from 90%
+  const ss = S.session, sc = ss >= 90 ? "var(--red)" : ss >= 75 ? "var(--amber)" : "var(--green)";
+  $("#sessstat").style.display = settings().session === "on" ? "" : "none";
+  $("#sesstxt").innerHTML = ss == null ? "· no reading" : `· <b style="color:${sc}">${ss}%</b>`;
+  $("#session i").style.cssText = `width:${ss || 0}%;background:${ss >= 75 ? sc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   // Every agent's activity added together, minute by minute, as each card shows its own.
   const team = S.agents.reduce((t, a) => a.series.map((v, i) => v + (t[i] || 0)), []), rate = S.agents.reduce((t, a) => t + (a.rate || 0), 0);
   $("#teamtxt").innerHTML = rate ? `· <b style="color:var(--text)">${k(rate)}</b> tok/min` : "";
@@ -2812,7 +2918,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false));
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size].join("|");
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name)].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -3401,24 +3507,38 @@ function grow(t) {
   t.style.height = t.scrollHeight + 2 + "px";
   t.style.overflowY = t.scrollHeight > t.clientHeight + 2 ? "auto" : "hidden";
 }
-// A working agent's turn can be stopped, as Esc stops it in the terminal.
-const stopButton = name => `<button class="stop" data-name="${esc(name)}" title="Stop this turn, as Esc does in the terminal"></button>`;
+// A working agent's turn can be stopped, as Esc stops it in the terminal. From the click until the agent is no
+// longer busy (or ten seconds pass) its Stop buttons show it is stopping and its working line reads "Stopping…".
+const stopping = {};
+const stopButton = name => `<button class="stop${stopping[name] ? " going" : ""}" data-name="${esc(name)}"${stopping[name] ? " disabled" : ""} title="Stop this turn, as Esc does in the terminal"></button>`;
+function stopShown(name) { draw(); if (open === name) { syncStop(); renderConv(); } }
 async function stopAgent(name, button) {
-  button.disabled = true;
+  button.disabled = true; button.classList.add("going"); stopping[name] = Date.now(); stopShown(name);
   const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/stop", {method: "POST", headers: {"X-Team-Say": "1"}}).catch(() => null);
-  if (!r || !r.ok) { button.title = r ? await r.text() : "the page could not be reached"; button.disabled = false; return; }
-  setTimeout(load, 800); if (open === name) setTimeout(() => refreshDetail(false), 800);
+  if (!r || !r.ok) {
+    delete stopping[name]; stopShown(name);
+    button.title = r ? await r.text() : "the page could not be reached"; button.disabled = false; button.classList.remove("going"); return;
+  }
+  for (let i = 0; i < 25 && S.agents.find(a => a.name === name)?.status === "busy"; i++) { await new Promise(t => setTimeout(t, 400)); await load(); }
+  delete stopping[name]; stopShown(name);
+  if (open === name) refreshDetail(false);
 }
 $("#dstop").onclick = () => stopAgent(open, $("#dstop"));
 function syncStop() {
   if (!open || !S) return;
   const a = S.agents.find(x => x.name === open) || {};
-  $("#dstop").style.display = a.status === "busy" ? "" : "none"; $("#dstop").disabled = false;
+  $("#dstop").style.display = a.status === "busy" ? "" : "none"; $("#dstop").disabled = !!stopping[open]; $("#dstop").classList.toggle("going", !!stopping[open]);
   shutBox($("#dsay"), {name: open, ...a});
 }
 // Esc twice in quick succession in a box with text in it clears the box (and its draft); there, Esc never closes the view.
 let escAt = 0;
 function keys(e, box, name) {
+  if (slashKey(e, box, name)) return;
+  if (e.key === "Tab" && !e.shiftKey && !box.value && settings().suggest !== "off") {   // the prompt Claude Code suggests, as Tab takes it there
+    const hint = S.agents.find(a => a.name === name)?.suggest;
+    if (hint) { e.preventDefault(); box.value = hint; grow(box); keep(box); }
+    return;
+  }
   if (e.ctrlKey && e.key.toLowerCase() === "u") { e.preventDefault(); pick(name, box); return; }
   if (e.key === "Escape" && box.value) {
     e.stopPropagation();
@@ -3432,9 +3552,57 @@ function keys(e, box, name) {
     if (openAsk(S.agents.find(a => a.name === name))) { flash(box, "failed"); box.title = ASK_SHUT; } else say(name, box);
   }
 }
+// The / list under a message box: typing / and a name lists the commands that match (Claude Code's own, the user's
+// and the team's commands and skills, the plugins'), ↑/↓ choose, Tab completes, Enter completes and sends, Esc closes.
+let slashCmds = null, slash = {box: null, at: 0, list: []};
+const slashEl = Object.assign(document.createElement("div"), {id: "slash"});
+document.body.append(slashEl);
+async function slashShow(box) {
+  const m = /^\/([\w:.-]*)$/.exec(box.value);
+  if (!m) return slashOff();
+  slashCmds = slashCmds || await fetch("/api/commands").then(r => r.json()).catch(() => []);
+  const q = m[1].toLowerCase(), named = c => c.name.toLowerCase();
+  const list = [...slashCmds.filter(c => named(c).startsWith(q)), ...slashCmds.filter(c => !named(c).startsWith(q) && named(c).includes(q))].slice(0, 8);
+  if (!list.length || box.value !== "/" + m[1]) return slashOff();
+  slash = {box, at: slash.box === box ? Math.min(slash.at, list.length - 1) : 0, list};
+  slashEl.innerHTML = list.map((c, i) => `<div class="sl${i === slash.at ? " at" : ""}" data-i="${i}"><b>/${esc(c.name)}</b><span>${esc(c.desc)}</span></div>`).join("");
+  const r = box.getBoundingClientRect();
+  slashEl.style.cssText = `display:block;left:${r.left}px;width:${Math.max(r.width, 320)}px;bottom:${innerHeight - r.top + 4}px`;
+  slashEl.querySelectorAll(".sl").forEach(el => el.onmousedown = e => { e.preventDefault(); slash.at = +el.dataset.i; slashDone(false); });
+}
+function slashOff() { slash = {box: null, at: 0, list: []}; slashEl.style.display = "none"; }
+function slashDone(send, name) {
+  const box = slash.box, c = slash.list[slash.at];
+  slashOff();
+  box.value = "/" + c.name + (send ? "" : " "); grow(box); keep(box); box.focus();
+  if (send) say(name, box);
+}
+function slashKey(e, box, name) {
+  if (slash.box !== box || !slash.list.length) return false;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); slash.at = (slash.at + (e.key === "ArrowDown" ? 1 : -1) + slash.list.length) % slash.list.length; slashShow(box);
+  } else if (e.key === "Tab" || e.key === "Enter" && !e.ctrlKey) { e.preventDefault(); slashDone(e.key === "Enter", name); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); slashOff(); }
+  else return false;
+  return true;
+}
+document.addEventListener("input", e => { if (e.target.matches?.("textarea.say")) slashShow(e.target); });
+document.addEventListener("focusout", e => { if (e.target === slash.box) setTimeout(() => document.activeElement !== slash.box && slashOff(), 100); });
+// Messages sent from the page, drawn in their agent's conversation the moment Enter is pressed, "sending" and then
+// "sent", until the transcript has them (or a minute has passed): agent -> [{text, at, state}].
+const echoes = {};
+function echoItems(items, name) {
+  const seen = m => items.some(it => ["owner", "pending"].includes(it.kind) && Date.parse(it.ts) >= m.at - 5000 && (it.text || "").includes(m.text.slice(0, 80)));
+  const mine = echoes[name] = (echoes[name] || []).filter(m => Date.now() - m.at < 60000 && !seen(m));
+  return mine.map(m => ({kind: "echo", text: m.text, state: m.state, ts: new Date(m.at).toISOString(), lane: "owner", who: "", with: ""}));
+}
+const echoKey = name => (echoes[name] || []).map(m => m.at + m.state).join() + (stopping[name] ? "|stopping" : "");
+function echoed(name) { draw(); if (open === name) { renderConv(); const c = $("#dconv"); c.scrollTop = c.scrollHeight; } }
 async function say(name, input) {
   const text = input.value.trim(), sent = atts[name] || [];
   if (!text && !sent.length || input.disabled) return;
+  const echo = text && {text, at: Date.now(), state: "sending"};
+  if (echo) { (echoes[name] = echoes[name] || []).push(echo); echoed(name); }
   // The box empties at once, so a redraw while the message is on its way cannot bring the text back; a card's box
   // may have been redrawn by the time the answer comes, so the answer goes to whichever box is on the page then.
   input.value = ""; grow(input); keep(input); input.disabled = true;
@@ -3442,10 +3610,11 @@ async function say(name, input) {
   try {
     const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/say", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, images: sent.map(i => i.path)})});
     if (!r.ok) throw new Error(await r.text());
+    if (echo) { echo.state = "sent"; echoed(name); }
     atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name);
     flash(box(), "sent");
     chase(name, text);
-  } catch (e) { const b = box(); b.value = text; grow(b); keep(b); flash(b, "failed"); b.title = String(e.message || e); }
+  } catch (e) { if (echo) { echoes[name] = echoes[name].filter(m => m !== echo); echoed(name); } const b = box(); b.value = text; grow(b); keep(b); flash(b, "failed"); b.title = String(e.message || e); }
   input.disabled = false; box().focus();
 }
 // After a message is sent, that agent alone is asked for its conversation every half second until the message shows
@@ -3691,11 +3860,77 @@ const SHORTCUTS = [
 ];
 function helpMenu(rested) {
   if (menuOn("help")) { if (!rested) menuOff(true); return; }
-  menuAt($("#help"), "help", SHORTCUTS.map(([h, rows]) => `<div class="hd"><div>${h}</div></div>` +
+  const set = settings(), jump = Object.entries(jumpKeys()).sort().map(([d, n]) => [`${MODS[set.mod]}+${d}`, n]);
+  const rows = SHORTCUTS.map(([h, rows]) => [h, rows.flatMap(([k, what]) => k !== "Alt+1 … 9" ? [[k, what]] : jump)]);
+  menuAt($("#help"), "help", rows.map(([h, rows]) => `<div class="hd"><div>${h}</div></div>` +
     rows.map(([k, what]) => `<div class="sc"><span>${esc(what)}</span><kbd>${esc(k)}</kbd></div>`).join("")).join(""), false);
   if (rested) menu.dataset.rested = "1";
 }
 menuButton($("#help"), helpMenu);
+// The page's settings, kept in this browser: the size of its text (every size scales together), the size of the
+// conversations' text and of the message boxes' on top of that, whether the header shows the five-hour session's use,
+// whether an idle agent's box offers the prompt Claude Code suggests, and the jump keys: a modifier with 1 … 9 goes to an agent, the Nth in list order
+// until any key is given an agent, then only the keys given one; a jump goes to the agent's message box (its card's,
+// its tab's or a Combined pane's chat, else its view) or always to its view. The defaults are the page as it is
+// without them.
+const SETTINGS = {fs: 100, conv: 100, box: 100, session: "off", suggest: "on", mod: "alt", keys: {}, jump: "box"};
+// The modifiers a jump key can be held with: Cmd only on a Mac (elsewhere it is the system's own key), and Shift only
+// outside a text box, where Shift with a digit types its symbol. A saved choice this machine lacks falls back to Alt.
+const MAC = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || "");
+const MODS = MAC ? {alt: "Option", meta: "Cmd", ctrl: "Ctrl", shift: "Shift"} : {alt: "Alt", ctrl: "Ctrl", shift: "Shift"};
+function settings() {
+  let set;
+  try { set = {...SETTINGS, ...JSON.parse(localStorage.getItem("settings") || "{}")}; } catch (e) { set = {...SETTINGS}; }
+  if (!MODS[set.mod]) set.mod = "alt";
+  return set;
+}
+function applySettings() {
+  const set = settings(), root = document.documentElement.style;
+  set.fs === 100 ? root.removeProperty("--fs") : root.setProperty("--fs", set.fs / 100);
+  set.conv === 100 ? root.removeProperty("--conv") : root.setProperty("--conv", set.conv / 100);
+  set.box === 100 ? root.removeProperty("--boxfs") : root.setProperty("--boxfs", set.box / 100);
+}
+applySettings();
+function settingsMenu(redraw) {
+  if (!redraw && menuOn("settings")) { menuOff(true); return; }
+  const set = settings(), keyed = jumpKeys(), names = [...S.agents, ...S.bench].map(a => a.name);
+  const pick = (attr, now, opts) => `<select ${attr}>${opts.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(now) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+  const sizes = [80, 90, 100, 110, 120, 130, 140, 150].map(v => [v, v + "%"]);
+  const digits = [["", "none"], ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => [d, `${MODS[set.mod]}+${d}`])];
+  const keys = names.map(n => `<label class="set"><span>${esc(n)}</span>` +
+    pick(`data-agent="${esc(n)}"`, Object.keys(keyed).find(d => keyed[d] === n) || "", digits) + `</label>`).join("");
+  menuAt($("#settings"), "settings", `<div class="hd"><div>Settings, kept in this browser</div></div>` +
+    `<label class="set"><span>Text size</span>${pick('data-set="fs"', set.fs, sizes)}</label>` +
+    `<label class="set"><span>Conversation text</span>${pick('data-set="conv"', set.conv, sizes)}</label>` +
+    `<label class="set"><span>Message box text</span>${pick('data-set="box"', set.box, sizes)}</label>` +
+    `<label class="set"><span>Session limit</span>${pick('data-set="session"', set.session, [["off", "hidden"], ["on", "shown"]])}</label>` +
+    `<label class="set"><span>Suggested prompts</span>${pick('data-set="suggest"', set.suggest, [["on", "shown"], ["off", "hidden"]])}</label>` +
+    `<div class="hd"><div>Jump to an agent</div></div>` +
+    `<label class="set"><span>Hold</span>${pick('data-set="mod"', set.mod, Object.entries(MODS))}</label>` +
+    `<label class="set"><span>Goes to</span>${pick('data-set="jump"', set.jump, [["box", "its message box"], ["view", "its full view"]])}</label>${keys}` +
+    `<button data-reset>Reset to defaults</button>`, false, redraw);
+  menu.querySelectorAll("select").forEach(sel => sel.onchange = () => {
+    const now = settings();
+    if (sel.dataset.agent) {   // the keys as they stand, list order included, with this agent moved to its new key
+      const keys = Object.fromEntries(Object.entries(jumpKeys()).filter(([d, n]) => n !== sel.dataset.agent && d !== sel.value));
+      if (sel.value) keys[sel.value] = sel.dataset.agent;
+      now.keys = keys;
+    } else now[sel.dataset.set] = ["mod", "jump", "session", "suggest"].includes(sel.dataset.set) ? sel.value : +sel.value;
+    localStorage.setItem("settings", JSON.stringify(now)); applySettings(); settingsMenu(true); draw();
+  });
+  menu.querySelector("[data-reset]").onclick = () => { localStorage.removeItem("settings"); applySettings(); settingsMenu(true); };
+}
+$("#settings").onclick = e => { e.stopPropagation(); if (S) settingsMenu(); };
+// Key -> agent: the keys given an agent, or while none is, the first nine running agents in list order.
+function jumpKeys() {
+  const keys = Object.fromEntries(Object.entries(settings().keys).filter(([, n]) => n));
+  return Object.keys(keys).length ? keys : Object.fromEntries(S.agents.slice(0, 9).map((a, i) => [i + 1, a.name]));
+}
+const jumpTo = d => { const n = jumpKeys()[d]; return S.agents.some(a => a.name === n) ? n : null; };
+const jumpMod = (e, mod, typing) => {
+  const held = {alt: e.altKey, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey};
+  return held[mod] && Object.entries(held).every(([k, on]) => k === mod || !on) && !(mod === "shift" && typing);
+};
 const here = () => {
   const a = document.activeElement;
   if (a?.id === "dsay") return open;
@@ -3706,7 +3941,12 @@ const here = () => {
 const shownBox = name => [...document.querySelectorAll(`#main .say[data-name="${CSS.escape(name)}"]`)].find(b => b.offsetParent);
 function focusAgent(name) {
   if (!name) return;
+  if (settings().jump === "view") return name === open ? $("#dsay").focus() : openDetail(name);
   if (open) return name === open ? $("#dsay").focus() : openDetail(name);
+  if (!shownBox(name) && (localStorage.getItem("page") || "grid") === "custom") {   // a Combined pane's chat with it
+    const pane = leaves(layout().root).find(([, n]) => n.show === "combined" && paneAgents(n).some(a => a.name === name && a.live));
+    if (pane) return chatWith(pane[0], name);
+  }
   const box = () => shownBox(name);
   if (!box()) {
     const pane = (localStorage.getItem("page") || "grid") === "custom" && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
@@ -3718,11 +3958,12 @@ function focusAgent(name) {
 addEventListener("keydown", e => {
   const typing = e.target.closest?.("textarea, input, select");
   if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === "?" && !typing) { e.preventDefault(); helpMenu(false); return; }
+  const digit = /^Digit([1-9])$/.exec(e.code);
+  if (digit && S && jumpMod(e, settings().mod, typing)) { e.preventDefault(); e.stopPropagation(); focusAgent(jumpTo(digit[1])); return; }
   if (!e.altKey || e.ctrlKey || e.metaKey || !S) return;
-  const names = S.agents.map(a => a.name), cur = here(), digit = /^Digit([1-9])$/.exec(e.code), at = names.indexOf(cur);
+  const names = S.agents.map(a => a.name), cur = here(), at = names.indexOf(cur);
   const step = d => names[at < 0 ? (d > 0 ? 0 : names.length - 1) : (at + d + names.length) % names.length];
-  const act = digit ? () => focusAgent(names[digit[1] - 1])
-    : e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
+  const act = e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
     : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
     : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) shownBox(cur)?.focus(); }
     : e.code === "KeyV" ? () => $("#pagemode .viewbtn")?.click()
@@ -4055,7 +4296,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
