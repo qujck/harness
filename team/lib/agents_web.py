@@ -3693,7 +3693,7 @@ function syncStop() {
 // Esc twice in quick succession in a box with text in it clears the box (and its draft); there, Esc never closes the view.
 let escAt = 0;
 function keys(e, box, name) {
-  if (slashKey(e, box, name) || histKey(e, box)) return;
+  if (slashKey(e, box, name) || histKey(e, box, name)) return;
   if (e.key === "Tab" && !e.shiftKey && !box.value && settings().suggest !== "off") {   // the prompt Claude Code suggests, as Tab takes it there
     const hint = S.agents.find(a => a.name === name)?.suggest;
     if (hint) { e.preventDefault(); box.value = hint; grow(box); keep(box); }
@@ -3712,24 +3712,26 @@ function keys(e, box, name) {
     if (openAsk(S.agents.find(a => a.name === name))) { flash(box, "failed"); box.title = ASK_SHUT; } else say(name, box);
   }
 }
-// What the owner has sent from the page's message boxes, oldest first, the last hundred, kept in this browser. ↑ with
-// the caret on a box's top line steps back through them and ↓ on its bottom line forward again, to what was being
-// written before the first ↑. Whether the caret was on that line is told by where the key left it: the browser moves
-// it to the very start (or end) only from the top (or bottom) line.
-const sentLog = (() => { try { return JSON.parse(localStorage.getItem("sent")) || []; } catch (e) { return []; } })();
+// What the owner has sent to each agent from the page's message boxes, oldest first, the last hundred per agent, kept in
+// this browser. In an agent's box, ↑ with the caret on the top line steps back through what was sent to that agent and
+// ↓ on the bottom line forward again, to what was being written before the first ↑. Whether the caret was on that line
+// is told by where the key left it: the browser moves it to the very start (or end) only from the top (or bottom) line.
+const sentBy = (() => { try { return JSON.parse(localStorage.getItem("sentBy")) || {}; } catch (e) { return {}; } })();
 let hist = {box: null, at: 0, draft: "", shown: null};
-function logSent(text) {
-  if (sentLog[sentLog.length - 1] !== text) sentLog.push(text);
-  sentLog.splice(0, sentLog.length - 100);
-  localStorage.setItem("sent", JSON.stringify(sentLog));
+function logSent(name, text) {
+  const log = sentBy[name] = sentBy[name] || [];
+  if (log[log.length - 1] !== text) log.push(text);
+  log.splice(0, log.length - 100);
+  localStorage.setItem("sentBy", JSON.stringify(sentBy));
   hist.box = null;
 }
-function histKey(e, box) {
+function histKey(e, box, name) {
+  const sentLog = sentBy[name] || [];
   if (!["ArrowUp", "ArrowDown"].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || box.selectionStart !== box.selectionEnd) return false;
   const up = e.key === "ArrowUp", from = box.selectionStart, v = box.value;
   if (up ? v.slice(0, from).includes("\n") : v.slice(from).includes("\n")) return false;
   const step = () => {
-    if (hist.box !== box || box.value !== hist.shown) hist = {box, at: sentLog.length, draft: box.value, shown: null};
+    if (hist.box !== box || hist.name !== name || box.value !== hist.shown) hist = {box, name, at: sentLog.length, draft: box.value, shown: null};
     const to = hist.at + (up ? -1 : 1);
     if (to < 0 || to > sentLog.length) return;
     hist.at = to;
@@ -3737,7 +3739,7 @@ function histKey(e, box) {
     box.selectionStart = box.selectionEnd = up ? 0 : box.value.length;   // so the next ↑ (or ↓) steps on at once
     grow(box); keep(box);
   };
-  if (hist.box === box && box.value === hist.shown) { e.preventDefault(); step(); return true; }
+  if (hist.box === box && hist.name === name && box.value === hist.shown) { e.preventDefault(); step(); return true; }
   setTimeout(() => { if (box.selectionStart === box.selectionEnd && box.selectionStart === (up ? 0 : box.value.length) && box.value === v) step(); });
   return false;
 }
@@ -3800,7 +3802,7 @@ async function say(name, input) {
     const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/say", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, images: sent.map(i => i.path)})});
     if (!r.ok) throw new Error(await r.text());
     if (echo) { echo.state = "sent"; echoed(name); }
-    if (text) logSent(text);
+    if (text) logSent(name, text);
     atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name);
     flash(box(), "sent");
     chase(name, text);
