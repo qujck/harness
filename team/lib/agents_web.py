@@ -1014,7 +1014,7 @@ def state():
         if not rec and not where.get(name):
             # a developer or tester with no session is on the bench, waiting for agent-spawn.sh
             if role in ("dev", "tester"):
-                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), "portrait": portrait(name)})
+                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name)})
             continue
         sid = (rec or {}).get("sessionId")
         # a stopped agent's model, effort, context and last compaction are its last session's, as it left them
@@ -1033,7 +1033,7 @@ def state():
             "model": row.get("model", ""), "effort": row.get("effort", ""),
             "ticket": held.get(name.lower(), ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
-            "series": ser, "rate": last_minute(ser, now), "portrait": portrait(name),
+            "series": ser, "rate": last_minute(ser, now), **portraits(name),
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
         })
@@ -1060,18 +1060,25 @@ def state():
 
 
 # Portraits for the Characters pane: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
-# ~/.claude/agents-portraits), served at /portraits/.
+# ~/.claude/agents-portraits), served at /portraits/. An agent can have a second, <name>-alt, shown in its menu
+# instead.
 PORTRAITS = os.environ.get("AGENTS_PORTRAITS") or os.path.join(HOME, ".claude", "agents-portraits")
 PORTRAIT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}
 
 
-def portrait(name):
-    """The page's address for an agent's portrait, with its change time so a new picture shows at once; "" for none."""
+def portrait(name, kind=""):
+    """The page's address for an agent's portrait (kind "-alt" for the second), with its change time so a new picture
+    shows at once; "" for none."""
     for ext in PORTRAIT_TYPES:
-        f = os.path.join(PORTRAITS, name.lower() + ext)
+        f = os.path.join(PORTRAITS, name.lower() + kind + ext)
         if os.path.isfile(f):
-            return f"/portraits/{name.lower()}{ext}?v={int(os.path.getmtime(f))}"
+            return f"/portraits/{name.lower()}{kind}{ext}?v={int(os.path.getmtime(f))}"
     return ""
+
+
+def portraits(name):
+    """An agent's portrait fields: the one shown, and the one for its menu ("" for none)."""
+    return {"portrait": portrait(name), "altPortrait": portrait(name, "-alt")}
 
 
 _state = {"at": 0, "body": b""}
@@ -1763,6 +1770,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);color:var(--text);white-space:nowrap}
 #menu .hd:has(.spark){min-width:200px}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
+#menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
+#menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
+#menu .mpor{flex:none;width:52px;height:52px}
+#menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px}
+#menu .hd:last-child{margin-bottom:0;border-bottom:0}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
 #menu .mi svg.off{visibility:hidden}
@@ -1962,7 +1974,7 @@ const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
-const STATE = {busy: "working", waiting: "waiting", idle: "idle", shell: "in shell", off: "not running", compacting: "compacting"};
+const STATE = {busy: "working", waiting: "waiting", idle: "idle", shell: "in shell", off: "not running", compacting: "compacting", bench: "on the bench"};
 // what an agent is doing, for its classes and words: not running, compacting, or its session's own status
 const stOf = a => !a.live ? "off" : a.compacting ? "compacting" : a.status;
 let S = null, colours = {}, open = null;
@@ -2311,9 +2323,14 @@ function draw() {
   // one is picked, icons while a Characters pane is on the page.
   const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !layout().locked;
   $("#bench").innerHTML = S.bench.length ? `<span>bench${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
-    const tip = `title="${esc(b.name)}, ${esc(b.roleName || b.role)}, on the bench" data-name="${esc(b.name)}"`;
+    const tip = `data-name="${esc(b.name)}"`;
     return style === "icon" ? face(b, tip)
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
+  // each one's menu, its details only, on a rest or a right-click, as an agent's tile
+  document.querySelectorAll("#bench .rrow [data-name]").forEach(m => {
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+  });
   if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "icon" ? "icon" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
@@ -2350,7 +2367,8 @@ function draw() {
     if (badge === "icon")
       return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.name)}"`, a === sel ? " sel" : "")).join("")}</div>`];
     if (badge === "card")
-      return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace('<div class="chr ', `<div data-tab="${esc(a.name)}" title="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
+      return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
+      .replace('<div class="chr ', `<div data-tab="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
       return `<button class="${stOf(a)}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
@@ -3431,14 +3449,14 @@ function lastCompact(a) {
 const STANDING_ROLES = new Set(["lead", "review", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
-  const a = S.agents.find(x => x.name === name), key = "agent:" + name;
+  const bench = S.bench.find(x => x.name === name), a = S.agents.find(x => x.name === name) || bench, key = "agent:" + name;
   if (!a || !stay && !anchor.isConnected) return;
   if (menuOn(key) && !confirm && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
-  const st = stOf(a), ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
+  const st = bench ? "bench" : stOf(a), ctx = a.ctxPct == null ? "" : ` · ${a.ctxPct}% context`;
   const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until it is done
   // its model, effort and burn, over its usage graph drawn to the team's scale, as on its card
-  const usage = (a.model ? `<div>${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}${a.rate ? " · " + k(a.rate) + " tok/min" : ""}</div>` : "") +
-    spark(a.series, Math.max(1, ...S.agents.flatMap(x => x.series)), a.colour);
+  const model = a.model ? `<div>${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}${a.rate ? " · " + k(a.rate) + " tok/min" : ""}</div>` : "";
+  const usage = bench ? "" : spark(a.series, Math.max(1, ...S.agents.flatMap(x => x.series)), a.colour);
   const compact = S.compacting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.compact)}Compacting…</div>`
     : `<div class="mi" data-go="compact">${MENU_ICON.compact}Compact now</div>`;
   let power = "";
@@ -3452,9 +3470,11 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
   }
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
-  menuAt(anchor, key, `<div class="hd"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
-    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${usage}${lastCompact(a)}</div>` +
-    (!a.live ? power :   // an agent that is not running has nothing to open
+  // its name and details, with its second portrait, else its portrait, on the right
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
+    `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
+    (bench ? "" : !a.live ? power :   // a benched agent has only its details; one that is not running has nothing to open
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
