@@ -1686,6 +1686,11 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 calc(12.5px*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
 .bench .rrow{display:flex;flex-wrap:wrap;gap:5px;min-width:0;overflow:hidden}   /* two rows at most: fitBench */
+.bench em.more{cursor:pointer}
+/* every row open, over the page rather than pushing it down, from where the folded rows sat */
+.bench{position:relative}
+.bench .rrow.all{position:absolute;z-index:30;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 10px 28px #0008}
+.bench em.more:hover{color:var(--text)}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
 .face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
@@ -2937,16 +2942,25 @@ function edges(el) {
 }
 document.addEventListener("scroll", e => { if (e.target.matches?.(FADES)) edges(e.target); }, true);
 addEventListener("resize", () => document.querySelectorAll("#main :is(" + FADES + ")").forEach(edges));
+// The bench is two rows at most, the rest folded into a +N chip; a click on it opens every row, and − folds them again.
+let benchAll = false;
 function fitBench() {
   const row = $("#bench .rrow"), chips = row ? [...row.children] : [];
+  $("#bench").style.minHeight = "";
   if (!row || !chips.length) return;
   row.style.maxHeight = 2 * chips[0].offsetHeight + parseFloat(getComputedStyle(row).rowGap) + "px";   // a second row, not a third
   if (row.scrollHeight <= row.clientHeight) return;
-  const more = Object.assign(document.createElement("em"), {style: "--c:var(--line2)"});
+  const more = Object.assign(document.createElement("em"), {className: "more", style: "--c:var(--line2)"});
+  more.onclick = e => { e.stopPropagation(); benchAll = !benchAll; draw(); };
+  if (benchAll) {
+    $("#bench").style.minHeight = $("#bench").offsetHeight + "px";   // the header keeps the folded rows' height
+    Object.assign(row.style, {left: row.offsetLeft + "px", top: row.offsetTop + "px", width: row.offsetWidth + 14 + "px", maxHeight: ""});
+    row.classList.add("all"); more.textContent = "−"; more.title = "Fold the bench to two rows"; row.append(more); return;
+  }
   row.append(more);
   const off = [];
   while (chips.length && row.scrollHeight > row.clientHeight) { const c = chips.pop(); c.remove(); off.unshift(c.dataset.name); more.textContent = "+" + off.length; }
-  more.title = "Also on the bench: " + off.join(", ");
+  more.title = "Also on the bench: " + off.join(", ") + ". Click to show them";
 }
 
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
@@ -3659,7 +3673,7 @@ function syncStop() {
 // Esc twice in quick succession in a box with text in it clears the box (and its draft); there, Esc never closes the view.
 let escAt = 0;
 function keys(e, box, name) {
-  if (slashKey(e, box, name)) return;
+  if (slashKey(e, box, name) || histKey(e, box)) return;
   if (e.key === "Tab" && !e.shiftKey && !box.value && settings().suggest !== "off") {   // the prompt Claude Code suggests, as Tab takes it there
     const hint = S.agents.find(a => a.name === name)?.suggest;
     if (hint) { e.preventDefault(); box.value = hint; grow(box); keep(box); }
@@ -3677,6 +3691,35 @@ function keys(e, box, name) {
   else {
     if (openAsk(S.agents.find(a => a.name === name))) { flash(box, "failed"); box.title = ASK_SHUT; } else say(name, box);
   }
+}
+// What the owner has sent from the page's message boxes, oldest first, the last hundred, kept in this browser. ↑ with
+// the caret on a box's top line steps back through them and ↓ on its bottom line forward again, to what was being
+// written before the first ↑. Whether the caret was on that line is told by where the key left it: the browser moves
+// it to the very start (or end) only from the top (or bottom) line.
+const sentLog = (() => { try { return JSON.parse(localStorage.getItem("sent")) || []; } catch (e) { return []; } })();
+let hist = {box: null, at: 0, draft: "", shown: null};
+function logSent(text) {
+  if (sentLog[sentLog.length - 1] !== text) sentLog.push(text);
+  sentLog.splice(0, sentLog.length - 100);
+  localStorage.setItem("sent", JSON.stringify(sentLog));
+  hist.box = null;
+}
+function histKey(e, box) {
+  if (!["ArrowUp", "ArrowDown"].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || box.selectionStart !== box.selectionEnd) return false;
+  const up = e.key === "ArrowUp", from = box.selectionStart, v = box.value;
+  if (up ? v.slice(0, from).includes("\n") : v.slice(from).includes("\n")) return false;
+  const step = () => {
+    if (hist.box !== box || box.value !== hist.shown) hist = {box, at: sentLog.length, draft: box.value, shown: null};
+    const to = hist.at + (up ? -1 : 1);
+    if (to < 0 || to > sentLog.length) return;
+    hist.at = to;
+    box.value = hist.shown = to === sentLog.length ? hist.draft : sentLog[to];
+    box.selectionStart = box.selectionEnd = up ? 0 : box.value.length;   // so the next ↑ (or ↓) steps on at once
+    grow(box); keep(box);
+  };
+  if (hist.box === box && box.value === hist.shown) { e.preventDefault(); step(); return true; }
+  setTimeout(() => { if (box.selectionStart === box.selectionEnd && box.selectionStart === (up ? 0 : box.value.length) && box.value === v) step(); });
+  return false;
 }
 // The / list under a message box: typing / and a name lists the commands that match (Claude Code's own, the user's
 // and the team's commands and skills, the plugins'), ↑/↓ choose, Tab completes, Enter completes and sends, Esc closes.
@@ -3737,6 +3780,7 @@ async function say(name, input) {
     const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/say", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, images: sent.map(i => i.path)})});
     if (!r.ok) throw new Error(await r.text());
     if (echo) { echo.state = "sent"; echoed(name); }
+    if (text) logSent(text);
     atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name);
     flash(box(), "sent");
     chase(name, text);
