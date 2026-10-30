@@ -658,6 +658,33 @@ def hook_compacting(sid, now):
         return False
 
 
+_models = {}   # transcript path -> ((size, mtime), the model it last answered with)
+MODEL_ID = re.compile(rb'"model":"claude-([a-z]+)-(\d+)-(\d+)')
+
+
+def transcript_model(sid):
+    """The model a session last answered with, from the end of its transcript, as "Opus 5.5"; "" when none is found."""
+    path = transcript(sid) if sid else None
+    try:
+        st = os.stat(path) if path else None
+    except OSError:
+        st = None
+    if not st:
+        return ""
+    key = (st.st_size, st.st_mtime)
+    with _lock:
+        hit = _models.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    with open(path, "rb") as f:
+        f.seek(max(0, st.st_size - 2_000_000))
+        ids = MODEL_ID.findall(f.read())
+    name = f"{ids[-1][0].decode().title()} {int(ids[-1][1])}.{int(ids[-1][2])}" if ids else ""
+    with _lock:
+        _models[path] = (key, name)
+    return name
+
+
 _compacts = {}   # transcript path -> ((size, mtime), its last compaction)
 BOUNDARY = b'"subtype":"compact_boundary"'
 
@@ -1164,7 +1191,13 @@ def state():
         if not rec and not where.get(name):
             # a developer or tester with no session is on the bench, waiting for agent-spawn.sh
             if role in ("dev", "tester"):
-                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name)})
+                # its model, effort and last compaction are its last session's, the model read from its transcript
+                # once the session's context row has gone
+                was = last.get(name)
+                row = rows.get(was, {}) if was else {}
+                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
+                              "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
+                              "lastCompact": last_compact(was)})
             continue
         sid = (rec or {}).get("sessionId")
         # a stopped agent's model, effort, context and last compaction are its last session's, as it left them
@@ -1800,6 +1833,11 @@ table.md th{background:var(--line);font-weight:600}
 .tabbar.icontabs{gap:8px;padding:6px 4px}
 .icontabs .face,.iconrow .face{cursor:pointer}
 .icontabs .face.sel{outline:2px solid var(--c);outline-offset:2px}
+/* a working agent's icon: its outline fades in and out, fainter than the picked one's */
+.icontabs .face.busy:not(.sel),.iconrow .face.busy{outline:2px solid transparent;outline-offset:2px;animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{outline-color:transparent}50%{outline-color:color-mix(in srgb,var(--c) 45%,transparent)}}
+.icontabs .ftab{position:relative;display:flex}   /* an icon with its unseen count on its corner, clear of its clipping */
+.icontabs .ftab .unseen{position:absolute;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
 .teamlog .thead > .cnames.iconrow{gap:6px}
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
@@ -2622,7 +2660,8 @@ function draw() {
   const tabRow = (key, agents, badge) => {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || agents[0];
     if (badge === "icon")
-      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.name)}"`, a === sel ? " sel" : "")).join("")}</div>`];
+      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel ? 0 : unseen(a);
+        return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n) : ""}</span>`; }).join("")}</div>`];
     if (badge === "card")
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
       .replace('<div class="chr ', `<div data-tab="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
@@ -2658,7 +2697,7 @@ function draw() {
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => { localStorage.setItem("mode:" + b.parentElement.dataset.sec, b.dataset.mode); draw(); });
   // Picking a tab puts the cursor in that agent's message box, ready to type.
   document.querySelectorAll(".tabbar [data-tab]").forEach(b => b.onclick = () => {
-    const sec = b.parentElement.dataset.sec, name = CSS.escape(b.dataset.tab);
+    const sec = b.closest(".tabbar").dataset.sec, name = CSS.escape(b.dataset.tab);
     menuOff(true); localStorage.setItem("tab:" + sec, b.dataset.tab); draw();
     document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
   });
