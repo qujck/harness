@@ -6,6 +6,7 @@
   /api/state        everything the page draws, as JSON
   /api/team         every message between the running agents, as one transcript
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
+  /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/answer  {"n": 3, "label": "Type something.", "text": "..."} the prompt open in its pane
                              answered with option n: its digit, or for a typed option the text, then Enter
@@ -1386,6 +1387,7 @@ def team_json():
 
 
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+DOC_TYPES = {".md", ".markdown", ".txt", ".sql", ".log"}   # what /doc shows; the page links the same (DOC)
 PASTED = os.path.join(STATE_DIR, "pasted")   # images and files added in the page, kept for the agents to read
 
 
@@ -1412,6 +1414,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, agent_json(path[11:]), "application/json")
         elif path == "/img":
             self.image()
+        elif path == "/doc":
+            self.doc()
         elif m := re.fullmatch(r"/portraits/([a-z][a-z0-9_-]*)(\.png|\.webp|\.jpg)", path):
             f = os.path.join(PORTRAITS, m[1] + m[2])
             if not os.path.isfile(f):
@@ -1420,6 +1424,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, fh.read(), PORTRAIT_TYPES[m[2]], "private, max-age=86400")
         else:
             self.send(404, b"not found\n", "text/plain")
+
+    def doc(self):
+        """A document an agent names by its full path ("~/…" or "/home/…"), as text for the page to show: only from the
+        page itself (the Host check keeps other sites out), only Markdown, plain text, SQL or a log (never a settings
+        or key file), and only from under the home directory."""
+        if self.headers.get("Host") not in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}:
+            return self.send(403, b"only the team page\n", "text/plain")
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        real = os.path.realpath(os.path.expanduser(query.get("p", [""])[0]))
+        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not real.startswith(HOME + os.sep)
+                or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
+            return self.send(404, b"no such document\n", "text/plain")
+        with open(real, "rb") as f:
+            self.send(200, f.read(), "text/plain; charset=utf-8")
 
     def image(self):
         """An image an agent names by its path, full or from its own folder, for the page to show: only from the page
@@ -1696,9 +1714,23 @@ body.resizing-row{cursor:row-resize;user-select:none}
 .pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
 .pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:calc(11px*var(--fs,1));color:var(--mute)}
 .pbar select{font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
+/* the browser draws a select's open list and an input's own parts in the page's theme, not its default light one */
+.pbar :is(select, input){color-scheme:dark}
+html.light .pbar :is(select, input){color-scheme:light}
+.pbar option{background:var(--box);color:var(--text)}
+.pbar input{flex:1 1 240px;min-width:0;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 6px}
+.pbar input::placeholder{color:var(--faint)}
+/* a File pane: one document, as the document viewer shows it */
+.fdoc{flex:1;min-height:0;overflow:auto;padding:12px 16px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .pbar .pacts{display:flex;gap:2px;margin-left:auto}
 .pbar .pacts b{padding:1px 6px;border-radius:5px;font-size:calc(13px*var(--fs,1));font-weight:400;cursor:pointer}
 .pbar .pacts b:hover{background:var(--on);color:var(--text)}
+/* a pane's grip drags it onto another pane, and the two swap places */
+.pbar b.pmove{margin-left:-4px;padding:1px 4px;border-radius:5px;font-size:calc(13px*var(--fs,1));font-weight:400;cursor:grab;touch-action:none}
+.pbar b.pmove:hover{background:var(--on);color:var(--text)}
+body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
+.pane.lifted{opacity:.55}
+.pane.drop{outline:2px dashed var(--cyan);outline-offset:-2px}
 .pbody{flex:1;min-height:0;display:flex;flex-direction:column}
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
@@ -1869,6 +1901,25 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #lightbox figcaption a{color:#9cf}
 #lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
 #lightbox .x:hover{color:#fff}
+#docbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
+#docbox.on{display:flex}
+#docbox .doc{display:flex;flex-direction:column;width:min(920px,100%);max-height:100%;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 14px 40px #0009}
+#docbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
+#docname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+#docbox .dochead b{cursor:pointer;font-weight:600}
+#docbox .dochead b:hover,#docbox .x:hover{color:var(--text)}
+#docbox .dochead b.done{color:var(--green)}
+#docall[hidden]{display:none}
+#doctab{color:var(--cyan)}
+#docbox .x{cursor:pointer;font-size:calc(18px*var(--fs,1));line-height:1}
+#docbody{overflow:auto;padding:14px 18px;color:var(--text);font-size:calc(13.5px*var(--fs,1));line-height:1.55;white-space:pre-wrap;word-break:break-word}
+:is(#docbody, .fdoc) b.h{margin:18px 0 8px;font-weight:600;line-height:1.25}
+:is(#docbody, .fdoc) b.h:first-child{margin-top:0}
+:is(#docbody, .fdoc) b.h1{padding-bottom:.3em;border-bottom:1px solid var(--line2);font-size:2em}
+:is(#docbody, .fdoc) b.h2{padding-bottom:.3em;border-bottom:1px solid var(--line2);font-size:1.5em}
+:is(#docbody, .fdoc) b.h3{font-size:1.25em}
+:is(#docbody, .fdoc) b.h4{font-size:1.05em}
+@media (max-width:600px){#docbox{padding:12px}}
 pre.code{display:block;margin:5px 0;padding:7px 10px;font:calc(11.5px*var(--fs,1))/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:7px;color:var(--text)}
 #detail pre.code{font-size:calc(12.5px*var(--fs,1));margin:6px 0}
 pre.code{position:relative}
@@ -2229,6 +2280,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <main id="main"></main>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
+<div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
@@ -2242,13 +2294,15 @@ theme(new URLSearchParams(location.search).get("theme") || localStorage.getItem(
 $("#theme").onclick = () => theme(document.documentElement.classList.contains("light") ? "dark" : "light");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 // The little Markdown agents write: ``` fenced blocks, tables, # headings, - bullets, `code` and **bold**; web
-// addresses become links.
+// addresses become links, and so do full paths to documents the page can show (DOC_TYPES on the server).
+const DOC = /(^|[\s(>])((?:~|\/home)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
 const inline = s => esc(s)
-  .replace(/^#{1,6} +(.+)$/gm, '<b class="h">$1</b>')
+  .replace(/^(#{1,6}) +(.+)$/gm, (_, h, t) => `<b class="h h${h.length}">${t}</b>`)
   .replace(/^(\s*)[-*] +/gm, "$1• ")
   .replace(/`([^`\n]+)`/g, "<code>$1</code>")
   .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-  .replace(/\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]]/g, u => `<a class="link" href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  .replace(/\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]]/g, u => `<a class="link" href="${u}" target="_blank" rel="noopener">${u}</a>`)
+  .replace(DOC, (_, pre, p) => `${pre}<a class="link" href="/doc?p=${encodeURIComponent(p)}" title="${p}" onclick="return showDoc(event, this)">${p}</a>`);
 // A table is a header row, a row of dashes and its rows, each line between pipes.
 const TABLE = /(^\|.*\|[ \t]*\n\|[ \t:|-]+\|[ \t]*(?:\n\|.*\|[ \t]*)*)\n?/gm;
 const cells = (row, tag) => row.trim().slice(1, -1).split("|").map(c => `<${tag}>${inline(c.trim())}</${tag}>`).join("");
@@ -2325,6 +2379,36 @@ function showImg(e, a) {
   return false;
 }
 const closeImg = () => $("#lightbox").classList.remove("on");
+// A document opens over the page, Markdown rendered and anything else as it is; the cross, Esc or a click beside it
+// closes it. Its headings are blocks with their own margins, so the blank lines around them go.
+let docText = "";   // the open document as it is on disk, for Copy all
+const docMd = text => md(text).replace(/\n*(<b class="h h\d">.*?<\/b>)\n*/g, "$1");
+function showDoc(e, a) {
+  e.preventDefault(); e.stopPropagation();
+  const name = a.title;
+  $("#docname").textContent = $("#docname").title = name; $("#doctab").href = a.href;
+  $("#docbody").textContent = "Loading…";
+  $("#docall").hidden = true;
+  $("#docbox").classList.add("on");
+  fetch(a.href).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(
+    text => { if ($("#docname").textContent === name) { docText = text; $("#docall").hidden = false; }
+      return /\.(md|markdown)$/i.test(name) ? docMd(text) : `<pre class="code">${esc(text)}${COPY}</pre>`; },
+    status => `<span style="color:var(--mute)">${status === 404 ? "No such document, or not one this page shows." : "Could not load it."}</span>`)
+    .then(html => { if ($("#docname").textContent === name) { $("#docbody").innerHTML = html; $("#docbody").scrollTop = 0; } });
+  return false;
+}
+const closeDoc = () => $("#docbox").classList.remove("on");
+$("#docbox").onclick = e => { if (e.target.id === "docbox" || e.target.id === "docx") closeDoc(); };
+// A header button copies, then reads "Copied" for a moment.
+async function docCopy(b, text) {
+  if (b.classList.contains("done")) return;
+  await navigator.clipboard.writeText(text);
+  const was = b.textContent;
+  b.textContent = "Copied"; b.classList.add("done");
+  setTimeout(() => { b.textContent = was; b.classList.remove("done"); }, 1200);
+}
+$("#doccopy").onclick = e => docCopy(e.target, $("#docname").textContent);
+$("#docall").onclick = e => docCopy(e.target, docText);
 function lbFitScale() {
   const img = $("#lbimg");
   return img.naturalWidth ? Math.min(1, (innerWidth - 80) / img.naturalWidth, (innerHeight - 130) / img.naturalHeight) : 1;
@@ -2866,12 +2950,12 @@ function fitBench() {
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
 // one above the other ("col"), at a fraction "at", and whose leaves are panes showing an agent's card ("agent"),
 // every agent as a list ("others"), portrait tiles of every agent or those in some roles ("characters"), a grid or tabs
-// of the agents in some roles, or nothing yet. A pane is
+// of the agents in some roles, a document by its full path ("file"), or nothing yet. A pane is
 // named by its path from the root ("r", then "a" or "b" for each split), which also keys its tabs. Locked, the panes
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "support", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
@@ -2936,6 +3020,12 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "characters") {
       const them = chrAgents(n);
       body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
+    } else if (n.show === "file") {
+      const d = n.path && fileDocs[n.path];
+      body = !n.path ? `<div class="blank">${l.locked ? "" : "Type a document's full path above"}</div>`
+        : !d ? `<div class="blank">Loading…</div>`
+        : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
+        : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
     } else if (n.show === "combined") {
       body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
@@ -2952,9 +3042,11 @@ function customHtml(ceil, tabRow) {
     }
     const tabbed = TABBED.includes(n.show);
     const bar = l.locked ? "" : `<div class="pbar">
+      <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && n.show !== "others" && n.show !== "characters" ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
+      ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : ""}
@@ -3080,7 +3172,7 @@ function combinedHtml(path, n, full, big) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await loadTeam();
+  await Promise.all([loadTeam(), loadFiles()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -3089,6 +3181,36 @@ async function loadPaneConvs() {
       const text = JSON.stringify(d.feed);
       if (text !== paneText[name]) { paneConv[name] = d.feed; paneText[name] = text; paneVer[name] = (paneVer[name] || 0) + 1; }
       paneTerm[name] = {screen: d.screen, cols: d.cols || 80, rows: d.rows || 24};
+    } catch (e) {}
+  }));
+}
+// A pane dragged by its grip onto another swaps places with it, the pick of tab in a Tabs pane going with it.
+// Redraws wait while it is held, as they do while a divider is dragged.
+function movePane(e, grip, from, change) {
+  e.preventDefault(); grip.setPointerCapture(e.pointerId);
+  const src = grip.closest(".pane"); let over = null;
+  src.classList.add("lifted"); document.body.classList.add("moving-pane"); resizing = true;
+  const mark = t => { if (t !== over) { over?.classList.remove("drop"); over = t; over?.classList.add("drop"); } };
+  grip.onpointermove = m => { const t = document.elementFromPoint(m.clientX, m.clientY)?.closest("#main .pane"); mark(t && t !== src ? t : null); };
+  grip.onpointerup = grip.onpointercancel = u => {
+    const to = u.type === "pointerup" && over?.dataset.path;
+    mark(null); grip.onpointermove = grip.onpointerup = grip.onpointercancel = null;
+    src.classList.remove("lifted"); document.body.classList.remove("moving-pane"); resizing = false;
+    if (!to) return;
+    const ta = localStorage.getItem("tab:pane:" + from), tb = localStorage.getItem("tab:pane:" + to);
+    tb == null ? localStorage.removeItem("tab:pane:" + from) : localStorage.setItem("tab:pane:" + from, tb);
+    ta == null ? localStorage.removeItem("tab:pane:" + to) : localStorage.setItem("tab:pane:" + to, ta);
+    change(l => { const a = nodeAt(l.root, from), b = nodeAt(l.root, to); putAt(l, from, b); putAt(l, to, a); });
+  };
+}
+// The documents File panes show, by path, read again with every load so a change on disk shows within one refresh.
+const fileDocs = {};
+async function loadFiles() {
+  const paths = [...new Set(leaves(layout().root).filter(([, n]) => n.show === "file" && n.path).map(([, n]) => n.path))];
+  await Promise.all(paths.map(async p => {
+    try {
+      const r = await fetch("/doc?p=" + encodeURIComponent(p), {cache: "no-store"});
+      fileDocs[p] = r.ok ? {text: await r.text()} : {status: r.status};
     } catch (e) {}
   }));
 }
@@ -3135,6 +3257,8 @@ function customClicks() {
   main.querySelectorAll(".pbar [data-act]").forEach(el => {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
     if (act === "name" || act === "show" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
+    if (act === "move") { el.onpointerdown = e => movePane(e, el, path, change); return; }
+    if (act === "path") { el.onchange = () => { change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); }; return; }
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
       if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
@@ -3786,6 +3910,7 @@ $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if ($("#lightbox").classList.contains("on")) closeImg();
+  else if ($("#docbox").classList.contains("on")) closeDoc();
   else if ($("#dterm").classList.contains("big")) zoom(false);
   else if (paneBig && !open) { paneBig = null; draw(); }
   else if (open || !unmax()) closeDetail();
