@@ -1685,7 +1685,7 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 calc(12.5px*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
-.bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden}
+.bench .rrow{display:flex;flex-wrap:wrap;gap:5px;min-width:0;overflow:hidden}   /* two rows at most: fitBench */
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
 .face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
@@ -2939,11 +2939,13 @@ document.addEventListener("scroll", e => { if (e.target.matches?.(FADES)) edges(
 addEventListener("resize", () => document.querySelectorAll("#main :is(" + FADES + ")").forEach(edges));
 function fitBench() {
   const row = $("#bench .rrow"), chips = row ? [...row.children] : [];
-  if (!row || row.scrollWidth <= row.clientWidth) return;
+  if (!row || !chips.length) return;
+  row.style.maxHeight = 2 * chips[0].offsetHeight + parseFloat(getComputedStyle(row).rowGap) + "px";   // a second row, not a third
+  if (row.scrollHeight <= row.clientHeight) return;
   const more = Object.assign(document.createElement("em"), {style: "--c:var(--line2)"});
   row.append(more);
   const off = [];
-  while (chips.length && row.scrollWidth > row.clientWidth) { const c = chips.pop(); c.remove(); off.unshift(c.dataset.name); more.textContent = "+" + off.length; }
+  while (chips.length && row.scrollHeight > row.clientHeight) { const c = chips.pop(); c.remove(); off.unshift(c.dataset.name); more.textContent = "+" + off.length; }
   more.title = "Also on the bench: " + off.join(", ");
 }
 
