@@ -1964,7 +1964,7 @@ table.md th{background:var(--line);font-weight:600}
 /* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
 .tabbar.chrtabs{gap:8px}
 .chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
-.tabbar.icontabs{gap:6px;padding:13px 13px 2px}   /* inset and spaced as a Combined pane's row of icons */
+.tabbar.icontabs{gap:10px;padding:13px 13px 2px}   /* inset and spaced as a Combined pane's row of icons */
 .icontabs .face,.iconrow .face{cursor:pointer}
 .icontabs .face.sel{outline:2px solid var(--c);outline-offset:2px}
 /* a working agent's icon: its outline fades in and out, fainter than the picked one's */
@@ -1972,7 +1972,7 @@ table.md th{background:var(--line);font-weight:600}
 @keyframes breathe{0%,100%{outline-color:transparent}50%{outline-color:color-mix(in srgb,var(--c) 45%,transparent)}}
 .icontabs .ftab{position:relative;display:flex}   /* an icon with its unseen count on its corner, clear of its clipping */
 .icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
-.teamlog .thead > .cnames.iconrow{gap:6px}
+.teamlog .thead > .cnames.iconrow{gap:10px}   /* clear of each other's outlines, which stand 4px out */
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
