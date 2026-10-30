@@ -20,7 +20,9 @@
 #
 # WHAT IT DOES. Each card and view has a message box: a message is typed into the agent's tmux pane and Enter
 # pressed, as agent-spawn.sh types a first prompt; images pasted into the page go with it as attachments; Esc stops
-# a working turn. Only the page itself can send (its host and port, an X-Team-Say header another site's page cannot
+# a working turn. While a question or permission prompt is open the box is shut and each option is a button that
+# chooses it as its number does in the terminal; a Type something option is a box among them, and a multi-select
+# question gets a Submit button. Only the page itself can send (its host and port, an X-Team-Say header another site's page cannot
 # send, its own Origin), and it listens on 127.0.0.1 only. The header's power button asks the delivery lead to wind
 # the team down, recording who was running, and pulses a square until team/team-paused.sh says it is paused and no
 # agent is busy; then it shows ▶, which runs team/team-start.sh for those recorded and tells the lead to start the

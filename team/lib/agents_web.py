@@ -7,6 +7,8 @@
   /api/team         every message between the running agents, as one transcript
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
+  POST /api/agent/NAME/answer  {"n": 3, "label": "Type something.", "text": "..."} the prompt open in its pane
+                             answered with option n: its digit, or for a typed option the text, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
   POST /api/team/start       team/team-start.sh, then each agent the page stopped is compacted once it is up, and the
@@ -21,7 +23,8 @@
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
 (docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
 agent's pane (the session agent-spawn.sh starts, <project>-<name>) and the tail of each agent's transcript for its
-conversation. What it does is type into an agent's pane, as agent-spawn.sh types a first prompt, and start or stop
+conversation. What it does is type into an agent's pane, as agent-spawn.sh types a first prompt: a message (/say), an
+answer to the question open in it (/answer) or Esc (/stop), and start or stop
 the team or one of its standing agents (team/team-start.sh to start; a message, and then closing its pane, to
 stop; team/team-paused.sh says when a wound-down team has stopped). Only this page can
 send: the request must be addressed to this host and port, carry the X-Team-Say header (which another site's page
@@ -934,13 +937,21 @@ def feed(sid, limit):
 # ── a prompt waiting on the owner ─────────────────────────────────────────────
 SEPARATOR = re.compile(r"^\s*[╌─━]{10,}\s*$")
 TOP_RULE = re.compile(r"^\s*[─━]{10,}\s*$")
+OPTION = re.compile(r"^\s*(?:❯\s*)?(\d+)\.\s+(.*\S)")
+SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that ends a multi-select question
+CHECKBOX = re.compile(r"^\[[ ✔]\]\s?")   # a multi-select option's tick box
+DIM = re.compile(r"\x1b\[2m.*?\x1b\[(?:0|22)?m")   # a dim run: an empty field's placeholder
+ESCAPES = re.compile(r"\x1b\[[0-9;:?]*[A-Za-z]")
 
 
 def ask_of(pane):
     """The question an agent's pane is waiting on - a permission prompt or a choice - with its options, read
-    from the screen: Claude Code writes a prompt to the transcript only once it is answered. It runs from just
+    from the screen: Claude Code writes a prompt to the transcript only once it is answered. Its text runs from just
     after the solid rule that opens the prompt to the end of the options, so a permission prompt keeps its
-    heading and command; the dashed rules inside it become gaps. None when no numbered options are on screen."""
+    heading and command; the dashed rules inside it become gaps. Its options are numbered from 1, each with its
+    label; "Type something." is a field the owner's own words go into ("typed"). A multi-select question's options
+    keep their tick boxes in their labels, its field is the one just above its Submit row, and Submit is an option
+    numbered 0. None when no numbered options are on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l)]
     if not opts:
@@ -954,7 +965,23 @@ def ask_of(pane):
     block = [l for i, l in enumerate(block) if l or (0 < i < len(block) - 1 and block[i - 1])]
     boxed = re.compile(r"^\s*│ ?")
     pad = min((len(l) - len(l.lstrip()) for l in block if l and not boxed.match(l)), default=0)
-    return "\n".join(boxed.sub("", l) if boxed.match(l) else l[pad:] for l in block) or None
+    text = "\n".join(boxed.sub("", l) if boxed.match(l) else l[pad:] for l in block)
+    if not text:
+        return None
+    # a field under the cursor shows what is written in it, not its placeholder, and the footer then offers an editor
+    editing = "ctrl+g to edit" in lines[end - 1]
+    options, rows = [], [boxed.sub("", l) for l in lines[first:end]]
+    for i, l in enumerate(rows):
+        if SUBMIT_ROW.match(l):
+            options.append({"n": 0, "label": "Submit", "typed": False})
+            continue
+        m, n = OPTION.match(l), sum(1 for o in options if o["n"]) + 1
+        if m and int(m.group(1)) == n:
+            label = m.group(2)
+            typed = (label.startswith("Type something") or editing and l.lstrip().startswith("❯")
+                     or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
+            options.append({"n": n, "label": label, "typed": typed})
+    return {"text": text, "options": options}
 
 
 def by_lane(items, n):
@@ -989,9 +1016,132 @@ def with_ask(items, status, pane):
         return items   # a queue lasts only as long as the turn it waits behind
     if status == "waiting":
         ask = ask_of(pane["pane"])
-        return items + ([{"kind": "ask", "who": "waiting for you", "text": ask, "ts": None, "lane": "owner"}] if ask else []) + pending
+        return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "ts": None,
+                          "lane": "owner"}] if ask else []) + pending
     now = working_of(pane["pane"])
     return items + ([{"kind": "live", "who": "working", "text": now, "ts": None, "lane": "owner"}] if now else []) + pending
+
+
+def open_ask(name, pane):
+    """The prompt open in the agent's pane, only while its session is waiting on one: a numbered list on screen at any
+    other time is not a prompt."""
+    return ask_of(pane) if (live_sessions().get(name) or {}).get("status") == "waiting" else None
+
+
+def field_of(pane, n):
+    """What option n's text field holds while the pane's cursor is on it, its dim placeholder left out; None while the
+    cursor is elsewhere. The field runs on over the indented lines under it, to a gap, a rule, the next option or a
+    Submit row; a multi-select field's tick box is not part of it."""
+    raw = run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()
+    plain = [ESCAPES.sub("", l).rstrip() for l in raw]
+    at = next((i for i in range(len(plain) - 1, -1, -1) if re.match(rf"\s*❯\s*{n}\.(\s|$)", plain[i])), None)
+    if at is None:
+        return None
+    # the option's number can be dim too, so the placeholder is dropped only from what follows it
+    after = re.search(rf"{n}\.(?:\x1b\[[0-9;:]*m)*", raw[at])
+    lines = [ESCAPES.sub("", DIM.sub("", l)).rstrip() for l in raw]
+    text = [ESCAPES.sub("", DIM.sub("", raw[at][after.end():]))]
+    for l in lines[at + 1:]:
+        if not l.strip() or SEPARATOR.match(l) or OPTION.match(l) or SUBMIT_ROW.match(l):
+            break
+        text.append(l)
+    return CHECKBOX.sub("", " ".join(t.strip() for t in text).strip())
+
+
+def answer(name, n, label, text):
+    """Answers the prompt open in the agent's pane with its option n, while that option still has this label. An
+    ordinary option ("Chat about this" among them) is chosen with its digit alone, as a prompt takes it without Enter;
+    a typed option gets the text written into its field, read back and sent with Enter. In a multi-select question
+    a digit ticks its option, and works only with the cursor off the field and the Submit row, so the cursor is
+    taken to the option first; the field is reached with the arrows and ticks itself once written in, as Enter
+    there would untick it; and Submit is Enter on its row. Keys go in only while the prompt is the one the button
+    was drawn for. Returns an HTTP status and what happened."""
+    where = panes().get(name)
+    if not where:
+        return 404, "that agent is not in a pane"
+    pane = where["pane"]
+    ask = open_ask(name, pane)
+    opt = next((o for o in (ask or {}).get("options", []) if o["n"] == n and o["label"] == label), None)
+    if not opt:
+        return 409, "that question has changed or closed: nothing was sent"
+    if opt["typed"] and not text:
+        return 400, "write the answer first"
+    key = lambda *k: subprocess.run(["tmux", "send-keys", "-t", pane, *k]).returncode == 0
+
+    def gone():
+        """A test for the prompt, as it is on screen now, having closed or moved on to another question."""
+        was = (ask_of(pane) or {}).get("text")
+        return lambda: (ask_of(pane) or {}).get("text") != was
+
+    def clear(m):
+        """Empties option m's field a visual line at a time, as Ctrl+U clears to the start of the line it is on."""
+        for _ in range(where["rows"]):
+            if not field_of(pane, m):
+                break
+            key("C-u")
+            time.sleep(0.15)
+        return field_of(pane, m) == ""
+
+    multi = any(o["n"] == 0 for o in ask["options"])
+    order = {o["n"]: i for i, o in enumerate(ask["options"])}
+
+    def cursor():
+        """The option the pane's cursor is on (0 for Submit), or None when it is on none of them."""
+        for l in reversed(run("tmux", "capture-pane", "-p", "-t", pane).splitlines()):
+            m = re.match(r"\s*❯\s*(?:(\d+)\.(?:\s|$)|Submit$)", ESCAPES.sub("", l).rstrip())
+            if m:
+                return int(m.group(1) or 0)
+        return None
+
+    def move_to(m):
+        """Moves the cursor to option m a row at a time; whether it got there."""
+        for _ in range(2 * len(order)):
+            at = cursor()
+            if at == m or at not in order:
+                break
+            key("Up" if order[m] < order[at] else "Down")
+            wait_for(lambda: cursor() != at, 1, 0.1)
+        return cursor() == m
+
+    try:
+        if multi and not opt["typed"]:
+            closed = gone()
+            if not move_to(n) or not key("Enter" if n == 0 else str(n)) or not wait_for(closed, 3, 0.2):
+                return 500, "Submit was not taken" if n == 0 else f"option {n} was not taken"
+            return 200, "submitted" if n == 0 else "ticked or unticked"
+        if multi and not move_to(n):
+            return 500, "the answer's field did not open: nothing was sent"
+        # a digit pressed while the cursor is in a field is typed into it, so the cursor leaves any field it is in first
+        for o in [] if multi else ask["options"]:
+            if o["typed"] and o["n"] != n and field_of(pane, o["n"]) is not None:
+                if not clear(o["n"]) or not key("Up") or not wait_for(lambda: field_of(pane, o["n"]) is None, 1, 0.1):
+                    return 500, "the pane's cursor is stuck in another answer's field: nothing was sent"
+        if not opt["typed"]:
+            closed = gone()
+            if not key("-l", str(n)) or not wait_for(closed, 3, 0.2):
+                return 500, f"option {n} was not taken"
+            return 200, "chosen"
+        if field_of(pane, n) is None and (not key(str(n)) or not wait_for(lambda: field_of(pane, n) is not None, 2, 0.1)):
+            return 500, "the answer's field did not open: nothing was sent"
+        if field_of(pane, n) and not clear(n):
+            return 500, "the answer's field held text that would not clear: nothing was sent"
+        buf = "agents-web-" + uuid.uuid4().hex[:12]
+        subprocess.run(["tmux", "load-buffer", "-b", buf, "-"], input=text.encode())
+        subprocess.run(["tmux", "paste-buffer", "-p", "-r", "-d", "-b", buf, "-t", pane])
+        squash = lambda s: re.sub(r"\s+", "", s or "")
+        if not wait_for(lambda: squash(field_of(pane, n)) == squash(text), 2, 0.2):
+            clear(n)
+            return 500, "the answer did not go into its field as written, so the field was cleared: nothing was sent"
+        if multi:
+            return 200, "written and ticked: Submit sends it"
+        time.sleep(0.2)   # an Enter in the same burst as the paste can be swallowed
+        closed = gone()
+        if not key("Enter") or not wait_for(closed, 3, 0.2):
+            return 500, "the answer is in its field, but Enter was not taken"
+        return 200, "answered"
+    finally:
+        with _lock:
+            _state["at"] = 0
 
 
 # ── the state the page draws ──────────────────────────────────────────────────
@@ -1178,7 +1328,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, f.read(), kind, "private, max-age=300")
 
     def do_POST(self):
-        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|stop|start|halt|compact)", self.path)
+        m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|answer|stop|start|halt|compact)", self.path)
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         if not m and not team and not nudger and self.path != "/api/paste":
@@ -1200,6 +1350,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.compact(m.group(1))
         if m.group(2) in ("start", "halt"):
             return self.standing(m.group(1), m.group(2))
+        if m.group(2) == "answer":
+            return self.answer(m.group(1))
         try:
             n = int(self.headers.get("Content-Length") or 0)
             if n > SAY_MAX_BYTES:
@@ -1215,10 +1367,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400, b"an image is not one pasted here\n", "text/plain")
         if not text and not images:
             return self.send(400, b"nothing to send\n", "text/plain")
+        where = panes().get(m.group(1))
+        # a prompt ignores a paste, so the Enter after it would only choose whichever option is highlighted
+        if where and open_ask(m.group(1), where["pane"]):
+            return self.send(409, b"a prompt is open in its pane: answer it with its buttons\n", "text/plain")
         ok = type_into(m.group(1), text, images)
         if ok is None:
             return self.send(404, b"that agent is not in a pane\n", "text/plain")
         self.send(200 if ok else 500, json.dumps({"sent": ok}).encode(), "application/json")
+
+    def answer(self, name):
+        """Answers the prompt open in the agent's pane with one of its options, {"n": 3, "label": "Type something.",
+        "text": "..."}: the text is a typed option's answer, put on one line; any other option takes none."""
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), SAY_MAX_BYTES)) or b"{}")
+            n, label, text = int(body["n"]), str(body["label"]), " ".join(str(body.get("text", "")).split())
+        except (ValueError, KeyError, json.JSONDecodeError, AttributeError, TypeError):
+            return self.send(400, b"bad request\n", "text/plain")
+        status, said = answer(name, n, label, text)
+        self.send(status, json.dumps({"answered": said}).encode() if status == 200 else (said + "\n").encode(),
+                  "application/json" if status == 200 else "text/plain")
 
     def stop(self, name):
         """Stops the agent's turn as Esc does in its terminal: only while it is working, so a question it is waiting
@@ -1535,6 +1703,16 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.ask .who{align-self:flex-start;background:#ff7a1a;color:#000;text-transform:uppercase;letter-spacing:.06em}
 .it.ask .tx{font:12px/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
 .it.ask .ago{display:none}
+.it.ask .opts{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:6px}
+.it.ask .opt{padding:3px 10px;border-radius:6px;border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:600 12px var(--sans);cursor:pointer}
+.it.ask .opt:hover{background:#ff7a1a40}
+.it.ask .opt:disabled{opacity:.5;cursor:progress}
+.it.ask .typed{display:flex;flex:1 1 220px;min-width:0}
+.it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:6px 0 0 6px;background:var(--box);color:var(--text);font:12px var(--sans);outline:none}
+.it.ask .askin:focus{border-style:solid;box-shadow:0 0 0 2px #ff7a1a40}
+.it.ask .askin.failed{border-color:var(--red)}
+.it.ask .opt.go{border-radius:0 6px 6px 0;padding:3px 9px}
+.it.ask .reply{align-self:center;font:11.5px var(--mono);color:var(--text2)}
 .it.pending{align-items:flex-start;opacity:.8}
 .it.pending .tx{flex:1}
 .it.pending .badge{flex:none;font:600 10px var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:4px;padding:0 5px;margin-top:2px}
@@ -2067,8 +2245,87 @@ function item(it, compact, agent, tag) {
   const c = colours[it.kind === "said" ? agent : it.with || it.who], pc = c ? ` style="--pc:${c}"` : "";
   const pics = thumbs(it.text, it.images, agent), own = who ? `<span class="who">${esc(who)}</span>` : "";
   const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
-  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${heads}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${heads}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
+// An open prompt's options in the order shown, each naming its option by number and label so that it answers only the
+// prompt it was drawn for: a button for each, chosen as its digit chooses it in the terminal, and for a Type something
+// option a box to write the answer in, sent with Enter or its ↵. The server's reply to the last answer shows beside them
+// for a while.
+let askReply = {name: "", text: "", at: 0};
+// What is written in each Type something box, by agent and option, so that a redraw, which may replace the box, draws
+// it again with its text; askFocus is the box being written in, with its caret, for a replaced box to take the focus back.
+const askTyped = {};
+let askFocus = null;
+const askKey = (agent, n) => agent + "\n" + n;
+const askButtons = (it, agent) => {
+  const opts = it.options || [], reply = askReply.name === agent && Date.now() - askReply.at < 15000 ? askReply.text : "";
+  const attrs = o => `data-name="${esc(agent)}" data-n="${o.n}" data-label="${esc(o.label)}"`;
+  return opts.length ? `<span class="opts">${opts.map(o => o.typed
+    ? `<span class="typed"><input class="askin" ${attrs(o)} placeholder="${o.n}. Type something" value="${esc(askTyped[askKey(agent, o.n)] || "")}" autocomplete="off" spellcheck="false">` +
+      `<button class="opt go" ${attrs(o)} data-typed="1" title="Answer with what is written here (Enter)">↵</button></span>`
+    : `<button class="opt" ${attrs(o)} title="Choose this, as its number does in the terminal">${o.n ? o.n + ". " : ""}${esc(o.label)}</button>`).join("")}` +
+    `${reply ? `<span class="reply">${esc(reply)}</span>` : ""}</span>` : "";
+};
+// An agent's open prompt: while it is open its message box is shut, as a prompt ignores a paste and the Enter after it
+// would only choose the highlighted option; the prompt is answered with its own buttons.
+const openAsk = a => a?.status === "waiting" && (a.feed || []).find(it => it.kind === "ask" && (it.options || []).length);
+const ASK_SHUT = "A prompt is open in its pane: answer it with its buttons";
+const sayHint = a => openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it" : `Message ${a.name}…`;
+// a box is shut or opened again only when the prompt opens or closes, so a message on its way keeps its box disabled
+function shutBox(box, a) {
+  const shut = !!openAsk(a);
+  if (box._shut !== shut) { box.disabled = shut; box._shut = shut; }
+  box.placeholder = sayHint(a);
+}
+async function answerAsk(b) {
+  const name = b.dataset.name, opts = b.closest(".opts"), input = b.dataset.typed ? b.parentElement.querySelector(".askin") : null;
+  const text = input ? input.value.replace(/\s+/g, " ").trim() : "", all = [...opts.querySelectorAll(".opt, .askin")];
+  const show = why => { askReply = {name, text: why, at: Date.now()}; const s = opts.querySelector(".reply") || opts.appendChild(Object.assign(document.createElement("span"), {className: "reply"})); s.textContent = why; };
+  if (input && !text) { flash(input, "failed"); input.focus(); return; }
+  all.forEach(x => x.disabled = true);
+  const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/answer", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+    body: JSON.stringify({n: +b.dataset.n, label: b.dataset.label, text})}).catch(() => null);
+  all.forEach(x => x.disabled = false);
+  if (!r || !r.ok) { show(r ? (await r.text()).trim() : "the page could not be reached"); if (input) { flash(input, "failed"); input.focus(); } return; }
+  show((await r.json()).answered);
+  if (input) { delete askTyped[askKey(name, b.dataset.n)]; input.value = ""; askFocus = null; }
+  load(); if (open === name) refreshDetail(false);
+}
+// Capturing, so a click on a button or in a Type something box is theirs alone and does not also open or focus the card
+// or view it is on.
+document.addEventListener("click", e => {
+  if (e.target.closest(".it.ask .askin")) return e.stopPropagation();
+  const b = e.target.closest(".it.ask .opt");
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  if (!b.disabled) answerAsk(b);
+}, true);
+document.addEventListener("dblclick", e => { if (e.target.closest(".it.ask .opts")) e.stopPropagation(); }, true);
+// Keys in a Type something box are its own: Enter answers, and nothing reaches the page's shortcuts.
+document.addEventListener("keydown", e => {
+  const i = e.target.closest?.(".it.ask .askin");
+  if (!i) return;
+  e.stopPropagation();
+  if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); answerAsk(i.nextElementSibling); }
+}, true);
+document.addEventListener("input", e => {
+  const i = e.target.closest?.(".it.ask .askin");
+  if (i) askTyped[askKey(i.dataset.name, i.dataset.n)] = i.value;
+});
+const noteCaret = i => { askFocus = {key: askKey(i.dataset.name, i.dataset.n), start: i.selectionStart, end: i.selectionEnd}; };
+for (const ev of ["focusin", "keyup", "select", "input", "pointerup"]) document.addEventListener(ev, e => { const i = e.target.closest?.(".it.ask .askin"); if (i) noteCaret(i); });
+// A box left for another part of the page lets go of the focus; one taken away by a redraw keeps it, for its new box.
+document.addEventListener("focusout", e => {
+  const i = e.target.closest?.(".it.ask .askin");
+  if (i) setTimeout(() => { if (i.isConnected && document.activeElement !== i) askFocus = null; });
+});
+new MutationObserver(() => {
+  if (!askFocus || document.activeElement?.matches?.(".askin")) return;
+  const i = [...document.querySelectorAll(".it.ask .askin")].find(x => askKey(x.dataset.name, x.dataset.n) === askFocus.key && x.offsetParent);
+  if (!i) return;
+  const {start, end} = askFocus;
+  i.value = askTyped[askFocus.key] || ""; i.focus(); i.setSelectionRange(start, end);
+}).observe(document.body, {childList: true, subtree: true});
 
 // Which lanes of an agent's conversation are shown - the owner's, the team's, automation's - each on or off, chosen
 // per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed.
@@ -2153,7 +2410,7 @@ function spark(series, ceil, colour) {
 }
 
 // An agent's message box, with the images waiting to go above it.
-const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${a.status === "waiting" ? "A prompt is open in its pane: this answers it" : "Message " + esc(a.name) + "…"}" autocomplete="off"></textarea>${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
+const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
 function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
@@ -2427,6 +2684,7 @@ function draw() {
   laneClicks(main);
   document.querySelectorAll("#main .say").forEach(i => {
     i.value = typed[i.dataset.name] || draft(i.dataset.name); grow(i);
+    shutBox(i, S.agents.find(a => a.name === i.dataset.name) || {name: i.dataset.name});
     i.onclick = e => e.stopPropagation();
     i.oninput = () => { emojify(i); suggest(i); grow(i); keep(i); };
     i.onkeydown = e => emoKey(e, i) || keys(e, i, i.dataset.name);
@@ -3058,7 +3316,7 @@ async function openDetail(name) {
   facts();
   $("#detail").classList.add("open");
   rail();
-  const ds = $("#dsay"); ds.value = draft(name); grow(ds); ds.placeholder = a.status === "waiting" ? "A prompt is open in its pane: this answers it" : `Message ${name}…`;
+  const ds = $("#dsay"); ds.value = draft(name); grow(ds); shutBox(ds, {name, ...a});
   $("#datt").dataset.name = name; showAtt(name);
   $("#dsayrow").style.display = a.live ? "" : "none"; syncStop(); setTimeout(() => ds.focus(), 50);
   await refreshDetail(true);
@@ -3117,6 +3375,7 @@ function syncStop() {
   if (!open || !S) return;
   const a = S.agents.find(x => x.name === open) || {};
   $("#dstop").style.display = a.status === "busy" ? "" : "none"; $("#dstop").disabled = false;
+  shutBox($("#dsay"), {name: open, ...a});
 }
 // Esc twice in quick succession in a box with text in it clears the box (and its draft); there, Esc never closes the view.
 let escAt = 0;
@@ -3130,7 +3389,9 @@ function keys(e, box, name) {
   if (e.key !== "Enter") return;
   e.preventDefault();
   if (e.ctrlKey) { box.setRangeText("\n", box.selectionStart, box.selectionEnd, "end"); grow(box); }
-  else say(name, box);
+  else {
+    if (openAsk(S.agents.find(a => a.name === name))) { flash(box, "failed"); box.title = ASK_SHUT; } else say(name, box);
+  }
 }
 async function say(name, input) {
   const text = input.value.trim(), sent = atts[name] || [];
