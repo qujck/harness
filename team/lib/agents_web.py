@@ -1685,11 +1685,13 @@ header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 calc(12.5px*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
-.bench .rrow{display:flex;flex-wrap:wrap;gap:5px;min-width:0;overflow:hidden}   /* two rows at most: fitBench */
+.bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden;padding:1px}   /* one row, overlapped to fit: fitBench; room for a stacked card's rim */
+.bench .rrow > *{position:relative}
+.bench .rrow.stack > [data-name]{box-shadow:0 0 0 1px var(--bg)}   /* a fine rim in the page's background colour parts each card of the stack */
 .bench em.more{cursor:pointer}
 /* every row open, over the page rather than pushing it down, from where the folded rows sat */
 .bench{position:relative}
-.bench .rrow.all{position:absolute;z-index:30;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 10px 28px #0008}
+.bench .rrow.all{position:absolute;z-index:30;flex-wrap:wrap;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 10px 28px #0008}
 .bench em.more:hover{color:var(--text)}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
 .face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
@@ -2942,25 +2944,43 @@ function edges(el) {
 }
 document.addEventListener("scroll", e => { if (e.target.matches?.(FADES)) edges(e.target); }, true);
 addEventListener("resize", () => document.querySelectorAll("#main :is(" + FADES + ")").forEach(edges));
-// The bench is two rows at most, the rest folded into a +N chip; a click on it opens every row, and − folds them again.
-let benchAll = false;
+// The bench is one row. When it is too long the chips overlap, each later one over the right of the one before, as
+// far as leaves every chip BENCH_PEEK px showing; what still does not fit is folded into a +N chip. The mouse over the
+// stack spreads every benched agent out in a panel over the page, from where the stack sits, and leaving it stacks them
+// again; a click on +N spreads them too.
+let benchAll = false, benchFold = 0;
+const benchSpread = all => { clearTimeout(benchFold); if (benchAll !== all) { benchAll = all; draw(); } };
+const BENCH_PEEK = 14;
 function fitBench() {
   const row = $("#bench .rrow"), chips = row ? [...row.children] : [];
-  $("#bench").style.minHeight = "";
-  if (!row || !chips.length) return;
-  row.style.maxHeight = 2 * chips[0].offsetHeight + parseFloat(getComputedStyle(row).rowGap) + "px";   // a second row, not a third
-  if (row.scrollHeight <= row.clientHeight) return;
+  if (!row || !chips.length || row.scrollWidth <= row.clientWidth) return;
   const more = Object.assign(document.createElement("em"), {className: "more", style: "--c:var(--line2)"});
-  more.onclick = e => { e.stopPropagation(); benchAll = !benchAll; draw(); };
+  more.onclick = e => { e.stopPropagation(); benchSpread(!benchAll); };
+  row.onmouseenter = () => benchSpread(true);
+  row.onmouseleave = () => { clearTimeout(benchFold); benchFold = setTimeout(() => benchSpread(false), 250); };
   if (benchAll) {
-    $("#bench").style.minHeight = $("#bench").offsetHeight + "px";   // the header keeps the folded rows' height
-    Object.assign(row.style, {left: row.offsetLeft + "px", top: row.offsetTop + "px", width: row.offsetWidth + 14 + "px", maxHeight: ""});
-    row.classList.add("all"); more.textContent = "−"; more.title = "Fold the bench to two rows"; row.append(more); return;
+    $("#bench").style.minHeight = $("#bench").offsetHeight + "px";   // the header keeps its height
+    const room = innerWidth - row.getBoundingClientRect().left - 16;   // as wide as the page allows, then wrapping
+    Object.assign(row.style, {left: row.offsetLeft + "px", top: row.offsetTop + "px", width: "max-content", maxWidth: room + "px"});
+    row.classList.add("all"); return;
   }
-  row.append(more);
-  const off = [];
-  while (chips.length && row.scrollHeight > row.clientHeight) { const c = chips.pop(); c.remove(); off.unshift(c.dataset.name); more.textContent = "+" + off.length; }
-  more.title = "Also on the bench: " + off.join(", ") + ". Click to show them";
+  const gap = parseFloat(getComputedStyle(row).columnGap) || 0, room = row.clientWidth, w = chips.map(c => c.offsetWidth);
+  // the first k chips overlapped into the room left beside a +N chip of `side` px: how far each must slide under
+  const slide = (k, side) => k < 2 ? 0 : (w.slice(0, k).reduce((a, b) => a + b, 0) + gap * (k - 1) - (room - side)) / (k - 1);
+  const fits = (k, side) => w.slice(0, k - 1).every(x => x + gap - slide(k, side) >= BENCH_PEEK);
+  let k = chips.length, side = 0;
+  if (!fits(k, 0)) {
+    row.append(more); more.textContent = "+" + chips.length;
+    side = more.offsetWidth + gap;
+    while (k > 1 && !fits(k, side)) k--;
+    const off = chips.slice(k);
+    off.forEach(c => c.remove());
+    more.textContent = "+" + off.length;
+    more.title = "Also on the bench: " + off.map(c => c.dataset.name).join(", ") + ". Click to show them";
+  }
+  const by = Math.max(0, slide(k, side));
+  chips.slice(1, k).forEach(c => c.style.marginLeft = -by + "px");
+  row.classList.toggle("stack", by > 0);
 }
 
 // The custom layout, kept in this browser: a tree whose inner nodes split their space in two, side by side ("row") or
