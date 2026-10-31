@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
 #   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -46,6 +46,13 @@
 #              `on:…`, `cannot-tell:…`), with `:over-cap` added when it started at or over the cap, so the spawns
 #              that went past either line this way stay countable.
 # The budget never picks the model.
+#
+# THE LEADS HAND OVER BY SPAWNING EACH OTHER (owner, 2026-10-31). At the end of a development day the delivery
+# lead spawns the head of testing, hands over, and is benched by them (team/agent-bench.sh); at the end of a
+# verification day the reverse. A lead (delivery-lead or head-of-testing) is spawned with no ticket (--ticket is a
+# usage error), is not budget-gated and is not counted against the cap: the record's verdict reads `lead`. Its first
+# prompt names the other lead and says to read their latest session entry, the handover, before anything else. Its
+# model is --model, else the account default.
 #
 # EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26, for developers and testers: "both please"). --why
 # "<reason>" is the lead's reason for the model the agent starts on, whether named with --model or left to the
@@ -104,7 +111,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
+USAGE="usage: agent-spawn.sh developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
@@ -128,7 +135,8 @@ spawn_owner_ok_text_ok() {
 }
 # PURE: what the budget line means for this role. $1 role · $2 agents-budget.sh's exit -> start | ask | info
 spawn_budget_rule() {
-  if [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
+  if [[ "$1" == delivery-lead || "$1" == head-of-testing ]]; then printf 'lead'
+  elif [[ "$1" == tester ]]; then printf 'info'; elif [[ "$2" == 0 ]]; then printf 'start'; else printf 'ask'; fi
 }
 
 # How many sessions are working now: session records (<pid>.json) whose pid is alive and whose status is busy
@@ -182,9 +190,17 @@ spawn_ticket_verdict() {
 # PURE: is this a model name Claude Code could take (an alias, a full id, a [1m]-style suffix)?
 spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$ ]]; }
 
-# The first prompt. $1 name · $2 role · $3 ticket (may be empty)
+# The first prompt. $1 name · $2 role · $3 ticket (may be empty) · $4 the other lead, for a lead
 spawn_prompt() {
-  local n="$1" r="$2" t="${3:-}" p
+  local n="$1" r="$2" t="${3:-}" o="${4:-}" p
+  if [[ "$r" == delivery-lead || "$r" == head-of-testing ]]; then
+    p="You are $n, the $r, started by team/agent-spawn.sh to take over from ${o:-the other lead}."
+    p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
+    p+=" Then read the handover, ${o:-the other lead}'s latest session entry"
+    [[ -n "$o" ]] && p+=" (\`bash scripts/ledger-db.sh session-entries --agent $o --limit 1\`)"
+    p+=", before anything else, and tell ${o:-them} you have it."
+    printf '%s' "$p"; return
+  fi
   p="You are $n, a $r on this project's agent team, started by team/agent-spawn.sh"
   [[ -n "$t" ]] && p+=" for ticket $t. That ticket is yours and you hold no other." || p+="."
   p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
@@ -265,6 +281,7 @@ spawn_self_test() {
   cat > "$T/repo/agents/roster.json" <<'JSON'
 {"agents":[
  {"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"active"},
+ {"name":"Vi","email":"vi@proj.local","role":"head-of-testing","status":"active"},
  {"name":"Ada","email":"ada@proj.local","role":"developer","status":"active"},
  {"name":"Ben","email":"ben@proj.local","role":"developer","status":"active"},
  {"name":"Cy","email":"cy@proj.local","role":"developer","status":"retired"},
@@ -351,8 +368,8 @@ EOF
   _t "a malformed model is refused as usage" "$rc" 2
   out="$(run developer --ticket 'x y' --dry-run)"; rc=$?
   _t "a malformed ticket is refused as usage" "$rc" 2
-  out="$(run head-of-testing --dry-run)"; rc=$?
-  _t "a role other than developer or tester is refused" "$rc" 2
+  out="$(run code-reviewer --dry-run)"; rc=$?
+  _t "a role other than developer, tester or lead is refused" "$rc" 2
   out="$(run developer --frobnicate)"; rc=$?
   _t "an unknown argument is refused" "$rc" 2
   out="$(run --slef-test)"; rc=$?
@@ -458,6 +475,19 @@ EOF
   _t "  without the flag, a developer ON budget at the cap is refused" "$rc" 1
   _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
   printf 'over\n' > "$T/budget.mode"
+  # ── THE LEADS HAND OVER BY SPAWNING EACH OTHER (owner, 2026-10-31): no ticket, no budget gate, no cap ──
+  : > "$T/tmux.log"; printf 'proj-ben\nproj-lea\n' > "$T/tmux.sessions"
+  out="$(run head-of-testing --dry-run)"; rc=$?
+  _t "a lead dry run with no ticket passes" "$rc" 0
+  _has "  its prompt names the lead it takes over from" "$out" "the head-of-testing, started by team/agent-spawn.sh to take over from Lea"
+  _has "  and says to read the handover first" "$out" "session-entries --agent Lea --limit 1"
+  _has "  and says it is not gated" "$out" "lead: start it to hand over"
+  out="$(run head-of-testing --ticket HAR-12 --dry-run)"; rc=$?
+  _t "a lead with a ticket is a usage error" "$rc" 2
+  out="$(run head-of-testing)"; rc=$?
+  _t "a lead spawn off budget AND at the cap starts with no owner's words" "$rc" 0
+  _has "  and the cap line says it is not counted" "$out" "a lead is not counted against the cap"
+  _t "  and the record's verdict is lead" "$(awk -F'\t' '{v=$3"|"$4"|"$6"|"$7} END{print v}' "$T/spawns.tsv")" 'head-of-testing|-|lead|-'
   rm -f "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
@@ -647,7 +677,7 @@ fi
 ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
 while (( $# )); do
   case "$1" in
-    developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
+    developer|tester|delivery-lead|head-of-testing) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
     --name)   [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; WANT=$2; shift ;;
     --owner-ok) [[ $# -ge 2 ]] || { echo "agent-spawn: --owner-ok needs the owner's words" >&2; echo "$USAGE" >&2; exit 2; }
                 OWNER_OK=$2; shift
@@ -666,6 +696,8 @@ while (( $# )); do
   shift
 done
 [[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
+LEAD=0; [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]] && LEAD=1
+(( LEAD )) && [[ -n "$TICKET" ]] && { printf 'agent-spawn: a lead takes over from the other lead and holds no ticket; drop --ticket\n%s\n' "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$WHY" ]] \
   || { printf 'agent-spawn: a real spawn says why it runs on its model: --why "<the reason for that model>"\n%s\n' "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$PROJECT_GIVEN" || -n "${AGENT_SPAWN_LOG:-}" ]] \
@@ -676,7 +708,7 @@ WHY_ARG=""; [[ -n "$WHY" ]] && WHY_ARG=" --why $(printf '%q' "$WHY")"
 [[ -z "$TICKET" ]] || spawn_ticket_ok "$TICKET" \
   || { printf 'agent-spawn: %q is not a ticket id (a ledger id like feat_x_y, or a Jira key like HAR-12)\n' "$TICKET" >&2; exit 2; }
 if [[ -z "$MODEL" ]]; then
-  [[ "$ROLE" == developer ]] && MODEL="${AGENT_MODEL_DEV:-}" || MODEL="${AGENT_MODEL_TESTER:-}"
+  case "$ROLE" in developer) MODEL="${AGENT_MODEL_DEV:-}" ;; tester) MODEL="${AGENT_MODEL_TESTER:-}" ;; esac
 fi
 [[ -z "$MODEL" ]] || spawn_model_ok "$MODEL" || { printf 'agent-spawn: %q is not a model name\n' "$MODEL" >&2; exit 2; }
 [[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
@@ -707,7 +739,9 @@ else
 fi
 
 SESSION="$(agent_session_name "$NAME")"
-PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET")"
+OTHER_LEAD=""
+(( LEAD )) && OTHER_LEAD="$(roster_list_active | awk -F'\t' -v me="$NAME" '($2 == "delivery-lead" || $2 == "head-of-testing") && $1 != me { print $1; exit }')"
+PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET" "$OTHER_LEAD")"
 mapfile -t IDENT < <(roster_launch_env "$NAME")
 CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
@@ -753,6 +787,10 @@ esac
 if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && (( VSUPPORT )); then
   CAP_RULE=lifted; CAP_LINE="$CAP_LINE: at the cap, lifted for verification support"; VERDICT="$VERDICT:over-cap"
 fi
+# a lead is not counted against the cap or the budget (header)
+if (( LEAD )); then
+  VERDICT=lead; [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && { CAP_RULE=lifted; CAP_LINE="$CAP_LINE: a lead is not counted against the cap"; }
+fi
 [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
@@ -772,6 +810,7 @@ if (( DRY )); then
            else printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n'; fi ;;
     ask)   printf '  developer, off budget (or no reading): ask the owner first, in one line; start it with their words on --owner-ok.\n' ;;
     info)  printf '  tester: start it whatever the budget line says; testers are not budget-gated (owner, 2026-10-25). The line is information.\n' ;;
+    lead)  printf '  lead: start it to hand over; a lead is not budget-gated or counted against the cap (owner, 2026-10-31).\n' ;;
   esac; fi
   exit 0
 fi
