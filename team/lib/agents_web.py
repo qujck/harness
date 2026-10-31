@@ -70,7 +70,8 @@ TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's s
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
-STANDING = {"lead", "hot", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
+STANDING = {"lead", "hot", "ops", "support", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
+# (the three chiefs, owner 2026-10-31: Carl development, Vera test, Ed operations; production support is Ed's role until the roster renames it)
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
 TAIL_MAX = 64_000_000     # how far back it is read, four times further each time, while turns are short
@@ -82,13 +83,14 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
          "production-support": ("support", "Production Support", "Others", "orange"),
+         "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
          "assistant": ("pa", "Assistant", "Others", "green")}
 TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
 # The order agents are listed in, by role, as the panel groups them (agents-dash.sh role_rank, owner 2026-10-26:
 # "Lead, Devs, Testers, Reviewer, Test Lead, Support, Improvement, Assistant"); any other role before the assistants.
 ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "head-of-testing": 4,
-             "production-support": 5, "process-improvement": 6, "assistant": 9}
+             "production-support": 5, "head-of-operations": 5, "process-improvement": 6, "assistant": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
              "purple": 141, "orange": 209}
@@ -2993,7 +2995,7 @@ function fitBench() {
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
 const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File"};
-const ROLE_ORDER = ["lead", "dev", "tester", "hot", "support", "review", "process", "pa"];
+const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 const layout = () => { try { return JSON.parse(localStorage.getItem("custom")) || {root: {}}; } catch (e) { return {root: {}}; } };
 const saveLayout = l => localStorage.setItem("custom", JSON.stringify(l));
 function nodeAt(root, path) { let n = root; for (const c of path.slice(1)) n = n[c]; return n; }
@@ -4181,7 +4183,7 @@ function lastCompact(a) {
   const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
   return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
 }
-const STANDING_ROLES = new Set(["lead", "hot", "review", "process", "pa"]);
+const STANDING_ROLES = new Set(["lead", "hot", "ops", "support", "review", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const bench = S.bench.find(x => x.name === name), a = S.agents.find(x => x.name === name) || bench, key = "agent:" + name;
@@ -4517,6 +4519,8 @@ def self_test():
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
         t("  by team-start.sh --only", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Max")
         t("the head of testing is a standing agent", "hot" in STANDING, True)
+        t("the head of operations is a standing agent", "ops" in STANDING and role_of("head-of-operations")[0] == "ops", True)
+        t("  and so is production support, its role until the roster renames it", "support" in STANDING, True)
         t("the lead is stopped on its own", code("/api/agent/Lea/halt", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
         t("  asked to finish and stop", "stopping you from the team page" in open(T + "/loaded").read(), True)
         t("an image from outside the home directory is not served", code("/img?p=/etc/passwd")[0], 404)
