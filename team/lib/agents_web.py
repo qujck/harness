@@ -70,7 +70,7 @@ TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's s
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
-STANDING = {"lead", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
+STANDING = {"lead", "hot", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
 TAIL_MAX = 64_000_000     # how far back it is read, four times further each time, while turns are short
@@ -1268,15 +1268,16 @@ def state():
         role, role_name, tab, _ = role_of(r["role"])
         rec = live.get(name)
         if not rec and not where.get(name):
-            # a developer or tester with no session is on the bench, waiting for agent-spawn.sh
-            if role in ("dev", "tester"):
+            # a developer or tester with no session is on the bench, waiting for agent-spawn.sh; a standing agent with
+            # none is there too, stopped, and its menu starts it (owner, 2026-10-31)
+            if role in ("dev", "tester") or role in STANDING:
                 # its model, effort and last compaction are its last session's, the model read from its transcript
                 # once the session's context row has gone
                 was = last.get(name)
                 row = rows.get(was, {}) if was else {}
                 bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
                               "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
-                              "lastCompact": last_compact(was)})
+                              "lastCompact": last_compact(was), "standing": role in STANDING})
             continue
         sid = (rec or {}).get("sessionId")
         # a stopped agent's model, effort, context and last compaction are its last session's, as it left them
@@ -1585,7 +1586,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def standing(self, name, what):
         """Starts one standing agent (team/team-start.sh --only), or asks it to finish and stop, closing its pane once it
-        has. Developers and testers are not started or stopped here, and the lead stops only with the team."""
+        has. Developers and testers are not started or stopped here. Either lead is stopped like any other (owner,
+        2026-10-31: "I should be able to stop Vera and Carl")."""
         r = next((r for r in roster() if r["name"] == name), None)
         if not r or role_of(r["role"])[0] not in STANDING:
             return self.send(409, b"only a standing agent on the roster\n", "text/plain")
@@ -1597,8 +1599,6 @@ class Handler(BaseHTTPRequestHandler):
             _starting.add(name)
             threading.Thread(target=start_one, args=(name,), daemon=True).start()
             return self.send(202, json.dumps({"starting": name}).encode(), "application/json")
-        if role_of(r["role"])[0] == "lead":
-            return self.send(409, b"the delivery lead stops with the team\n", "text/plain")
         if name in _halting:
             return self.send(409, b"already stopping\n", "text/plain")
         ok = type_into(name, AGENT_STOP)
@@ -2809,7 +2809,7 @@ function draw() {
     (waiting ? `<span class="wait" data-name="${esc(longest)}" title="Open ${esc(longest)}, waiting longest">${waiting} waiting</span>` : "") + `</span>`;
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
-  // The benched developers and testers on one line in the header's free space, so the header never changes height;
+  // The benched developers and testers, and the stopped standing agents, on one line in the header's free space, so the header never changes height;
   // those that do not fit are counted in a "+N" that names them. Its filter button, there only while a custom layout is
   // unlocked, shows them by name or as icons (their portrait, else their role's shadow, as a pane's Icon badge); until
   // one is picked, icons while a Characters pane is on the page.
@@ -4171,7 +4171,7 @@ addEventListener("mousedown", e => {
 }, true);
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
 // (as a click on it), Open in a new tab and Open in a new window, and for a standing agent Start, or Stop, which asks
-// again first. The delivery lead stops only with the team.
+// again first; a stopped one is on the bench, and its menu there has its Start.
 // its last compaction, for the menu's header: how long ago, manual or auto, the context before and after, how long it took
 function lastCompact(a) {
   const c = a.lastCompact, at = c && Date.parse(c.ts);
@@ -4180,7 +4180,7 @@ function lastCompact(a) {
   const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
   return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
 }
-const STANDING_ROLES = new Set(["lead", "review", "process", "pa"]);
+const STANDING_ROLES = new Set(["lead", "hot", "review", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const bench = S.bench.find(x => x.name === name), a = S.agents.find(x => x.name === name) || bench, key = "agent:" + name;
@@ -4198,7 +4198,6 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     power = S.starting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.start)}Starting…</div>`
       : S.halting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.stop)}Stopping…</div>`
       : !a.live ? `<div class="mi" data-go="start">${MENU_ICON.start}Start ${esc(name)}</div>`
-      : a.role === "lead" ? ""
       : confirm ? `<div class="ask">Ask ${esc(name)} to finish, update its record and stop? Its pane closes once it is idle.</div>` +
         `<div class="mi warn" data-go="halt">${MENU_ICON.power}Stop ${esc(name)}</div><div class="mi" data-go="cancel">${MENU_ICON.close}Cancel</div>`
       : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
@@ -4208,7 +4207,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
-    (bench ? "" : !a.live ? power :   // a benched agent has only its details; one that is not running has nothing to open
+    (bench ? (bench.standing ? power : "") : !a.live ? power :   // a benched developer or tester has only its details, a benched standing agent its Start; one that is not running has nothing to open
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
@@ -4471,8 +4470,8 @@ def self_test():
         t("  each running agent in its section (its pane's session, not a byobu client's), with its ticket",
           [(a["name"], a["tab"], a["ticket"], a["status"]) for a in st["agents"]],
           [("Lea", "Work", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
-        t("  developers and testers with no session are on the bench, an assistant is not",
-          [b["name"] for b in st["bench"]], ["Ben", "Tess"])
+        t("  developers and testers with no session are on the bench, and so is a stopped standing agent",
+          [(b["name"], b["standing"]) for b in st["bench"]], [("Ben", False), ("Tess", False), ("Max", True)])
         t("  the week's plan and the plan shared out evenly", (st["plan"], st["even"]), (36, 40.0))
         t("  the owner's name from AGENT_OWNER_NAME", st["owner"], "Pat")
 
@@ -4512,7 +4511,13 @@ def self_test():
         t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
         t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
         t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
-        t("the lead is not stopped on its own", code("/api/agent/Lea/halt", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
+        os.remove(T + "/started")
+        t("a stopped standing agent is started from the page", code("/api/agent/Max/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
+        wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
+        t("  by team-start.sh --only", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Max")
+        t("the head of testing is a standing agent", "hot" in STANDING, True)
+        t("the lead is stopped on its own", code("/api/agent/Lea/halt", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
+        t("  asked to finish and stop", "stopping you from the team page" in open(T + "/loaded").read(), True)
         t("an image from outside the home directory is not served", code("/img?p=/etc/passwd")[0], 404)
         up = lambda h, body=b"PK\x03\x04": json.loads(code("/api/paste", "POST", dict(h, **{"X-Team-Say": "1"}), body)[1] or b"{}")
         z = up({"Content-Type": "application/zip", "X-File-Name": "my%20logs%20(2).zip"})

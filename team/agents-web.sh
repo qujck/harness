@@ -10,7 +10,7 @@
 # opens the agent's own view: its longer conversation and its terminal as it is on screen. Across the top: the
 # week against the budget (green on it, amber while the week's contingency is being spent, red past an even share
 # of the whole allowance), the team's combined activity, the disk (AGENT_DISK_WATCH) and the developers and testers
-# on the bench. The page can also be laid out as tabs, or as a custom set of panes saved in the browser; one kind of
+# on the bench, with the standing agents that are stopped. The page can also be laid out as tabs, or as a custom set of panes saved in the browser; one kind of
 # pane is the Team transcript, every message between agents on the roster, with a name button to leave each agent out;
 # another, Combined, is the conversations of every agent in the roles chosen as one, in time order, with its own lanes.
 # A click on a turn in either goes to its agent. The Combined pane's lanes split the owner's: Owner is the owner's messages,
@@ -28,7 +28,8 @@
 # send, its own Origin), and it listens on 127.0.0.1 only. The header's power button asks the delivery lead to wind
 # the team down, recording who was running, and pulses a square until team/team-paused.sh says it is paused and no
 # agent is busy; then it shows ▶, which runs team/team-start.sh for those recorded and tells the lead to start the
-# day. The lead, reviewer, process improvement and assistant start and stop one by one from their menus. Both
+# day. The leads, reviewer, process improvement and assistant start and stop one by one from their menus; a stopped
+# one waits on the bench, and its Start is there. Both
 # scripts are placeholders until wired up on the workstation that runs the team.
 #
 # WHERE THE NUMBERS COME FROM. What team/agents-dash.sh reads (agents/roster.json, Claude Code's session records,
