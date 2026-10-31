@@ -659,3 +659,12 @@ scripts' contracts and the page's side.
   still the same 15 (Cara via Carl, same day; a date check let `start` hand out a second 15 from the new reading). agent-spawn.sh's developer gate reads
   the day's status first and falls back to agents-budget.sh's even pacing only on exit 3. The panel and the team
   page still show the week's even line.
+
+- **2026-10-31 — the leads hand over by spawning and benching each other.** The owner, via Carl: at the end of a
+  development day the delivery lead spawns the head of testing, hands over and is benched by them; at the end of a
+  verification day, once main is green, the reverse; the lead off shift stays benched for the other's day.
+  team/agent-spawn.sh takes `delivery-lead|head-of-testing` with no ticket, no budget gate and no cap (verdict
+  `lead`), and a first prompt naming the other lead and their latest session entry as the handover.
+  team/agent-bench.sh benches a lead with the usual gates plus one: it refuses while no OTHER active lead has a
+  running session, so the team is never left without a lead. That rule sits in the harness so every project gets it
+  (Carl); strength's own scripts/agent-spawn.sh starts its sessions itself and takes the same shape in its own ticket.

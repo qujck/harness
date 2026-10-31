@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# team/agent-bench.sh — stop a developer's or tester's session once its ticket has merged: onto the bench.
+# team/agent-bench.sh — stop a developer's or tester's session once its ticket has merged, or a lead's once it has
+# handed over: onto the bench.
 #
 #   bash team/agent-bench.sh <Name> [--dry-run]
 #   bash team/agent-bench.sh --self-test
@@ -9,8 +10,15 @@
 # its identity and its worktree all stay, and agent-spawn.sh can start the same agent for its next ticket.
 # It never writes agents/roster.json (retiring a name for good is a different, permanent act).
 #
+# THE LEADS HAND OVER BY BENCHING EACH OTHER (owner, 2026-10-31). The delivery lead and the head of testing take
+# turns: at the end of a development day the delivery lead spawns the head of testing, hands over, and is benched by
+# them; at the end of a verification day the reverse. So a lead (delivery-lead or head-of-testing) is benched like
+# anyone else, with one more refusal: while no OTHER active lead has a running session. The team is never left with
+# no lead up, and a lead cannot bench the other while it is alone. Its session entry since the start is the handover.
+#
 # It refuses, and says what is still open, while the agent:
-#   - is not an active developer or tester on the roster;
+#   - is not an active developer, tester or lead on the roster;
+#   - is a lead, and no other lead is up;
 #   - holds a claim (`ledger-db.sh board` shows a ticket claimed_by it): the ticket's row writes come first,
 #     ending with `feature-ticket.sh release <id>`, or the bench would leave an orphaned claim;
 #   - is mid-turn (its Claude Code record says busy, waiting or shell);
@@ -74,6 +82,8 @@ bench_self_test() {
   cat > "$T/repo/agents/roster.json" <<'JSON'
 {"agents":[
  {"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"active"},
+ {"name":"Vi","email":"vi@proj.local","role":"head-of-testing","status":"active"},
+ {"name":"Rex","email":"rex@proj.local","role":"code-reviewer","status":"active"},
  {"name":"Ada","email":"ada@proj.local","role":"developer","status":"active"},
  {"name":"Ben","email":"ben@proj.local","role":"developer","status":"active"},
  {"name":"Cy","email":"cy@proj.local","role":"tester","status":"retired"}]}
@@ -109,8 +119,18 @@ EOF
 
   reset
   out="$(run Nobody)"; rc=$?;   _t "a name not on the roster is refused" "$rc" 1
-  out="$(run Lea)"; rc=$?;      _t "the delivery lead is never benched" "$rc" 1
-  _has "  and says only developers and testers are" "$out" "only a developer or a tester is benched"
+  out="$(run Rex)"; rc=$?;      _t "a role that is not a developer, tester or lead is never benched" "$rc" 1
+  _has "  and says who is" "$out" "only a developer, a tester or a lead is benched"
+  # the leads hand over by benching each other: never while the other lead is down
+  printf 'proj-ada\nproj-lea\n' > "$T/tmux.sessions"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead with no other lead up is refused" "$rc" 1
+  _has "  and says to hand over first" "$out" "no other lead is up"
+  printf 'proj-ada\nproj-lea\nproj-vi\n' > "$T/tmux.sessions"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead with the other lead up is benched" "$rc" 0
+  _has "  like anyone else" "$out" "would bench Lea (delivery-lead): stop tmux session proj-lea"
+  out="$(run Vi --dry-run)"; rc=$?; _t "and the head of testing likewise, the delivery lead up" "$rc" 0
+  printf '[]\n' > "$T/entries"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead with no session entry, its handover, is refused" "$rc" 1
   out="$(run Cy)"; rc=$?;       _t "a retired agent is refused" "$rc" 1
   out="$(run Ben)"; rc=$?;      _t "an agent with no running session is already on the bench" "$rc" 0
   _has "  and says so" "$out" "Ben has no running session: already on the bench"
@@ -211,7 +231,8 @@ refuse() { printf 'agent-bench: %s\n' "$*" >&2; exit 1; }
 ROLE="$(roster_lookup_role "$NAME")"
 [[ -n "$ROLE" ]] || refuse "$NAME is not on the roster"
 [[ "$(roster_lookup_status "$NAME")" == active ]] || refuse "$NAME is retired; a retired name is never started, so there is nothing to bench"
-case "$ROLE" in developer|tester) ;; *) refuse "$NAME is the $ROLE; only a developer or a tester is benched" ;; esac
+case "$ROLE" in developer|tester|delivery-lead|head-of-testing) ;;
+  *) refuse "$NAME is the $ROLE; only a developer, a tester or a lead is benched" ;; esac
 
 SESSION="$(agent_session_name "$NAME")"
 TMUX_UP=0; agent_session_tmux_up "$NAME" && TMUX_UP=1
@@ -221,6 +242,16 @@ PID="" STATUS="" STARTED=""
 if (( ! TMUX_UP )) && [[ -z "$PID" ]]; then
   printf '%s has no running session: already on the bench. Nothing was stopped.\n' "$NAME"
   exit 0
+fi
+
+# ── a lead: the other lead is up (header) ─────────────────────────────────────────────────────────────
+if [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]]; then
+  OTHER=""
+  while IFS=$'\t' read -r n r; do
+    [[ "$n" != "$NAME" && ( "$r" == delivery-lead || "$r" == head-of-testing ) ]] || continue
+    if agent_session_tmux_up "$n" || [[ -n "$(agent_session_record "$n")" ]]; then OTHER=$n; break; fi
+  done < <(roster_list_active)
+  [[ -n "$OTHER" ]] || refuse "$NAME is the $ROLE and no other lead is up: spawn the other lead and hand over first, so the team is never left without one"
 fi
 
 # ── what is still open ────────────────────────────────────────────────────────────────────────────────

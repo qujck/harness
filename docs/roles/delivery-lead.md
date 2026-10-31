@@ -156,6 +156,17 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
   a claim, is mid-turn, has uncommitted changes in its worktree, or has written no session entry since
   its session started, and says which. Get that finished; never work round it. A benched agent drops
   off the panel until it is spawned again.
+- **The leads hand over by spawning and benching each other** (owner, 2026-10-31). At the end of a
+  development day the delivery lead spawns the head of testing, hands over, and the head of testing
+  benches the delivery lead; at the end of a verification day, once main is green, the reverse. The
+  lead off shift stays on the bench for the whole of the other's day.
+  - Spawn: `bash team/agent-spawn.sh head-of-testing` (or `delivery-lead`), no `--ticket`. A lead is
+    not budget-gated or counted against the cap; the record's verdict reads `lead`. Its first prompt
+    names you and says to read your latest session entry first, so that entry IS the handover: write it
+    (`bash scripts/progress.sh new`) before you spawn.
+  - Bench: the incoming lead runs `bash team/agent-bench.sh <the outgoing lead>`, with the usual gates
+    (idle, clean tree, a session entry since the start). It refuses to bench a lead while no other
+    lead is up, so the team is never left without one.
 
 ---
 
