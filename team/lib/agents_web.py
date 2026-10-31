@@ -2139,7 +2139,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
 #menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
 #menu .mpor{flex:none;width:96px;height:96px}
-#menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px}
+#menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px;position:relative;transform-origin:top right;transition:transform .15s ease}
+#menu .mpor:hover img{z-index:2;transform:scale(2.67);box-shadow:0 12px 32px #0009}   /* the mouse over it shows it at full size, in place */
 #menu .hd:last-child{margin-bottom:0;border-bottom:0}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 #menu .mi svg{flex:none;width:14px;height:14px;color:var(--mute)}
