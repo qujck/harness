@@ -41,8 +41,10 @@
 #   --verification-support  a developer started to fix what verification found starts whatever the budget line
 #              says, with no owner's words: the work that makes a spent day's tickets pass is not new spending to
 #              ask about (owner, 2026-10-31: "They'll need to spawn to fix verification errors"). It lifts the
-#              budget gate only; the cap below still asks. The record's verdict reads `over:verification-support`
-#              (or `on:…`, `cannot-tell:…`), so the spawns that went past the line this way stay countable.
+#              budget gate AND the cap below (owner, same day: "it bypasses the cap, that's the point - there's
+#              no limit during verification day"). The record's verdict reads `over:verification-support` (or
+#              `on:…`, `cannot-tell:…`), with `:over-cap` added when it started at or over the cap, so the spawns
+#              that went past either line this way stay countable.
 # The budget never picks the model.
 #
 # EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26, for developers and testers: "both please"). --why
@@ -448,8 +450,14 @@ EOF
   _t "  and the record's verdict says how it went past the line" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'over:verification-support|-'
   mk $$ s1 busy; printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=1\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --verification-support)"; rc=$?
-  _t "  but at the cap it is refused all the same" "$rc" 1
+  _t "  and at the cap it starts too, with no owner's words" "$rc" 0
+  _has "  and the cap line says the cap was lifted" "$out" "at the cap, lifted for verification support"
+  _t "  and the record's verdict says it went past the cap" "$(awk -F'\t' '{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'over:verification-support:over-cap|-'
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  printf 'on\n' > "$T/budget.mode"; out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "  without the flag, a developer ON budget at the cap is refused" "$rc" 1
   _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  printf 'over\n' > "$T/budget.mode"
   rm -f "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
@@ -730,7 +738,7 @@ BUDGET_LINE="$(bash "$DAY_BUDGET_SH" status 2>&1)"; BUDGET_RC=$?
 if [[ "$BUDGET_RC" == 3 ]]; then BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?; fi
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
 case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
-# verification support lifts the budget gate for a developer (header); it is set before the cap, which still asks
+# verification support lifts the budget gate for a developer, and the cap below (header)
 if (( VSUPPORT )); then VERDICT="$VERDICT:verification-support"; [[ "$RULE" == ask ]] && RULE=start; fi
 WORKING_N="$(spawn_working_count "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions")"
 CAP_RULE="$(spawn_cap_rule "${AGENT_MAX_WORKING:-}" "$WORKING_N")"
@@ -740,7 +748,11 @@ case "$CAP_RULE" in
   unknown) CAP_LINE="cannot tell how many sessions are working (no status in ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/<pid>.json; cap $AGENT_MAX_WORKING)" ;;
   *)    CAP_LINE="working $WORKING_N of up to $AGENT_MAX_WORKING sessions" ;;
 esac
-# at the cap, or unable to read the count under one, either role asks; the owner's words start it
+# at the cap, or unable to read the count under one, either role asks; the owner's words start it. Verification
+# support starts it anyway, and says so on the line and in the record.
+if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && (( VSUPPORT )); then
+  CAP_RULE=lifted; CAP_LINE="$CAP_LINE: at the cap, lifted for verification support"; VERDICT="$VERDICT:over-cap"
+fi
 [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
