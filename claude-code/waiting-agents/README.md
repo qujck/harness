@@ -26,8 +26,8 @@ bar says `context dir missing: <path>` beside the watch count and the debug log 
 to check, because a silent hold on a wrong path looks exactly like a quiet team. When active agents of any other role have been idle for fifteen minutes or more
 (`LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into the delivery lead's
 session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.]
-Team agents idle for 15 minutes or more: Wren, developer idle 19m. As delivery lead, check each one and keep
-the team active.` A queued prompt runs as a turn of its own once the session is idle and never touches the
+Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each one and keep the team
+active.` (the names only: each agent's role and idle time go to the log) A queued prompt runs as a turn of its own once the session is idle and never touches the
 prompt box, so nothing the owner is typing there is disturbed. The same set of idle agents is nudged at most
 twice, a full threshold apart; the count survives a restart through the mod's store and is cleared once nobody
 is idle, so the bound covers one idle spell and the next starts afresh; a different set is a new state. It never
@@ -35,6 +35,16 @@ prods the idle agents and assigns nothing. Only developers, testers, the code re
 are nudged (`NUDGE_ROLES` in `hooks/nudge.ts`): the head of testing defines what is true rather than working a
 ticket, and assistants are not on the team. Every verdict, holds included, is appended to
 `lead-nudge.log` beside the context directory.
+
+**Who it nudges.** One word in the file `nudge-target` beside the log (`~/.local/state/<HARNESS_PROJECT>/nudge-target`
+by default) says: `lead` nudges the delivery lead, as above; `testing` nudges the head of testing instead, in
+their own session, whose status bar then says `nudging for testing`; `off` nudges nobody. No file, or an empty
+one, is `lead`. Any other word nudges nobody and the delivery lead's status bar says `nudge target '<word>'?`;
+while the word is `testing` or `off` it says `nudges: testing` or `nudges: off`. The mod reads the file on every
+poll, so a change needs no restart. Set it with `HARNESS_PROJECT=<project> bash team/nudge-target.sh
+lead|testing|off`; with no word it prints the setting. The waiting alerts stay with the delivery lead whatever
+the file says. The owner, 2026-10-31: "I'd like the nudger changed to either be nudging you or Vera or be off.
+No one else."
 
 **Pausing it.** While the file `waiting-agents.paused` exists beside that log (one level above the context
 directory: `~/.local/state/<HARNESS_PROJECT>/waiting-agents.paused` by default), the mod sends nothing at all,

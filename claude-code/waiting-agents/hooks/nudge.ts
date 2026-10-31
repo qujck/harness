@@ -1,5 +1,6 @@
 // The pure part of the nudger: which team agents have been idle long enough to wake the delivery lead
-// for, and whether this state has already been nudged as often as it may be.
+// (or, in verification time, the head of testing) for, and whether this state has already been nudged
+// as often as it may be.
 //
 // An agent runs one turn per prompt and then stops; nothing inside its session restarts it. The
 // nudger tells the delivery lead, who decides what each one should do. It never talks to the idle
@@ -11,9 +12,27 @@ export const DEFAULT_THRESHOLD_S = 900
 export const STALE_S = 120
 // At most this many nudges for one state (the same agents idle).
 export const MAX_NUDGES = 2
-// The roles the nudger reports, by their roster ids. The delivery lead is the one told; the head of
-// testing defines what is true rather than working a ticket; assistants are not on the team.
+// The roles the nudger reports, by their roster ids, whoever is told. The delivery lead is never
+// reported; the head of testing defines what is true rather than working a ticket; assistants are not
+// on the team.
 export const NUDGE_ROLES: readonly string[] = ['developer', 'tester', 'code-reviewer', 'process-improvement']
+
+// Who the idle-team nudge goes to, from the one word in the `nudge-target` file beside the pause file.
+// The owner, 2026-10-31: "I'd like the nudger changed to either be nudging you or Vera or be off. No one
+// else." `lead` nudges the delivery lead (development time), `testing` the head of testing (verification
+// time), `off` nobody. No file, or an empty one, is `lead`, as before the switch; any other word is no
+// target at all, and the delivery lead's status line says so, since a typo that silently picked a mode
+// would look exactly like that mode working.
+export type NudgeTarget = 'lead' | 'testing' | 'off'
+
+export function parseTarget(text: string | undefined): NudgeTarget | { bad: string } {
+  const word = (text ?? '').trim()
+  if (word === '') return 'lead'
+  return word === 'lead' || word === 'testing' || word === 'off' ? word : { bad: word }
+}
+
+// The nudged role as the log and the message say it.
+export const TARGET_ROLE: Record<'lead' | 'testing', string> = { lead: 'delivery lead', testing: 'head of testing' }
 
 // One row of the context directory (docs/context-publisher.md), published by each session's status line.
 export type ContextRow = { agent?: string; ts?: string; activity?: string; idle_s?: number | null }
@@ -123,8 +142,11 @@ export function decide(
   return { send: true, count: sent.count + 1 }
 }
 
-export function nudgeText(count: number, idle: readonly Idle[], thresholdS: number): string {
+// The prompt itself names the idle agents and nothing more: each role and idle time stays in the log
+// (`describe`), since every word here is spent again by the nudged session (owner, 2026-10-31: "It's a
+// waste of tokens to nudge everyone when you're keeping them busy").
+export function nudgeText(count: number, idle: readonly Idle[], thresholdS: number, target: 'lead' | 'testing' = 'lead'): string {
   return `[Automated nudge ${count} of ${MAX_NUDGES} from the waiting-agents mod, not from the owner; it assigns nothing.] `
-    + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more: ${describe(idle)}. `
-    + 'As delivery lead, check each one and keep the team active.'
+    + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more: ${idle.map(i => i.name).join(', ')}. `
+    + `As ${TARGET_ROLE[target]}, check each one and keep the team active.`
 }

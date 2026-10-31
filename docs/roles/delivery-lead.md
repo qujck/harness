@@ -164,9 +164,17 @@ running inside YOUR session: every five minutes it reads the rows the context pu
 (docs/context-publisher.md) and, when team agents have been idle for the quiet threshold (15 minutes by
 default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into your
 session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns
-nothing.] Team agents idle for 15 minutes or more: Wren, developer idle 19m. As delivery lead, check
-each one and keep the team active.` The owner, 2026-10-02: "I only want you to have a nudger so you
-ensure the team remain active". **The contract:**
+nothing.] Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each one and keep
+the team active.` It names the agents and nothing more; each one's role and idle time are in the log. The
+owner, 2026-10-02: "I only want you to have a nudger so you ensure the team remain active". **The contract:**
+
+- **It wakes you, the head of testing, or nobody: the switch is yours to flip.** The owner, 2026-10-31:
+  "I'd like the nudger changed to either be nudging you or Vera or be off. No one else." Set it with
+  `HARNESS_PROJECT=<project> bash team/nudge-target.sh lead|testing|off` (no word prints the setting):
+  `lead` in development time, `testing` in verification time, when the nudge goes to the head of testing
+  in their own session instead, and `off` for none. No setting is `lead`. It takes effect on the mod's
+  next poll, with no restart, and your status bar shows `nudges: testing` or `nudges: off` while it is not
+  yours. The waiting alerts below stay with you whatever it says.
 
 - **It tells you; it never prods the agents.** Waking an idle agent is a routing decision, and routing
   is yours: read the agent's pane and its branch, then route through the ledger or tell it to carry on.
@@ -186,8 +194,7 @@ ensure the team remain active". **The contract:**
   audit.
 - **It is a different mechanism from your own `/loop` wakeups.** A loop is yours, armed by you; the
   nudge is the fallback from the mod. Do not read one as the other.
-- **It runs only while your session is up.** With no delivery-lead session there is nobody to tell, so
-  nothing is lost.
+- **It runs only while the nudged session is up.** With no session to tell, nothing is lost.
 
 **An agent at a permission prompt is a different case from an idle one**, and the same mod reports it
 at once: one message marked `[waiting-agents mod, not the owner]` when a team agent has sat waiting for
