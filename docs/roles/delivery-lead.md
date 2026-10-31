@@ -109,7 +109,8 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     model, verdict, the owner's words, the budget line), one row per real spawn.
   - developer started to fix what verification found (owner, 2026-10-31): add `--verification-support`
     and it starts whatever the budget line says, with no owner's words; the record's verdict reads
-    `over:verification-support`. It lifts the budget gate only: at the cap it still asks.
+    `over:verification-support`. It lifts the cap too ("there's no limit during verification day"):
+    at or over `AGENT_MAX_WORKING` it starts, and the verdict gains `:over-cap`.
   - tester, whatever the line says: start it. The line is printed for information.
 - **The owner moves the plan** (owner, 2026-10-25). The straight-line plan is the default, not the week's
   allowance: `HARNESS_PROJECT=<project> bash team/agents-budget.sh approve <pct> "<the owner's words>"` makes today's plan at close
