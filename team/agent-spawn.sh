@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
 #   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -38,6 +38,11 @@
 #              must BE words: another flag ("--owner-ok --dry-run"), the "<their words>" placeholder pasted
 #              unedited, blanks or a second line are a usage error (exit 2) and start nothing.
 #   tester     started whatever the line says; the line is information. Testers are not budget-gated.
+#   --verification-support  a developer started to fix what verification found starts whatever the budget line
+#              says, with no owner's words: the work that makes a spent day's tickets pass is not new spending to
+#              ask about (owner, 2026-10-31: "They'll need to spawn to fix verification errors"). It lifts the
+#              budget gate only; the cap below still asks. The record's verdict reads `over:verification-support`
+#              (or `on:…`, `cannot-tell:…`), so the spawns that went past the line this way stay countable.
 # The budget never picks the model.
 #
 # EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26, for developers and testers: "both please"). --why
@@ -97,7 +102,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--dry-run]"
+USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
@@ -432,6 +437,20 @@ EOF
   _has "  and the start line quotes the OK" "$out" 'owner OK: "yes, start her, Peter"'
   _t "  and the record holds who was started, on which verdict, on whose words" "$(awk -F'\t' '$2=="Ada"{print $3"|"$4"|"$5"|"$6"|"$7}' "$T/spawns.tsv")" 'developer|HAR-12|sonnet|over|yes, start her, Peter'
   _has "  and the budget line itself" "$(tail -1 "$T/spawns.tsv")" "budget  over: week 61%"
+
+  # ── VERIFICATION SUPPORT LIFTS THE BUDGET GATE, NOT THE CAP (owner, 2026-10-31) ──
+  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run developer --ticket HAR-12 --verification-support --dry-run)"
+  _has "a developer dry run off budget with --verification-support says to start it" "$out" "developer, verification support: start it"
+  out="$(run developer --ticket HAR-12 --verification-support)"; rc=$?
+  _t "a developer spawn off budget with --verification-support starts without the owner's words" "$rc" 0
+  _has "  and the start line says so" "$out" "; verification support"
+  _t "  and the record's verdict says how it went past the line" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'over:verification-support|-'
+  mk $$ s1 busy; printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=1\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  out="$(run developer --ticket HAR-12 --verification-support)"; rc=$?
+  _t "  but at the cap it is refused all the same" "$rc" 1
+  _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  rm -f "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
   # F1 (from the review of the spawn gate): "--owner-ok --dry-run" must not take "--dry-run" as the owner's words and then
@@ -617,7 +636,7 @@ if selftest_is_flag "${1:-}"; then
   spawn_self_test; exit $?
 fi
 
-ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" DRY=0
+ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
 while (( $# )); do
   case "$1" in
     developer|tester) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
@@ -632,6 +651,7 @@ while (( $# )); do
               WHY=$2; shift
               spawn_owner_ok_text_ok "$WHY" \
                 || { printf 'agent-spawn: --why needs the reason for the model on one line, and got %q\n' "$WHY" >&2; echo "$USAGE" >&2; exit 2; } ;;
+    --verification-support) VSUPPORT=1 ;;
     --dry-run) DRY=1 ;;
     *) printf 'agent-spawn: unknown argument: %s\n%s\n' "$1" "$USAGE" >&2; exit 2 ;;
   esac
@@ -710,6 +730,8 @@ BUDGET_LINE="$(bash "$DAY_BUDGET_SH" status 2>&1)"; BUDGET_RC=$?
 if [[ "$BUDGET_RC" == 3 ]]; then BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?; fi
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
 case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
+# verification support lifts the budget gate for a developer (header); it is set before the cap, which still asks
+if (( VSUPPORT )); then VERDICT="$VERDICT:verification-support"; [[ "$RULE" == ask ]] && RULE=start; fi
 WORKING_N="$(spawn_working_count "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions")"
 CAP_RULE="$(spawn_cap_rule "${AGENT_MAX_WORKING:-}" "$WORKING_N")"
 case "$CAP_RULE" in
@@ -734,7 +756,8 @@ if (( DRY )); then
   if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]]; then
     printf '  at the cap (%s): ask the owner first, in one line, whatever the role; start it with their words on --owner-ok.\n' "$CAP_LINE"
   else case "$RULE" in
-    start) printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n' ;;
+    start) if (( VSUPPORT )); then printf '  developer, verification support: start it whatever the budget line says; no owner OK needed.\n'
+           else printf '  developer, on budget: start it, then tell the owner in one line with the budget.\n'; fi ;;
     ask)   printf '  developer, off budget (or no reading): ask the owner first, in one line; start it with their words on --owner-ok.\n' ;;
     info)  printf '  tester: start it whatever the budget line says; testers are not budget-gated (owner, 2026-10-25). The line is information.\n' ;;
   esac; fi
@@ -751,7 +774,7 @@ if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
   printf '  their words on the line: %s developer --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "$WHY_ARG" >&2
-  printf '  (a tester is not budget-gated and starts regardless)\n' >&2
+  printf '  (a tester is not budget-gated and starts regardless; a developer fixing what verification found starts with --verification-support)\n' >&2
   exit 1
 fi
 
@@ -765,7 +788,7 @@ tmux has-session -t "=$SESSION" 2>/dev/null \
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
-printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}"
+printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  %s\n' "$CAP_LINE"
 printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"
