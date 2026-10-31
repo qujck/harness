@@ -28,7 +28,7 @@
 # send, its own Origin), and it listens on 127.0.0.1 only. The header's power button asks the delivery lead to wind
 # the team down, recording who was running, and pulses a square until team/team-paused.sh says it is paused and no
 # agent is busy; then it shows ▶, which runs team/team-start.sh for those recorded and tells the lead to start the
-# day. The leads, reviewer, process improvement and assistant start and stop one by one from their menus; a stopped
+# day. The leads, head of operations, reviewer, process improvement and assistant start and stop one by one from their menus; a stopped
 # one waits on the bench, and its Start is there. Both
 # scripts are placeholders until wired up on the workstation that runs the team.
 #
