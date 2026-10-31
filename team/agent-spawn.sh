@@ -30,7 +30,8 @@
 #   remote       --remote-control <session>: every spawned session can be reached from claude.ai/code and the
 #                Claude mobile app under its tmux session's name (owner, 2026-10-25)
 #
-# THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints team/agents-budget.sh's line:
+# THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints team/agents-budget.sh's line, or
+# team/agents-day-budget.sh's while a day is open (its `day  on` / `day  over` read as `budget  on` / `over`):
 #   developer  `budget  on` → start it and tell the owner in one line. `over`, or no budget / no reading →
 #              ASK THE OWNER FIRST; a real spawn then needs their answer on the line, --owner-ok "<their words>",
 #              and is refused without it. Never a flat refusal: the owner's OK is the way through. The words
@@ -99,6 +100,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 USAGE="usage: agent-spawn.sh developer|tester [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
+DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
 LEDGER_SH="${AGENT_SPAWN_LEDGER:-bash $_here/../scripts/ledger-db.sh}"
 CLAIM_WAIT_S="${AGENT_SPAWN_CLAIM_WAIT_S:-600}"
 CLAIM_POLL_S="${AGENT_SPAWN_CLAIM_POLL_S:-5}"
@@ -296,12 +298,21 @@ case "\$(cat "$T/budget.mode" 2>/dev/null)" in
   *)    echo "budget  none set (AGENT_WEEK_PCT_PER_HOUR in harness.env): ask the owner"; exit 2 ;;
 esac
 EOF
-  chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/ledger"
+  # a stand-in agents-day-budget.sh, steered by $T/day.mode: on / over / (absent) no day open
+  cat > "$T/bin/day" <<EOF
+#!/usr/bin/env bash
+case "\$(cat "$T/day.mode" 2>/dev/null)" in
+  on)   echo "day  on: 7% of the day's 15% used (week 52%, from 45% at 08:00)"; exit 0 ;;
+  over) echo "day  over: 16% of the day's 15% used (week 61%, from 45% at 08:00): write your durable record and pause"; exit 1 ;;
+  *)    echo "day  none: no day open today"; exit 3 ;;
+esac
+EOF
+  chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/day" "$T/bin/ledger"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT="${PROJ-proj}" ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
-            AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_LOG="${LOGF-$T/spawns.tsv}" \
+            AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_DAY_BUDGET="$T/bin/day" AGENT_SPAWN_LOG="${LOGF-$T/spawns.tsv}" \
             AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
             bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
   local WHYARGS=(--why "routine test")   # every run in this test says why its model, unless a test empties it
@@ -349,6 +360,18 @@ EOF
   _has "  and that a tester would not be gated" "$out" "a tester is not budget-gated"
   _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
   _t "  recording nothing" "$([[ -e "$T/spawns.tsv" ]] && echo written || echo nothing)" nothing
+
+  # ── AN OPEN DAY ANSWERS INSTEAD OF THE WEEK'S EVEN PACING (owner, 2026-10-31) ──
+  printf 'on\n' > "$T/day.mode"; : > "$T/tmux.log"
+  out="$(run developer --ticket HAR-12 --dry-run)"
+  _has "a day on budget lets a developer start though the week's line is over" "$out" "day  on: 7% of the day's 15% used"
+  _t "  and the week's line is not asked" "$(grep -c "budget  over" <<<"$out")" 0
+  printf 'on\n' > "$T/budget.mode"; printf 'over\n' > "$T/day.mode"; rm -f "$T/spawns.tsv"
+  out="$(run developer --ticket HAR-12)"; rc=$?
+  _t "a day over its share refuses a developer though the week's line is on" "$rc" 1
+  _has "  and shows the day's line" "$out" "day  over: 16%"
+  _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
+  rm -f "$T/day.mode"; printf 'over\n' > "$T/budget.mode"
   out="$(run developer --ticket HAR-12 --dry-run)"
   _has "a developer dry run off budget says to ask the owner first" "$out" "developer, off budget (or no reading): ask the owner first"
   out="$(run tester --ticket HAR-12 --dry-run)"
@@ -680,8 +703,11 @@ if [[ "$ROLE" == developer && -n "$TICKET" ]]; then
   esac
 fi
 
-# The budget line, and what it means for THIS role (header: developers are gated, testers are not).
-BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?
+# The budget line, and what it means for THIS role (header: developers are gated, testers are not). An open day
+# (agents-day-budget.sh: a development day's fixed share) answers instead of the week's even pacing; exit 3 is no
+# day open, and only then is agents-budget.sh asked.
+BUDGET_LINE="$(bash "$DAY_BUDGET_SH" status 2>&1)"; BUDGET_RC=$?
+if [[ "$BUDGET_RC" == 3 ]]; then BUDGET_LINE="$(bash "$BUDGET_SH" 2>&1)"; BUDGET_RC=$?; fi
 RULE="$(spawn_budget_rule "$ROLE" "$BUDGET_RC")"
 case "$BUDGET_RC" in 0) VERDICT=on ;; 1) VERDICT=over ;; *) VERDICT=cannot-tell ;; esac
 WORKING_N="$(spawn_working_count "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions")"
