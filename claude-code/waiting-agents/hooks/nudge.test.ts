@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { decide, envFileValue, freshRows, mainCheckoutOf, roleWords, statePaths } from './nudge.ts'
+import { decide, envFileValue, freshRows, mainCheckoutOf, nudgeText, parseTarget, roleWords, statePaths } from './nudge.ts'
 import { parseRoster } from './watch.ts'
 
 const ROSTER = JSON.stringify({
@@ -16,6 +16,7 @@ const ROSTER = JSON.stringify({
 // The session root is /home/me/dev, so without a HARNESS_PROJECT the project is "dev".
 const CONTEXT = '/home/me/.local/state/dev/context'
 const LOG = '/home/me/.local/state/dev/lead-nudge.log'
+const TARGET = '/home/me/.local/state/dev/nudge-target'
 const T0 = Date.parse('2026-10-16T12:00:00Z')
 const v = (value: unknown) => ({ value }) as never
 const stat = (start: string) => `1 (claude) S ${'0 '.repeat(18)}${start} 0 0`
@@ -39,6 +40,10 @@ type World = {
   contextMissing?: boolean
   /** Every status line shown, in order. */
   status?: string[]
+  /** The text of the nudge-target file; undefined is no file. */
+  target?: string
+  /** Whose session this is, by roster name; the delivery lead's unless said. */
+  me?: string
 }
 
 function stage(on: On, w: World, clock: { now: () => number }, sent: string[], log: string[]) {
@@ -63,7 +68,7 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
     if (e.path === '/proc/self/stat') return v(stat('1'))
     if (e.path === '/proc/1/stat') return v(stat('100'))
     if (e.path === '/home/me/.claude/sessions/1.json') {
-      return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: 'Lead', status: w.leadStatus, updatedAt: 5 }))
+      return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: w.me ?? 'Lead', status: w.leadStatus, updatedAt: 5 }))
     }
     if (e.path.startsWith(`${context}/`)) {
       const agent = e.path.slice(context.length + 1, -5)
@@ -72,6 +77,7 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
       return v(JSON.stringify({ agent, ts: new Date(clock.now() - 5_000).toISOString(), activity: a.activity, idle_s: idle }))
     }
     if (e.path === logPath) return v(log.join(''))
+    if (e.path === TARGET && w.target !== undefined) return v(w.target)
     throw new Error('ENOENT')
   })
   on('fs.write', ($, e) => {
@@ -105,7 +111,7 @@ test('two nudges for one state, a threshold apart, and never a third', async ($,
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
   expect(sent[0]).toBe('[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-    + 'Team agents idle for 15 minutes or more: Dev, developer idle 16m. As delivery lead, check each one and keep the team active.')
+    + 'Team agents idle for 15 minutes or more: Dev. As delivery lead, check each one and keep the team active.')
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
 
   await clock.advance(300_000)
@@ -138,7 +144,8 @@ test('a new state is nudged afresh, and the bound survives a restart through the
   await clock.advance(300_000)
   expect(sent.length).toBe(1)
   expect(sent[0]).toContain('nudge 1 of 2')
-  expect(sent[0]).toContain('Dev, developer idle 21m; Tam, tester idle 20m')
+  expect(sent[0]).toContain('15 minutes or more: Dev, Tam.')
+  expect(verdicts(log).at(-1)).toContain('Dev, developer idle 21m; Tam, tester idle 20m')
 })
 
 test('nobody idle long enough, or the lead mid-turn, is a logged hold and nothing sent', async ($, on) => {
@@ -206,7 +213,7 @@ test('a lead in a linked worktree reads the rows of the main checkout, not of a 
 
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toContain('Dev, developer idle 16m')
+  expect(sent[0]).toContain('15 minutes or more: Dev.')
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
 
   expect(mainCheckoutOf(GIT_FILE)).toBe('/home/me/dev/acme')
@@ -255,7 +262,7 @@ test('harness.env names the project, the context directory and the threshold, as
   await $.session.start(START)
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toContain('idle for 10 minutes or more: Dev, developer idle 11m')
+  expect(sent[0]).toContain('idle for 10 minutes or more: Dev.')
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 11m'])
 })
 
@@ -308,5 +315,89 @@ test('once the team has been active, the same agents idling again are nudged afr
   await clock.advance(300_000)
   expect(sent.length).toBe(3)
   expect(sent[2]).toContain('nudge 1 of 2')
-  expect(sent[2]).toContain('Dev, developer idle')
+  expect(sent[2]).toContain('15 minutes or more: Dev.')
+})
+
+test('the switch: testing moves the nudge to the head of testing, off sends none, and a bad word is shown, not obeyed', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.status = []
+  w.target = 'testing\n'
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  // The delivery lead keeps watching, says where the nudges went, and sends none.
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(log).toEqual([])
+  expect(w.status.at(-1)).toBe('watching 3, 0 waiting; nudges: testing')
+
+  w.target = 'off'
+  await clock.advance(300_000)
+  expect(sent).toEqual([])
+  expect(w.status.at(-1)).toBe('watching 3, 0 waiting; nudges: off')
+
+  w.target = 'vera'
+  await clock.advance(300_000)
+  expect(sent).toEqual([])
+  expect(log).toEqual([])
+  expect(w.status.at(-1)).toBe("watching 3, 0 waiting; nudge target 'vera'?")
+
+  // Back to lead: the next poll nudges, as before the switch existed.
+  w.target = 'lead'
+  await clock.advance(10_000)
+  expect(sent.length).toBe(1)
+  expect(sent[0]).toContain('As delivery lead')
+})
+
+test('in testing time the head of testing is nudged in their own session; out of it their session shows and sends nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.me = 'Tess'
+  w.status = []
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  // No file is lead: the head of testing's session is not the nudger.
+  await clock.advance(1_000_000)
+  expect(sent).toEqual([])
+  expect(log).toEqual([])
+  expect(w.status.every(s => s === '')).toBe(true)
+
+  w.target = 'testing'
+  await clock.advance(10_000)
+  expect(w.status.at(-1)).toBe('nudging for testing')
+  expect(sent).toEqual(['[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
+    + 'Team agents idle for 15 minutes or more: Dev. As head of testing, check each one and keep the team active.'])
+  expect(verdicts(log)).toEqual(['sent nudge 1 of 2 to the head of testing; idle: Dev, developer idle 33m'])
+
+  // Mid-turn holds, named for who is nudged.
+  w.agents.Tam = { activity: 'idle', idleAtT0: 2000 }
+  w.leadStatus = 'busy'
+  await clock.advance(300_000)
+  expect(sent.length).toBe(1)
+  expect(verdicts(log).at(-1)).toContain('hold: head of testing is mid-turn')
+
+  // Off sends none from here either.
+  w.leadStatus = 'idle'
+  w.target = 'off'
+  await clock.advance(300_000)
+  expect(sent.length).toBe(1)
+})
+
+test('the switch word, unit by unit', async () => {
+  expect(parseTarget(undefined)).toBe('lead')
+  expect(parseTarget('  \n')).toBe('lead')
+  expect(parseTarget('testing\n')).toBe('testing')
+  expect(parseTarget('off')).toBe('off')
+  expect(parseTarget('Testing')).toEqual({ bad: 'Testing' })
+  expect(nudgeText(2, [{ name: 'A', role: 'developer', idleS: 1000 }, { name: 'B', role: 'tester', idleS: 2000 }], 900, 'testing'))
+    .toBe('[Automated nudge 2 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
+      + 'Team agents idle for 15 minutes or more: A, B. As head of testing, check each one and keep the team active.')
 })

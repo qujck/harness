@@ -638,3 +638,13 @@ them (the whole team with no record) and tells the lead to start the day once it
 **Why placeholders.** The owner wants the buttons in the template so that a workstation pulling it has them ready
 to wire up; how agents start and how a team pauses differ by workstation, so the template fixes only the
 scripts' contracts and the page's side.
+
+- **2026-10-31 — the nudger wakes the delivery lead, the head of testing, or nobody.** The owner: "I'd like the
+  nudger changed to either be nudging you or Vera or be off. No one else. It's a waste of tokens to nudge everyone
+  when you're keeping them busy", and earlier "Vera should be managing the verification suite. The nudger should
+  target her during verification time." One word in `nudge-target` beside the nudger's log (`lead` | `testing` |
+  `off`, no file = `lead`), set by `team/nudge-target.sh`, which the delivery lead owns flipping. Under `testing`
+  the mod runs the nudger in the head of testing's session and the lead's sends none. The nudge now names the
+  idle agents only (role and idle time stay in the log). The 25-second waiting alerts are unchanged and stay
+  with the lead in every mode, until the owner rules otherwise. An unknown word nudges nobody and is shown in
+  the lead's status bar rather than read as a mode.
