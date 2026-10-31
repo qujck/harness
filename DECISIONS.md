@@ -653,8 +653,9 @@ scripts' contracts and the page's side.
   we need a dedicated agent budget script that dev day calls with the starting quota", then "It should go to Alfred".
   `start <quota>` records the week's reading now (team/lib/week-usage.sh) and the day's share; `status` exits 0 on,
   1 over (spent MORE than the quota: with 15, the reading that shows 16 stops it), 2 cannot tell (no reading), 3 no
-  day open; `end` closes it. One line in ~/.local/state/<project>/agents-day-budget. `start` again the same day keeps
-  the first reading (a rerun never hands out a fresh allowance) and sets the new quota. A day from an earlier date,
-  or a reading more than 5 points below the start (the week reset), is no day. agent-spawn.sh's developer gate reads
+  day open; `end` closes it. One line in ~/.local/state/<project>/agents-day-budget. `start` again on an open day keeps
+  the first reading (a rerun never hands out a fresh allowance) and sets the new quota. Only `end` or the week's
+  reset (a reading more than 5 points below the start) closes a day, not the date: a day that runs past midnight is
+  still the same 15 (Cara via Carl, same day; a date check let `start` hand out a second 15 from the new reading). agent-spawn.sh's developer gate reads
   the day's status first and falls back to agents-budget.sh's even pacing only on exit 3. The panel and the team
   page still show the week's even line.
