@@ -70,7 +70,7 @@ TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's s
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
-STANDING = {"lead", "hot", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
+STANDING = {"lead", "hot", "review", "process", "support", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
 TAIL_MAX = 64_000_000     # how far back it is read, four times further each time, while turns are short
@@ -4181,7 +4181,7 @@ function lastCompact(a) {
   const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
   return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
 }
-const STANDING_ROLES = new Set(["lead", "hot", "review", "process", "pa"]);
+const STANDING_ROLES = new Set(["lead", "hot", "review", "process", "support", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const bench = S.bench.find(x => x.name === name), a = S.agents.find(x => x.name === name) || bench, key = "agent:" + name;
@@ -4517,6 +4517,7 @@ def self_test():
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
         t("  by team-start.sh --only", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Max")
         t("the head of testing is a standing agent", "hot" in STANDING, True)
+        t("production support is a standing agent", "support" in STANDING, True)
         t("the lead is stopped on its own", code("/api/agent/Lea/halt", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
         t("  asked to finish and stop", "stopping you from the team page" in open(T + "/loaded").read(), True)
         t("an image from outside the home directory is not served", code("/img?p=/etc/passwd")[0], 404)
