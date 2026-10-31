@@ -18,7 +18,10 @@
 # names it outright): the epoch it started, the week reading then, and the quota. `start` with no reading writes
 # nothing (exit 2): a day counted from a guess is no day. `start` again on the same day KEEPS the first reading and
 # sets the new quota, so a rerun never hands out a fresh allowance, and the owner raising the day's share is one
-# command. A day opened on an earlier date is closed: a development day does not run into the next one.
+# command. THE DATE DOES NOT CLOSE A DAY: only `end` or the week's reset does. A development day that runs past
+# midnight is still the same day ("15% of the week, pause at +16"), and a date that closed it would let `start` hand
+# out a second 15 from the new reading (Cara, via Carl, 2026-10-31). A day left open by a missed `end` makes the
+# next `start` count from the old reading, so it fails towards pausing early, and the line names the day it began.
 #
 # THE READING is team/lib/week-usage.sh's, the one the panel and agents-budget.sh show. The day has spent the
 # reading less the reading at the start. It is OVER once it has spent MORE than the quota: with a quota of 15, at
@@ -26,7 +29,7 @@
 # than a few points means the week has reset since the day started, and the day is closed.
 #
 # EXITS (status): 0 on · 1 over (write your durable record and pause) · 2 cannot tell (no week reading) · 3 no day
-# open (none started, ended, from an earlier date, or the week has reset). start: 0 started, 2 refused, nothing
+# open (none started, ended, or the week has reset). start: 0 started, 2 refused, nothing
 # written. end: 0.
 #
 # A verb that writes needs HARNESS_PROJECT in the environment (or AGENT_DAY_BUDGET), as agents-budget.sh's do: run
@@ -69,7 +72,10 @@ day_selftest() {
   check "  and the day is on again" "$(run 1300 70 >/dev/null; echo $?)" 0
   out=$(run 1400 42); rc=$?; check "a small dip below the start is a lagging figure, still on" "$rc" 0
   out=$(run 1400 3); rc=$?; check "a reading far below the start means the week reset: no day" "$rc" 3; has "  and says so" "$out" "reset"
-  out=$(run 86400 50); rc=$?; check "a day from an earlier date is closed" "$rc" 3
+  out=$(run 86400 50); rc=$?; check "a day past midnight is still open" "$rc" 0
+  has "  and names the day it began" "$out" "from 45% at Fri 08:00"
+  out=$(run 86400 50 start 15); has "start the next morning on an open day keeps its first reading" "$out" "stops past 60%"
+  out=$(run 90000 2 start 15); has "start after the week reset opens a fresh day from the new reading" "$out" "stops past 17%"
   out=$(run 1500 50 end); rc=$?; check "end exits 0" "$rc" 0
   out=$(run 1500 50); rc=$?; check "  and leaves no day open" "$rc" 3
   out=$(run 0 45 start 0); rc=$?; check "a zero quota is refused" "$rc" 2
@@ -94,15 +100,17 @@ reading() {
   [ "${used:--1}" -ge 0 ] 2>/dev/null && printf '%s' "$used"
 }
 
-# The open day as "<start epoch> <start reading> <quota>", or nothing when there is none for today.
+# The open day as "<start epoch> <start reading> <quota>", or nothing when none is open.
 open_day() {
   local at start quota
   [ -r "$FILE" ] || return 1
   read -r at start quota < "$FILE" || return 1
   [[ "$at" =~ ^[0-9]+$ && "$start" =~ ^[0-9]+$ && "$quota" =~ ^[0-9]+$ ]] || return 1
-  [ "$(date -d "@$at" +%F)" = "$TODAY" ] || return 1
   printf '%s %s %s' "$at" "$start" "$quota"
 }
+
+# When the day began: the time, with the weekday once it is not today.
+began() { if [ "$(date -d "@$1" +%F)" = "$TODAY" ]; then date -d "@$1" +%H:%M; else date -d "@$1" '+%a %H:%M'; fi; }
 
 need_project() {
   [ -n "${HARNESS_PROJECT:-}${AGENT_DAY_BUDGET:-}" ] && return 0
@@ -116,26 +124,28 @@ case "${1:-status}" in
       || { echo "day  refused: the quota is whole points of the week, 1 to 100 (start 15)" >&2; exit 2; }
     now_used=$(reading)
     [ -n "$now_used" ] || { echo "day  refused: no week reading to count from (team/lib/week-usage.sh); nothing written" >&2; exit 2; }
-    if day=$(open_day); then read -r at start _old <<<"$day"; else at=$NOW; start=$now_used; fi
+    # an open day keeps its first reading, unless the week has reset since: that day is over
+    if day=$(open_day) && read -r at start _old <<<"$day" && [ "$now_used" -ge $((start - RESET_DROP)) ]; then :
+    else at=$NOW; start=$now_used; fi
     mkdir -p "$(dirname "$FILE")" && printf '%s %s %s\n' "$at" "$start" "$2" > "$FILE"
     printf 'day  started %s: %s%% of the week from %s%% (stops past %s%%)\n' \
-      "$(date -d "@$at" +%H:%M)" "$2" "$start" "$((start + $2))"
+      "$(began "$at")" "$2" "$start" "$((start + $2))"
     ;;
   status)
-    day=$(open_day) || { echo "day  none: no day open today"; exit 3; }
+    day=$(open_day) || { echo "day  none: no day open"; exit 3; }
     read -r at start quota <<<"$day"
     now_used=$(reading)
     [ -n "$now_used" ] || { echo "day  cannot tell: no week reading (team/lib/week-usage.sh)"; exit 2; }
     if [ "$now_used" -lt $((start - RESET_DROP)) ]; then
-      echo "day  none: the week has reset since the day started at $(date -d "@$at" +%H:%M) (week ${now_used}%)"; exit 3
+      echo "day  none: the week has reset since the day started at $(began "$at") (week ${now_used}%)"; exit 3
     fi
     spent=$((now_used > start ? now_used - start : 0))
     if [ "$spent" -gt "$quota" ]; then
       printf 'day  over: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s): write your durable record and pause\n' \
-        "$spent" "$quota" "$now_used" "$start" "$(date -d "@$at" +%H:%M)"; exit 1
+        "$spent" "$quota" "$now_used" "$start" "$(began "$at")"; exit 1
     fi
     printf 'day  on: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s)\n' \
-      "$spent" "$quota" "$now_used" "$start" "$(date -d "@$at" +%H:%M)"
+      "$spent" "$quota" "$now_used" "$start" "$(began "$at")"
     ;;
   end) need_project; rm -f "$FILE"; echo "day  ended: agents-budget.sh's even pacing applies" ;;
   *) echo "usage: agents-day-budget.sh [start <quota> | status | end | --self-test]" >&2; exit 2 ;;

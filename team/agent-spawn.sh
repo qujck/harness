@@ -309,7 +309,7 @@ EOF
 case "\$(cat "$T/day.mode" 2>/dev/null)" in
   on)   echo "day  on: 7% of the day's 15% used (week 52%, from 45% at 08:00)"; exit 0 ;;
   over) echo "day  over: 16% of the day's 15% used (week 61%, from 45% at 08:00): write your durable record and pause"; exit 1 ;;
-  *)    echo "day  none: no day open today"; exit 3 ;;
+  *)    echo "day  none: no day open"; exit 3 ;;
 esac
 EOF
   chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/day" "$T/bin/ledger"
