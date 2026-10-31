@@ -2138,7 +2138,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
 #menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
-#menu .mpor{flex:none;width:52px;height:52px}
+#menu .mpor{flex:none;width:96px;height:96px}
 #menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px}
 #menu .hd:last-child{margin-bottom:0;border-bottom:0}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
