@@ -3413,10 +3413,12 @@ document.addEventListener("dragstart", e => {
   barDrag = b; b.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "");
 });
 // whether the dragged item may go where the pointer is, having moved it there if so
-function barOver(target, x) {
+function barOver(target, x, y) {
   const box = barDrag && target?.closest?.("header.editing, footer.editing");
   if (!box || !fits(barDrag.dataset.item, box.tagName === "FOOTER")) return false;
-  const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(b => { const r = b.getBoundingClientRect(); return x < r.left + r.width / 2; });
+  // a bar wraps on a narrow screen: an item on a later row is not short of the pointer, whatever its left
+  const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(b => { const r = b.getBoundingClientRect();
+    return y < r.top || y < r.bottom && x < r.left + r.width / 2; });
   const to = at || box.querySelector(":scope > .barplus");
   if (barDrag.parentElement !== box || barDrag.nextElementSibling !== to) box.insertBefore(barDrag, to);
   return true;
@@ -3427,7 +3429,7 @@ function barDropped() {
   const keys = sel => [...$(sel).querySelectorAll(":scope > .bi")].map(x => x.dataset.item);
   saveBar({head: keys("header"), foot: keys("footer"), off: barOf().off}); draw();
 }
-document.addEventListener("dragover", e => { if (barOver(e.target, e.clientX)) e.preventDefault(); });
+document.addEventListener("dragover", e => { if (barOver(e.target, e.clientX, e.clientY)) e.preventDefault(); });
 document.addEventListener("drop", e => { if (barDrag) e.preventDefault(); });
 document.addEventListener("dragend", barDropped);
 // a finger: a phone starts no drag from a touch, so the item follows the touch itself (owner, 2026-11-01: "drag and
@@ -3435,11 +3437,21 @@ document.addEventListener("dragend", barDropped);
 document.addEventListener("pointerdown", e => {
   const b = e.pointerType === "touch" && !e.target.closest(".bx, select") && e.target.closest(".editing > .bi");
   if (!b || b.closest("#barbin")) return;
-  e.preventDefault(); barDrag = b; b.classList.add("dragging");
-  // followed from the document: moving the item in the page would drop a capture on the item itself
-  const move = m => m.pointerId === e.pointerId && barOver(document.elementFromPoint(m.clientX, m.clientY), m.clientX);
+  // a tap stays a tap (the padlock, the theme): the drag starts once the finger has moved, and then what it is let go
+  // over is not clicked. It is followed from the document: moving the item in the page would drop a capture held on it.
+  let moved = false;
+  const move = m => {
+    if (m.pointerId !== e.pointerId) return;
+    if (!moved && Math.hypot(m.clientX - e.clientX, m.clientY - e.clientY) < 8) return;
+    if (!moved) { moved = true; barDrag = b; b.classList.add("dragging"); }
+    barOver(document.elementFromPoint(m.clientX, m.clientY), m.clientX, m.clientY);
+  };
   const up = u => { if (u.pointerId !== e.pointerId) return;
     document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up);
+    if (!moved) return;
+    const stop = c => { c.stopPropagation(); c.preventDefault(); };   // the click a lift can end in, if any comes
+    document.addEventListener("click", stop, {capture: true, once: true});
+    setTimeout(() => document.removeEventListener("click", stop, true), 400);
     barDropped(); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 });
