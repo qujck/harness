@@ -2502,9 +2502,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <body>
 <header>
   <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
-  <div class="bi" data-item="week"><div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi" data-item="session"><div class="stat" id="sessstat" style="display:none"><div class="k">Session <span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi" data-item="team"><div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="week"><div class="stat"><div class="k">Week<span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="session"><div class="stat" id="sessstat" style="display:none"><div class="k">Session<span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="team"><div class="stat"><div class="k">Team<span id="teamtxt"></span></div><div id="teamspark"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="disk"><div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -3026,17 +3026,17 @@ function draw() {
   const dy = S.day, w = S.week, p = dy ? dy.from + dy.quota : S.plan, over = dy ? dy.used > dy.quota : w != null && p != null && w >= p;
   // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
   const spare = !dy && over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
-  $("#weektxt").innerHTML = w == null ? "· no reading" : `· <b style="color:${wc}">${w}%</b>${dy ? ` · day ${dy.used} of ${dy.quota}%` : p != null ? ` of ${p}% planned` : ""}`;
+  $("#weektxt").innerHTML = w == null ? ": no reading" : `: <b style="color:${wc}">${w}%</b>${dy ? ` · day: ${dy.used} of ${dy.quota}%` : p != null ? ` of ${p}% planned` : ""}`;
   $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
   // the five-hour session's use, when Settings shows it: amber from 75%, red from 90%
   const ss = S.session, sc = ss >= 90 ? "var(--red)" : ss >= 75 ? "var(--amber)" : "var(--green)";
   $("#sessstat").style.display = settings().session === "on" ? "" : "none";
-  $("#sesstxt").innerHTML = ss == null ? "· no reading" : `· <b style="color:${sc}">${ss}%</b>`;
+  $("#sesstxt").innerHTML = ss == null ? ": no reading" : `: <b style="color:${sc}">${ss}%</b>`;
   $("#session i").style.cssText = `width:${ss || 0}%;background:${ss >= 75 ? sc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   // Every agent's activity added together, minute by minute, as each card shows its own.
   const team = S.agents.reduce((t, a) => a.series.map((v, i) => v + (t[i] || 0)), []), rate = S.agents.reduce((t, a) => t + (a.rate || 0), 0);
-  $("#teamtxt").innerHTML = rate ? `· <b style="color:var(--text)">${k(rate)}</b> tok/min` : "";
+  $("#teamtxt").innerHTML = rate ? `: <b style="color:var(--text)">${k(rate)}</b> tok/min` : "";
   $("#teamspark").innerHTML = spark(team, Math.max(1, ...team), "currentColor");
   const d = S.disk;
   $("#disk").parentElement.style.display = d ? "" : "none";   // no AGENT_DISK_WATCH, no disk
