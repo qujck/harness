@@ -2564,6 +2564,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   #detail .box .conv{padding-right:16px}
   #detail .box .sayrow{margin-right:14px !important}
   .card.full.term .feed{padding-right:0}
+  main > .pane{height:100%;min-height:60vh}   /* a custom view of one pane fills the page, not just its tab strip */
   #main .lay{flex-direction:column}
   #main .lay > .half{flex:none;min-height:75vh}
   #main .divider{display:none}
