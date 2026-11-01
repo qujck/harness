@@ -2460,6 +2460,34 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 :is(#detail,.card.full) .screen{overflow:hidden;padding:10px}
 #dscreen,.card.full .termwrap pre{margin:0;font-family:var(--mono);line-height:1.25;color:#d1d7e0;white-space:pre;overflow:hidden}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:9px}
+/* On a phone (owner, 2026-11-01: "move to the mobile experience"): the bars wrap; Grid's sections stand one under
+   another, two cards across, and the page scrolls; an agent's view fills the screen, the others one row along its
+   top to swipe, and no terminal; a custom view's panes stand one under another. A box's text is 16px, under which
+   a phone zooms the page when it is tapped. */
+@media (max-width:700px){
+  header,footer{flex-wrap:wrap;gap:10px 14px;padding:8px 12px}
+  .bi.tight + .bi.tight,.bi:not(.tight) + .bi.tight{margin-left:0}
+  .bi[data-item=bench]{flex:1 1 100%}
+  .colgrip{display:none}
+  main{display:block;overflow-y:auto;padding:10px}
+  main > section.tab{margin-bottom:12px}
+  main > section.tab .cards{grid-template-columns:repeat(2,minmax(0,1fr)) !important;grid-auto-rows:250px}
+  #detail,#detail.docked{padding:0}
+  #detail .box,#detail .box.rail-left,#detail .box.rail-top,#detail .box.rail-bottom{border-radius:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr)}
+  #detail .box .rail{grid-column:1;grid-row:2;display:flex;flex-direction:row;overflow:auto hidden;max-height:none;padding:8px;border:0;border-bottom:1px solid var(--line)}
+  #detail .box .rail .mini{flex:none !important;width:130px}
+  #detail .box .left{grid-column:1 !important;grid-row:3 !important}
+  :is(#detail:not(.docked),html.only #detail) .box{grid-template-rows:auto minmax(0,1fr)}   /* no row of others: only a docked view has one */
+  :is(#detail:not(.docked),html.only #detail) .box .left{grid-row:2 !important}
+  #detail .termwrap,#detail .head :is(.termseg,.railseg),#detail .head .facts{display:none}
+  #detail .box .conv{padding-right:16px}
+  #detail .box .sayrow{margin-right:14px !important}
+  .card.full.term .feed{padding-right:0}
+  #main .lay{flex-direction:column}
+  #main .lay > .half{flex:none;min-height:75vh}
+  #main .divider{display:none}
+  .say,#detail .say{font-size:16px}
+}
 </style>
 </head>
 <body>
