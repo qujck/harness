@@ -123,7 +123,7 @@ test('two nudges for one state, a threshold apart, and never a third', async ($,
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
   expect(sent[0]).toBe('[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-    + 'Team agents idle for 15 minutes or more: Dev. As delivery lead, check each one and keep the team active.')
+    + 'Team agents idle for 15 minutes or more: Dev. As delivery lead, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.')
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
 
   await clock.advance(300_000)
@@ -386,7 +386,7 @@ test('in testing time the head of testing is nudged in their own session; out of
   await clock.advance(10_000)
   expect(w.status.at(-1)).toBe('nudging for testing')
   expect(sent).toEqual(['[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-    + 'Team agents idle for 15 minutes or more: Dev. As head of testing, check each one and keep the team active.'])
+    + 'Team agents idle for 15 minutes or more: Dev. As head of testing, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.'])
   expect(verdicts(log)).toEqual(['sent nudge 1 of 2 to the head of testing; idle: Dev, developer idle 33m'])
 
   // Mid-turn holds, named for who is nudged.
@@ -411,7 +411,8 @@ test('the switch word, unit by unit', async () => {
   expect(parseTarget('Testing')).toEqual({ bad: 'Testing' })
   expect(nudgeText(2, [{ name: 'A', role: 'developer', idleS: 1000 }, { name: 'B', role: 'tester', idleS: 2000 }], 900, 'testing'))
     .toBe('[Automated nudge 2 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-      + 'Team agents idle for 15 minutes or more: A, B. As head of testing, check each one and keep the team active.')
+      + 'Team agents idle for 15 minutes or more: A, B. As head of testing, check each one and keep the team active. '
+      + 'If nothing needs doing, end your turn without writing anything.')
 })
 
 const OVER = "day  over: 16% of the day's 15% used (week 74%, from 58% at 06:05): write your durable record and pause"
