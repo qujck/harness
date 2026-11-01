@@ -3207,9 +3207,15 @@ function draw() {
   toPaneEnds(ends);
   dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => { localStorage.setItem("mode:" + b.parentElement.dataset.sec, b.dataset.mode); draw(); });
-  // Picking a tab puts the cursor in that agent's message box, ready to type.
+  // Picking a tab puts the cursor in that agent's message box, ready to type; a click on the tab already picked opens
+  // (or shuts) its agent's menu, which data-menu keeps open past the press.
+  document.querySelectorAll(".tabbar[data-sec] [data-tab]").forEach(b => { b.dataset.menu = "agent:" + b.dataset.tab; });
   document.querySelectorAll(".tabbar [data-tab]").forEach(b => b.onclick = () => {
     const sec = b.closest(".tabbar").dataset.sec, name = CSS.escape(b.dataset.tab);
+    const picked = localStorage.getItem("tab:" + sec), first = b.closest(".tabbar").querySelector("[data-tab]");
+    if (b.dataset.tab === (picked && b.closest(".tabbar").querySelector(`[data-tab="${CSS.escape(picked)}"]`) ? picked : first.dataset.tab)) {
+      clearTimeout(menuShow); return agentMenu(b, b.dataset.tab, true, false);
+    }
     menuOff(true);
     localStorage.setItem("tab:" + sec, b.dataset.tab);
     draw();
@@ -4266,7 +4272,8 @@ function rail() {
   markSeen(S.agents.filter(a => !seen[a.name] || a.name === open).map(a => a.name));
   patch($("#drail"), minis(open));
   document.querySelectorAll("#drail .mini").forEach(m => {
-    m.onclick = m.matches(".cur") ? null : () => m.matches(".off") || touched ? menuSoon(m, 0) : (menuOff(true), openDetail(m.dataset.name));
+    if (m.matches(".cur")) m.dataset.menu = "agent:" + m.dataset.name;   // the agent in the view: a click opens or shuts its menu
+    m.onclick = () => m.matches(".off, .cur") || touched ? menuSoon(m, 0) : (menuOff(true), openDetail(m.dataset.name));
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
