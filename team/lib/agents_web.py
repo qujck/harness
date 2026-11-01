@@ -4,8 +4,8 @@
   /                 the page: the week, the disk and every running agent on the roster, in sections by role, each
                     with its state, context, burn, ticket and the last turns of its conversation
   /api/state        everything the page draws, as JSON
-                    (and the header's and footer's plug-ins: each executable in AGENT_BAR_PLUGINS, else
-                    ~/.config/agents-web/bar, prints a line or {"label", "value", "title", "colour"}; see plugins())
+                    (and the header's and footer's plug-ins: team/bar's and each executable in AGENT_BAR_PLUGINS,
+                    else ~/.config/agents-web/bar, given the page's numbers, print a line or JSON; see plugins())
   /api/team         every message between the running agents, as one transcript
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
@@ -473,9 +473,23 @@ def disk():
 
 # Plug-ins for the page's header and footer (owner, 2026-11-01: "header should default to what we have, with other
 # options addable as plug in style scripts"): each executable file in AGENT_BAR_PLUGINS, else ~/.config/agents-web/bar,
-# is an item the page can add, named by its file name. It is run in the background at most once a minute, for at most
-# five seconds, and what it prints is the item: a line of text, under its file name, or JSON {"label", "value",
-# "title", "colour"}. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
+# is an item the page can add, named by its file name, and keyed "x:<name>". The harness's own are in team/bar - Week,
+# Session, Team and Disk - keyed by their bare names, and in the bar until taken out. Each is run in the background
+# for at most five seconds, given the page's numbers as JSON on its input (bar_facts()), and what it prints is the
+# item: a line of text, under its file name, or JSON:
+#   label, title        the name it shows and what a rest on it says
+#   value, colour       its value as text in one colour, or value as a list of parts, each text or
+#                       {"text", "colour", "bold"}; a colour is any CSS colour, or green, amber, red, text or faint
+#   meter               {"pct", "mark", "colour"}: a bar filled to pct, a mark at mark, in colour (else green)
+#   spark               a list of numbers, drawn as a sparkline
+#   every               seconds between runs, 2 to 3600 (60)
+#   hidden              true: the item is not shown this time (Disk with nothing to watch)
+#   slim                true: all on one low line, the label and value beside the meter or sparkline; a label of ""
+#                       shows none, and name is what the bar's Add list calls it instead
+#   place               "header" or "footer": the only one of the two it can be put in (else either)
+# With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
+# the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
+SHIPPED_BAR = os.path.join(ROOT, "team", "bar")
 _plugged, _plugging = {}, set()
 
 
@@ -483,9 +497,50 @@ def bar_dir():
     return os.environ.get("AGENT_BAR_PLUGINS") or os.path.join(HOME, ".config", "agents-web", "bar")
 
 
-def run_plugin(path, name):
+def num(v, lo=None, hi=None):
     try:
-        p = subprocess.run([path], capture_output=True, text=True, timeout=5, cwd=os.path.dirname(path))
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:
+        return None
+    return max(lo, f) if lo is not None and f < lo else min(hi, f) if hi is not None and f > hi else f
+
+
+def plug_item(j, name):
+    """What a plug-in printed, parsed: a line becomes its value; JSON is kept to the fields above, each bounded."""
+    if not isinstance(j, dict):
+        return {"label": name[:40], "value": str(j).splitlines()[0][:80], "title": "", "colour": ""}
+    col = lambda c: str(c or "")[:30]
+    item = {"label": str(name if j.get("label") is None else j["label"])[:40], "title": str(j.get("title") or "")[:300], "colour": col(j.get("colour"))}
+    v = j.get("value", "")
+    if isinstance(v, list):
+        item["parts"] = [{"text": str(x.get("text", ""))[:40], "colour": col(x.get("colour")), "bold": bool(x.get("bold"))}
+                         if isinstance(x, dict) else {"text": str(x)[:40], "colour": "", "bold": False} for x in v[:8]]
+        v = "".join(x["text"] for x in item["parts"])
+    item["value"] = str(v)[:80]
+    m = j.get("meter")
+    if isinstance(m, dict) and num(m.get("pct")) is not None:
+        item["meter"] = {"pct": num(m["pct"], 0, 100), "mark": num(m.get("mark"), 0, 100), "colour": col(m.get("colour"))}
+    if isinstance(j.get("spark"), list):
+        item["spark"] = [num(x, 0) or 0 for x in j["spark"][-60:]]
+    if num(j.get("every")) is not None:
+        item["every"] = int(num(j["every"], 2, 3600))
+    if j.get("hidden") is True:
+        item["hidden"] = True
+    if j.get("slim") is True:
+        item["slim"] = True
+    if j.get("name"):
+        item["name"] = str(j["name"])[:40]
+    if j.get("place") in ("header", "footer"):
+        item["place"] = j["place"]
+    return item
+
+
+def run_plugin(path, name, facts=None):
+    try:
+        p = subprocess.run([path], capture_output=True, text=True, timeout=5, cwd=os.path.dirname(path),
+                           input=json.dumps(facts or {}))
         out = p.stdout.strip()
         if p.returncode or not out:
             raise ValueError((p.stderr.strip() or f"exit {p.returncode}, nothing printed").splitlines()[-1])
@@ -493,33 +548,39 @@ def run_plugin(path, name):
             j = json.loads(out) if out.startswith("{") else None
         except json.JSONDecodeError:
             j = None
-        j = j if isinstance(j, dict) else {"value": out.splitlines()[0]}
-        item = {"label": str(j.get("label") or name)[:40], "value": str(j.get("value", ""))[:80],
-                "title": str(j.get("title") or "")[:300], "colour": str(j.get("colour") or "")[:30]}
+        item = plug_item(j if isinstance(j, dict) else out, name)
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         item = {"label": name[:40], "value": "?", "title": f"{name}: {e}"[:300], "colour": ""}
     _plugged[path] = {**item, "at": time.time()}
     _plugging.discard(path)
 
 
-def plugins():
+def bar_facts(st):
+    """The page's numbers a plug-in is given: the account's week and session, the budget's plan and day, the disk,
+    and each running agent's state and activity."""
+    return {**{k: st.get(k) for k in ("now", "week", "session", "plan", "even", "day", "disk")},
+            "agents": [{k: a.get(k) for k in ("name", "status", "rate", "series")} for a in st.get("agents", [])]}
+
+
+def plugins(facts=None):
     """The bar's plug-ins, each as it last printed; one not yet run is "…" until its first run is in."""
-    try:
-        names = sorted(os.listdir(bar_dir()))
-    except OSError:
-        return []
     out, now = [], time.time()
-    for f in names:
-        path, name = os.path.join(bar_dir(), f), re.sub(r"\.[A-Za-z0-9]+$", "", f)
-        key = "x:" + re.sub(r"[^a-z0-9_-]", "-", name.lower())
-        if f.startswith(".") or not os.path.isfile(path) or not os.access(path, os.X_OK):
+    for d, prefix in ((SHIPPED_BAR, ""), (bar_dir(), "x:")):
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
             continue
-        was = _plugged.get(path)
-        if (not was or now - was["at"] >= 60) and path not in _plugging:
-            _plugging.add(path)
-            threading.Thread(target=run_plugin, args=(path, name), daemon=True).start()
-        item = {k: v for k, v in (was or {"label": name, "value": "…", "title": "", "colour": ""}).items() if k != "at"}
-        out.append({"key": key, **item})
+        for f in names:
+            path, name = os.path.join(d, f), re.sub(r"\.[A-Za-z0-9]+$", "", f)
+            key = prefix + re.sub(r"[^a-z0-9_-]", "-", name.lower())
+            if f.startswith(".") or not os.path.isfile(path) or not os.access(path, os.X_OK):
+                continue
+            was = _plugged.get(path)
+            if (not was or now - was["at"] >= was.get("every", 60)) and path not in _plugging:
+                _plugging.add(path)
+                threading.Thread(target=run_plugin, args=(path, name, facts), daemon=True).start()
+            item = {k: v for k, v in (was or {"label": name, "value": "…", "title": "", "colour": ""}).items() if k not in ("at", "every")}
+            out.append({"key": key, **item})
     return out
 
 
@@ -1403,14 +1464,15 @@ def state():
         a["tab"] = where.get(a["name"], {}).get("session") or a["tab"]
     tabs = sessions + [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
-    return {
+    st = {
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
-        "disk": disk(), "plugins": plugins(),
+        "disk": disk(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
+    return {**st, "plugins": plugins(bar_facts(st))}
 
 
 # Portraits for the Characters pane: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
@@ -1822,9 +1884,14 @@ body{font:calc(13px*var(--fs,1))/1.45 var(--sans);color:var(--text);background:v
   background-image:radial-gradient(1200px 600px at 10% -10%,var(--glow1),transparent 60%),radial-gradient(900px 500px at 110% 110%,var(--glow2),transparent 60%)}
 header,footer{display:flex;align-items:center;gap:22px;padding:12px 18px;flex:none}
 header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--line)}
+footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: as low as its tallest item */
 /* the bar's items, in the header or the footer; while the layout is unlocked each is outlined, dragged and taken out with its ✕ */
 .bi{position:relative;display:flex;align-items:center;flex:none;min-width:0}
 .bi[data-item=bench]{flex:1}
+/* a spacer takes the room left, so what comes after it keeps to the right; it shows only while the layout is unlocked */
+.bi.gap{flex:1;min-width:0}
+.editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
+.editing > .bi.gap::before{content:"Spacer"}
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
@@ -1835,7 +1902,8 @@ header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--lin
 .editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
   background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
-footer:not(.editing):not(:has(.bi)){display:none}
+header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
+header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .barplus{margin-left:auto;flex:none;padding:3px 6px;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--mute);font:inherit}
 .brand{display:flex;align-items:center;flex:none}
@@ -1843,7 +1911,11 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
 .stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 .stat .v{font:600 calc(13px*var(--fs,1)) var(--mono)}
-#teamspark{width:190px;height:22px;color:var(--ownerbg)}#teamspark svg.spark{height:22px}
+.pspark{width:190px;height:22px;color:var(--ownerbg)}.pspark svg.spark{height:22px}
+/* a slim plug-in is one low line: its label and value beside a shorter meter or sparkline */
+.stat.slim{flex-direction:row;align-items:center;gap:7px;min-width:0}
+.stat.slim .meter{width:110px;height:6px}.stat.slim .meter u{top:-3px;bottom:-3px}
+.stat.slim .pspark,.stat.slim .pspark svg.spark{width:110px;height:14px}
 .meter{position:relative;height:8px;border-radius:5px;background:var(--track);overflow:visible;width:190px}
 .meter i{position:absolute;inset:0 auto 0 0;border-radius:5px;transition:width .6s}
 .meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px;box-shadow:0 0 6px #fff8}
@@ -2502,10 +2574,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <body>
 <header>
   <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
-  <div class="bi" data-item="week"><div class="stat"><div class="k">Week<span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi" data-item="session"><div class="stat" id="sessstat" style="display:none"><div class="k">Session<span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi" data-item="team"><div class="stat"><div class="k">Team<span id="teamtxt"></span></div><div id="teamspark"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi" data-item="disk"><div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -2518,7 +2586,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </header>
 <main id="main"></main>
 <footer></footer>
-<div id="barbin" hidden></div>
+<div id="barbin" hidden><div class="bi gap" data-item="gap1"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap2"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap3"><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
@@ -3021,27 +3089,6 @@ function patchNode(a, b) {
 function draw() {
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")) return;   // nor while a tab is being named
   if (!barDrag) placeBar();
-  // While a development day is open its fixed share is the allowance, marked where the week stood when it started plus the share;
-  // spent past the share is over. With no day open, the week's even plan.
-  const dy = S.day, w = S.week, p = dy ? dy.from + dy.quota : S.plan, over = dy ? dy.used > dy.quota : w != null && p != null && w >= p;
-  // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
-  const spare = !dy && over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
-  $("#weektxt").innerHTML = w == null ? ": no reading" : `: <b style="color:${wc}">${w}%</b>${dy ? ` - Day: <b style="color:${wc}">${dy.used}%</b>` : p != null ? ` of ${p}% planned` : ""}`;
-  $("#weektxt").title = dy ? `The day has used ${dy.used} of its ${dy.quota}% (the week from ${dy.from}%, so it stops past ${dy.from + dy.quota}%)` : "";
-  $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
-  $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
-  // the five-hour session's use, when Settings shows it: amber from 75%, red from 90%
-  const ss = S.session, sc = ss >= 90 ? "var(--red)" : ss >= 75 ? "var(--amber)" : "var(--green)";
-  $("#sessstat").style.display = settings().session === "on" ? "" : "none";
-  $("#sesstxt").innerHTML = ss == null ? ": no reading" : `: <b style="color:${sc}">${ss}%</b>`;
-  $("#session i").style.cssText = `width:${ss || 0}%;background:${ss >= 75 ? sc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
-  // Every agent's activity added together, minute by minute, as each card shows its own.
-  const team = S.agents.reduce((t, a) => a.series.map((v, i) => v + (t[i] || 0)), []), rate = S.agents.reduce((t, a) => t + (a.rate || 0), 0);
-  $("#teamtxt").innerHTML = rate ? `: <b style="color:var(--text)">${k(rate)}</b> tok/min` : "";
-  $("#teamspark").innerHTML = spark(team, Math.max(1, ...team), "currentColor");
-  const d = S.disk;
-  $("#disk").parentElement.style.display = d ? "" : "none";   // no AGENT_DISK_WATCH, no disk
-  if (d) { $("#disklab").textContent = d.label + " free"; $("#disk").innerHTML = `<span style="color:${d.free_gb < d.alert ? "var(--red)" : d.free_gb < d.warn ? "var(--amber)" : "var(--text)"}">${d.free_gb} GB</span> <span style="color:var(--faint)">of ${d.total_gb}</span>`; }
   const n = st => S.agents.filter(a => a.status === st).length;
   // Working and idle as a dot and a number each, with a flashing badge on top when any agent is waiting.
   const waiting = n("waiting");
@@ -3131,8 +3178,9 @@ function draw() {
     }).join("");
   }
   main.querySelectorAll(".colgrip").forEach(g => g.remove());
-  const ends = paneEnds();
+  const ends = paneEnds(), scrolled = scrolls(main);
   patch(main, html);
+  unscroll(main, scrolled);
   toPaneEnds(ends);
   dock(pageMode === "tabs" && (tabs.flatMap(t => t.agents).find(a => a.name === localStorage.getItem("tab:page")) || S.agents[0]));
   document.querySelectorAll(".seg.mode b").forEach(b => b.onclick = () => { localStorage.setItem("mode:" + b.parentElement.dataset.sec, b.dataset.mode); draw(); });
@@ -3267,30 +3315,61 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // item in the header until chosen, the footer empty. While a custom view's layout is unlocked an item is dragged within
 // or between the two, taken out with its ✕ and put back with the Add at the end of either. The logo, Views and the
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again.
+// Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
-// A plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
+  controls: "Start and stop", lanes: "Lanes", view: "Views", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help",
+  gap1: "Spacer", gap2: "Spacer 2", gap3: "Spacer 3"};
+// Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
+// the right; three, to centre a group or split the bar three ways. Out of the bar until added.
+const BAR_GAPS = ["gap1", "gap2", "gap3"];
+// Any other plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
 const BAR_FIXED = ["brand", "view", "lock"];
-const barName = k => BAR_ITEMS[k] || plugs().find(x => x.key === k)?.label || k;
+const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEMS[k] || x?.name || x?.label || k; };
+// A plug-in that says where it goes (its place, header or footer) can be put only there (owner, 2026-11-01: "each
+// plug-in can say header, footer or both").
+const fits = (k, foot) => { const p = plugs().find(x => x.key === k)?.place; return !p || p === (foot ? "footer" : "header"); };
 function barOf() {
-  const b = shownView().bar || {}, mine = Object.keys(BAR_ITEMS), all = [...mine, ...plugs().map(x => x.key)];
-  const foot = (b.foot || []).filter(k => all.includes(k)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
-  const head = (b.head || []).filter(k => all.includes(k) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
-  // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order
-  for (const [i, k] of mine.entries()) if (!placed(k)) head.splice(head.indexOf(mine[i - 1]) + 1, 0, k);
+  const b = shownView().bar || {}, mine = Object.keys(BAR_ITEMS), all = [...new Set([...mine, ...plugs().map(x => x.key)])];
+  const foot = (b.foot || []).filter(k => all.includes(k) && fits(k, true)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
+  const head = (b.head || []).filter(k => all.includes(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
+  // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
+  // or at the footer's end if it can only go there
+  for (const [i, k] of mine.entries()) if (BAR_GAPS.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
   return {head, foot, off: [...off, ...all.filter(k => !mine.includes(k) && !placed(k))]};
 }
-// each plug-in drawn as a stat, as Week and Disk are: its label over its value, its title on a rest
+// Each plug-in drawn as a stat: its label over its value, or with a meter or a sparkline, "Label: value" over it; its
+// title on a rest. A colour is a CSS colour or one of the page's own by name.
+const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
+const plugColour = c => PLUG_COLOUR[c] || c || "";
 function drawPlugs() {
   const keys = plugs().map(x => x.key);
-  document.querySelectorAll('.bi[data-item^="x:"]').forEach(e => keys.includes(e.dataset.item) || e.remove());
+  document.querySelectorAll(".bi.plug").forEach(e => keys.includes(e.dataset.item) || e.remove());
   for (const x of plugs()) {
     if (!$(`.bi[data-item="${x.key}"]`)) $("#barbin").insertAdjacentHTML("beforeend", `<div class="bi plug" data-item="${esc(x.key)}"><div class="stat">` +
-      `<div class="k"></div><div class="v"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>`);
-    const e = $(`.bi[data-item="${x.key}"]`);
-    e.querySelector(".k").textContent = x.label; e.querySelector(".v").textContent = x.value;
-    e.querySelector(".v").style.color = x.colour; e.querySelector(".stat").title = x.title;
+      `<div class="k"><span class="lab"></span><span class="kv"></span></div><div class="v"></div><div class="meter"><i></i><u></u></div><div class="pspark"></div></div>` +
+      (BAR_FIXED.includes(x.key) ? "" : `<i class="bx" title="Take this out of the bar">✕</i>`) + `</div>`);
+    const e = $(`.bi[data-item="${x.key}"]`), st = e.querySelector(".stat"), m = x.meter, inline = !!(m || x.spark);
+    // Session shows only when Settings shows the session limit
+    st.style.display = x.hidden || x.key === "session" && settings().session !== "on" ? "none" : "";
+    st.title = x.title;
+    st.classList.toggle("slim", !!x.slim);
+    const parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
+    const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); return b; });
+    e.querySelector(".lab").textContent = x.label;
+    e.querySelector(".kv").replaceChildren(...(inline && els.length ? [...(x.label ? [": "] : []), ...els] : []));
+    e.querySelector(".k").style.display = x.label || inline && els.length ? "" : "none";
+    e.querySelector(".v").replaceChildren(...(inline ? [] : els));
+    e.querySelector(".v").style.display = inline ? "none" : "";
+    const mt = e.querySelector(".meter");
+    mt.style.display = m ? "" : "none";
+    if (m) {
+      mt.querySelector("i").style.cssText = `width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
+      mt.querySelector("u").style.cssText = m.mark == null ? "display:none" : `left:calc(${m.mark}% - 1px)`;
+    }
+    const sp = e.querySelector(".pspark"), was = sp.dataset.s, now = x.spark ? x.spark.join() : "";
+    sp.style.display = x.spark ? "" : "none";
+    if (was !== now) { sp.dataset.s = now; sp.innerHTML = x.spark ? spark(x.spark, Math.max(1, ...x.spark), "currentColor") : ""; }
   }
 }
 const saveBar = b => { const v = views(); v.views[v.at].bar = b; saveViews(v); };
@@ -3300,13 +3379,16 @@ function placeBar() {
   const b = barOf(), edit = barEditing();
   for (const [box, keys] of [[$("header"), b.head], [$("footer"), b.foot], [$("#barbin"), b.off]]) {
     if ([...box.querySelectorAll(":scope > .bi")].map(e => e.dataset.item).join() !== keys.join())
-      for (const k of keys) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
+      for (const k of keys) if ($(`.bi[data-item="${k}"]`)) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
     if (box.id !== "barbin") box.classList.toggle("editing", edit);
+    // bare: nothing in it shows, only spacers or items hidden for now (Session while Settings hides it, Disk with nothing to watch)
+    if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
-    const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && b.off.length ? b.off.join() : "";
+    const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"));
+    const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
     if (plus && plus.dataset.k !== want) plus.remove();
     if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<select class="barplus" data-k="${want}" title="Put an item back">` +
-      `<option value="">Add…</option>${b.off.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
+      `<option value="">Add…</option>${can.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
   }
 }
 document.addEventListener("click", e => {
@@ -3331,7 +3413,7 @@ document.addEventListener("dragstart", e => {
 });
 document.addEventListener("dragover", e => {
   const box = barDrag && e.target.closest?.("header.editing, footer.editing");
-  if (!box) return;
+  if (!box || !fits(barDrag.dataset.item, box.tagName === "FOOTER")) return;
   e.preventDefault();
   const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(x => { const r = x.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
   const to = at || box.querySelector(":scope > .barplus");
@@ -3759,6 +3841,22 @@ async function loadFiles() {
       fileDocs[p] = r.ok ? {text: await r.text()} : {status: r.status};
     } catch (e) {}
   }));
+}
+// Where each part of a pane was scrolled to, put back after a redraw: a part that is replaced, or moved as a kept feed
+// is, comes back at its top (owner, 2026-11-01: "sometimes when I click the padlock both panes scroll to the very top").
+const scrollKey = e => (e.closest("[data-name]")?.dataset.name || "") + "|" + e.className + "|" + (e.dataset.key || "");
+function scrolls(root) {
+  const m = new Map();
+  root.querySelectorAll("*").forEach(e => { if (e.scrollTop > 0) m.set(scrollKey(e), e.scrollTop); });
+  return m;
+}
+function unscroll(root, m) {
+  if (!m.size) return;
+  root.querySelectorAll("*").forEach(e => {
+    const k = scrollKey(e);
+    if (m.has(k) && e.scrollTop !== m.get(k)) e.scrollTop = m.get(k);
+    if (m.has(k) && e.matches(".feed")) paneFeeds.add(e);
+  });
 }
 // A pane's conversation stays at its newest turn unless it has been scrolled up.
 const atEnd = f => f.scrollHeight - f.scrollTop - f.clientHeight < 40;
@@ -4916,7 +5014,7 @@ def self_test():
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
                  ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
                  TEAM_UP=T + "/state/team-up", TEAM_START_LOG=T + "/state/team-start.log",
-                 TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused")
+                 TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
         with open(T + "/roster.json", "w") as f:
             json.dump({"agents": [
                 {"name": "Lea", "email": "lea@proj.local", "role": "delivery-lead", "status": "active"},
@@ -5158,6 +5256,63 @@ def self_test():
         t("  then what it printed: a line under its file name, JSON as given, and a failure as ? with its reason",
           [(x["key"], x["label"], x["value"], x["colour"], x["title"]) for x in plugins()],
           [("x:bad", "bad", "?", "", "bad: nope"), ("x:load", "load", "0.42", "", ""), ("x:prs", "PRs", "3", "red", "")])
+        t("  JSON's parts, meter, sparkline, pace and hiding, each bounded",
+          plug_item({"value": ["a", {"text": "b", "colour": "red", "bold": 1}], "meter": {"pct": 140, "mark": "x"}, "spark": [1, -2, "z"],
+                     "every": 1, "hidden": True}, "n"),
+          {"label": "n", "title": "", "colour": "", "parts": [{"text": "a", "colour": "", "bold": False}, {"text": "b", "colour": "red", "bold": True}],
+           "value": "ab", "meter": {"pct": 100, "mark": None, "colour": ""}, "spark": [1, 0, 0], "every": 2, "hidden": True})
+        t("  and a meter with no pct is none", "meter" in plug_item({"meter": {"mark": 5}}, "n"), False)
+        # the harness's own, keyed by their bare names, given the page's numbers on their input
+        os.makedirs(T + "/shipped")
+        with open(T + "/shipped/echo", "w") as fh:
+            fh.write("#!/bin/sh\ncat > " + T + "/facts\necho on\n")
+        os.chmod(T + "/shipped/echo", 0o755)
+        _plugged.clear()
+        plugins({"week": 70, "agents": [{"name": "Ada", "series": [1, 2]}]})
+        wait_for(lambda: not _plugging, 5, 0.1)
+        t("a harness plug-in is keyed by its bare name and is given the page's numbers",
+          ([x["key"] for x in plugins()][0], json.load(open(T + "/facts"))), ("echo", {"week": 70, "agents": [{"name": "Ada", "series": [1, 2]}]}))
+        t("  and the facts it is given are the page's numbers, and each agent's state and activity only",
+          sorted(bar_facts({"week": 1, "tabs": [], "agents": [{"name": "A", "status": "busy", "rate": 3, "series": [1], "convo": "x"}]})),
+          ["agents", "day", "disk", "even", "now", "plan", "session", "week"])
+        _plugged[T + "/shipped/echo"]["every"], _plugged[T + "/shipped/echo"]["at"] = 30, time.time() - 20
+        plugins()
+        t("  run again only once its own pace has passed", T + "/shipped/echo" in _plugging, False)
+        bar = os.path.join(ROOT, "team", "bar")
+        sh = lambda f, facts: json.loads(subprocess.run([os.path.join(bar, f)], input=json.dumps(facts), capture_output=True, text=True).stdout)
+        txt = lambda j: "".join(p if isinstance(p, str) else p["text"] for p in j["value"]) if isinstance(j["value"], list) else j["value"]
+        day = {"used": 12, "quota": 15, "from": 58}
+        t("team/bar/week: with a day open, the week and the day's use, marked at the day's stop",
+          (txt(w := sh("week", {"week": 70, "plan": 85, "day": day})), w["meter"]["mark"], w["value"][0]["colour"]), ("70% - Day: 12%", 73, "green"))
+        t("  red once the day has spent past its share", sh("week", {"week": 74, "plan": 85, "day": {**day, "used": 16}})["value"][0]["colour"], "red")
+        t("  with none, the week against the plan: green on it",
+          (txt(w := sh("week", {"week": 40, "plan": 44, "even": 50})), w["meter"]["mark"], w["value"][0]["colour"]), ("40% of 44% planned", 44, "green"))
+        t("  amber spending the contingency, red past an even share",
+          [sh("week", {"week": v, "plan": 44, "even": 50})["value"][0]["colour"] for v in (46, 52)], ["amber", "red"])
+        t("  and says when there is no reading", txt(sh("week", {"week": None})), "no reading")
+        t("team/bar/session: amber from 75, red from 90", [sh("session", {"session": v})["value"][0]["colour"] for v in (74, 75, 90)], ["green", "amber", "red"])
+        t("team/bar/team: the running agents' activity added up, and their rate",
+          ((j := sh("team", {"agents": [{"rate": 1200, "series": [1, 2]}, {"rate": 300, "series": [3, 4]}]}))["spark"], txt(j)), ([4, 6], "1.5k tok/min"))
+        t("  and no rate with none running", txt(sh("team", {"agents": []})), "")
+        dk = {"label": "/", "free_gb": 30, "total_gb": 1000, "warn": 40, "alert": 20}
+        t("team/bar/disk: what is free, amber under the warning", (sh("disk", {"disk": dk})["label"], txt(sh("disk", {"disk": dk})),
+          sh("disk", {"disk": dk})["value"][0]["colour"]), ("/ free", "30 GB of 1000", "amber"))
+        t("  and hidden with nothing to watch", sh("disk", {"disk": None})["hidden"], True)
+        t("the tall four go in the header only, the slim ones either",
+          {f: sh(f, {"week": 1, "disk": dk, "day": day}).get("place") for f in ("week", "session", "team", "disk", "weekbar", "daybar", "tokbar", "diskbar")},
+          {"week": "header", "session": "header", "team": "header", "disk": "header", "weekbar": None, "daybar": None, "tokbar": None, "diskbar": None})
+        t("team/bar/weekbar: slim, the week alone, marked at the day's stop",
+          ((w := sh("weekbar", {"week": 70, "plan": 85, "day": day}))["slim"], w["label"], txt(w), w["meter"]["mark"]), (True, "Week", "70%", 73))
+        t("team/bar/daybar: the day's share used, red once past it, hidden with none open",
+          ((d := sh("daybar", {"day": day}))["meter"]["pct"], txt(d), sh("daybar", {"day": {**day, "used": 16}})["value"][0]["colour"],
+           sh("daybar", {"day": None})["hidden"]), (80, "12%", "red", True))
+        t("team/bar/tokbar: the sparkline alone, no text", ((j := sh("tokbar", {"agents": [{"rate": 5, "series": [1, 2]}]}))["label"], j["spark"],
+          "value" in j), ("", [1, 2], False))
+        t("team/bar/diskbar: the disk named and the space used, amber under the warning",
+          ((j := sh("diskbar", {"disk": dk}))["label"], j["value"], round(j["meter"]["pct"]), j["meter"]["colour"]), ("Disk", "/", 97, "amber"))
+        t("a plug-in's slim, name and place are kept, and a place other than header or footer is none",
+          [plug_item({"label": "", "slim": True, "name": "N", "place": "footer"}, "n"), "place" in plug_item({"place": "top"}, "n")],
+          [{"label": "", "title": "", "colour": "", "value": "", "slim": True, "name": "N", "place": "footer"}, False])
     finally:
         for k in kids:
             k.kill()

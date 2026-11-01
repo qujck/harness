@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Tok/min bar: Team's sparkline alone on one low line (team/bar/team), the tokens a minute in its title."""
+import json
+import sys
+
+agents = json.load(sys.stdin).get("agents") or []
+team = [sum(x) for x in zip(*[a["series"] for a in agents if a.get("series")])]
+rate = sum(a.get("rate") or 0 for a in agents)
+print(json.dumps({"label": "", "name": "Tok/min bar", "slim": True, "every": 3, "spark": team,
+                  "title": f"{rate} tokens a minute, every running agent together"}))

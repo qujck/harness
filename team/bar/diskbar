@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Disk bar: Disk's slim form (team/bar/disk), "Disk: /" beside a short meter of the space used; amber under
+AGENTS_DASH_DISK_WARN GB free, red under AGENTS_DASH_DISK_ALERT, the numbers in its title. Hidden with nothing to watch."""
+import json
+import sys
+
+d = json.load(sys.stdin).get("disk")
+if not d or d.get("free_gb") is None or not d.get("total_gb"):
+    print(json.dumps({"hidden": True, "name": "Disk bar"}))
+else:
+    f, t = d["free_gb"], d["total_gb"]
+    c = "red" if f < d["alert"] else "amber" if f < d["warn"] else ""
+    print(json.dumps({"label": "Disk", "value": d["label"], "name": "Disk bar", "slim": True, "every": 30, "title": f"{d['label']}: {f} GB free of {t}",
+                      "meter": {"pct": 100 * (t - f) / t, "mark": None, "colour": c}}))
