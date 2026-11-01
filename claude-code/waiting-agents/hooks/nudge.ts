@@ -156,7 +156,8 @@ export function nudgeText(count: number, idle: readonly Idle[], thresholdS: numb
 // team developed on past 16 of 15 (owner: "We're missing the signal"). So the lead's session asks every minute and,
 // the first time a day reads over, queues one prompt and hands the nudger to the head of testing; when the next
 // development day opens it hands it back. `day` is the day's start (the first field of the budget's state file),
-// so each day trips once, a restart included.
+// so each day trips once, a restart included. The lead starts the verification day itself: the owner, the same evening,
+// "I can't approve starting every verification day".
 export type DayTrip = { day: string; switched: boolean }
 
 export type DayVerdict = { alert: boolean; target?: 'lead' | 'testing'; store?: DayTrip }
@@ -179,6 +180,7 @@ export function dayTripText(statusLine: string): string {
   return '[Automated alert from the waiting-agents mod, not from the owner.] The development day is over: '
     + `${statusLine.replace(/^day  over: /, '').replace(/: write your durable record and pause$/, '')}. `
     + 'As delivery lead, pause the team now (docs/runbooks/development-and-verification-days.md §3): tell every live agent '
-    + 'to write its durable record and pause where it stands; armed PRs stay armed; the head of testing starts the '
-    + 'verification day (bash scripts/dev-day.sh start verification). The nudger now nudges the head of testing.'
+    + 'to write its durable record and pause where it stands; armed PRs stay armed; then start the verification day '
+    + 'yourself (bash scripts/dev-day.sh start verification), without asking the owner or waiting for the head of '
+    + 'testing. The nudger now nudges the head of testing.'
 }
