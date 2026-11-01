@@ -37,8 +37,13 @@
 # plus tmux and the tail of each agent's transcript. The claims board is read from the panel's cache; once that
 # is a minute old the page reads the ledger again in the background.
 #
+# ON A PHONE. A Cloudflare tunnel on this machine can carry the page to a public name behind a Cloudflare Access
+# login: AGENT_WEB_PUBLIC_HOST (that name), AGENT_WEB_ACCESS_TEAM (the <team> of <team>.cloudflareaccess.com) and
+# AGENT_WEB_ACCESS_AUD (the Access application's audience tag). A request under the name is answered only with
+# Access's signed token for that application; with any of the three unset the name is refused. Needs openssl too.
+#
 # Settings, in harness.env: AGENT_WEB_PORT, AGENT_OWNER_NAME (how the owner's messages are labelled),
-# AGENT_COLOUR_<ROLE>, and the budget's and the panel's own. Needs python3 (standard library only) and tmux.
+# AGENT_COLOUR_<ROLE>, the three above, and the budget's and the panel's own. Needs python3 (standard library only) and tmux.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../scripts/lib/selftest-flag.sh
