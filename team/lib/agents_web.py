@@ -5386,10 +5386,12 @@ def self_test():
         t("team/bar/weekbar: slim, the week alone, marked at the day's stop",
           ((w := sh("weekbar", {"week": 70, "plan": 85, "day": day}))["slim"], w["label"], txt(w), w["meter"]["mark"]), (True, "Week", "70%", 73))
         gap = {"used": 2, "quota": None, "from": 74}
-        t("between days: Week counts the verification day, plan-coloured, the bars too, with no meter on the day",
+        t("between days: the verification day is a day whose share runs to the week's plan, in the header and both bars",
           (txt(sh("week", {"week": 76, "plan": 85, "day": gap})), sh("week", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"],
-           sh("weekbar", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"], (d := sh("daybar", {"day": gap}))["label"], txt(d), "meter" in d),
-          ("76% - Verify: 2%", 85, 85, "Verify", "2%", False))
+           sh("weekbar", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"], (d := sh("daybar", {"plan": 85, "day": gap}))["label"], txt(d),
+           round(d["meter"]["pct"]), d["value"][0]["colour"], sh("daybar", {"plan": 85, "day": {**gap, "used": 12}})["value"][0]["colour"]),
+          ("76% - Day: 2%", 85, 85, "Day", "2%", 18, "green", "red"))
+        t("  and with no plan, hidden like no day at all", sh("daybar", {"day": gap})["hidden"], True)
         t("team/bar/daybar: the day's share used, red once past it, hidden with none open",
           ((d := sh("daybar", {"day": day}))["meter"]["pct"], txt(d), sh("daybar", {"day": {**day, "used": 16}})["value"][0]["colour"],
            sh("daybar", {"day": None})["hidden"]), (80, "12%", "red", True))

@@ -3,13 +3,14 @@
 with the page's numbers on its input). Green on the plan, amber while the week's contingency is being spent, red past
 an even share of the whole allowance. While a development day is open (team/agents-day-budget.sh), the day instead:
 "Week: 70% - Day: 12%", marked where the week stood when the day started plus its share, amber with 1% of it left, red once spent past it.
-Between days (in strength, the verification day) it counts what that has spent: "Week: 74% - Verify: 0%"."""
+Between days (in strength, the verification day) that counts as a day whose share runs to the week's plan."""
 import json
 import sys
 
 s = json.load(sys.stdin)
 w, dy = s.get("week"), s.get("day")
-gap, dy = (dy, None) if dy and dy.get("quota") is None else (None, dy)   # between days: no share to stop at
+if dy and dy.get("quota") is None:   # between days (the verification day): its share is the room left to the week's plan
+    dy = {**dy, "quota": max(s["plan"] - dy["from"], 0)} if s.get("plan") is not None else None
 p = dy["from"] + dy["quota"] if dy else s.get("plan")
 over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w >= p
 spare = not dy and over and s.get("even") is not None and w < s["even"]
@@ -20,9 +21,6 @@ if w is None:
 elif dy:
     value = [{"text": f"{w}%", "colour": c, "bold": True}, " - Day: ", {"text": f"{dy['used']}%", "colour": c, "bold": True}]
     title = f"The day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%, so it stops past {p}%)"
-elif gap:
-    value = [{"text": f"{w}%", "colour": c, "bold": True}, " - Verify: ", {"text": f"{gap['used']}%", "bold": True}]
-    title = f"Between development days (the verification day): {gap['used']}% spent since the last day ended at {gap['from']}%"
 else:
     value = [{"text": f"{w}%", "colour": c, "bold": True}] + ([f" of {p}% planned"] if p is not None else [])
     title = "The account's week against the budget (team/agents-budget.sh)"

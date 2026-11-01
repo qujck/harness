@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Day bar: the open development day's share (team/agents-day-budget.sh) on one low line, "Day: 12%" beside a meter
 filled to how much of the share is used; amber with 1% of it left, red once spent past it.
-Between days (in strength, the verification day), "Verify: 0%": what that has spent, with no meter. Hidden otherwise."""
+Between days (in strength, the verification day), the same, its share the room left to the week's plan. Hidden otherwise."""
 import json
 import sys
 
-dy = json.load(sys.stdin).get("day")
+s = json.load(sys.stdin)
+dy = s.get("day")
+if dy and dy.get("quota") is None:   # between days (the verification day): its share is the room left to the week's plan
+    dy = {**dy, "quota": max(s["plan"] - dy["from"], 0)} if s.get("plan") is not None else None
 if not dy:
     print(json.dumps({"hidden": True, "name": "Day bar"}))
-elif dy.get("quota") is None:   # between days: what the verification day has spent, with no share to fill
-    print(json.dumps({"label": "Verify", "name": "Day bar", "slim": True, "every": 5,
-                      "value": [{"text": f"{dy['used']}%", "bold": True}],
-                      "title": f"Between development days (the verification day): {dy['used']}% spent since the last day ended at {dy['from']}%"}))
 else:
     c = "red" if dy["used"] > dy["quota"] else "amber" if dy["quota"] - dy["used"] <= 1 else "green"
     print(json.dumps({"label": "Day", "name": "Day bar", "slim": True, "every": 5,
