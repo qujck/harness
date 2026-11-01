@@ -4737,21 +4737,9 @@ if (window.visualViewport) {
     // The browser can scroll the page itself to show the box, though the page does not scroll: that lifts the footer.
     const se = document.scrollingElement;
     if (se.scrollTop) se.scrollTop = 0;
-    kbProbe();
   };
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
-// TEMPORARY (keyboard-gap hunt, 2026-11-01): the viewport's numbers, top left, for a phone screenshot.
-let kbTall = innerHeight;
-function kbProbe() {
-  kbTall = Math.max(kbTall, innerHeight);
-  let p = $("#kbprobe");
-  if (!p) { p = document.createElement("div"); p.id = "kbprobe"; p.style.cssText = "position:fixed;left:4px;top:4px;z-index:99;font:11px monospace;background:#000c;color:#0f0;padding:2px 5px;pointer-events:none;white-space:pre"; document.documentElement.append(p); }
-  const v = visualViewport, f = $("footer").getBoundingClientRect(), b = document.body.getBoundingClientRect();
-  p.textContent = `tall ${kbTall} inner ${innerHeight} vv ${Math.round(v.height)}+${Math.round(v.offsetTop)} x${v.scale.toFixed(2)}\n` +
-    `html ${document.documentElement.clientHeight} body ${Math.round(b.top)}..${Math.round(b.bottom)} foot ..${Math.round(f.bottom)} scroll ${document.scrollingElement.scrollTop}`;
-}
-if (window.visualViewport) addEventListener("resize", kbProbe);
 
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
