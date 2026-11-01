@@ -9,8 +9,9 @@ w, dy = s.get("week"), s.get("day")
 p = dy["from"] + dy["quota"] if dy else s.get("plan")
 over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w >= p
 spare = not dy and over and s.get("even") is not None and w < s["even"]
-c = "amber" if spare else "red" if over else "green"
+last = dy and not over and dy["quota"] - dy["used"] <= 1   # the day's last 1%
+c = "amber" if spare or last else "red" if over else "green"
 print(json.dumps({"label": "Week", "name": "Week bar", "slim": True, "every": 5,
                   "value": [{"text": f"{w}%" if w is not None else "?", "colour": c, "bold": True}],
                   "title": f"The account's week: {w}% used, stop at {p}%" if w is not None else "No reading of the account's week yet",
-                  "meter": {"pct": w or 0, "mark": p, "colour": c if over else ""}}))
+                  "meter": {"pct": w or 0, "mark": p, "colour": c if over or last else ""}}))

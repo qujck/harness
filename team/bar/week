@@ -2,7 +2,7 @@
 """Week: the account's weekly use against the budget, a bar item for the team page (team/lib/agents_web.py runs it
 with the page's numbers on its input). Green on the plan, amber while the week's contingency is being spent, red past
 an even share of the whole allowance. While a development day is open (team/agents-day-budget.sh), the day instead:
-"Week: 70% - Day: 12%", marked where the week stood when the day started plus its share, red once spent past it."""
+"Week: 70% - Day: 12%", marked where the week stood when the day started plus its share, amber with 1% of it left, red once spent past it."""
 import json
 import sys
 
@@ -11,7 +11,8 @@ w, dy = s.get("week"), s.get("day")
 p = dy["from"] + dy["quota"] if dy else s.get("plan")
 over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w >= p
 spare = not dy and over and s.get("even") is not None and w < s["even"]
-c = "amber" if spare else "red" if over else "green"
+last = dy and not over and dy["quota"] - dy["used"] <= 1   # the day's last 1%
+c = "amber" if spare or last else "red" if over else "green"
 if w is None:
     value, title = ["no reading"], "No reading of the account's week yet"
 elif dy:
@@ -21,4 +22,4 @@ else:
     value = [{"text": f"{w}%", "colour": c, "bold": True}] + ([f" of {p}% planned"] if p is not None else [])
     title = "The account's week against the budget (team/agents-budget.sh)"
 print(json.dumps({"place": "header", "label": "Week", "value": value, "title": title, "every": 5,
-                  "meter": {"pct": w or 0, "mark": p, "colour": c if over else ""}}))
+                  "meter": {"pct": w or 0, "mark": p, "colour": c if over or last else ""}}))

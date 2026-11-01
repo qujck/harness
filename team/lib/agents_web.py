@@ -2567,6 +2567,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   :is(#detail:not(.docked),html.only #detail) .box{grid-template-rows:auto minmax(0,1fr)}   /* no row of others: only a docked view has one */
   :is(#detail:not(.docked),html.only #detail) .box .left{grid-row:2 !important}
   #detail .termwrap,#detail .head :is(.termseg,.railseg),#detail .head .facts{display:none}
+  #detail #dhead .lanes{margin-left:auto}   /* the facts, hidden, were what pushed it and the ✕ to the right */
   #detail .box .conv{padding-right:16px}
   #detail .box .sayrow{margin-right:14px !important}
   .card.full.term .feed{padding-right:0}
@@ -4072,8 +4073,9 @@ function customClicks() {
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
     box() ? aim(box()) : openDetail(name);
   };
-  // an agent that is not running has nothing to open: a click on its row or tile opens its menu instead
-  const open = m => m.classList.contains("off") ? menuSoon(m, 0) : (menuOff(true), goTo(m.dataset.name));
+  // an agent that is not running has nothing to open: a click on its row or tile opens its menu instead, as a tap
+  // does on a touch screen, where nothing rests on it (the menu's Open goes to it)
+  const open = m => m.classList.contains("off") || touched ? menuSoon(m, 0) : (menuOff(true), goTo(m.dataset.name));
   main.querySelectorAll(".others .mini").forEach(m => {
     m.onclick = () => open(m);
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
@@ -4086,7 +4088,7 @@ function customClicks() {
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
   menuGo = goTo;
-  main.querySelectorAll(".teamlog .thead .name").forEach(el => el.onclick = () => goTo(el.dataset.name));
+  main.querySelectorAll(".teamlog:not(.combined) .thead .name").forEach(el => el.onclick = () => goTo(el.dataset.name));   // a Combined pane's are above
   // in a Combined pane's header a double-click on an agent opens the chat with it; a single click, once it is plainly
   // not the first of two, does what it does anywhere else
   main.querySelectorAll(".combined .cnames [data-name]").forEach(el => {
@@ -4264,7 +4266,7 @@ function rail() {
   markSeen(S.agents.filter(a => !seen[a.name] || a.name === open).map(a => a.name));
   patch($("#drail"), minis(open));
   document.querySelectorAll("#drail .mini").forEach(m => {
-    m.onclick = m.matches(".cur") ? null : () => m.matches(".off") ? menuSoon(m, 0) : (menuOff(true), openDetail(m.dataset.name));
+    m.onclick = m.matches(".cur") ? null : () => m.matches(".off") || touched ? menuSoon(m, 0) : (menuOff(true), openDetail(m.dataset.name));
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
@@ -4967,7 +4969,11 @@ function chatWith(path, name) {
   saveLayout(l); draw();
   if (name) aim($(`#main .pane[data-path="${path}"] .chat .say`));
 }
+// Whether the last press was a finger. A tap sends mouseenter too, and a rest's menu must not open on it.
+let touched = false;
+document.addEventListener("pointerdown", e => { touched = e.pointerType === "touch"; }, true);
 function menuSoon(el, wait) {
+  if (wait > 0 && touched) return;
   clearTimeout(menuShow); clearTimeout(menuHide);
   // A redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner.
   menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, wait > 0), wait);
@@ -5344,6 +5350,9 @@ def self_test():
         t("team/bar/week: with a day open, the week and the day's use, marked at the day's stop",
           (txt(w := sh("week", {"week": 70, "plan": 85, "day": day})), w["meter"]["mark"], w["value"][0]["colour"]), ("70% - Day: 12%", 73, "green"))
         t("  red once the day has spent past its share", sh("week", {"week": 74, "plan": 85, "day": {**day, "used": 16}})["value"][0]["colour"], "red")
+        t("  amber with 1% of the day's share left, green with 2%",
+          [sh(f, {"week": 72, "plan": 85, "day": {**day, "used": u}})["value"][0]["colour"] for f in ("week", "weekbar", "daybar") for u in (13, 14, 15)],
+          ["green", "amber", "amber"] * 3)
         t("  with none, the week against the plan: green on it",
           (txt(w := sh("week", {"week": 40, "plan": 44, "even": 50})), w["meter"]["mark"], w["value"][0]["colour"]), ("40% of 44% planned", 44, "green"))
         t("  amber spending the contingency, red past an even share",
