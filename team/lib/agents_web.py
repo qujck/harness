@@ -3026,7 +3026,8 @@ function draw() {
   const dy = S.day, w = S.week, p = dy ? dy.from + dy.quota : S.plan, over = dy ? dy.used > dy.quota : w != null && p != null && w >= p;
   // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
   const spare = !dy && over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
-  $("#weektxt").innerHTML = w == null ? ": no reading" : `: <b style="color:${wc}">${w}%</b>${dy ? ` · day: ${dy.used} of ${dy.quota}%` : p != null ? ` of ${p}% planned` : ""}`;
+  $("#weektxt").innerHTML = w == null ? ": no reading" : `: <b style="color:${wc}">${w}%</b>${dy ? ` - Day: <b style="color:${wc}">${dy.used}%</b>` : p != null ? ` of ${p}% planned` : ""}`;
+  $("#weektxt").title = dy ? `The day has used ${dy.used} of its ${dy.quota}% (the week from ${dy.from}%, so it stops past ${dy.from + dy.quota}%)` : "";
   $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
   // the five-hour session's use, when Settings shows it: amber from 75%, red from 90%
