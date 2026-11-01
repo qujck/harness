@@ -6,6 +6,7 @@ import sys
 
 s = json.load(sys.stdin)
 w, dy = s.get("week"), s.get("day")
+gap, dy = (dy, None) if dy and dy.get("quota") is None else (None, dy)   # between days: no share to stop at
 p = dy["from"] + dy["quota"] if dy else s.get("plan")
 over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w >= p
 spare = not dy and over and s.get("even") is not None and w < s["even"]
