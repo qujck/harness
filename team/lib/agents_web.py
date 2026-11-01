@@ -969,6 +969,7 @@ SEPARATOR = re.compile(r"^\s*[╌─━]{10,}\s*$")
 TOP_RULE = re.compile(r"^\s*[─━]{10,}\s*$")
 OPTION = re.compile(r"^\s*(?:❯\s*)?(\d+)\.\s+(.*\S)")
 SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that ends a multi-select question
+PREVIEW = re.compile(r"\s{2,}[┌│└].*$")   # a question with previews draws the cursor's option's preview to the right of the options
 CHECKBOX = re.compile(r"^\[[ ✔]\]\s?")   # a multi-select option's tick box
 DIM = re.compile(r"\x1b\[2m.*?\x1b\[(?:0|22)?m")   # a dim run: an empty field's placeholder
 ESCAPES = re.compile(r"\x1b\[[0-9;:?]*[A-Za-z]")
@@ -981,7 +982,9 @@ def ask_of(pane):
     heading and command; the dashed rules inside it become gaps. Its options are numbered from 1, each with its
     label; "Type something." is a field the owner's own words go into ("typed"). A multi-select question's options
     keep their tick boxes in their labels, its field is the one just above its Submit row, and Submit is an option
-    numbered 0. None when no numbered options are on screen."""
+    numbered 0. A question with previews ("preview") draws the one for the option under the cursor beside the
+    options; it is cut from their labels, which would otherwise change as the cursor moves. None when no numbered
+    options are on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l)]
     if not opts:
@@ -1001,17 +1004,18 @@ def ask_of(pane):
     # a field under the cursor shows what is written in it, not its placeholder, and the footer then offers an editor
     editing = "ctrl+g to edit" in lines[end - 1]
     options, rows = [], [boxed.sub("", l) for l in lines[first:end]]
+    preview = any(PREVIEW.search(l) for l in rows)
     for i, l in enumerate(rows):
         if SUBMIT_ROW.match(l):
             options.append({"n": 0, "label": "Submit", "typed": False})
             continue
         m, n = OPTION.match(l), sum(1 for o in options if o["n"]) + 1
         if m and int(m.group(1)) == n:
-            label = m.group(2)
+            label = PREVIEW.sub("", m.group(2))
             typed = (label.startswith("Type something") or editing and l.lstrip().startswith("❯")
                      or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
             options.append({"n": n, "label": label, "typed": typed})
-    return {"text": text, "options": options}
+    return {"text": text, "options": options, **({"preview": True} if preview else {})}
 
 
 def by_lane(items, n):
@@ -1224,6 +1228,15 @@ def answer(name, n, label, text):
             if o["typed"] and o["n"] != n and field_of(pane, o["n"]) is not None:
                 if not clear(o["n"]) or not key("Up") or not wait_for(lambda: field_of(pane, o["n"]) is None, 1, 0.1):
                     return 500, "the pane's cursor is stuck in another answer's field: nothing was sent"
+        if not opt["typed"] and ask.get("preview"):
+            # a question with previews is answered by Enter on the option, the cursor taken to it first; the
+            # preview beside it changes as it moves, so the test for the prompt closing is taken after
+            if not move_to(n):
+                return 500, f"the cursor did not reach option {n}: nothing was sent"
+            closed = gone()
+            if not key("Enter") or not wait_for(closed, 3, 0.2):
+                return 500, f"option {n} was not taken"
+            return 200, "chosen"
         if not opt["typed"]:
             closed = gone()
             if not key("-l", str(n)) or not wait_for(closed, 3, 0.2):
@@ -4804,6 +4817,17 @@ def self_test():
           code("/api/paste", "POST", {"Content-Type": "application/octet-stream", "X-Team-Say": "1"}, b"x")[0], 400)
         t("  and a name cannot climb out of the folder", os.path.dirname(up({"Content-Type": "", "X-File-Name": "..%2F..%2Fevil.sh"}).get("path", "")), T + "/pasted")
         server.shutdown()
+        # a question with previews, as the pane draws it: the preview of the option under the cursor beside the options
+        shot = ("─" * 60 + "\n ☐ Test\n\nWhich footer?\n\n❯ 1. Footer empty        ┌──────────────────┐\n"
+                "    (Recommended)        │ header: everything │\n  2. Bench in footer     │ footer: empty      │\n"
+                "                         └──────────────────┘\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n")
+        was_run, g["run"] = g["run"], lambda *cmd, **kw: shot if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            ask = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("a question with previews keeps the preview out of its options' labels, and says it has them",
+          ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
     finally:
         for k in kids:
             k.kill()
