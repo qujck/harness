@@ -1896,7 +1896,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
-.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab}
+.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab;touch-action:none}
 .editing > .bi.tight + .bi.tight{margin-left:0}
 .editing > .bi.dragging{opacity:.4}
 .editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
@@ -3412,20 +3412,36 @@ document.addEventListener("dragstart", e => {
   if (!b) return;
   barDrag = b; b.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "");
 });
-document.addEventListener("dragover", e => {
-  const box = barDrag && e.target.closest?.("header.editing, footer.editing");
-  if (!box || !fits(barDrag.dataset.item, box.tagName === "FOOTER")) return;
-  e.preventDefault();
-  const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(x => { const r = x.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
+// whether the dragged item may go where the pointer is, having moved it there if so
+function barOver(target, x) {
+  const box = barDrag && target?.closest?.("header.editing, footer.editing");
+  if (!box || !fits(barDrag.dataset.item, box.tagName === "FOOTER")) return false;
+  const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(b => { const r = b.getBoundingClientRect(); return x < r.left + r.width / 2; });
   const to = at || box.querySelector(":scope > .barplus");
   if (barDrag.parentElement !== box || barDrag.nextElementSibling !== to) box.insertBefore(barDrag, to);
-});
-document.addEventListener("drop", e => { if (barDrag) e.preventDefault(); });
-document.addEventListener("dragend", () => {
+  return true;
+}
+function barDropped() {
   if (!barDrag) return;
   barDrag.classList.remove("dragging"); barDrag = null;
   const keys = sel => [...$(sel).querySelectorAll(":scope > .bi")].map(x => x.dataset.item);
   saveBar({head: keys("header"), foot: keys("footer"), off: barOf().off}); draw();
+}
+document.addEventListener("dragover", e => { if (barOver(e.target, e.clientX)) e.preventDefault(); });
+document.addEventListener("drop", e => { if (barDrag) e.preventDefault(); });
+document.addEventListener("dragend", barDropped);
+// a finger: a phone starts no drag from a touch, so the item follows the touch itself (owner, 2026-11-01: "drag and
+// drop not working with touch")
+document.addEventListener("pointerdown", e => {
+  const b = e.pointerType === "touch" && !e.target.closest(".bx, select") && e.target.closest(".editing > .bi");
+  if (!b || b.closest("#barbin")) return;
+  e.preventDefault(); barDrag = b; b.classList.add("dragging");
+  // followed from the document: moving the item in the page would drop a capture on the item itself
+  const move = m => m.pointerId === e.pointerId && barOver(document.elementFromPoint(m.clientX, m.clientY), m.clientX);
+  const up = u => { if (u.pointerId !== e.pointerId) return;
+    document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up);
+    barDropped(); };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 });
 const saveLayout = l => { const v = views(); v.views[v.at].layout = l; saveViews(v); };
 function nodeAt(root, path) { let n = root; for (const c of path.slice(1)) n = n[c]; return n; }
