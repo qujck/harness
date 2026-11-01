@@ -47,6 +47,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -68,6 +69,7 @@ ACCESS_TEAM = (os.environ.get("AGENT_WEB_ACCESS_TEAM") or "").removeprefix("http
 ACCESS_AUD = os.environ.get("AGENT_WEB_ACCESS_AUD") or ""
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
 BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budget.sh")
+DAY_BUDGET = os.environ.get("AGENTS_DAY_BUDGET") or os.path.join(ROOT, "team/agents-day-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
 CLAUDE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
 SESSIONS = os.path.join(CLAUDE, "sessions")
@@ -434,6 +436,13 @@ def claims():
 def budget_plan():
     m = re.search(r" of (\d+)% planned", run(BUDGET))
     return int(m.group(1)) if m else None
+
+
+def day_budget():
+    """The development day open now (team/agents-day-budget.sh), as {"used", "quota", "from"}: the points the day has
+    spent, its share and the week's reading when it started. None with no day open: the week's even pacing applies."""
+    m = re.search(r"^day  (?:on|over): (\d+)% of the day's (\d+)% used \(week \d+%, from (\d+)%", run("bash", DAY_BUDGET), re.M)
+    return dict(zip(("used", "quota", "from"), map(int, m.groups()))) if m else None
 
 
 def even_plan(plan):
@@ -1395,7 +1404,7 @@ def state():
     tabs = sessions + [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     return {
-        "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan),
+        "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
         "disk": disk(), "plugins": plugins(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
@@ -3012,10 +3021,12 @@ function patchNode(a, b) {
 function draw() {
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")) return;   // nor while a tab is being named
   if (!barDrag) placeBar();
-  const w = S.week, p = S.plan, over = w != null && p != null && w >= p;
+  // While a development day is open its fixed share is the allowance, marked where the week stood when it started plus the share;
+  // spent past the share is over. With no day open, the week's even plan.
+  const dy = S.day, w = S.week, p = dy ? dy.from + dy.quota : S.plan, over = dy ? dy.used > dy.quota : w != null && p != null && w >= p;
   // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
-  const spare = over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
-  $("#weektxt").innerHTML = w == null ? "· no reading" : `· <b style="color:${wc}">${w}%</b>${p != null ? ` of ${p}% planned` : ""}`;
+  const spare = !dy && over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
+  $("#weektxt").innerHTML = w == null ? "· no reading" : `· <b style="color:${wc}">${w}%</b>${dy ? ` · day ${dy.used} of ${dy.quota}%` : p != null ? ` of ${p}% planned` : ""}`;
   $("#week i").style.cssText = `width:${w || 0}%;background:${over ? wc : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
   $("#week u").style.cssText = p == null ? "display:none" : `left:calc(${p}% - 1px)`;
   // the five-hour session's use, when Settings shows it: amber from 75%, red from 90%
@@ -4902,7 +4913,7 @@ def self_test():
             os.makedirs(os.path.join(T, d))
         g.update(HOME=T, PROJECT="proj", SESSIONS=T + "/sessions", PROJECTS=T + "/projects", CONTEXT_DIR=T + "/context",
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
-                 ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", PASTED=T + "/pasted", STATE_DIR=T + "/state",
+                 ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
                  TEAM_UP=T + "/state/team-up", TEAM_START_LOG=T + "/state/team-start.log",
                  TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused")
         with open(T + "/roster.json", "w") as f:
@@ -4982,6 +4993,9 @@ def self_test():
             f.write("#!/usr/bin/env bash\necho 'budget  over: week 38% used of 36% planned so far'\n")
         os.chmod(T + "/bin/tmux", 0o755)
         os.chmod(T + "/bin/budget", 0o755)
+        with open(T + "/bin/day", "w") as f:
+            f.write("#!/usr/bin/env bash\necho 'day  none: no day open'; exit 3\n")
+        os.chmod(T + "/bin/day", 0o644)   # as the script is: run with bash, not by its mode
         os.environ["PATH"] = T + "/bin:" + os.environ["PATH"]
         t("panes: the agent's own tmux session, or a claude pane titled with its name",
           {n: p["pane"] for n, p in panes().items()}, {"Ada": "%1", "Lea": "%2"})
@@ -5024,6 +5038,14 @@ def self_test():
         t("  developers and testers with no session are on the bench, and so is a stopped standing agent",
           [(b["name"], b["standing"]) for b in st["bench"]], [("Ben", False), ("Tess", False), ("Max", True)])
         t("  the week's plan and the plan shared out evenly", (st["plan"], st["even"]), (36, 40.0))
+        t("  and no day, while none is open", st["day"], None)
+        for line, want in (("day  on: 11% of the day's 15% used (week 69%, from 58% at 06:05)", {"used": 11, "quota": 15, "from": 58}),
+                           ("day  over: 16% of the day's 15% used (week 74%, from 58% at 06:05): write your durable record and pause",
+                            {"used": 16, "quota": 15, "from": 58}),
+                           ("day  cannot tell: no week reading (team/lib/week-usage.sh)", None)):
+            with open(T + "/bin/day", "w") as f:
+                f.write(f"#!/usr/bin/env bash\necho {shlex.quote(line)}\n")
+            t(f"  the day as {line.split(':')[0][5:]!r} says it", day_budget(), want)
         t("  the owner's name from AGENT_OWNER_NAME", st["owner"], "Pat")
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -5039,7 +5061,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
