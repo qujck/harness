@@ -4,6 +4,8 @@
   /                 the page: the week, the disk and every running agent on the roster, in sections by role, each
                     with its state, context, burn, ticket and the last turns of its conversation
   /api/state        everything the page draws, as JSON
+                    (and the header's and footer's plug-ins: each executable in AGENT_BAR_PLUGINS, else
+                    ~/.config/agents-web/bar, prints a line or {"label", "value", "title", "colour"}; see plugins())
   /api/team         every message between the running agents, as one transcript
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
@@ -446,6 +448,58 @@ def disk():
     return {"label": label, "free_gb": u.free // 2**30, "total_gb": u.total // 2**30,
             "warn": int(os.environ.get("AGENTS_DASH_DISK_WARN", "40")),
             "alert": int(os.environ.get("AGENTS_DASH_DISK_ALERT", "20"))}
+
+
+# Plug-ins for the page's header and footer (owner, 2026-11-01: "header should default to what we have, with other
+# options addable as plug in style scripts"): each executable file in AGENT_BAR_PLUGINS, else ~/.config/agents-web/bar,
+# is an item the page can add, named by its file name. It is run in the background at most once a minute, for at most
+# five seconds, and what it prints is the item: a line of text, under its file name, or JSON {"label", "value",
+# "title", "colour"}. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
+_plugged, _plugging = {}, set()
+
+
+def bar_dir():
+    return os.environ.get("AGENT_BAR_PLUGINS") or os.path.join(HOME, ".config", "agents-web", "bar")
+
+
+def run_plugin(path, name):
+    try:
+        p = subprocess.run([path], capture_output=True, text=True, timeout=5, cwd=os.path.dirname(path))
+        out = p.stdout.strip()
+        if p.returncode or not out:
+            raise ValueError((p.stderr.strip() or f"exit {p.returncode}, nothing printed").splitlines()[-1])
+        try:
+            j = json.loads(out) if out.startswith("{") else None
+        except json.JSONDecodeError:
+            j = None
+        j = j if isinstance(j, dict) else {"value": out.splitlines()[0]}
+        item = {"label": str(j.get("label") or name)[:40], "value": str(j.get("value", ""))[:80],
+                "title": str(j.get("title") or "")[:300], "colour": str(j.get("colour") or "")[:30]}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+        item = {"label": name[:40], "value": "?", "title": f"{name}: {e}"[:300], "colour": ""}
+    _plugged[path] = {**item, "at": time.time()}
+    _plugging.discard(path)
+
+
+def plugins():
+    """The bar's plug-ins, each as it last printed; one not yet run is "…" until its first run is in."""
+    try:
+        names = sorted(os.listdir(bar_dir()))
+    except OSError:
+        return []
+    out, now = [], time.time()
+    for f in names:
+        path, name = os.path.join(bar_dir(), f), re.sub(r"\.[A-Za-z0-9]+$", "", f)
+        key = "x:" + re.sub(r"[^a-z0-9_-]", "-", name.lower())
+        if f.startswith(".") or not os.path.isfile(path) or not os.access(path, os.X_OK):
+            continue
+        was = _plugged.get(path)
+        if (not was or now - was["at"] >= 60) and path not in _plugging:
+            _plugging.add(path)
+            threading.Thread(target=run_plugin, args=(path, name), daemon=True).start()
+        item = {k: v for k, v in (was or {"label": name, "value": "…", "title": "", "colour": ""}).items() if k != "at"}
+        out.append({"key": key, **item})
+    return out
 
 
 def panes():
@@ -1330,7 +1384,7 @@ def state():
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     return {
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan),
-        "disk": disk(),
+        "disk": disk(), "plugins": plugins(),
         "tabs": tabs,
         "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
@@ -1681,7 +1735,24 @@ PAGE = r"""<!doctype html>
 html,body{height:100%;overflow:hidden}
 body{font:calc(13px*var(--fs,1))/1.45 var(--sans);color:var(--text);background:var(--bg);display:flex;flex-direction:column;
   background-image:radial-gradient(1200px 600px at 10% -10%,var(--glow1),transparent 60%),radial-gradient(900px 500px at 110% 110%,var(--glow2),transparent 60%)}
-header{display:flex;align-items:center;gap:22px;padding:12px 18px;border-bottom:1px solid var(--line);flex:none}
+header,footer{display:flex;align-items:center;gap:22px;padding:12px 18px;flex:none}
+header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--line)}
+/* the bar's items, in the header or the footer; while the layout is unlocked each is outlined, dragged and taken out with its ✕ */
+.bi{position:relative;display:flex;align-items:center;flex:none;min-width:0}
+.bi[data-item=bench]{flex:1}
+.bi.tight + .bi.tight{margin-left:-14px}
+.bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
+.bi > .bx{display:none}
+.bi:has(> :first-child[style*="display: none"]){display:none}   /* Session or Disk while it is not shown */
+.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab}
+.editing > .bi.tight + .bi.tight{margin-left:0}
+.editing > .bi.dragging{opacity:.4}
+.editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
+  background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
+.editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
+footer:not(.editing):not(:has(.bi)){display:none}
+footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
+.barplus{margin-left:auto;flex:none;padding:3px 6px;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--mute);font:inherit}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
@@ -2062,7 +2133,7 @@ b.h{display:block;margin-top:2px;font-weight:700}
 #detail.docked{background:none;backdrop-filter:none;padding:14px;z-index:2}
 #detail.docked .box{box-shadow:none;border-radius:14px}
 #detail.docked .head .x{display:none}
-html.only header,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .x){display:none}
+html.only header,html.only footer,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .x){display:none}
 html.only #detail{background:none;backdrop-filter:none;padding:0}
 html.only #detail .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);border:0;border-radius:0;box-shadow:none}
 html.only #detail .box .left{grid-column:1;grid-row:2}
@@ -2318,16 +2389,23 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </head>
 <body>
 <header>
-  <div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div>
-  <div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div>
-  <div class="stat" id="sessstat" style="display:none"><div class="k">Session <span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div>
-  <div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div>
-  <div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div>
-  <div class="counts" id="counts"></div>
-  <div class="bench" id="bench"></div>
-  <div class="counts"><span id="teamctl"></span><span id="pagelanes"></span><span id="pagemode"></span><span class="pill btn" id="theme" title="Light or dark"></span><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b></div>
+  <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="week"><div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="session"><div class="stat" id="sessstat" style="display:none"><div class="k">Session <span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="team"><div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="disk"><div class="stat"><div class="k" id="disklab">Disk</div><div class="v" id="disk"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="view"><span id="pagemode"></span></div>
+  <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="Light or dark"></span><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="settings"><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="help"><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b><i class="bx" title="Take this out of the bar">✕</i></div>
 </header>
 <main id="main"></main>
+<footer></footer>
+<div id="barbin" hidden></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
@@ -2830,6 +2908,7 @@ function patchNode(a, b) {
 
 function draw() {
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")) return;   // nor while a tab is being named
+  if (!barDrag) placeBar();
   const w = S.week, p = S.plan, over = w != null && p != null && w >= p;
   // At or over the plan but short of the whole allowance shared out evenly is spending the week's contingency: amber; at or past that, red.
   const spare = over && S.even != null && w < S.even, wc = spare ? "var(--amber)" : over ? "var(--red)" : "var(--green)";
@@ -3064,6 +3143,85 @@ function views() {
 const saveViews = v => { localStorage.setItem("views", JSON.stringify(v)); localStorage.setItem("page", v.views[v.at].kind); };
 const shownView = () => { const v = views(); return v.views[v.at]; };
 const layout = () => shownView().layout || {root: {}};
+// The header and the footer (owner, 2026-11-01: "make the header a panel, and later create a footer panel too"): each
+// view keeps which of the bar's items sit in each, in order (its bar: head, foot, and off for those taken out), every
+// item in the header until chosen, the footer empty. While a custom view's layout is unlocked an item is dragged within
+// or between the two, taken out with its ✕ and put back with the Add at the end of either. Views has no ✕, so the
+// layout can always be locked and unlocked again.
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
+  controls: "Start and stop", lanes: "Lanes", view: "Views", theme: "Theme", settings: "Settings", help: "Help"};
+// A plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
+const plugs = () => S?.plugins || [];
+const barName = k => BAR_ITEMS[k] || plugs().find(x => x.key === k)?.label || k;
+function barOf() {
+  const b = shownView().bar || {}, mine = Object.keys(BAR_ITEMS), all = [...mine, ...plugs().map(x => x.key)];
+  const foot = (b.foot || []).filter(k => all.includes(k)), off = (b.off || []).filter(k => all.includes(k) && k !== "view" && !foot.includes(k));
+  const head = (b.head || []).filter(k => all.includes(k) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
+  return {head: [...head, ...mine.filter(k => !placed(k))], foot, off: [...off, ...all.filter(k => !mine.includes(k) && !placed(k))]};
+}
+// each plug-in drawn as a stat, as Week and Disk are: its label over its value, its title on a rest
+function drawPlugs() {
+  const keys = plugs().map(x => x.key);
+  document.querySelectorAll('.bi[data-item^="x:"]').forEach(e => keys.includes(e.dataset.item) || e.remove());
+  for (const x of plugs()) {
+    if (!$(`.bi[data-item="${x.key}"]`)) $("#barbin").insertAdjacentHTML("beforeend", `<div class="bi plug" data-item="${esc(x.key)}"><div class="stat">` +
+      `<div class="k"></div><div class="v"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>`);
+    const e = $(`.bi[data-item="${x.key}"]`);
+    e.querySelector(".k").textContent = x.label; e.querySelector(".v").textContent = x.value;
+    e.querySelector(".v").style.color = x.colour; e.querySelector(".stat").title = x.title;
+  }
+}
+const saveBar = b => { const v = views(); v.views[v.at].bar = b; saveViews(v); };
+const barEditing = () => localStorage.getItem("page") === "custom" && !layout().locked;
+function placeBar() {
+  drawPlugs();
+  const b = barOf(), edit = barEditing();
+  for (const [box, keys] of [[$("header"), b.head], [$("footer"), b.foot], [$("#barbin"), b.off]]) {
+    if ([...box.querySelectorAll(":scope > .bi")].map(e => e.dataset.item).join() !== keys.join())
+      for (const k of keys) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
+    if (box.id !== "barbin") box.classList.toggle("editing", edit);
+    box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
+    const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && b.off.length ? b.off.join() : "";
+    if (plus && plus.dataset.k !== want) plus.remove();
+    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<select class="barplus" data-k="${want}" title="Put an item back">` +
+      `<option value="">Add…</option>${b.off.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
+  }
+}
+document.addEventListener("click", e => {
+  const x = e.target.closest(".editing > .bi > .bx");
+  if (!x) return;
+  e.stopPropagation(); e.preventDefault();
+  const b = barOf(), k = x.parentElement.dataset.item;
+  saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: [...b.off, k]}); draw();
+}, true);
+document.addEventListener("change", e => {
+  const s = e.target.closest?.(".barplus");
+  if (!s?.value) return;
+  const b = barOf(), k = s.value, foot = !!s.closest("footer");
+  saveBar({head: foot ? b.head : [...b.head, k], foot: foot ? [...b.foot, k] : b.foot, off: b.off.filter(i => i !== k)}); draw();
+});
+// a dragged item moves as the pointer does, before the item whose middle it is short of, and is kept where it is let go
+let barDrag = null;
+document.addEventListener("dragstart", e => {
+  const b = e.target.closest?.(".editing > .bi");
+  if (!b) return;
+  barDrag = b; b.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "");
+});
+document.addEventListener("dragover", e => {
+  const box = barDrag && e.target.closest?.("header.editing, footer.editing");
+  if (!box) return;
+  e.preventDefault();
+  const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(x => { const r = x.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
+  const to = at || box.querySelector(":scope > .barplus");
+  if (barDrag.parentElement !== box || barDrag.nextElementSibling !== to) box.insertBefore(barDrag, to);
+});
+document.addEventListener("drop", e => { if (barDrag) e.preventDefault(); });
+document.addEventListener("dragend", () => {
+  if (!barDrag) return;
+  barDrag.classList.remove("dragging"); barDrag = null;
+  const keys = sel => [...$(sel).querySelectorAll(":scope > .bi")].map(x => x.dataset.item);
+  saveBar({head: keys("header"), foot: keys("footer"), off: barOf().off}); draw();
+});
 const saveLayout = l => { const v = views(); v.views[v.at].layout = l; saveViews(v); };
 function nodeAt(root, path) { let n = root; for (const c of path.slice(1)) n = n[c]; return n; }
 function putAt(l, path, node) { if (path === "r") l.root = node; else nodeAt(l.root, path.slice(0, -1))[path.slice(-1)] = node; }
@@ -4773,7 +4931,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -4828,6 +4986,19 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # the bar's plug-ins: a script's line, a script's JSON, a failing script, and a file that is not executable
+        bd = os.path.join(T, ".config", "agents-web", "bar")
+        os.makedirs(bd)
+        for f, body, mode in (("load.sh", "echo 0.42", 0o755), ("prs", 'echo \'{"label": "PRs", "value": 3, "colour": "red"}\'', 0o755),
+                              ("bad", "echo nope >&2; exit 1", 0o755), ("notes.txt", "echo hidden", 0o644)):
+            with open(os.path.join(bd, f), "w") as fh:
+                fh.write("#!/bin/sh\n" + body + "\n")
+            os.chmod(os.path.join(bd, f), mode)
+        t("a plug-in shows … until its first run is in", [(x["key"], x["value"]) for x in plugins()], [("x:bad", "…"), ("x:load", "…"), ("x:prs", "…")])
+        wait_for(lambda: not _plugging, 5, 0.1)
+        t("  then what it printed: a line under its file name, JSON as given, and a failure as ? with its reason",
+          [(x["key"], x["label"], x["value"], x["colour"], x["title"]) for x in plugins()],
+          [("x:bad", "bad", "?", "", "bad: nope"), ("x:load", "load", "0.42", "", ""), ("x:prs", "PRs", "3", "red", "")])
     finally:
         for k in kids:
             k.kill()
