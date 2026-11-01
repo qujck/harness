@@ -2505,7 +2505,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .say{padding-right:34px}
 .send{flex:none;align-self:flex-end;position:relative;z-index:1;width:25px;height:25px;margin:0 3px 3px calc(-6px - 28px);padding:0;border:0;border-radius:6px;
   background:var(--ownerbg);color:var(--ownerfg);cursor:pointer;opacity:.85}   /* inside the box: the row's gap and its own width pulled back over the box's end */
-.send::before{content:"";position:absolute;inset:0;margin:auto;width:9px;height:9px;transform:translateY(2px) rotate(45deg);border:solid currentColor;border-width:2px 0 0 2px}
+.send::before{content:"";position:absolute;inset:0;margin:auto;width:60%;height:60%;transform:translateX(-1px) rotate(45deg);background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}   /* a paper plane (owner, 2026-11-01) */
 .send:hover{opacity:1}
 #detail .say{padding-right:42px}
 #detail .send{width:31px;height:31px;margin:0 4px 4px calc(-6px - 35px)}
