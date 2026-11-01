@@ -150,3 +150,35 @@ export function nudgeText(count: number, idle: readonly Idle[], thresholdS: numb
     + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more: ${idle.map(i => i.name).join(', ')}. `
     + `As ${TARGET_ROLE[target]}, check each one and keep the team active.`
 }
+
+// The development day's trip. agents-day-budget.sh `status` says `day  over` once the day has spent more than its
+// share, and the runbook pauses the team then; but the delivery lead heard of it only by asking, and on 2026-11-01 the
+// team developed on past 16 of 15 (owner: "We're missing the signal"). So the lead's session asks every minute and,
+// the first time a day reads over, queues one prompt and hands the nudger to the head of testing; when the next
+// development day opens it hands it back. `day` is the day's start (the first field of the budget's state file),
+// so each day trips once, a restart included.
+export type DayTrip = { day: string; switched: boolean }
+
+export type DayVerdict = { alert: boolean; target?: 'lead' | 'testing'; store?: DayTrip }
+
+export function dayVerdict(statusLine: string, day: string | undefined, prev: DayTrip | undefined, target: NudgeTarget | { bad: string }): DayVerdict {
+  if (!day) return { alert: false }
+  if (statusLine.startsWith('day  over')) {
+    if (prev?.day === day) return { alert: false }
+    // Only `lead` is moved: `off`, or a word set by hand, is the owner's and stays.
+    const move = target === 'lead'
+    return { alert: true, target: move ? 'testing' : undefined, store: { day, switched: move } }
+  }
+  if (statusLine.startsWith('day  on') && prev?.switched && prev.day !== day && target === 'testing') {
+    return { alert: false, target: 'lead', store: { day: prev.day, switched: false } }
+  }
+  return { alert: false }
+}
+
+export function dayTripText(statusLine: string): string {
+  return '[Automated alert from the waiting-agents mod, not from the owner.] The development day is over: '
+    + `${statusLine.replace(/^day  over: /, '').replace(/: write your durable record and pause$/, '')}. `
+    + 'As delivery lead, pause the team now (docs/runbooks/development-and-verification-days.md §3): tell every live agent '
+    + 'to write its durable record and pause where it stands; armed PRs stay armed; the head of testing starts the '
+    + 'verification day (bash scripts/dev-day.sh start verification). The nudger now nudges the head of testing.'
+}

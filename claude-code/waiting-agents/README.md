@@ -46,6 +46,14 @@ lead|testing|off`; with no word it prints the setting. The waiting alerts stay w
 the file says. The owner, 2026-10-31: "I'd like the nudger changed to either be nudging you or Vera or be off.
 No one else."
 
+**The development day's trip.** Once a minute the delivery lead's session runs the harness's
+`team/agents-day-budget.sh status` for the project. The first time a development day reads `day  over`, it queues
+one prompt telling the delivery lead to pause the team (the project's runbook) and switches `nudge-target` from
+`lead` to `testing`. When the next development day opens, it switches it back. A target of `off`, or a word set by
+hand, is left alone. Each day trips once, a restart included (the mod's store keeps the day's start). Every
+send is logged as `sent day trip: …`. The owner, 2026-11-01: the team developed on past the day's share, "We're
+missing the signal".
+
 **Pausing it.** While the file `waiting-agents.paused` exists beside that log (one level above the context
 directory: `~/.local/state/<HARNESS_PROJECT>/waiting-agents.paused` by default), the mod sends nothing at all,
 neither waiting alerts nor nudges, and the status bar says `paused`. Touch it before an evening or a weekend;
