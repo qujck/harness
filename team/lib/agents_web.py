@@ -2497,6 +2497,13 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .say:focus{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 25%,transparent)}
 .say.sent{border-color:var(--green)}
 .say.failed{border-color:var(--red)}
+.say{padding-right:34px}
+.send{flex:none;align-self:flex-end;position:relative;z-index:1;width:25px;height:25px;margin:0 3px 3px calc(-6px - 28px);padding:0;border:0;border-radius:6px;
+  background:var(--ownerbg);color:var(--ownerfg);cursor:pointer;opacity:.85}   /* inside the box: the row's gap and its own width pulled back over the box's end */
+.send::before{content:"";position:absolute;inset:0;margin:auto;width:9px;height:9px;transform:translateY(2px) rotate(45deg);border:solid currentColor;border-width:2px 0 0 2px}
+.send:hover{opacity:1}
+#detail .say{padding-right:42px}
+#detail .send{width:31px;height:31px;margin:0 4px 4px calc(-6px - 35px)}
 #detail .sayrow{margin:0 14px 14px}
 #detail .box:not(.noterm) .sayrow{margin-right:calc(var(--thumb) + 40px)}
 .add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:8px;border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
@@ -2599,7 +2606,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -2959,7 +2966,16 @@ function spark(series, ceil, colour) {
 }
 
 // An agent's message box, with the images waiting to go above it.
-const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
+// Send, inside the box at its bottom right: a tap or click is Enter in the box beside it, so it goes the way Enter goes.
+const SEND = `<button class="send" title="Send (Enter)"></button>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest?.(".sayrow .send"), box = b?.previousElementSibling;
+  if (!box?.matches("textarea.say")) return;
+  e.stopPropagation();
+  box.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+  box.focus();
+}, true);
+const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${SEND}${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
 // A narrow card's state, model and activity rows fold away under its ^ and come back with its v, for room on a phone
@@ -3531,7 +3547,7 @@ function meetThread(list, tag, all) {
   });
 }
 const meetAll = path => localStorage.getItem("mode:meet:" + path) === "all";
-const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow">${addButton(MEET + path)}<textarea class="say" rows="1" data-name="${esc(MEET + path)}" autocomplete="off"></textarea></div>`;
+const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow">${addButton(MEET + path)}<textarea class="say" rows="1" data-name="${esc(MEET + path)}" autocomplete="off"></textarea>${SEND}</div>`;
 const whoOn = n => Array.isArray(n.who) ? n.who : roleList().map(r => "role:" + r.role);
 const whoItems = () => [...roleList().map(r => ["role:" + r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]),
   ...byRole([...S.agents, ...S.bench]).map(a => ["name:" + a.name, a.name, `<span class="dot hollow" style="--c:${a.colour}"></span>`])];
