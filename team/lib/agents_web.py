@@ -1743,7 +1743,7 @@ header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--lin
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
-.bi:has(> :first-child[style*="display: none"]){display:none}   /* Session or Disk while it is not shown */
+.bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
 .editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab}
 .editing > .bi.tight + .bi.tight{margin-left:0}
 .editing > .bi.dragging{opacity:.4}
@@ -1850,8 +1850,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #teamctl .fbtn.warn{color:var(--red);border-color:var(--red);padding:0 12px}
 #teamctl .fbtn.idle{cursor:default}
 #pagemode .fbtn{color:var(--text)}
-#lock{display:flex;margin-left:7px;padding:2px;border-radius:4px;opacity:.75}
-#lock:hover{opacity:1;background:var(--line2)}
+#lock{color:var(--text)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
   color:#000;font:600 calc(12.5px*var(--fs,1)) var(--sans);cursor:pointer}
@@ -2389,7 +2388,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </head>
 <body>
 <header>
-  <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
   <div class="bi" data-item="week"><div class="stat"><div class="k">Week <span id="weektxt"></span></div><div class="meter" id="week"><i></i><u></u></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="session"><div class="stat" id="sessstat" style="display:none"><div class="k">Session <span id="sesstxt"></span></div><div class="meter" id="session"><i></i></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="team"><div class="stat"><div class="k">Team <span id="teamtxt"></span></div><div id="teamspark"></div></div><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -2399,6 +2398,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="view"><span id="pagemode"></span></div>
+  <div class="bi tight" data-item="lock"><b class="fbtn" id="lock"></b></div>
   <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="Light or dark"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="settings"><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="help"><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -2855,11 +2855,10 @@ function showPop(tx) {
 
 pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset.name; pop.classList.remove("on"); popFor = null; if (name) openDetail(name); };
 
-// The page's view, a button naming it (with the custom layout's padlock) whose menu picks Grid, Tabs or Custom; and a
+// The page's view, a button naming it whose menu picks Grid, Tabs or Custom; and a
 // Grid / Tabs switch for one section.
 const VIEW_TIP = {grid: "Every section side by side", tabs: "Every agent as one row of tabs, one at a time", custom: "Your own layout of panes"};
-const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${MENU_ICON[shownView().icon] || MENU_ICON[mode]}<span>${esc(shownView().name)}</span>` +
-  `${mode === "custom" ? `<i id="lock" title="${layout().locked ? "Locked: click to change the layout" : "Click to lock the layout"}">${padlock(layout().locked)}</i>` : ""}</b>`;
+const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${MENU_ICON[shownView().icon] || MENU_ICON[mode]}<span>${esc(shownView().name)}</span></b>`;
 function seg(mode, sec) {
   const tip = {grid: `Every agent in ${sec} as a card`, tabs: `${sec} as tabs, one agent at a time`};
   return `<span class="seg mode" data-sec="${esc(sec)}">${["grid", "tabs"].map(m => `<b data-mode="${m}" class="${m === mode ? "on" : ""}" title="${esc(tip[m])}">${m[0].toUpperCase() + m.slice(1)}</b>`).join("")}</span>`;
@@ -2942,7 +2941,7 @@ function draw() {
   // those that do not fit are counted in a "+N" that names them. Its filter button, there only while a custom layout is
   // unlocked, shows them by name or as icons (their portrait, else their role's shadow, as a pane's Icon badge); until
   // one is picked, icons while a Characters pane is on the page.
-  const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !layout().locked;
+  const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !pageLocked();
   $("#bench").innerHTML = S.bench.length ? `<span>bench${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
     const tip = `data-name="${esc(b.name)}"`;
     return style === "icon" ? face(b, tip)
@@ -2977,7 +2976,7 @@ function draw() {
     : tabs.map((t, i) => `minmax(0,${saved[t.name] ?? (t.name === "Lead" ? 1.5 : shares[i].share)}fr)`).join(" ");
   $("#pagemode").innerHTML = viewButton(pageMode);
   menuButton($("#pagemode .viewbtn"), rested => viewMenu($("#pagemode .viewbtn"), rested));
-  if (pageMode === "custom") $("#lock").onclick = e => { e.stopPropagation(); const l = layout(); l.locked = !l.locked; saveLayout(l); draw(); };
+  $("#lock").innerHTML = padlock(pageLocked()); $("#lock").title = pageLocked() ? "Locked: click to change the page" : "Click to lock the page";
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
   teamButton();
   const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart] : null;
@@ -3143,21 +3142,28 @@ function views() {
 const saveViews = v => { localStorage.setItem("views", JSON.stringify(v)); localStorage.setItem("page", v.views[v.at].kind); };
 const shownView = () => { const v = views(); return v.views[v.at]; };
 const layout = () => shownView().layout || {root: {}};
+// The padlock is the whole page's (owner, 2026-11-01: "the padlock now belongs to the whole page"): unlocked, every
+// view's bars and a custom view's panes can be changed. Until first clicked it keeps what the custom view's own lock was.
+const pageLocked = () => { const s = localStorage.getItem("locked"); return s ? s === "1" : localStorage.getItem("page") !== "custom" || !!layout().locked; };
+$("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" : "1"); draw(); };
 // The header and the footer (owner, 2026-11-01: "make the header a panel, and later create a footer panel too"): each
 // view keeps which of the bar's items sit in each, in order (its bar: head, foot, and off for those taken out), every
 // item in the header until chosen, the footer empty. While a custom view's layout is unlocked an item is dragged within
-// or between the two, taken out with its ✕ and put back with the Add at the end of either. Views has no ✕, so the
-// layout can always be locked and unlocked again.
+// or between the two, taken out with its ✕ and put back with the Add at the end of either. The logo, Views and the
+// padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", theme: "Theme", settings: "Settings", help: "Help"};
+  controls: "Start and stop", lanes: "Lanes", view: "Views", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
 // A plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
+const BAR_FIXED = ["brand", "view", "lock"];
 const barName = k => BAR_ITEMS[k] || plugs().find(x => x.key === k)?.label || k;
 function barOf() {
   const b = shownView().bar || {}, mine = Object.keys(BAR_ITEMS), all = [...mine, ...plugs().map(x => x.key)];
-  const foot = (b.foot || []).filter(k => all.includes(k)), off = (b.off || []).filter(k => all.includes(k) && k !== "view" && !foot.includes(k));
+  const foot = (b.foot || []).filter(k => all.includes(k)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
   const head = (b.head || []).filter(k => all.includes(k) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
-  return {head: [...head, ...mine.filter(k => !placed(k))], foot, off: [...off, ...all.filter(k => !mine.includes(k) && !placed(k))]};
+  // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order
+  for (const [i, k] of mine.entries()) if (!placed(k)) head.splice(head.indexOf(mine[i - 1]) + 1, 0, k);
+  return {head, foot, off: [...off, ...all.filter(k => !mine.includes(k) && !placed(k))]};
 }
 // each plug-in drawn as a stat, as Week and Disk are: its label over its value, its title on a rest
 function drawPlugs() {
@@ -3172,7 +3178,7 @@ function drawPlugs() {
   }
 }
 const saveBar = b => { const v = views(); v.views[v.at].bar = b; saveViews(v); };
-const barEditing = () => localStorage.getItem("page") === "custom" && !layout().locked;
+const barEditing = () => !pageLocked();
 function placeBar() {
   drawPlugs();
   const b = barOf(), edit = barEditing();
@@ -3412,7 +3418,7 @@ function customHtml(ceil, tabRow) {
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
-    let body = `<div class="blank">${l.locked ? "" : "Choose what this pane shows"}</div>`;
+    let body = `<div class="blank">${pageLocked() ? "" : "Choose what this pane shows"}</div>`;
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
       body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`
@@ -3424,7 +3430,7 @@ function customHtml(ceil, tabRow) {
       body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     } else if (n.show === "file") {
       const d = n.path && fileDocs[n.path];
-      body = !n.path ? `<div class="blank">${l.locked ? "" : "Type a document's full path above"}</div>`
+      body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
         : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
@@ -3453,7 +3459,7 @@ function customHtml(ceil, tabRow) {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
     const tabbed = TABBED.includes(n.show);
-    const bar = l.locked ? "" : `<div class="pbar">
+    const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
       ${n.show && !["others", "characters", "file"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
@@ -3464,7 +3470,7 @@ function customHtml(ceil, tabRow) {
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : ""}
       ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
-    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, l.locked) : ""}${body}</div></div>`;
+    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, pageLocked()) : ""}${body}</div></div>`;
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
@@ -3482,7 +3488,7 @@ const fullView = n => n.view !== "summary";
 const tileSide = n => !!n.split && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
 const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
 // the pane's border, its bar (none when locked), the grid's padding and the rows of 112px tiles 8px apart
-const tilesHeight = (r, path) => 18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (layout().locked ? 0 : 38)) + 120 * (r ?? 1);
+const tilesHeight = (r, path) => 18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (pageLocked() ? 0 : 38)) + 120 * (r ?? 1);
 // The columns a snapped Characters pane shows: its own setting, or more when the tiles would not fit its height in that many.
 // A pane not yet on the page has no height to go by; tileGuess has the page draw again once it is.
 let tileGuess = false;
@@ -3732,7 +3738,7 @@ function customClicks() {
   // the tab showing is renamed in place: a click on it gives a box for its name, Enter or a click away keeps it, Esc
   // leaves it as it was
   const rename = el => {
-    if (!el || layout().locked || el.querySelector(".ctname")) return;
+    if (!el || pageLocked() || el.querySelector(".ctname")) return;
     const label = el.querySelector(".ctl"), was = label.textContent, box = Object.assign(document.createElement("input"), {className: "ctname", value: was});
     let done = false;
     const end = keep => { if (done) return; done = true; const v = box.value.trim();
