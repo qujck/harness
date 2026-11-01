@@ -144,11 +144,13 @@ export function decide(
 
 // The prompt itself names the idle agents and nothing more: each role and idle time stays in the log
 // (`describe`), since every word here is spent again by the nudged session (owner, 2026-10-31: "It's a
-// waste of tokens to nudge everyone when you're keeping them busy").
+// waste of tokens to nudge everyone when you're keeping them busy"). With nothing to do, the lead ends the turn
+// silently: Vera answered both nudges on 2026-11-01 with a paragraph saying nothing had changed (owner: "Only write
+// something if it's useful").
 export function nudgeText(count: number, idle: readonly Idle[], thresholdS: number, target: 'lead' | 'testing' = 'lead'): string {
   return `[Automated nudge ${count} of ${MAX_NUDGES} from the waiting-agents mod, not from the owner; it assigns nothing.] `
     + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more: ${idle.map(i => i.name).join(', ')}. `
-    + `As ${TARGET_ROLE[target]}, check each one and keep the team active.`
+    + `As ${TARGET_ROLE[target]}, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.`
 }
 
 // The development day's trip. agents-day-budget.sh `status` says `day  over` once the day has spent more than its
