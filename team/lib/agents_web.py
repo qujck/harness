@@ -3948,13 +3948,17 @@ function unscroll(root, m) {
   });
 }
 // A pane's conversation stays at its newest turn unless it has been scrolled up.
-const atEnd = f => f.scrollHeight - f.scrollTop - f.clientHeight < 40;
+// It is read as it stood at its last scroll: the keyboard opening shrinks it without scrolling it, and that is not
+// scrolling up (owner, 2026-11-01: the box moved up but the content did not).
+const atEnd = f => f.dataset.end ? f.dataset.end === "1" : f.scrollHeight - f.scrollTop - f.clientHeight < 40;
+const markEnd = f => { f.dataset.end = f.scrollHeight - f.scrollTop - f.clientHeight < 40 ? "1" : "0"; };
+addEventListener("scroll", e => { if (e.target.matches?.(FEEDS)) markEnd(e.target); }, true);
 const FEEDS = "#main :is(.card.full, .teamlog:not(.summary)) .feed";
 function paneEnds() { return new Set([...document.querySelectorAll(FEEDS)].filter(atEnd).map(f => f.parentElement.closest("[data-name]").dataset.name)); }
 const paneFeeds = new WeakSet();   // the panes' conversations already placed, so a new one starts at its end
 function toPaneEnds(ends) {
   document.querySelectorAll(FEEDS + " .ago[data-ts]").forEach(s => { const t = since(s.dataset.ts); if (s.textContent !== t) s.textContent = t; });
-  document.querySelectorAll(FEEDS).forEach(f => { if (ends.has(f.parentElement.closest("[data-name]").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); });
+  document.querySelectorAll(FEEDS).forEach(f => { if (ends.has(f.parentElement.closest("[data-name]").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); markEnd(f); });
 }
 // The panes that can hold tabs (n.tabs, n.tab the one showing): the showing tab's configuration lives on the pane
 // itself, where everything that draws the pane reads it; each tab's own is kept in n.tabs and swapped in when it is
@@ -4737,7 +4741,7 @@ addEventListener("keydown", e => {
   else if (paneBig && !open) { paneBig = null; draw(); }
   else if (open || !unmax()) closeDetail();
 });
-addEventListener("resize", draw);
+addEventListener("resize", () => { draw(); const c = $("#dconv"); if (open && pinned) c.scrollTop = c.scrollHeight; });
 // Where the on-screen keyboard shrinks only the visible part of the page (iOS ignores interactive-widget), the page
 // is sized and moved to that part, so the footer sits on the keyboard with no gap (owner, 2026-11-01: "halved the
 // gap"). A pinch-zoom, which also shrinks it, leaves the page alone.
@@ -4746,9 +4750,24 @@ if (window.visualViewport) {
     const kb = vv.scale < 1.01 && innerHeight - vv.height > 1;
     document.documentElement.style.height = kb ? vv.height + "px" : "";
     document.body.style.transform = kb && vv.offsetTop ? `translateY(${vv.offsetTop}px)` : "";
+    // The browser can scroll the page itself to show the box, though the page does not scroll: that lifts the footer.
+    const se = document.scrollingElement;
+    if (se.scrollTop) se.scrollTop = 0;
+    kbProbe();
   };
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
+// TEMPORARY (keyboard-gap hunt, 2026-11-01): the viewport's numbers, top left, for a phone screenshot.
+let kbTall = innerHeight;
+function kbProbe() {
+  kbTall = Math.max(kbTall, innerHeight);
+  let p = $("#kbprobe");
+  if (!p) { p = document.createElement("div"); p.id = "kbprobe"; p.style.cssText = "position:fixed;left:4px;top:4px;z-index:99;font:11px monospace;background:#000c;color:#0f0;padding:2px 5px;pointer-events:none;white-space:pre"; document.documentElement.append(p); }
+  const v = visualViewport, f = $("footer").getBoundingClientRect(), b = document.body.getBoundingClientRect();
+  p.textContent = `tall ${kbTall} inner ${innerHeight} vv ${Math.round(v.height)}+${Math.round(v.offsetTop)} x${v.scale.toFixed(2)}\n` +
+    `html ${document.documentElement.clientHeight} body ${Math.round(b.top)}..${Math.round(b.bottom)} foot ..${Math.round(f.bottom)} scroll ${document.scrollingElement.scrollTop}`;
+}
+if (window.visualViewport) addEventListener("resize", kbProbe);
 
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
