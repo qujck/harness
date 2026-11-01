@@ -2498,12 +2498,12 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .say.sent{border-color:var(--green)}
 .say.failed{border-color:var(--red)}
 .say{padding-right:34px}
-.send{flex:none;align-self:flex-end;position:relative;z-index:1;width:25px;height:25px;margin:0 3px 6px calc(-6px - 28px);padding:0;border:0;border-radius:6px;
+.send{flex:none;align-self:flex-start;position:relative;z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);padding:0;border:0;border-radius:6px;
   background:none;color:var(--mute);cursor:pointer}   /* inside the box: the row's gap and its own width pulled back over the box's end */
 .send::before{content:"";position:absolute;inset:0;margin:auto;width:60%;height:60%;transform:translateX(-1px) rotate(45deg);background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}   /* a paper plane (owner, 2026-11-01) */
 .send:hover{color:var(--text)}
 #detail .say{padding-right:42px}
-#detail .send{width:31px;height:31px;margin:0 4px 7px calc(-6px - 35px)}
+#detail .send{width:31px;height:31px;margin:6px 4px 0 calc(-6px - 35px)}
 #detail .sayrow{margin:0 14px 14px}
 #detail .box:not(.noterm) .sayrow{margin-right:calc(var(--thumb) + 40px)}
 .add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:8px;border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
