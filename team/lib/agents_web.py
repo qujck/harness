@@ -1547,7 +1547,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if self.headers.get("Host") == PUBLIC_HOST != "" and not self.here():
+        if not self.here():   # any other name, the public one unset among them, is refused, reads as well as sends
             return self.send(403, b"sign in through Cloudflare Access\n", "text/plain")
         if path == "/":
             self.send(200, PAGE.encode(), "text/html; charset=utf-8")
@@ -5027,10 +5027,12 @@ def self_test():
             subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{T}/{k}.pem", "-out", f"{T}/{k}.crt",
                             "-days", "1", "-subj", "/CN=t"], capture_output=True, check=True)
         fetched = []
-        g.update(PUBLIC_HOST="team.example", ACCESS_TEAM="tm", ACCESS_AUD="aud1",
-                 access_certs=lambda: fetched.append(1) or {"k1": open(f"{T}/key.crt").read()})
+        g.update(access_certs=lambda: fetched.append(1) or {"k1": open(f"{T}/key.crt").read()})
         good = {"aud": ["aud1"], "iss": "https://tm.cloudflareaccess.com", "exp": time.time() + 600}
         pub = lambda tok=None, **h: dict({"Host": "team.example"}, **({"Cf-Access-Jwt-Assertion": tok} if tok else {}), **h)
+        t("the public name is refused while it is not set", code("/api/state", headers=pub(sign(good)))[0], 403)
+        t("  and so is any other name", (code("/", headers={"Host": "rebound.example"})[0], code("/api/state", headers={"Host": "rebound.example"})[0]), (403, 403))
+        g.update(PUBLIC_HOST="team.example", ACCESS_TEAM="tm", ACCESS_AUD="aud1")
         t("the public name without Access's token is refused", code("/api/state", headers=pub())[0], 403)
         t("  and with its token, served", code("/api/state", headers=pub(sign(good)))[0], 200)
         t("  and the token checked once, its certificates fetched once", (code("/", headers=pub(sign(good)))[0], len(fetched)), (200, 1))
