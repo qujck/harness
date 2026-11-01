@@ -6,6 +6,7 @@
 #   bash team/agents-day-budget.sh start <quota>   # opens today's day: the week reading now, plus <quota> points
 #   bash team/agents-day-budget.sh [status]        # the day's line; the exit says what it means (below)
 #   bash team/agents-day-budget.sh end             # closes the day: agents-budget.sh's even pacing applies again
+#   bash team/agents-day-budget.sh history [days]  # what each day, and each stretch between days, spent (default 14 days)
 #   bash team/agents-day-budget.sh --self-test
 #
 # WHY NOT agents-budget.sh. That paces the week evenly across its working hours ("45% used of 60% planned so far").
@@ -27,6 +28,14 @@
 # reading less the reading at the start. It is OVER once it has spent MORE than the quota: with a quota of 15, at
 # 15 points spent it is still on, and the reading that shows 16 stops it. A reading lower than the start by more
 # than a few points means the week has reset since the day started, and the day is closed.
+#
+# THE HISTORY. Each new day and each `end` appends a line to the file beside the day's, <file>.log: the epoch, the verb,
+# the week reading then ("?" with none) and the quota. `history` reads it back as stretches: a day (start to end) and
+# the time between days (end to the next start; in strength, a verification day, which has no quota yet: the owner,
+# 2026-11-01, "we just monitor, once we've measured we can decide a cap"). A stretch's spend is the reading at its end
+# less the reading at its start; one still open ends at now's reading; one across a week reset, or with a reading
+# missing at either end, has no figure ("?"). A rerun of `start` on an open day is not a new day and is not logged,
+# except as "raise" when it changes the quota.
 #
 # EXITS (status): 0 on · 1 over (write your durable record and pause) · 2 cannot tell (no week reading) · 3 no day
 # open (none started, ended, or the week has reset). start: 0 started, 2 refused, nothing
@@ -83,6 +92,23 @@ day_selftest() {
   out=$(env -u HARNESS_PROJECT -u AGENT_DAY_BUDGET HOME="$T" AGENT_DAY_BUDGET_READING=40 bash "$_here/agents-day-budget.sh" start 15 2>&1); rc=$?
   check "start with no project is refused" "$rc" 2
   out=$(run 0 45 stat 2>&1); rc=$?; check "an unknown verb is a usage error" "$rc" 2
+  # the history, in a fresh home: a day, the stretch after it, a raise, a stretch across a reset, one still open
+  T2=$(mktemp -d); T="$T2"
+  run 0 40 start 15 >/dev/null; run 600 41 start 15 >/dev/null; run 900 42 start 20 >/dev/null
+  run 3600 56 end >/dev/null; run 7200 63 start 15 >/dev/null; run 9000 - end >/dev/null
+  run 10800 70 start 15 >/dev/null; run 12600 74 end >/dev/null
+  check "the log has a line per new day, raise and end, a rerun left out" "$(cut -d' ' -f2- "$T/.local/state/p/agents-day-budget.log" | tr '\n' '|')" \
+    "start 40 15|raise 42 20|end 56 0|start 63 15|end ? 0|start 70 15|end 74 0|"
+  out=$(run 14400 79 history 1)
+  has "a day: from its start to its end, with its quota" "$out" "day 20%     40%  → 56%      16   1h00m"
+  has "the stretch after it: to the next start" "$out" "between     56%  → 63%       7   1h00m"
+  has "a reading missing at one end has no figure" "$out" "day 15%     63%  → ?         ?"
+  has "one still open runs to now" "$out" "between     74%  → 79%       5   0h30m open"
+  out=$(run 14500 3 history 1); has "a stretch across a week reset has no figure" "$out" "74%  → 3%        ?   0h31m open (the week reset)"
+  T3=$(mktemp -d); printf '%s 58 15\n' "$D0" > "$T3/day"
+  AGENT_DAY_BUDGET="$T3/day" AGENT_BUDGET_NOW=$((D0 + 60)) AGENT_DAY_BUDGET_READING=61 bash "$_here/agents-day-budget.sh" end >/dev/null 2>&1
+  check "an end with no log yet records the open day's start first" "$(cut -d' ' -f2- "$T3/day.log" | tr '\n' '|')" "start 58 15|end 61 0|"
+  rm -rf "$T2" "$T3"
   [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; return 1; }
 }
 # selftest_is_flag, not selftest_requested: the latter exits on any further argument, and this script takes verbs.
@@ -90,6 +116,7 @@ if selftest_is_flag "${1:-}"; then day_selftest; exit $?; fi
 selftest_reject_typo "$@"
 
 FILE="${AGENT_DAY_BUDGET:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agents-day-budget}"
+LOG="$FILE.log"
 NOW="${AGENT_BUDGET_NOW:-$(date +%s)}"
 TODAY=$(date -d "@$NOW" +%F)
 
@@ -110,6 +137,15 @@ open_day() {
 }
 
 # When the day began: the time, with the weekday once it is not today.
+# Append "<epoch> <verb> <reading or ?> <quota>" to the history; the first line, with a day open, is that day's start.
+note() {
+  mkdir -p "$(dirname "$LOG")" || return 0
+  if [ ! -s "$LOG" ] && [ "$1" != start ] && day=$(open_day); then
+    read -r a0 s0 q0 <<<"$day"; printf '%s start %s %s\n' "$a0" "$s0" "$q0" >> "$LOG"
+  fi
+  printf '%s %s %s %s\n' "$NOW" "$1" "${2:-?}" "$3" >> "$LOG"
+}
+
 began() { if [ "$(date -d "@$1" +%F)" = "$TODAY" ]; then date -d "@$1" +%H:%M; else date -d "@$1" '+%a %H:%M'; fi; }
 
 need_project() {
@@ -125,8 +161,9 @@ case "${1:-status}" in
     now_used=$(reading)
     [ -n "$now_used" ] || { echo "day  refused: no week reading to count from (team/lib/week-usage.sh); nothing written" >&2; exit 2; }
     # an open day keeps its first reading, unless the week has reset since: that day is over
-    if day=$(open_day) && read -r at start _old <<<"$day" && [ "$now_used" -ge $((start - RESET_DROP)) ]; then :
-    else at=$NOW; start=$now_used; fi
+    if day=$(open_day) && read -r at start _old <<<"$day" && [ "$now_used" -ge $((start - RESET_DROP)) ]; then
+      [ "$_old" = "$2" ] || note raise "$now_used" "$2"
+    else at=$NOW; start=$now_used; note start "$now_used" "$2"; fi
     mkdir -p "$(dirname "$FILE")" && printf '%s %s %s\n' "$at" "$start" "$2" > "$FILE"
     printf 'day  started %s: %s%% of the week from %s%% (stops past %s%%)\n' \
       "$(began "$at")" "$2" "$start" "$((start + $2))"
@@ -147,6 +184,30 @@ case "${1:-status}" in
     printf 'day  on: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s)\n' \
       "$spent" "$quota" "$now_used" "$start" "$(began "$at")"
     ;;
-  end) need_project; rm -f "$FILE"; echo "day  ended: agents-budget.sh's even pacing applies" ;;
-  *) echo "usage: agents-day-budget.sh [start <quota> | status | end | --self-test]" >&2; exit 2 ;;
+  end) need_project; note end "$(reading)" 0; rm -f "$FILE"; echo "day  ended: agents-budget.sh's even pacing applies" ;;
+  history)
+    days="${2:-14}"; [[ "$days" =~ ^[0-9]+$ ]] || { echo "usage: agents-day-budget.sh history [days]" >&2; exit 2; }
+    [ -s "$LOG" ] || { echo "day  no history yet ($LOG)"; exit 0; }
+    printf '%-12s %-11s %-13s %4s   %s\n' "began" "stretch" "week" "used" "length"
+    { cat "$LOG"; printf '%s now %s 0\n' "$NOW" "$(reading)"; } | while read -r at verb rd q; do
+      printf '%s %s %s %s %s\n' "$at" "$verb" "${rd:-?}" "$q" "$(date -d "@$at" '+%a_%d_%H:%M')"; done |
+    awk -v since=$((NOW - days * 86400)) -v drop="$RESET_DROP" '
+      { at[NR] = $1; verb[NR] = $2; rd[NR] = $3; q[NR] = $4; when[NR] = $5 }
+      END {
+        for (i = 1; i < NR; i++) {
+          if (verb[i] == "raise") continue
+          j = i + 1; quota = q[i]
+          while (verb[j] == "raise") { quota = q[j]; j++ }   # a raise is the same day, with its new quota
+          if (at[j] < since) continue
+          kind = verb[i] == "start" ? "day " quota "%" : "between"
+          from = rd[i] == "?" ? "?" : rd[i] "%"; to = rd[j] == "?" ? "?" : rd[j] "%"
+          reset = rd[i] != "?" && rd[j] != "?" && rd[j] + drop < rd[i]
+          used = rd[i] == "?" || rd[j] == "?" || reset ? "?" : rd[j] - rd[i]
+          m = int((at[j] - at[i]) / 60); gsub("_", " ", when[i])
+          printf "%-12s %-11s %-4s → %-6s %4s   %dh%02dm%s%s\n", when[i], kind, from, to, used, int(m / 60), m % 60,
+            verb[j] == "now" ? " open" : "", reset ? " (the week reset)" : ""
+        }
+      }'
+    ;;
+  *) echo "usage: agents-day-budget.sh [start <quota> | status | end | history [days] | --self-test]" >&2; exit 2 ;;
 esac
