@@ -153,6 +153,18 @@ export function nudgeText(count: number, idle: readonly Idle[], thresholdS: numb
     + `As ${TARGET_ROLE[target]}, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.`
 }
 
+// The lead's own idleness. Every other prompt here answers an event (a team agent idle or waiting, the day over), so a
+// lead that ended a turn with nothing running in the background was woken by nothing, and the team sat with it (owner,
+// 2026-11-01: "What else ensures the lead and team don't just stop?"). `shell` is a lead waiting on its own background
+// work, which wakes it; only `idle` counts, and only while no team agent is at work (one that is will message the
+// lead). At most MAX_NUDGES for one stretch: it ends when the lead is seen waiting on a shell or a prompt, or a team
+// agent is at work again.
+export function selfNudgeText(count: number, idleS: number, target: 'lead' | 'testing' = 'lead'): string {
+  return `[Automated nudge ${count} of ${MAX_NUDGES} from the waiting-agents mod, not from the owner; it assigns nothing.] `
+    + `You have been idle for ${Math.floor(idleS / 60)} minutes with nothing running in the background. `
+    + `As ${TARGET_ROLE[target]}, check whether the team or the day needs you. If nothing needs doing, end your turn without writing anything.`
+}
+
 // The development day's trip. agents-day-budget.sh `status` says `day  over` once the day has spent more than its
 // share, and the runbook pauses the team then; but the delivery lead heard of it only by asking, and on 2026-11-01 the
 // team developed on past 16 of 15 (owner: "We're missing the signal"). So the lead's session asks every minute and,

@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, stateKey, statePaths } from './nudge.ts'
-import { authorEmailOf, current, dueWaiting, forget, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
+import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, selfNudgeText, stateKey, statePaths } from './nudge.ts'
+import { authorEmailOf, current, dueWaiting, forget, leadWaitingLine, parseLeadWaiting, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
 // How often the nudger looks at the team, in the delivery lead's session.
@@ -85,7 +85,7 @@ async function sessionFiles($: EngineInterface, roster: Roster): Promise<Session
 // same settings the harness scripts read (statePaths), with the checkout's harness.env text for the
 // threshold. The pause file and the nudge-target file sit beside the log, one level above the context
 // directory.
-type Where = { contextDir: string; log: string; pause: string; target: string; envFile?: string }
+type Where = { contextDir: string; log: string; pause: string; target: string; leadWaiting: string; envFile?: string }
 
 async function whereOf($: EngineInterface): Promise<Where> {
   const root = await $.session.root()
@@ -100,7 +100,7 @@ async function whereOf($: EngineInterface): Promise<Where> {
     HARNESS_PROJECT: (await $.env.get('HARNESS_PROJECT')) || undefined,
   }, envFile, typeof gitFileText === 'string' ? gitFileText : undefined)
   const dir = paths.log.slice(0, paths.log.lastIndexOf('/'))
-  return { ...paths, pause: `${dir}/waiting-agents.paused`, target: `${dir}/nudge-target`, envFile }
+  return { ...paths, pause: `${dir}/waiting-agents.paused`, target: `${dir}/nudge-target`, leadWaiting: `${dir}/lead-waiting`, envFile }
 }
 
 // One poll: does nothing unless this session is the delivery lead's, or the head of testing's while the
@@ -108,7 +108,10 @@ async function whereOf($: EngineInterface): Promise<Where> {
 // are sent only while that session is not mid-turn, so a message is never
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
-type Nudger = { nextAt: number; problem?: string; dayAt?: number }
+// `sentAt` is when the team nudge last went, so the self-nudge never goes in the same poll; `self` counts the
+// self-nudges of the lead's current idle stretch and `selfAt` when the last went; `waiting` is the lead-waiting line last written; `teamActive`, whether
+// any team agent was at work at the last look.
+type Nudger = { nextAt: number; problem?: string; dayAt?: number; sentAt?: number; self?: number; selfAt?: number; waiting?: string; teamActive?: boolean }
 
 async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
@@ -119,7 +122,7 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   // either (2026-10-16).
   const rosterPath = `${await $.session.root()}/agents/roster.json`
   const rosterText = await $.fs.read(rosterPath).catch(() => undefined)
-  if (typeof rosterText !== 'string') { $.ui.status(undefined); return }
+  if (typeof rosterText !== 'string') { $.ui.status(undefined); await assistant($, told); return }
   const roster = parseRoster(rosterText)
   const files = await sessionFiles($, roster)
   const id = await $.session.id()
@@ -141,6 +144,8 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   // While this file exists (e.g. overnight) the mod sends nothing: no waiting alerts and no nudges.
   if (typeof (await $.fs.read(where.pause).catch(() => undefined)) === 'string') { $.ui.status('paused'); return }
   const isFree = mine.status !== 'busy' && mine.status !== 'waiting'
+  // The lead on duty waiting on its own prompt is told to the roster's assistants, through a file their session reads.
+  if (nudges) await leadWaiting($, nudger, where, roster, mine)
   // The nudger's standing problem, when it has one, rides on the same line so it is never silent.
   const problem = nudges && nudger.problem ? `; ${nudger.problem}` : ''
   if (isLead) await dayTrip($, nudger, where, target)
@@ -163,7 +168,63 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   const now = await $.clock.now()
   if (now < nudger.nextAt) return
   nudger.nextAt = now + NUDGE_EVERY_MS
-  nudger.problem = await nudge($, roster, isFree, now, where, isLead ? 'lead' : 'testing')
+  nudger.problem = await nudge($, roster, isFree, now, where, isLead ? 'lead' : 'testing', nudger)
+  if (nudger.sentAt !== now && !nudger.problem && nudger.teamActive === false) await selfNudge($, mine, now, where, isLead ? 'lead' : 'testing', nudger)
+}
+
+// The lead's own idle stretch (nudge.ts, selfNudgeText), while no team agent is at work: once it has lasted the
+// threshold, a nudge of its own, at most MAX_NUDGES for the stretch. A session record without `statusUpdatedAt` says nothing of how long, and is left alone.
+async function selfNudge($: EngineInterface, mine: SessionFile, now: number, paths: Where, target: 'lead' | 'testing', nudger: Nudger): Promise<void> {
+  if (mine.status === 'shell' || mine.status === 'waiting') { nudger.self = undefined; return }
+  if (mine.status !== 'idle' || !mine.statusUpdatedAt) return
+  const thresholdS = await thresholdOf($, paths)
+  const idleS = (now - mine.statusUpdatedAt) / 1000
+  if (idleS < thresholdS) return
+  if (now - (nudger.selfAt ?? 0) < thresholdS * 1000) return
+  const count = (nudger.self ?? 0) + 1
+  if (count > MAX_NUDGES) { await logVerdict($, paths.log, now, `hold: the ${TARGET_ROLE[target]} already nudged ${MAX_NUDGES} times while idle`); return }
+  await $.prompt.submit({ text: selfNudgeText(count, idleS, target) })
+  nudger.self = count
+  nudger.selfAt = now
+  await logVerdict($, paths.log, now, `sent self-nudge ${count} of ${MAX_NUDGES} to the ${TARGET_ROLE[target]}, idle ${Math.floor(idleS)}s`)
+}
+
+// Writes the lead-waiting file when the lead's wait has lasted GRACE_MS, and empties it once the lead moves on; only
+// a change is written.
+async function leadWaiting($: EngineInterface, nudger: Nudger, where: Where, roster: Roster, mine: SessionFile): Promise<void> {
+  if (roster.assistants.length === 0) return
+  const now = await $.clock.now()
+  const line = leadWaitingLine(mine, now)
+  if ((line ?? '') === (nudger.waiting ?? '')) return
+  nudger.waiting = line
+  await $.fs.write(where.leadWaiting, line ? `${JSON.stringify({ to: roster.assistants, line, since: mine.statusUpdatedAt ?? mine.updatedAt ?? now })}\n` : '')
+  if (line) await logVerdict($, where.log, now, `told ${roster.assistants.join(', ')}: ${line}`)
+}
+
+// In a session outside any checkout (the house assistant's): each project's lead-waiting file under
+// ~/.local/state that names this session is told once, as a queued prompt, while the session is not mid-turn.
+async function assistant($: EngineInterface, told: Set<string>): Promise<void> {
+  const home = await $.env.get('HOME')
+  if (!home) return
+  const id = await $.session.id()
+  const dir = await sessionsDir($)
+  let me: SessionFile | undefined
+  for (const entry of await $.fs.list(dir).catch(() => [])) {
+    if (!/^\d+\.json$/.test(entry.name)) continue
+    const text = await $.fs.read(`${dir}/${entry.name}`).catch(() => undefined)
+    try { const f = typeof text === 'string' ? JSON.parse(text) as SessionFile : undefined; if (f?.sessionId === id) { me = f; break } } catch { continue }
+  }
+  if (!me?.name || me.status === 'busy' || me.status === 'waiting') return
+  const state = `${home}/.local/state`
+  for (const project of await $.fs.list(state).catch(() => [])) {
+    const text = await $.fs.read(`${state}/${project.name}/lead-waiting`).catch(() => undefined)
+    const w = parseLeadWaiting(typeof text === 'string' ? text : undefined)
+    const key = `${project.name} ${w?.since}`
+    if (!w || !w.to.includes(me.name)) { for (const k of [...told]) if (k.startsWith(`${project.name} `)) told.delete(k); continue }
+    if (told.has(key)) continue
+    told.add(key)
+    await $.prompt.submit({ text: `[waiting-agents mod, not the owner] The ${project.name} lead is waiting for input: ${w.line}` })
+  }
 }
 
 // The development day's trip (nudge.ts, dayVerdict): asks the harness's agents-day-budget.sh, two levels above this
@@ -210,8 +271,12 @@ async function logVerdict($: EngineInterface, path: string, nowMs: number, text:
 //
 // Returns the problem that stops it reading the rows at all (the context directory is missing), so
 // the status line can show it; a silent hold on a misconfigured path looks exactly like a quiet team.
-async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: number, paths: Where, target: 'lead' | 'testing'): Promise<string | undefined> {
-  const thresholdS = Number((await $.env.get('LEAD_NUDGE_THRESHOLD_S')) || envFileValue(paths.envFile, 'LEAD_NUDGE_THRESHOLD_S')) || DEFAULT_THRESHOLD_S
+async function thresholdOf($: EngineInterface, paths: Where): Promise<number> {
+  return Number((await $.env.get('LEAD_NUDGE_THRESHOLD_S')) || envFileValue(paths.envFile, 'LEAD_NUDGE_THRESHOLD_S')) || DEFAULT_THRESHOLD_S
+}
+
+async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: number, paths: Where, target: 'lead' | 'testing', nudger: Nudger): Promise<string | undefined> {
+  const thresholdS = await thresholdOf($, paths)
   const entries = await $.fs.list(paths.contextDir).catch(() => undefined)
   if (entries === undefined) {
     const problem = `context dir missing: ${paths.contextDir}`
@@ -226,7 +291,11 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
   }
   // Only the roles the nudger reports: the head of testing and the assistants are never nudged.
   const team = new Map([...roster.roleOf].filter(([, role]) => NUDGE_ROLES.includes(role)))
-  const idle = idleAgents(team, freshRows(rows, now), thresholdS)
+  const fresh = freshRows(rows, now)
+  const idle = idleAgents(team, fresh, thresholdS)
+  // A team agent at work will message the lead, so the lead's own idleness counts only while none is.
+  nudger.teamActive = [...team.keys()].some(name => { const a = fresh.get(name)?.activity; return !!a && a !== 'idle' })
+  if (nudger.teamActive) nudger.self = undefined
   if (idle.length === 0) {
     // The team is active, so the bound has covered one idle spell: the next spell, of the same agents
     // or others, starts afresh. Without this a set nudged twice stayed held for good.
@@ -240,6 +309,7 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
   const verdict = decide(key, prev, now, thresholdS)
   if (!verdict.send) { await logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`); return }
   await $.prompt.submit({ text: nudgeText(verdict.count, idle, thresholdS, target) })
+  nudger.sentAt = now
   await $.store.set(NUDGE_STATE, { key, count: verdict.count, lastMs: now } satisfies NudgeState)
   const to = target === 'lead' ? '' : ` to the ${TARGET_ROLE[target]}`
   await logVerdict($, paths.log, now, `sent nudge ${verdict.count} of ${MAX_NUDGES}${to}; idle: ${describe(idle)}`)

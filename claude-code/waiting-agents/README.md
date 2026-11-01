@@ -55,6 +55,23 @@ hand, is left alone. Each day trips once, a restart included (the mod's store ke
 send is logged as `sent day trip: …`. The owner, 2026-11-01: the team developed on past the day's share, "We're
 missing the signal".
 
+**The lead itself.** Every prompt above answers an event, so a lead that ends a turn with nothing running in the
+background is woken by nothing. On the nudger's five-minute look, while no team agent is at work, the session being
+nudged (the delivery lead's, or the head of testing's in testing time) checks its own record: `idle` (not `shell`,
+waiting on its own background work) for the threshold or more queues `[Automated nudge 1 of 2 …] You have been idle
+for N minutes with nothing running in the background. As delivery lead, check whether the team or the day needs you.
+If nothing needs doing, end your turn without writing anything.` At most two, a threshold apart, for one stretch; it
+ends when the lead is seen waiting on a shell or a prompt, or a team agent is at work again. Logged as `sent
+self-nudge …`. A record without `statusUpdatedAt` is left alone.
+
+**When the lead is the one waiting.** Nobody reported the lead's own permission prompt. Once it has waited 25
+seconds, the lead's session writes `lead-waiting` beside the log, `{ to, line, since }`, naming the roster's
+`assistants`, and empties it when the lead moves on. A mod cannot message another session, so in every session
+outside a checkout the mod reads `~/.local/state/*/lead-waiting` each poll, and a file naming that session queues,
+once per wait and never mid-turn, `[waiting-agents mod, not the owner] The <project> lead is waiting for input:
+Vera waiting: permission prompt (strength-vera:@243.%327)`. The owner, 2026-11-01: "What else ensures the lead and
+team don't just stop?"
+
 **Pausing it.** While the file `waiting-agents.paused` exists beside that log (one level above the context
 directory: `~/.local/state/<HARNESS_PROJECT>/waiting-agents.paused` by default), the mod sends nothing at all,
 neither waiting alerts nor nudges, and the status bar says `paused`. Touch it before an evening or a weekend;

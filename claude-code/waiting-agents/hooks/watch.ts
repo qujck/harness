@@ -8,6 +8,8 @@ export type Roster = {
   byEmail: ReadonlyMap<string, string>
   // name -> role id, for every team agent (the roles the nudger names), in roster order.
   roleOf: ReadonlyMap<string, string>
+  // The roster's assistants (the house assistant): told when the lead itself is waiting for input.
+  assistants: readonly string[]
 }
 
 export type SessionFile = {
@@ -30,14 +32,15 @@ export function parseRoster(json: string): Roster {
   const team = new Set<string>()
   const byEmail = new Map<string, string>()
   const roleOf = new Map<string, string>()
-  const doc = JSON.parse(json) as { agents?: { name?: string; email?: string; role?: string; status?: string }[] }
+  const doc = JSON.parse(json) as { agents?: { name?: string; email?: string; role?: string; status?: string }[]; assistants?: { name?: string }[] }
   for (const a of doc.agents ?? []) {
     if (a.status !== 'active' || !a.name) continue
     if (a.email) byEmail.set(a.email, a.name)
     if (a.role === 'delivery-lead') lead.add(a.name)
     else { team.add(a.name); roleOf.set(a.name, a.role ?? 'agent') }
   }
-  return { lead, team, byEmail, roleOf }
+  const assistants = (doc.assistants ?? []).map(a => a.name).filter((n): n is string => !!n)
+  return { lead, team, byEmail, roleOf, assistants }
 }
 
 // The GIT_AUTHOR_EMAIL in a process's NUL-separated /proc/<pid>/environ, if it has one.
@@ -96,4 +99,23 @@ export function dueWaiting(
     lines.push(`${name} waiting: ${f.waitingFor || 'input'} (${f.tmux || 'no pane'})`)
   }
   return lines
+}
+
+// The lead's own wait, as the line its assistants are told, once it has lasted GRACE_MS; undefined otherwise.
+export function leadWaitingLine(mine: SessionFile, now: number): string | undefined {
+  if (mine.status !== 'waiting') return undefined
+  if (now - (mine.statusUpdatedAt ?? mine.updatedAt ?? now) < GRACE_MS) return undefined
+  return `${mine.name} waiting: ${mine.waitingFor || 'input'} (${mine.tmux || 'no pane'})`
+}
+
+// The lead-waiting file beside the nudger's log: `{ to, line, since }` while the lead waits, empty once it has moved
+// on. The assistant's session reads it; there is no way for a mod to send another session a message.
+export type LeadWaiting = { to: readonly string[]; line: string; since: number }
+
+export function parseLeadWaiting(text: string | undefined): LeadWaiting | undefined {
+  if (!text?.trim()) return undefined
+  try {
+    const w = JSON.parse(text) as Partial<LeadWaiting>
+    return Array.isArray(w.to) && typeof w.line === 'string' && typeof w.since === 'number' ? (w as LeadWaiting) : undefined
+  } catch { return undefined }
 }

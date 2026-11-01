@@ -18,6 +18,7 @@ const CONTEXT = '/home/me/.local/state/dev/context'
 const LOG = '/home/me/.local/state/dev/lead-nudge.log'
 const TARGET = '/home/me/.local/state/dev/nudge-target'
 const DAY_STATE = '/home/me/.local/state/dev/agents-day-budget'
+const LEAD_WAITING = '/home/me/.local/state/dev/lead-waiting'
 const T0 = Date.parse('2026-10-16T12:00:00Z')
 const v = (value: unknown) => ({ value }) as never
 const stat = (start: string) => `1 (claude) S ${'0 '.repeat(18)}${start} 0 0`
@@ -27,6 +28,11 @@ type Agent = { activity: string; idleAtT0: number }
 type World = {
   leadSid: string
   leadStatus: string
+  /** When the lead's session status last changed; no `statusUpdatedAt` in its record unless said. */
+  leadStatusAt?: number
+  leadWaitingFor?: string
+  /** Every lead-waiting write. */
+  told?: string[]
   agents: Record<string, Agent>
   /** The checkout's harness.env, when it has one. */
   envFile?: string
@@ -74,7 +80,8 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
     if (e.path === '/proc/self/stat') return v(stat('1'))
     if (e.path === '/proc/1/stat') return v(stat('100'))
     if (e.path === '/home/me/.claude/sessions/1.json') {
-      return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: w.me ?? 'Lead', status: w.leadStatus, updatedAt: 5 }))
+      return v(JSON.stringify({ pid: 1, procStart: '100', sessionId: 'lead-sid', name: w.me ?? 'Lead', status: w.leadStatus, updatedAt: 5,
+        statusUpdatedAt: w.leadStatusAt, waitingFor: w.leadWaitingFor, tmux: 'acme-lead:@1.%1' }))
     }
     if (e.path.startsWith(`${context}/`)) {
       const agent = e.path.slice(context.length + 1, -5)
@@ -93,6 +100,7 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
   })
   on('fs.write', ($, e) => {
     if (e.path === TARGET) { w.target = e.text; w.wrote?.push(e.text); return v(undefined) }
+    if (e.path === LEAD_WAITING) { w.told?.push(e.text); return v(undefined) }
     if (e.path !== logPath) throw new Error(`unexpected write to ${e.path}`)
     log.splice(0, log.length, ...e.text.split(/(?<=\n)/))
     return v(undefined)
@@ -463,4 +471,122 @@ test('the next development day hands the nudger back to the delivery lead', asyn
   await clock.advance(10_000)
   expect(w.wrote).toEqual(['lead\n'])
   expect(verdicts(log)).toContain('a new development day: nudge target lead')
+})
+
+// Nobody at work: no team agent publishes a row (none is up), so no team nudge either, and the lead idle since 20
+// minutes before T0.
+const quiet = (): World => ({ ...world(), leadStatusAt: T0 - 1_200_000,
+  agents: { Tess: { activity: 'working', idleAtT0: 0 }, Lead: { activity: 'idle', idleAtT0: 1200 } } })
+const SELF = (n: number, m: number) => `[Automated nudge ${n} of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] `
+  + `You have been idle for ${m} minutes with nothing running in the background. As delivery lead, check whether the team or the day needs you. `
+  + 'If nothing needs doing, end your turn without writing anything.'
+
+test('a lead idle with nobody at work is nudged itself, twice a threshold apart, until it or the team works again', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = quiet()
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(sent).toEqual([SELF(1, 20)])
+  expect(verdicts(log).at(-1)).toBe('sent self-nudge 1 of 2 to the delivery lead, idle 1210s')
+  await clock.advance(600_000)
+  expect(sent.length).toBe(1)
+  await clock.advance(300_000)
+  expect(sent).toEqual([SELF(1, 20), SELF(2, 35)])
+  await clock.advance(1_800_000)
+  expect(sent.length).toBe(2)
+  expect(verdicts(log).at(-1)).toBe('hold: the delivery lead already nudged 2 times while idle')
+
+  // Waiting on its own background work ends the stretch; idle again, it counts afresh.
+  w.leadStatus = 'shell'
+  await clock.advance(300_000)
+  w.leadStatus = 'idle'
+  await clock.advance(300_000)
+  expect(sent.at(-1)).toBe(SELF(1, 75))
+})
+
+test('a lead idle while a team agent works is left alone, and so is a record with no status time', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const w = quiet()
+  w.agents.Tam = { activity: 'working', idleAtT0: 0 }
+  stage(on, w, clock, sent, [])
+  await $.session.start(START)
+  await clock.advance(1_000_000)
+  expect(sent).toEqual([])
+
+  delete w.agents.Tam
+  w.leadStatusAt = undefined
+  await clock.advance(1_000_000)
+  expect(sent).toEqual([])
+})
+
+test("the lead's own wait is written for the roster's assistants after the grace, once, and cleared when it moves on", async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const w = quiet()
+  w.told = []
+  w.leadStatus = 'waiting'
+  w.leadWaitingFor = 'permission prompt'
+  w.leadStatusAt = T0
+  stage(on, w, clock, sent, [])
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(w.told).toEqual([])
+  await clock.advance(30_000)
+  expect(w.told).toEqual([`${JSON.stringify({ to: ['Assistant'], line: 'Lead waiting: permission prompt (acme-lead:@1.%1)', since: T0 })}\n`])
+  await clock.advance(60_000)
+  expect(w.told.length).toBe(1)
+  w.leadStatus = 'busy'
+  await clock.advance(10_000)
+  expect(w.told.at(-1)).toBe('')
+  expect(sent).toEqual([])
+})
+
+test("the assistant's session, outside any checkout, is told each lead wait naming it once, and not mid-turn", async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  const sent: string[] = []
+  const files: Record<string, string> = {}
+  let status = 'busy'
+  const wait = (since: number) => JSON.stringify({ to: ['Assistant'], line: 'Lead waiting: permission prompt (acme-lead:@1.%1)', since })
+  mock.env(on, { HOME: '/home/me' })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.root', () => v('/home/me'))
+  on('session.id', () => v('me-sid'))
+  on('ui.log', () => v(undefined))
+  on('ui.status', () => v(undefined))
+  on('fs.list', ($, e) => {
+    const f = (name: string) => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })
+    if (e.path === '/home/me/.claude/sessions') return v([f('7.json')])
+    if (e.path === '/home/me/.local/state') return v([f('acme'), f('other')])
+    throw new Error(`ENOENT: ${e.path}`)
+  })
+  on('fs.read', ($, e) => {
+    if (e.path === '/home/me/.claude/sessions/7.json') return v(JSON.stringify({ pid: 7, sessionId: 'me-sid', name: 'Assistant', status }))
+    if (e.path in files) return v(files[e.path])
+    throw new Error('ENOENT')
+  })
+  on('prompt.submit', ($, e) => { sent.push(e.text); return { text: e.text } as never })
+  await $.session.start({ ...START, cwd: '/home/me' })
+
+  files['/home/me/.local/state/acme/lead-waiting'] = wait(T0)
+  files['/home/me/.local/state/other/lead-waiting'] = JSON.stringify({ to: ['Someone'], line: 'X waiting: input (x)', since: T0 })
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  status = 'idle'
+  await clock.advance(10_000)
+  await clock.advance(10_000)
+  expect(sent).toEqual(['[waiting-agents mod, not the owner] The acme lead is waiting for input: Lead waiting: permission prompt (acme-lead:@1.%1)'])
+  files['/home/me/.local/state/acme/lead-waiting'] = ''
+  await clock.advance(10_000)
+  files['/home/me/.local/state/acme/lead-waiting'] = wait(T0 + 60_000)
+  await clock.advance(10_000)
+  expect(sent.length).toBe(2)
 })
