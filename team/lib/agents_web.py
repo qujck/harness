@@ -33,6 +33,12 @@ stop; team/team-paused.sh says when a wound-down team has stopped). Only this pa
 send: the request must be addressed to this host and port, carry the X-Team-Say header (which another site's page
 cannot send without a CORS preflight this server never answers), and, where the browser names an Origin, come from
 here. It listens on 127.0.0.1 only: nothing off this machine can reach it.
+
+On a phone (owner, 2026-11-01: "move to the mobile experience") it is reached through a Cloudflare tunnel that runs on
+this machine, under a public name, AGENT_WEB_PUBLIC_HOST, behind a Cloudflare Access login. A request under that
+name is answered only with Access's signed token for it: signed by AGENT_WEB_ACCESS_TEAM (its
+<team>.cloudflareaccess.com), for the Access application AGENT_WEB_ACCESS_AUD, and in date. Without all three set
+the name is refused like any other, so a tunnel route made before its Access login opens nothing.
 """
 import base64
 import glob
@@ -44,8 +50,11 @@ import re
 import shutil
 import subprocess
 import threading
+import tempfile
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -54,6 +63,9 @@ ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 STATE_DIR = os.path.join(HOME, ".local/state", PROJECT)
 PORT = int(os.environ.get("AGENT_WEB_PORT") or "8787")
+PUBLIC_HOST = os.environ.get("AGENT_WEB_PUBLIC_HOST") or ""
+ACCESS_TEAM = (os.environ.get("AGENT_WEB_ACCESS_TEAM") or "").removeprefix("https://").split(".")[0]
+ACCESS_AUD = os.environ.get("AGENT_WEB_ACCESS_AUD") or ""
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
 BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
@@ -1461,7 +1473,70 @@ DOC_TYPES = {".md", ".markdown", ".txt", ".sql", ".log"}   # what /doc shows; th
 PASTED = os.path.join(STATE_DIR, "pasted")   # images and files added in the page, kept for the agents to read
 
 
+# Access's signing certificates, fetched once an hour (and again for a key not yet seen), and the tokens already
+# checked, until they expire.
+_access = {"certs": {}, "at": 0.0, "ok": {}}
+
+
+def access_certs():
+    with urllib.request.urlopen(f"https://{ACCESS_TEAM}.cloudflareaccess.com/cdn-cgi/access/certs", timeout=10) as r:
+        return {c["kid"]: c["cert"] for c in json.load(r).get("public_certs", [])}
+
+
+def b64url(part):
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def access_ok(token):
+    """Whether a Cf-Access-Jwt-Assertion is Access's own for this page: RS256, signed with one of the team's
+    certificates (checked with openssl, as the server keeps to the standard library), for this application, issued by
+    the team and in date."""
+    if not (PUBLIC_HOST and ACCESS_TEAM and ACCESS_AUD and token):
+        return False
+    now = time.time()
+    with _lock:
+        if _access["ok"].get(token, 0) > now:
+            return True
+    try:
+        head, body, sig = token.split(".")
+        hdr, claims = json.loads(b64url(head)), json.loads(b64url(body))
+        aud = claims.get("aud") if isinstance(claims.get("aud"), list) else [claims.get("aud")]
+        if hdr.get("alg") != "RS256" or ACCESS_AUD not in aud or claims.get("iss") != f"https://{ACCESS_TEAM}.cloudflareaccess.com" \
+                or not now < float(claims.get("exp", 0)) or float(claims.get("nbf", 0)) > now + 60:
+            return False
+        with _lock:
+            stale = now - _access["at"] > 3600 or hdr.get("kid") not in _access["certs"]
+        if stale and now - _access["at"] > 10:
+            certs = access_certs()
+            with _lock:
+                _access.update(certs=certs, at=now)
+        with _lock:
+            cert = _access["certs"].get(hdr.get("kid"))
+        if not cert:
+            return False
+        with tempfile.TemporaryDirectory() as d:
+            key = subprocess.run(["openssl", "x509", "-pubkey", "-noout"], input=cert.encode(), capture_output=True, timeout=10).stdout
+            open(os.path.join(d, "key"), "wb").write(key)
+            open(os.path.join(d, "sig"), "wb").write(b64url(sig))
+            good = subprocess.run(["openssl", "dgst", "-sha256", "-verify", os.path.join(d, "key"), "-signature", os.path.join(d, "sig")],
+                                  input=f"{head}.{body}".encode(), capture_output=True, timeout=10).returncode == 0
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError, urllib.error.URLError):
+        return False
+    if good:
+        with _lock:
+            _access["ok"] = {k: v for k, v in _access["ok"].items() if v > now}
+            _access["ok"][token] = float(claims["exp"])
+    return good
+
+
 class Handler(BaseHTTPRequestHandler):
+    def here(self):
+        """Whether the request is the page's own: addressed to this host and port, or to the public name with
+        Access's token for it."""
+        host = self.headers.get("Host")
+        return host in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"} or \
+            bool(PUBLIC_HOST) and host == PUBLIC_HOST and access_ok(self.headers.get("Cf-Access-Jwt-Assertion"))
+
     def send(self, code, body, ctype, cache="no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -1472,6 +1547,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if self.headers.get("Host") == PUBLIC_HOST != "" and not self.here():
+            return self.send(403, b"sign in through Cloudflare Access\n", "text/plain")
         if path == "/":
             self.send(200, PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/api/team":
@@ -1499,7 +1576,7 @@ class Handler(BaseHTTPRequestHandler):
         """A document an agent names by its full path ("~/…" or "/home/…"), as text for the page to show: only from the
         page itself (the Host check keeps other sites out), only Markdown, plain text, SQL or a log (never a settings
         or key file), and only from under the home directory."""
-        if self.headers.get("Host") not in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}:
+        if not self.here():
             return self.send(403, b"only the team page\n", "text/plain")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         real = os.path.realpath(os.path.expanduser(query.get("p", [""])[0]))
@@ -1512,7 +1589,7 @@ class Handler(BaseHTTPRequestHandler):
     def image(self):
         """An image an agent names by its path, full or from its own folder, for the page to show: only from the page
         itself (the Host check keeps other sites out), only an image file, and only from under the home directory."""
-        if self.headers.get("Host") not in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}:
+        if not self.here():
             return self.send(403, b"only the team page\n", "text/plain")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         if "k" in query:
@@ -1535,10 +1612,9 @@ class Handler(BaseHTTPRequestHandler):
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         if not m and not team and not nudger and self.path != "/api/paste":
             return self.send(404, b"not found\n", "text/plain")
-        here = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+        origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
-        if self.headers.get("Host") not in here or self.headers.get("X-Team-Say") != "1" or \
-                (origin and origin.removeprefix("http://") not in here):
+        if not self.here() or self.headers.get("X-Team-Say") != "1" or (origin and origin not in origins):
             return self.send(403, b"only the team page can send\n", "text/plain")
         if team:
             return self.team(team.group(1))
@@ -4785,8 +4861,6 @@ def self_test():
     """Fixtures in a throwaway directory: a roster, Claude Code records held by live stand-in processes, context rows,
     a claims board, a transcript, a stand-in tmux and budget. Nothing live is read, and nothing is typed anywhere."""
     import sys
-    import tempfile
-    import urllib.request
     g, fails, kids = globals(), [], []
 
     def t(what, got, want):
@@ -4943,6 +5017,32 @@ def self_test():
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
         t("  and one from another site", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1", "Origin": "http://evil.example"}), b'{"text":"hi"}')[0], 403)
         t("  and one with nothing in it", code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), b'{"text":"  "}')[0], 400)
+        # the public name, behind Access: a key of the test's own stands in for the team's
+        def sign(claims, key="key"):
+            enc = lambda o: base64.urlsafe_b64encode(json.dumps(o).encode()).rstrip(b"=").decode()
+            head = enc({"alg": "RS256", "kid": "k1"}) + "." + enc(claims)
+            sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", f"{T}/{key}.pem"], input=head.encode(), capture_output=True).stdout
+            return head + "." + base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+        for k in ("key", "other"):
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{T}/{k}.pem", "-out", f"{T}/{k}.crt",
+                            "-days", "1", "-subj", "/CN=t"], capture_output=True, check=True)
+        fetched = []
+        g.update(PUBLIC_HOST="team.example", ACCESS_TEAM="tm", ACCESS_AUD="aud1",
+                 access_certs=lambda: fetched.append(1) or {"k1": open(f"{T}/key.crt").read()})
+        good = {"aud": ["aud1"], "iss": "https://tm.cloudflareaccess.com", "exp": time.time() + 600}
+        pub = lambda tok=None, **h: dict({"Host": "team.example"}, **({"Cf-Access-Jwt-Assertion": tok} if tok else {}), **h)
+        t("the public name without Access's token is refused", code("/api/state", headers=pub())[0], 403)
+        t("  and with its token, served", code("/api/state", headers=pub(sign(good)))[0], 200)
+        t("  and the token checked once, its certificates fetched once", (code("/", headers=pub(sign(good)))[0], len(fetched)), (200, 1))
+        t("  but one signed with another key is refused", code("/api/state", headers=pub(sign(good, "other")))[0], 403)
+        t("  and one for another application", code("/api/state", headers=pub(sign(dict(good, aud=["aud2"]))))[0], 403)
+        t("  and one from another team", code("/api/state", headers=pub(sign(dict(good, iss="https://x.cloudflareaccess.com"))))[0], 403)
+        t("  and one expired", code("/api/state", headers=pub(sign(dict(good, exp=time.time() - 5))))[0], 403)
+        t("  and a message from another site, even signed in", code("/api/agent/Ada/say", "POST", dict(say, **pub(sign(good), **{"X-Team-Say": "1", "Origin": "https://evil.example"})), b'{"text":"  "}')[0], 403)
+        t("  but one from the page under that name goes on to be read", code("/api/agent/Ada/say", "POST", dict(say, **pub(sign(good), **{"X-Team-Say": "1", "Origin": "https://team.example"})), b'{"text":"  "}')[0], 400)
+        g.update(ACCESS_AUD="")
+        t("  and with no application named, even a good token is refused", code("/api/state", headers=pub(sign(good)))[0], 403)
+        g.update(PUBLIC_HOST="", ACCESS_TEAM="", access_certs=access_certs)
         long_text = "line of a long paste\n" * 20000
         code("/api/agent/Ada/say", "POST", dict(say, **{"X-Team-Say": "1"}), json.dumps({"text": long_text}).encode())
         t("a long paste (400 KB) reaches the pane whole", os.path.getsize(T + "/loaded") if os.path.exists(T + "/loaded") else 0, len(long_text.strip()) + 1)
