@@ -2086,7 +2086,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top > .foldbtn{flex:none;align-self:flex-start;display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:5px;color:var(--mute);cursor:pointer}
 .card > .top > .foldbtn:hover{background:var(--on);color:var(--text)}
 .card > .top > .foldbtn + .lanes{margin-left:0}
-@container (max-width:719.98px){.card.folded > .row2,.card.folded > svg.spark{display:none}}   /* level with the maximise button whatever the line's height */
+.card.folded > .row2,.card.folded > svg.spark{display:none}   /* folded: the name line alone, on every screen */
 .card .top{flex-wrap:wrap;row-gap:4px}
 .termseg b,.railseg b{padding:1px 5px;font-size:calc(10px*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
@@ -2270,7 +2270,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > svg.spark{height:16px}
 }
 @container (min-width:720px){
-  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
+  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .row2{grid-row:1;align-self:center}
@@ -2280,9 +2280,9 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .top + .row2{grid-column:4;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top > .lanes{grid-column:7;align-self:start;margin:10px -8px 0 4px}
-  .card.full > .top > .maxbtn{grid-column:8;align-self:start;margin:10px 10px 0 0;position:static}
-  .card.full > .top > .foldbtn{display:none}
+  .card.full > .top > .lanes{grid-column:8;align-self:start;margin:10px -8px 0 4px}
+  .card.full > .top > .maxbtn{grid-column:9;align-self:start;margin:10px 10px 0 0;position:static}
+  .card.full > .top > .foldbtn{grid-column:7;align-self:start;margin:10px 0 0 4px}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
