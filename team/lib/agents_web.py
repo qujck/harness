@@ -1860,7 +1860,9 @@ PAGE = r"""<!doctype html>
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- interactive-widget: the on-screen keyboard shrinks the page, not just the view, so the footer sits on the keyboard
+     with no gap below it (owner, 2026-11-01) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>Team</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
