@@ -156,8 +156,10 @@ export function nudgeText(count: number, idle: readonly Idle[], thresholdS: numb
 // team developed on past 16 of 15 (owner: "We're missing the signal"). So the lead's session asks every minute and,
 // the first time a day reads over, queues one prompt and hands the nudger to the head of testing; when the next
 // development day opens it hands it back. `day` is the day's start (the first field of the budget's state file),
-// so each day trips once, a restart included. The lead starts the verification day itself: the owner, the same evening,
-// "I can't approve starting every verification day".
+// so each day trips once, a restart included. The lead hands the shift to the head of testing without asking: the
+// owner, the same evening, "I can't approve starting every verification day"; and the shift rule (owner, 2026-10-31)
+// has the head of testing run the verification day while the lead is benched. The pause is counted by session
+// entries, not replies: three agents paused that evening but answered in their own panes.
 export type DayTrip = { day: string; switched: boolean }
 
 export type DayVerdict = { alert: boolean; target?: 'lead' | 'testing'; store?: DayTrip }
@@ -180,7 +182,9 @@ export function dayTripText(statusLine: string): string {
   return '[Automated alert from the waiting-agents mod, not from the owner.] The development day is over: '
     + `${statusLine.replace(/^day  over: /, '').replace(/: write your durable record and pause$/, '')}. `
     + 'As delivery lead, pause the team now (docs/runbooks/development-and-verification-days.md §3): tell every live agent '
-    + 'to write its durable record and pause where it stands; armed PRs stay armed; then start the verification day '
-    + 'yourself (bash scripts/dev-day.sh start verification), without asking the owner or waiting for the head of '
-    + 'testing. The nudger now nudges the head of testing.'
+    + 'to write its durable record, pause where it stands and reply to you with SendMessage; count the pause by their '
+    + 'session entries (bash scripts/progress.sh list), not by replies; armed PRs stay armed. Then hand the shift to the '
+    + 'head of testing without asking the owner (docs/roles/delivery-lead.md, the shift handover): write your session '
+    + 'entry and run bash scripts/agent-spawn.sh spawn head-of-testing --name <Name>. They start the verification day '
+    + 'and bench you. The nudger now nudges the head of testing.'
 }

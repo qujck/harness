@@ -48,7 +48,8 @@ No one else."
 
 **The development day's trip.** Once a minute the delivery lead's session runs the harness's
 `team/agents-day-budget.sh status` for the project. The first time a development day reads `day  over`, it queues
-one prompt telling the delivery lead to pause the team (the project's runbook) and switches `nudge-target` from
+one prompt telling the delivery lead to pause the team (the project's runbook), count the pause by session entries
+and hand the shift to the head of testing without asking the owner, and switches `nudge-target` from
 `lead` to `testing`. When the next development day opens, it switches it back. A target of `off`, or a word set by
 hand, is left alone. Each day trips once, a restart included (the mod's store keeps the day's start). Every
 send is logged as `sent day trip: …`. The owner, 2026-11-01: the team developed on past the day's share, "We're
