@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Team: every running agent's activity added together, minute by minute, as each card shows its own, a bar item for
+the team page (team/lib/agents_web.py runs it with the page's numbers on its input)."""
+import json
+import sys
+
+
+def k(n):
+    return str(n) if n < 1000 else f"{n / 1000:.{1 if n < 1e5 else 0}f}k" if n < 1e6 else f"{n / 1e6:.1f}M"
+
+
+agents = json.load(sys.stdin).get("agents") or []
+team = [sum(x) for x in zip(*[a["series"] for a in agents if a.get("series")])]
+rate = sum(a.get("rate") or 0 for a in agents)
+print(json.dumps({"place": "header", "label": "Team", "every": 3, "title": "Tokens a minute, every running agent together",
+                  "value": [{"text": k(rate), "colour": "text", "bold": True}, " tok/min"] if rate else "", "spark": team}))

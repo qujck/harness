@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Disk: the space free where AGENT_DISK_WATCH points, a bar item for the team page (team/lib/agents_web.py runs it
+with the page's numbers on its input); amber under AGENTS_DASH_DISK_WARN GB, red under AGENTS_DASH_DISK_ALERT.
+Hidden with nothing to watch."""
+import json
+import sys
+
+d = json.load(sys.stdin).get("disk")
+if not d:
+    print(json.dumps({"place": "header", "hidden": True}))
+elif d.get("free_gb") is None:
+    print(json.dumps({"place": "header", "label": d["label"] + " free", "value": "?", "title": f"{d['label']} cannot be read"}))
+else:
+    f = d["free_gb"]
+    c = "red" if f < d["alert"] else "amber" if f < d["warn"] else "text"
+    print(json.dumps({"place": "header", "label": d["label"] + " free", "every": 30,
+                      "value": [{"text": f"{f} GB", "colour": c}, {"text": f" of {d['total_gb']}", "colour": "faint"}]}))

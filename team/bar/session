@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Session: the account's five-hour session use, a bar item for the team page (team/lib/agents_web.py runs it with
+the page's numbers on its input); amber from 75%, red from 90%. Shown only when Settings shows the session limit."""
+import json
+import sys
+
+ss = json.load(sys.stdin).get("session")
+c = "red" if ss is not None and ss >= 90 else "amber" if ss is not None and ss >= 75 else "green"
+print(json.dumps({"place": "header", "label": "Session", "every": 5, "title": "The account's five-hour session",
+                  "value": ["no reading"] if ss is None else [{"text": f"{ss}%", "colour": c, "bold": True}],
+                  "meter": {"pct": ss or 0, "colour": c if ss is not None and ss >= 75 else ""}}))

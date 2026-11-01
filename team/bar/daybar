@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Day bar: the open development day's share (team/agents-day-budget.sh) on one low line, "Day: 12%" beside a meter
+filled to how much of the share is used; red once spent past it. Hidden while no day is open."""
+import json
+import sys
+
+dy = json.load(sys.stdin).get("day")
+if not dy:
+    print(json.dumps({"hidden": True, "name": "Day bar"}))
+else:
+    c = "red" if dy["used"] > dy["quota"] else "green"
+    print(json.dumps({"label": "Day", "name": "Day bar", "slim": True, "every": 5,
+                      "value": [{"text": f"{dy['used']}%", "colour": c, "bold": True}],
+                      "title": f"The day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%)",
+                      "meter": {"pct": 100 * dy["used"] / dy["quota"] if dy["quota"] else 100, "mark": None,
+                                "colour": c if c == "red" else ""}}))
