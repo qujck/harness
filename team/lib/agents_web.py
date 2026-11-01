@@ -4738,6 +4738,17 @@ addEventListener("keydown", e => {
   else if (open || !unmax()) closeDetail();
 });
 addEventListener("resize", draw);
+// Where the on-screen keyboard shrinks only the visible part of the page (iOS ignores interactive-widget), the page
+// is sized and moved to that part, so the footer sits on the keyboard with no gap (owner, 2026-11-01: "halved the
+// gap"). A pinch-zoom, which also shrinks it, leaves the page alone.
+if (window.visualViewport) {
+  const vv = visualViewport, fit = () => {
+    const kb = vv.scale < 1.01 && innerHeight - vv.height > 1;
+    document.documentElement.style.height = kb ? vv.height + "px" : "";
+    document.body.style.transform = kb && vv.offsetTop ? `translateY(${vv.offsetTop}px)` : "";
+  };
+  vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
+}
 
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
