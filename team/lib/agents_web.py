@@ -98,7 +98,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "tester": ("tester", "Tester", "Testers", "yellow"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
-         "production-support": ("support", "Production Support", "Others", "orange"),
+         "production-support": ("support", "Head of Operations", "Others", "orange"),   # Ed's title since 2026-10-31, until the roster renames the role
          "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),   # production support's colour, as Ed carries it over
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
          "assistant": ("pa", "Assistant", "Others", "green")}
@@ -1905,7 +1905,8 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
-.barplus{margin-left:auto;flex:none;padding:3px 6px;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--mute);font:inherit}
+.barplus{margin-left:auto;flex:none;width:28px;height:24px;padding:0;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--mute);font:inherit;
+  font-size:calc(16px*var(--fs,1));line-height:1;text-align:center;text-align-last:center;appearance:none;-webkit-appearance:none;cursor:pointer}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
@@ -2081,7 +2082,11 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 /* the maximise button docked in the head's top-right corner, so it stays there when a narrow head wraps */
 .card > .top:has(> .maxbtn){padding-right:34px}   /* the maximise button, 10px in, and 2px before it */
 .card > .top > .maxbtn{position:absolute;top:10px;right:10px}
-.card > .top > .lanes{align-self:flex-start}   /* level with the maximise button whatever the line's height */
+.card > .top > .lanes{align-self:flex-start}
+.card > .top > .foldbtn{flex:none;align-self:flex-start;display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:5px;color:var(--mute);cursor:pointer}
+.card > .top > .foldbtn:hover{background:var(--on);color:var(--text)}
+.card > .top > .foldbtn + .lanes{margin-left:0}
+@container (max-width:719.98px){.card.folded > .row2,.card.folded > svg.spark{display:none}}   /* level with the maximise button whatever the line's height */
 .card .top{flex-wrap:wrap;row-gap:4px}
 .termseg b,.railseg b{padding:1px 5px;font-size:calc(10px*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
@@ -2277,6 +2282,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > .top > .termseg{grid-column:6}
   .card.full > .top > .lanes{grid-column:7;align-self:start;margin:10px -8px 0 4px}
   .card.full > .top > .maxbtn{grid-column:8;align-self:start;margin:10px 10px 0 0;position:static}
+  .card.full > .top > .foldbtn{display:none}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -2569,6 +2575,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   #main .lay > .half{flex:none;min-height:75vh}
   #main .divider{display:none}
   .say,#detail .say{font-size:16px}
+  .say,#dsay{min-height:0 !important}   /* one line until typed into further: the keyboard leaves little room (owner, 2026-11-01) */
 }
 </style>
 </head>
@@ -2954,14 +2961,28 @@ function spark(series, ceil, colour) {
 const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
+// A narrow card's state, model and activity rows fold away under its ^ and come back with its v, for room on a phone
+// (owner, 2026-11-01), kept per agent in this browser. A wide card has them on its name's line, so nothing to fold.
+const folded = () => { try { return JSON.parse(localStorage.getItem("folded")) || []; } catch (e) { return []; } };
+const foldButton = (name, on) => `<b class="foldbtn" data-name="${esc(name)}" title="${on ? "Show its state, model and activity" : "Hide its state, model and activity"}">` +
+  `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${on ? "M2.5 4.5 6 8l3.5-3.5" : "M2.5 7.5 6 4l3.5 3.5"}"/></svg></b>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest?.(".foldbtn");
+  if (!b) return;
+  e.stopPropagation();
+  const name = b.dataset.name, f = folded();
+  try { localStorage.setItem("folded", JSON.stringify(f.includes(name) ? f.filter(x => x !== name) : [...f, name])); } catch (e) {}
+  draw();
+}, true);
 function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
   const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
-  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
+  const fold = folded().includes(a.name);
+  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+    <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
@@ -3191,7 +3212,7 @@ function draw() {
     menuOff(true);
     localStorage.setItem("tab:" + sec, b.dataset.tab);
     draw();
-    document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`)?.focus();
+    aim(document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`));
   });
   // A tile in a card-badge tab row opens its agent's menu like any other tile: on a rest or a right-click.
   document.querySelectorAll(".chrtabs .chr, .icontabs .face, .meetrow button, .tabbar button.away").forEach(m => {
@@ -3209,7 +3230,7 @@ function draw() {
   document.querySelectorAll(".card").forEach(c => c.onclick = e => {
     if (!getSelection().isCollapsed || e.target.closest("a")) return;
     const box = c.closest(".pane") && c.querySelector(".say");
-    if (box) { if (e.detail < 2 && document.activeElement !== box) box.focus(); } else openDetail(c.dataset.name);
+    if (box) { if (e.detail < 2 && document.activeElement !== box) aim(box); } else openDetail(c.dataset.name);
   });
   document.querySelectorAll(".pane .card").forEach(c => c.ondblclick = e => { if (!e.target.closest(".say,a")) openDetail(c.dataset.name); });
   laneClicks(main);
@@ -3330,8 +3351,11 @@ const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEM
 // A plug-in that says where it goes (its place, header or footer) can be put only there (owner, 2026-11-01: "each
 // plug-in can say header, footer or both").
 const fits = (k, foot) => { const p = plugs().find(x => x.key === k)?.place; return !p || p === (foot ? "footer" : "header"); };
+// One header and footer for the whole page, the same in every view (owner, 2026-11-01), kept in this browser as "bar".
+// Until it is first changed, the bar the shown view kept when each view had its own.
+function pageBar() { try { const b = JSON.parse(localStorage.getItem("bar")); if (b) return b; } catch (e) {} return shownView().bar || {}; }
 function barOf() {
-  const b = shownView().bar || {}, mine = Object.keys(BAR_ITEMS), all = [...new Set([...mine, ...plugs().map(x => x.key)])];
+  const b = pageBar(), mine = Object.keys(BAR_ITEMS), all = [...new Set([...mine, ...plugs().map(x => x.key)])];
   const foot = (b.foot || []).filter(k => all.includes(k) && fits(k, true)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
   const head = (b.head || []).filter(k => all.includes(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
   // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
@@ -3373,7 +3397,7 @@ function drawPlugs() {
     if (was !== now) { sp.dataset.s = now; sp.innerHTML = x.spark ? spark(x.spark, Math.max(1, ...x.spark), "currentColor") : ""; }
   }
 }
-const saveBar = b => { const v = views(); v.views[v.at].bar = b; saveViews(v); };
+const saveBar = b => { try { localStorage.setItem("bar", JSON.stringify(b)); } catch (e) {} };
 const barEditing = () => !pageLocked();
 function placeBar() {
   drawPlugs();
@@ -3385,11 +3409,12 @@ function placeBar() {
     // bare: nothing in it shows, only spacers or items hidden for now (Session while Settings hides it, Disk with nothing to watch)
     if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
-    const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"));
+    const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"))   // A to Z (owner, 2026-11-01)
+      .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
     if (plus && plus.dataset.k !== want) plus.remove();
     if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<select class="barplus" data-k="${want}" title="Put an item back">` +
-      `<option value="">Add…</option>${can.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
+      `<option value="">+</option>${can.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
   }
 }
 document.addEventListener("click", e => {
@@ -3456,6 +3481,11 @@ document.addEventListener("pointerdown", e => {
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
 });
 const saveLayout = l => { const v = views(); v.views[v.at].layout = l; saveViews(v); };
+// A message box is given the cursor only on a big screen: on a phone it would bring up the keyboard, which crushes
+// the view (owner, 2026-11-01: "on a small screen the input box should never take focus"). Where the owner chose to
+// type (a rename, a question's own box, a command picked into the box) the cursor still goes.
+const small = () => matchMedia("(max-width:700px), (pointer:coarse)").matches;
+const aim = el => { if (el && !small()) el.focus(); };
 function nodeAt(root, path) { let n = root; for (const c of path.slice(1)) n = n[c]; return n; }
 function putAt(l, path, node) { if (path === "r") l.root = node; else nodeAt(l.root, path.slice(0, -1))[path.slice(-1)] = node; }
 function leaves(n, path = "r", out = []) { if (n.split) { leaves(n.a, path + "a", out); leaves(n.b, path + "b", out); } else out.push([path, n]); return out; }
@@ -4040,7 +4070,7 @@ function customClicks() {
     const box = () => main.querySelector(`.pane .card[data-name="${CSS.escape(name)}"] .say`);
     const tabs = !box() && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
     if (tabs) { localStorage.setItem("tab:pane:" + tabs[0], name); draw(); }
-    box() ? box().focus() : openDetail(name);
+    box() ? aim(box()) : openDetail(name);
   };
   // an agent that is not running has nothing to open: a click on its row or tile opens its menu instead
   const open = m => m.classList.contains("off") ? menuSoon(m, 0) : (menuOff(true), goTo(m.dataset.name));
@@ -4285,7 +4315,7 @@ async function openDetail(name) {
   rail();
   const ds = $("#dsay"); ds.value = draft(name); grow(ds); shutBox(ds, {name, ...a});
   $("#datt").dataset.name = name; showAtt(name);
-  $("#dsayrow").style.display = a.live ? "" : "none"; syncStop(); setTimeout(() => ds.focus(), 50);
+  $("#dsayrow").style.display = a.live ? "" : "none"; syncStop(); setTimeout(() => aim(ds), 50);
   await refreshDetail(true);
 }
 // The conversation stays pinned to its newest turn: from opening, until it is scrolled up, and again once it is
@@ -4296,7 +4326,7 @@ let pinned = true;
 $("#dconv").addEventListener("click", e => {
   const ds = $("#dsay");
   if (!getSelection().isCollapsed || e.target.closest("a, button, img, .thumbs, [data-run]") || !ds.offsetParent) return;
-  if (document.activeElement !== ds) ds.focus();
+  if (document.activeElement !== ds) aim(ds);
 });
 $("#dconv").addEventListener("scroll", () => { const c = $("#dconv"); pinned = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; $("#dbottom").classList.toggle("on", !pinned); });
 $("#dbottom").onclick = () => { const c = $("#dconv"); pinned = true; $("#dbottom").classList.remove("on"); c.scrollTo({top: c.scrollHeight, behavior: "smooth"}); };
@@ -4472,7 +4502,7 @@ async function say(name, input) {
     flash(box(), "sent");
     chase(name, text);
   } catch (e) { if (echo) { echoes[name] = echoes[name].filter(m => m !== echo); echoed(name); } const b = box(); b.value = text; grow(b); keep(b); flash(b, "failed"); b.title = String(e.message || e); }
-  saying.delete(name); input.disabled = false; box().focus();
+  saying.delete(name); input.disabled = false; aim(box());
 }
 // A message to the whole meeting: sent to each member who is running at once, each with its own echo; the box gets the
 // text back only if it reached nobody, and says who it missed.
@@ -4499,7 +4529,7 @@ async function sayAll(key, input) {
   const b = box();
   if (missed.length === to.length) { b.value = text; grow(b); keep(b); }
   flash(b, missed.length ? "failed" : "sent"); b.title = missed.length ? `Not sent to ${andList(missed)}` : "";
-  saying.delete(key); input.disabled = false; box().focus();
+  saying.delete(key); input.disabled = false; aim(box());
 }
 // After a message is sent, that agent alone is asked for its conversation every half second until the message shows
 // in it (as the owner's turn, or queued), for up to ten seconds; the page and its view then refresh at once rather
@@ -4555,7 +4585,7 @@ async function upload(files, name, box) {
 // The + beside a message box, or Ctrl+U in it, picks images or any other files from this computer to go with the message.
 function pick(name, box) {
   const input = Object.assign(document.createElement("input"), {type: "file", multiple: true});
-  input.onchange = () => { upload([...input.files], name, box); box.focus(); };
+  input.onchange = () => { upload([...input.files], name, box); aim(box); };
   input.click();
 }
 const addButton = name => `<button class="add" data-name="${esc(name)}" title="Add images or files (Ctrl+U)"></button>`;
@@ -4826,8 +4856,8 @@ const here = () => {
 const shownBox = name => [...document.querySelectorAll(`#main .say[data-name="${CSS.escape(name)}"]`)].find(b => b.offsetParent);
 function focusAgent(name) {
   if (!name) return;
-  if (settings().jump === "view") return name === open ? $("#dsay").focus() : openDetail(name);
-  if (open) return name === open ? $("#dsay").focus() : openDetail(name);
+  if (settings().jump === "view") return name === open ? aim($("#dsay")) : openDetail(name);
+  if (open) return name === open ? aim($("#dsay")) : openDetail(name);
   if (!shownBox(name) && (localStorage.getItem("page") || "grid") === "custom") {   // a Combined pane's chat with it
     const pane = leaves(layout().root).find(([, n]) => n.show === "combined" && paneAgents(n).some(a => a.name === name && a.live));
     if (pane) return chatWith(pane[0], name);
@@ -4838,7 +4868,7 @@ function focusAgent(name) {
     if (pane) { localStorage.setItem("tab:pane:" + pane[0], name); draw(); }
     else $(`#main .tabbar button[data-tab="${CSS.escape(name)}"]`)?.click();
   }
-  box() ? box().focus() : openDetail(name);
+  box() ? aim(box()) : openDetail(name);
 }
 addEventListener("keydown", e => {
   const typing = e.target.closest?.("textarea, input, select");
@@ -4850,7 +4880,7 @@ addEventListener("keydown", e => {
   const step = d => names[at < 0 ? (d > 0 ? 0 : names.length - 1) : (at + d + names.length) % names.length];
   const act = e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
     : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
-    : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) shownBox(cur)?.focus(); }
+    : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) aim(shownBox(cur)); }
     : e.code === "KeyV" ? () => $("#pagemode .viewbtn")?.click()
     : e.code === "KeyL" ? () => ((cur && open === cur && $("#dhead .lanes")) || (cur && $(`#main .card[data-name="${CSS.escape(cur)}"] .lanes`)) || $("#pagelanes .fbtn")).click()
     : e.code === "KeyM" ? () => maxToggle()
@@ -4935,7 +4965,7 @@ function chatWith(path, name) {
   if (!n) return;
   if (name) n.chat = name; else delete n.chat;
   saveLayout(l); draw();
-  if (name) $(`#main .pane[data-path="${path}"] .chat .say`)?.focus();
+  if (name) aim($(`#main .pane[data-path="${path}"] .chat .say`));
 }
 function menuSoon(el, wait) {
   clearTimeout(menuShow); clearTimeout(menuHide);
