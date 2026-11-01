@@ -208,6 +208,8 @@ spawn_prompt() {
     p+=" Then tell the delivery lead you are ready and ask which ticket is yours."
   elif [[ "$r" == developer ]]; then
     p+=" Then claim it yourself, \`bash scripts/feature-ticket.sh claim $t\`, and tell the delivery lead you have it."
+    # without it a developer ends its first turn at the report and sits idle until someone sends a go (strength, 2026-11-01)
+    p+=" Then start on it in the same turn: plan it and build it. Do not wait for a go."
   else
     p+=" A tester claims nothing: tell the delivery lead you are ready to test $t."
   fi
@@ -229,6 +231,8 @@ spawn_self_test() {
          else printf '  FAIL %s\n       want %q\n       got  %q\n' "$1" "$3" "$2"; fails=$((fails+1)); fi; }
   _has() { if grep -qF -- "$3" <<<"$2"; then printf '  ok   %s\n' "$1"
            else printf '  FAIL %s\n       no %q in:\n%s\n' "$1" "$3" "$2"; fails=$((fails+1)); fi; }
+  _not() { if ! grep -qF -- "$3" <<<"$2"; then printf '  ok   %s\n' "$1"
+           else printf '  FAIL %s\n       found %q in:\n%s\n' "$1" "$3" "$2"; fails=$((fails+1)); fi; }
   T="$(mktemp -d)" || return 2
   trap '[[ -n "$child" ]] && kill "$child" 2>/dev/null; rm -rf "$T"' RETURN
 
@@ -347,6 +351,8 @@ EOF
   _t "a running name is never picked" "$(grep -c 'would start Ben' <<<"$out")" 0
   _t "a retired name is never picked" "$(grep -c 'would start Cy' <<<"$out")" 0
   _has "the dry run names the name to start with --name" "$out" "would start Ada (developer) for HAR-12"
+  _has "a developer's prompt tells it to start on its ticket without waiting for a go" "$(spawn_prompt Ada developer HAR-12)" "Do not wait for a go."
+  _not "  …and a tester's prompt does not" "$(spawn_prompt Tia tester HAR-12)" "Do not wait for a go"
   _has "a dry run prints the budget line, to decide whether to ask the owner" "$out" "budget  none set"
   _has "  with no budget a developer dry run says to ask the owner first" "$out" "ask the owner first, in one line; start it with their words on --owner-ok"
   _has "  and the start line it prints carries the --owner-ok slot" "$out" '--owner-ok "<the owner'"'"'s words>"'
