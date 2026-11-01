@@ -77,6 +77,8 @@ function stage(on: On, world: World, sent: string[], logged: string[], status: s
   on('fs.write', () => v(undefined))
   mock.store(on)
   on('prompt.submit', ($, e) => { sent.push(e.text); return { text: e.text } as never })
+  // No development day open: the day trip (nudge.test.ts) has nothing to say here.
+  on('process.run', () => ({ value: { exitCode: 3, stdout: 'day  none: no day open\n', stderr: '' } }) as never)
 }
 
 const lead = { pid: 1, procStart: '100', sessionId: 'lead-sid', name: 'Lead', status: 'idle', updatedAt: 5 }

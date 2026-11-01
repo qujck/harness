@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { type ContextRow, DEFAULT_THRESHOLD_S, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, stateKey, statePaths } from './nudge.ts'
+import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, stateKey, statePaths } from './nudge.ts'
 import { authorEmailOf, current, dueWaiting, forget, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
@@ -7,6 +7,9 @@ const POLL_MS = 10_000
 const NUDGE_EVERY_MS = 300_000
 // The store key holding the NudgeState, so the two-nudge bound survives a session restart.
 const NUDGE_STATE = 'nudgeState'
+// How often the delivery lead's session asks whether the development day is over, and the store key of what it did.
+const DAY_EVERY_MS = 60_000
+const DAY_TRIP = 'dayTrip'
 
 // Where Claude Code writes `<pid>.json` for every live session: under its config directory, which is
 // `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise.
@@ -105,7 +108,7 @@ async function whereOf($: EngineInterface): Promise<Where> {
 // are sent only while that session is not mid-turn, so a message is never
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
-type Nudger = { nextAt: number; problem?: string }
+type Nudger = { nextAt: number; problem?: string; dayAt?: number }
 
 async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
@@ -140,6 +143,7 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   const isFree = mine.status !== 'busy' && mine.status !== 'waiting'
   // The nudger's standing problem, when it has one, rides on the same line so it is never silent.
   const problem = nudges && nudger.problem ? `; ${nudger.problem}` : ''
+  if (isLead) await dayTrip($, nudger, where, target)
   if (isLead) {
     // The waiting alerts stay with the delivery lead whatever the switch says; the owner has not moved them.
     const lines = isFree ? dueWaiting(agents, roster.team, told, await $.clock.now()) : []
@@ -160,6 +164,32 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   if (now < nudger.nextAt) return
   nudger.nextAt = now + NUDGE_EVERY_MS
   nudger.problem = await nudge($, roster, isFree, now, where, isLead ? 'lead' : 'testing')
+}
+
+// The development day's trip (nudge.ts, dayVerdict): asks the harness's agents-day-budget.sh, two levels above this
+// mod, for the project whose state sits beside the log. A status it cannot get is logged and asked again next minute.
+async function dayTrip($: EngineInterface, nudger: Nudger, where: Where, target: ReturnType<typeof parseTarget>): Promise<void> {
+  const now = await $.clock.now()
+  if (now < (nudger.dayAt ?? 0)) return
+  nudger.dayAt = now + DAY_EVERY_MS
+  const dir = where.log.slice(0, where.log.lastIndexOf('/'))
+  const project = dir.slice(dir.lastIndexOf('/') + 1)
+  const script = `${$.plugin.root}/../../team/agents-day-budget.sh`
+  const status = await $.process.run(['bash', script, 'status'], { env: { HARNESS_PROJECT: project } }).catch(err => ({ exitCode: -1, stdout: '', stderr: String(err) }))
+  const line = status.stdout.trim().split('\n')[0] ?? ''
+  if (!line.startsWith('day  ')) { $.ui.log(`day budget status: exit ${status.exitCode} ${status.stderr.trim()}`); return }
+  const state = await $.fs.read(`${dir}/agents-day-budget`).catch(() => undefined)
+  const day = typeof state === 'string' ? state.trim().split(/\s+/)[0] || undefined : undefined
+  const prev = (await $.store.get(DAY_TRIP)) as DayTrip | undefined
+  const verdict = dayVerdict(line, day, prev, target)
+  if (verdict.target) await $.fs.write(where.target, `${verdict.target}\n`)
+  if (verdict.store) await $.store.set(DAY_TRIP, verdict.store)
+  if (verdict.alert) {
+    await $.prompt.submit({ text: dayTripText(line) })
+    await logVerdict($, where.log, now, `sent day trip: ${line}${verdict.target ? '; nudge target testing' : ''}`)
+  } else if (verdict.target) {
+    await logVerdict($, where.log, now, `a new development day: nudge target ${verdict.target}`)
+  }
 }
 
 // One line, prefixed with the local time, appended to the nudger's log. Every verdict is logged,

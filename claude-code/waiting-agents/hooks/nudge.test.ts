@@ -17,6 +17,7 @@ const ROSTER = JSON.stringify({
 const CONTEXT = '/home/me/.local/state/dev/context'
 const LOG = '/home/me/.local/state/dev/lead-nudge.log'
 const TARGET = '/home/me/.local/state/dev/nudge-target'
+const DAY_STATE = '/home/me/.local/state/dev/agents-day-budget'
 const T0 = Date.parse('2026-10-16T12:00:00Z')
 const v = (value: unknown) => ({ value }) as never
 const stat = (start: string) => `1 (claude) S ${'0 '.repeat(18)}${start} 0 0`
@@ -44,6 +45,11 @@ type World = {
   target?: string
   /** Whose session this is, by roster name; the delivery lead's unless said. */
   me?: string
+  /** agents-day-budget.sh status's line, and the day's start in its state file; no day open unless said. */
+  day?: { status: string; start: string }
+  /** Every argv the mod ran, and every nudge-target write. */
+  ran?: string[][]
+  wrote?: string[]
 }
 
 function stage(on: On, w: World, clock: { now: () => number }, sent: string[], log: string[]) {
@@ -78,9 +84,15 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
     }
     if (e.path === logPath) return v(log.join(''))
     if (e.path === TARGET && w.target !== undefined) return v(w.target)
+    if (e.path === DAY_STATE && w.day) return v(`${w.day.start} 58 15\n`)
     throw new Error('ENOENT')
   })
+  on('process.run', ($, e) => {
+    w.ran?.push([...e.argv])
+    return v({ exitCode: w.day ? 0 : 3, stdout: `${w.day?.status ?? 'day  none: no day open'}\n`, stderr: '' })
+  })
   on('fs.write', ($, e) => {
+    if (e.path === TARGET) { w.target = e.text; w.wrote?.push(e.text); return v(undefined) }
     if (e.path !== logPath) throw new Error(`unexpected write to ${e.path}`)
     log.splice(0, log.length, ...e.text.split(/(?<=\n)/))
     return v(undefined)
@@ -400,4 +412,54 @@ test('the switch word, unit by unit', async () => {
   expect(nudgeText(2, [{ name: 'A', role: 'developer', idleS: 1000 }, { name: 'B', role: 'tester', idleS: 2000 }], 900, 'testing'))
     .toBe('[Automated nudge 2 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
       + 'Team agents idle for 15 minutes or more: A, B. As head of testing, check each one and keep the team active.')
+})
+
+const OVER = "day  over: 16% of the day's 15% used (week 74%, from 58% at 06:05): write your durable record and pause"
+const ON = "day  on: 3% of the day's 15% used (week 77%, from 74% at 09:00)"
+
+test('a development day that reads over is told to the delivery lead once, and the nudger goes to testing', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w: World = { ...world(), agents: {}, day: { status: OVER, start: '1793513125' }, ran: [], wrote: [] }
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(w.ran![0]!.at(-1)).toBe('status')
+  expect(w.ran![0]!.at(-2)!.endsWith('/../../team/agents-day-budget.sh')).toBe(true)
+  expect(sent).toEqual([expect.stringContaining('The development day is over: 16% of the day\'s 15% used (week 74%, from 58% at 06:05). As delivery lead, pause the team now')])
+  expect(w.wrote).toEqual(['testing\n'])
+  expect(verdicts(log)).toContain(`sent day trip: ${OVER}; nudge target testing`)
+
+  await clock.advance(120_000)
+  expect(sent.length).toBe(1)
+})
+
+test('a trip leaves a nudge target set by hand alone, and a restart does not trip the same day again', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { dayTrip: { day: '1793513125', switched: false } })
+  const sent: string[] = []
+  const w: World = { ...world(), agents: {}, target: 'off', day: { status: OVER, start: '1793513125' }, ran: [], wrote: [] }
+  stage(on, w, clock, sent, [])
+  await $.session.start(START)
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  w.day = { status: OVER, start: '1793600000' }
+  await clock.advance(60_000)
+  expect(sent.length).toBe(1)
+  expect(w.wrote).toEqual([])
+})
+
+test('the next development day hands the nudger back to the delivery lead', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { dayTrip: { day: '1793513125', switched: true } })
+  const log: string[] = []
+  const w: World = { ...world(), agents: {}, target: 'testing', day: { status: ON, start: '1793600000' }, ran: [], wrote: [] }
+  stage(on, w, clock, [], log)
+  await $.session.start(START)
+  await clock.advance(10_000)
+  expect(w.wrote).toEqual(['lead\n'])
+  expect(verdicts(log)).toContain('a new development day: nudge target lead')
 })
