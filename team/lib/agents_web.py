@@ -440,9 +440,14 @@ def budget_plan():
 
 def day_budget():
     """The development day open now (team/agents-day-budget.sh), as {"used", "quota", "from"}: the points the day has
-    spent, its share and the week's reading when it started. None with no day open: the week's even pacing applies."""
-    m = re.search(r"^day  (?:on|over): (\d+)% of the day's (\d+)% used \(week \d+%, from (\d+)%", run("bash", DAY_BUDGET), re.M)
-    return dict(zip(("used", "quota", "from"), map(int, m.groups()))) if m else None
+    spent, its share and the week's reading when it started. Between days (in strength, the verification day) the
+    quota is None and the rest counts from the last day's end. None otherwise: the week's even pacing applies."""
+    out = run("bash", DAY_BUDGET)
+    if m := re.search(r"^day  (?:on|over): (\d+)% of the day's (\d+)% used \(week \d+%, from (\d+)%", out, re.M):
+        return dict(zip(("used", "quota", "from"), map(int, m.groups())))
+    if m := re.search(r"^day  none: between days since .+?: (\d+)% used \(week \d+%, from (\d+)%", out, re.M):
+        return {"used": int(m[1]), "quota": None, "from": int(m[2])}
+    return None
 
 
 def even_plan(plan):
@@ -5213,6 +5218,8 @@ def self_test():
         for line, want in (("day  on: 11% of the day's 15% used (week 69%, from 58% at 06:05)", {"used": 11, "quota": 15, "from": 58}),
                            ("day  over: 16% of the day's 15% used (week 74%, from 58% at 06:05): write your durable record and pause",
                             {"used": 16, "quota": 15, "from": 58}),
+                           ("day  none: between days since 20:44: 3% used (week 77%, from 74%)", {"used": 3, "quota": None, "from": 74}),
+                           ("day  none: no day open", None),
                            ("day  cannot tell: no week reading (team/lib/week-usage.sh)", None)):
             with open(T + "/bin/day", "w") as f:
                 f.write(f"#!/usr/bin/env bash\necho {shlex.quote(line)}\n")
@@ -5378,6 +5385,11 @@ def self_test():
           {"week": "header", "session": "header", "team": "header", "disk": "header", "weekbar": None, "daybar": None, "tokbar": None, "diskbar": None})
         t("team/bar/weekbar: slim, the week alone, marked at the day's stop",
           ((w := sh("weekbar", {"week": 70, "plan": 85, "day": day}))["slim"], w["label"], txt(w), w["meter"]["mark"]), (True, "Week", "70%", 73))
+        gap = {"used": 2, "quota": None, "from": 74}
+        t("between days: Week counts the verification day, plan-coloured, the bars too, with no meter on the day",
+          (txt(sh("week", {"week": 76, "plan": 85, "day": gap})), sh("week", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"],
+           sh("weekbar", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"], (d := sh("daybar", {"day": gap}))["label"], txt(d), "meter" in d),
+          ("76% - Verify: 2%", 85, 85, "Verify", "2%", False))
         t("team/bar/daybar: the day's share used, red once past it, hidden with none open",
           ((d := sh("daybar", {"day": day}))["meter"]["pct"], txt(d), sh("daybar", {"day": {**day, "used": 16}})["value"][0]["colour"],
            sh("daybar", {"day": None})["hidden"]), (80, "12%", "red", True))

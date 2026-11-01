@@ -87,6 +87,8 @@ day_selftest() {
   out=$(run 90000 2 start 15); has "start after the week reset opens a fresh day from the new reading" "$out" "stops past 17%"
   out=$(run 1500 50 end); rc=$?; check "end exits 0" "$rc" 0
   out=$(run 1500 50); rc=$?; check "  and leaves no day open" "$rc" 3
+  out=$(run 1800 53); has "  and counts what the stretch after it spends" "$out" "between days since 08:25: 3% used (week 53%, from 50%)"
+  out=$(run 1800 2); has "  but not across a week reset" "$out" "day  none: no day open"
   out=$(run 0 45 start 0); rc=$?; check "a zero quota is refused" "$rc" 2
   out=$(run 0 45 start ten); rc=$?; check "a quota that is not a number is refused" "$rc" 2
   out=$(env -u HARNESS_PROJECT -u AGENT_DAY_BUDGET HOME="$T" AGENT_DAY_BUDGET_READING=40 bash "$_here/agents-day-budget.sh" start 15 2>&1); rc=$?
@@ -148,6 +150,21 @@ note() {
 
 began() { if [ "$(date -d "@$1" +%F)" = "$TODAY" ]; then date -d "@$1" +%H:%M; else date -d "@$1" '+%a %H:%M'; fi; }
 
+# With no day open: the stretch since the last `end` (in strength, the verification day), as what it has spent, so the
+# team page keeps a counter (owner, 2026-11-01: "The day counter disappeared"). Plain "no day open" with no end
+# logged, no reading at either end, or a week reset since.
+between() {
+  local at verb rd now_used
+  read -r at verb rd _ < <(tail -n 1 "$LOG" 2>/dev/null)
+  now_used=$(reading)
+  if [ "${verb:-}" = end ] && [[ "$rd" =~ ^[0-9]+$ ]] && [ -n "$now_used" ] && [ "$now_used" -ge $((rd - RESET_DROP)) ]; then
+    printf 'day  none: between days since %s: %s%% used (week %s%%, from %s%%)\n' \
+      "$(began "$at")" "$((now_used > rd ? now_used - rd : 0))" "$now_used" "$rd"
+  else
+    echo "day  none: no day open"
+  fi
+}
+
 need_project() {
   [ -n "${HARNESS_PROJECT:-}${AGENT_DAY_BUDGET:-}" ] && return 0
   echo "day  refused: set HARNESS_PROJECT so the day lands where the project's spawn and pause read it" >&2; exit 2
@@ -169,7 +186,7 @@ case "${1:-status}" in
       "$(began "$at")" "$2" "$start" "$((start + $2))"
     ;;
   status)
-    day=$(open_day) || { echo "day  none: no day open"; exit 3; }
+    day=$(open_day) || { between; exit 3; }
     read -r at start quota <<<"$day"
     now_used=$(reading)
     [ -n "$now_used" ] || { echo "day  cannot tell: no week reading (team/lib/week-usage.sh)"; exit 2; }
