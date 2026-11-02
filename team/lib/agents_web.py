@@ -1912,6 +1912,13 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
+/* a bar the dragged item cannot go in: boxed and crossed through in red, saying where it can go */
+:is(header,footer).refuse{position:relative;outline:2px solid var(--red);outline-offset:-2px}
+:is(header,footer).refuse::after{content:attr(data-refuse);position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(to top right,transparent calc(50% - 1px),color-mix(in srgb, var(--red) 55%, transparent) 50%,transparent calc(50% + 1px)),
+    linear-gradient(to bottom right,transparent calc(50% - 1px),color-mix(in srgb, var(--red) 55%, transparent) 50%,transparent calc(50% + 1px)),
+    color-mix(in srgb, var(--bg) 82%, transparent);
+  color:var(--red);font-weight:600;font-size:calc(12px*var(--fs,1));text-shadow:0 0 4px var(--bg),0 0 4px var(--bg);pointer-events:none}
 .barplus{margin-left:auto;flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:1px solid var(--line2);
   border-radius:6px;background:var(--soft);color:var(--mute);cursor:pointer}
 .barplus svg{width:14px;height:14px}
@@ -3478,7 +3485,8 @@ document.addEventListener("dragstart", e => {
 // whether the dragged item may go where the pointer is, having moved it there if so
 function barOver(target, x, y) {
   const box = barDrag && target?.closest?.("header.editing, footer.editing");
-  if (!box || !fits(barDrag.dataset.item, box.tagName === "FOOTER")) return false;
+  refuseIn(box && !fits(barDrag.dataset.item, box.tagName === "FOOTER") ? box : null);
+  if (!box || box.classList.contains("refuse")) return false;
   // a bar wraps on a narrow screen: an item on a later row is not short of the pointer, whatever its left
   const at = [...box.querySelectorAll(":scope > .bi:not(.dragging)")].find(b => { const r = b.getBoundingClientRect();
     return y < r.top || y < r.bottom && x < r.left + r.width / 2; });
@@ -3486,7 +3494,16 @@ function barOver(target, x, y) {
   if (barDrag.parentElement !== box || barDrag.nextElementSibling !== to) box.insertBefore(barDrag, to);
   return true;
 }
+// the bar under the dragged item that it cannot go in, crossed out and saying why; none clears it
+function refuseIn(box) {
+  document.querySelectorAll("header.refuse, footer.refuse").forEach(b => b !== box && b.classList.remove("refuse"));
+  if (!box) return;
+  const foot = box.tagName === "FOOTER";
+  box.dataset.refuse = `${barName(barDrag.dataset.item)} goes only in the ${foot ? "header" : "footer"}` + (foot && plugs().some(x => x.name === barName(barDrag.dataset.item) + " bar") ? `: add ${barName(barDrag.dataset.item)} bar from the footer's +` : "");
+  box.classList.add("refuse");
+}
 function barDropped() {
+  refuseIn(null);
   if (!barDrag) return;
   barDrag.classList.remove("dragging"); barDrag = null;
   const keys = sel => [...$(sel).querySelectorAll(":scope > .bi")].map(x => x.dataset.item);
@@ -4801,6 +4818,14 @@ function menuAt(anchor, key, html, beside, stay) {
   const top = beside ? r.top : r.bottom + 4 + h <= innerHeight ? r.bottom + 4 : r.top - 4 - h;
   menu.style.left = Math.max(6, left) + "px"; menu.style.top = Math.max(6, Math.min(top, innerHeight - h - 6)) + "px";
 }
+// A menu that grows once open (a view renamed, a delete asked, an item added) is moved back inside the window: its
+// right and bottom edges are kept off the window's, and its left and top on it.
+new ResizeObserver(() => {
+  if (!menu.classList.contains("on")) return;
+  const r = menu.getBoundingClientRect();
+  if (r.right > innerWidth - 6) menu.style.left = Math.max(6, innerWidth - 6 - r.width) + "px";
+  if (r.bottom > innerHeight - 6) menu.style.top = Math.max(6, innerHeight - 6 - r.height) + "px";
+}).observe(menu);
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
