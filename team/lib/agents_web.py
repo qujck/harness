@@ -1910,6 +1910,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
   background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
+.editing > .bi.must > .bx{display:none}   /* the only view picker in the bars stays */
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
@@ -2024,6 +2025,12 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #teamctl .fbtn.warn{color:var(--red);border-color:var(--red);padding:0 12px}
 #teamctl .fbtn.idle{cursor:default}
 #pagemode .fbtn{color:var(--text)}
+#viewbar{display:flex;gap:4px}
+#viewbar .vtb{width:26px;height:22px;border:1px solid transparent;border-radius:6px}
+#viewbar .vtb:hover{background:var(--on);color:var(--text)}
+#viewbar .vtb.on{border-color:var(--line2);background:var(--soft);color:var(--text)}
+#viewbar .vtb svg{width:15px;height:15px}
+#viewbar .vtmenu{width:18px;height:22px;margin-left:-2px}
 #lock{color:var(--text)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
@@ -2610,7 +2617,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
-  <div class="bi tight" data-item="view"><span id="pagemode"></span></div>
+  <div class="bi tight" data-item="view"><span id="pagemode"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lock"><b class="fbtn" id="lock"></b></div>
   <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="Light or dark"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="settings"><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -2618,7 +2625,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </header>
 <main id="main"></main>
 <footer></footer>
-<div id="barbin" hidden><div class="bi gap" data-item="gap1"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap2"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap3"><i class="bx" title="Take this out of the bar">✕</i></div></div>
+<div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap1"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap2"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap3"><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
@@ -2910,6 +2917,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   code: '<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>',
   bug: '<rect x="5" y="5" width="6" height="8" rx="3"/><path d="M6 5a2 2 0 0 1 4 0M2.5 9h2.5M11 9h2.5M3 5l2 1.5M13 5l-2 1.5M3 13l2-1.5M13 13l-2-1.5"/>',
   plus: '<path d="M8 3v10M3 8h10"/>',
+  down: '<path d="M4 6l4 4 4-4"/>',
   start: '<path d="M5 3.2v9.6L12.8 8z"/>',
   stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>',
   pause: '<path d="M5.5 3v10M10.5 3v10"/>',
@@ -3193,6 +3201,12 @@ function draw() {
   main.style.gridTemplateColumns = pageMode !== "grid" ? "minmax(0,1fr)"
     : tabs.map((t, i) => `minmax(0,${saved[t.name] ?? (t.name === "Lead" ? 1.5 : shares[i].share)}fr)`).join(" ");
   $("#pagemode").innerHTML = viewButton(pageMode);
+  // the Views toolbar: each view's icon, named with its key on a rest; a click shows it
+  const vl = views(), vk = viewKeys(), bar = vl.views.map((x, i) => { const d = Object.keys(vk).find(k => vk[k] === i);
+    return `<b class="fbtn vtb${i === vl.at ? " on" : ""}" data-v="${i}" title="${esc(x.name)}${d ? ` (${viewMod()}+${d})` : ""}">${MENU_ICON[x.icon] || MENU_ICON[x.kind]}</b>`; }).join("") +
+    (pageLocked() ? "" : `<b class="fbtn vtmenu" data-menu="view" title="The View menu: rename, delete and add views">${MENU_ICON.down}</b>`);   // unlocked, its menu too
+  if ($("#viewbar").dataset.html !== bar) { $("#viewbar").innerHTML = bar; $("#viewbar").dataset.html = bar; }
+  if ($("#viewbar .vtmenu")) menuButton($("#viewbar .vtmenu"), rested => viewMenu($("#viewbar .vtmenu"), rested));
   menuButton($("#pagemode .viewbtn"), rested => viewMenu($("#pagemode .viewbtn"), rested));
   $("#lock").innerHTML = padlock(pageLocked()); $("#lock").title = pageLocked() ? "Locked: click to change the page" : "Click to lock the page";
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
@@ -3378,14 +3392,19 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help",
+  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help",
   gap1: "Spacer", gap2: "Spacer 2", gap3: "Spacer 3"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; three, to centre a group or split the bar three ways. Out of the bar until added.
 const BAR_GAPS = ["gap1", "gap2", "gap3"];
+// The Views toolbar, every view as its icon in a row, the one showing marked, is out of the bar until added too.
+const BAR_SPARE = [...BAR_GAPS, "viewbar"];
 // Any other plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
-const BAR_FIXED = ["brand", "view", "lock"];
+const BAR_FIXED = ["brand", "lock"];
+// The Views dropdown and the Views toolbar: one of them is always in a bar, so the views can always be reached; the
+// last one there has no ✕, and with neither placed the dropdown goes back in the header.
+const VIEW_PICKERS = ["view", "viewbar"];
 const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEMS[k] || x?.name || x?.label || k; };
 // A plug-in that says where it goes (its place, header or footer) can be put only there (owner, 2026-11-01: "each
 // plug-in can say header, footer or both").
@@ -3399,8 +3418,10 @@ function barOf() {
   const head = (b.head || []).filter(k => all.includes(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
   // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
   // or at the footer's end if it can only go there
-  for (const [i, k] of mine.entries()) if (BAR_GAPS.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
-  return {head, foot, off: [...off, ...all.filter(k => !mine.includes(k) && !placed(k))]};
+  for (const [i, k] of mine.entries()) if (BAR_SPARE.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
+  const back = !VIEW_PICKERS.some(k => head.includes(k) || foot.includes(k));
+  if (back) head.splice(head.includes("lock") ? head.indexOf("lock") : head.length, 0, "view");
+  return {head, foot, off: [...new Set([...off, ...all.filter(k => !mine.includes(k) && !placed(k))])].filter(k => !back || k !== "view")};
 }
 // Each plug-in drawn as a stat: its label over its value, or with a meter or a sparkline, "Label: value" over it; its
 // title on a rest. A colour is a CSS colour or one of the page's own by name.
@@ -3447,6 +3468,8 @@ function placeBar() {
     // bare: nothing in it shows, only spacers or items hidden for now (Disk with nothing to watch)
     if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
+    box.querySelectorAll(":scope > .bi").forEach(e => e.classList.toggle("must", VIEW_PICKERS.includes(e.dataset.item) &&
+      !VIEW_PICKERS.some(o => o !== e.dataset.item && (b.head.includes(o) || b.foot.includes(o)))));
     const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"))   // A to Z (owner, 2026-11-01)
       .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
@@ -3459,6 +3482,7 @@ document.addEventListener("click", e => {
   if (!x) return;
   e.stopPropagation(); e.preventDefault();
   const b = barOf(), k = x.parentElement.dataset.item;
+  if (VIEW_PICKERS.includes(k) && !VIEW_PICKERS.some(o => o !== k && (b.head.includes(o) || b.foot.includes(o)))) return;
   saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: [...b.off, k]}); draw();
 }, true);
 // a bar's + opens a menu of the items it can take back, A to Z; a click on one puts it at the end of that bar
@@ -3651,20 +3675,33 @@ function paneTabs(n, locked) {
 // The View menu: every view, Grid and Tabs among them, its kind's icon and its name, the showing one ticked. A click on
 // one shows it; its pencil renames it in place (Enter or leaving the box keeps the name, Esc drops it) and its × deletes
 // it (never the last) once asked in the menu, as an agent's Stop asks. Add a view, at the bottom, adds an empty custom one and names it straight away.
+// Changes the views and shows the one they leave showing, as a pick from the View menu does.
+function changeViews(f) { const v = views(); f(v); saveViews(v); localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); setTimeout(load); }
+// The view keys: Ctrl+Alt (Ctrl+Option on a Mac) with 1 … 9 shows a view, the Nth in the View menu until any key is
+// given a view in Settings, then only the keys given one. A key is given a view by its name, and follows it when renamed.
+const viewMod = () => MAC ? "Ctrl+Option" : "Ctrl+Alt";   // a function: MAC is set further down
+$("#viewbar").onclick = e => { const b = e.target.closest(".vtb"); if (!b) return; const i = +b.dataset.v; if (i !== views().at) changeViews(v => { v.at = i; }); };
+function viewKeys() {
+  const v = views().views, given = Object.entries(settings().viewKeys || {}).filter(([, n]) => n);
+  const keys = given.length ? given.map(([d, n]) => [d, v.findIndex(x => x.name === n)]).filter(([, i]) => i >= 0)
+    : v.slice(0, 9).map((x, i) => [String(i + 1), i]);
+  return Object.fromEntries(keys);
+}
 function viewMenu(btn, rested, again, ask) {
   if (!again && menuOn("view")) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
-  const v = views();
+  // renaming, deleting and adding views are for an unlocked page; locked, the menu only picks one
+  const v = views(), edit = !pageLocked();
   menuAt(btn, "view", `<div class="hd"><div>View</div></div>` + v.views.map((x, i) =>
     `<div class="mi vmi" data-v="${i}" title="${esc(VIEW_TIP[x.kind])}"><i class="vico">${MENU_ICON[x.icon] || MENU_ICON[x.kind]}</i><span class="vname">${esc(x.name)}</span>` +
     MENU_ICON.check.replace("<svg", `<svg class="tick${i === v.at ? "" : " off"}"`) +
-    `<i class="vbtn ved" title="Rename this view">${MENU_ICON.pencil}</i>` +
-    `${v.views.length > 1 ? `<i class="vbtn vdel" title="Delete this view">${MENU_ICON.close}</i>` : '<i class="vbtn"></i>'}</div>` +
+    (edit ? `<i class="vbtn ved" title="Rename this view">${MENU_ICON.pencil}</i>` +
+      `${v.views.length > 1 ? `<i class="vbtn vdel" title="Delete this view">${MENU_ICON.close}</i>` : '<i class="vbtn"></i>'}` : "") + `</div>` +
     (ask === i ? `<div class="ask">Delete the view "${esc(x.name)}"?</div><div class="mi warn vyes" data-v="${i}">${MENU_ICON.close}Delete ${esc(x.name)}</div>` +
       `<div class="mi vno">${MENU_ICON.close}Cancel</div><div class="sep"></div>` : "")).join("") +
-    `<div class="mi vadd" title="Add an empty custom view">${MENU_ICON.plus}Add a view</div>`, false, again);
+    (edit ? `<div class="mi vadd" title="Add an empty custom view">${MENU_ICON.plus}Add a view</div>` : ""), false, again);
   if (rested && !again) menu.dataset.rested = "1";
-  const go = f => { const v = views(); f(v); saveViews(v); localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); setTimeout(load); };
-  const redraw = ask => viewMenu($("#pagemode .viewbtn"), false, true, ask);
+  const go = changeViews;
+  const redraw = ask => viewMenu(btn, false, true, ask);
   menu.querySelectorAll(".vmi").forEach(el => el.onclick = e => {
     const i = +el.dataset.v;
     if (e.target.closest(".vname input")) return;
@@ -3676,7 +3713,7 @@ function viewMenu(btn, rested, again, ask) {
     const i = ask; go(v => { v.views.splice(i, 1); if (i < v.at || v.at === v.views.length) v.at = Math.max(0, v.at - 1); }); redraw();
   });
   menu.querySelector(".vno")?.addEventListener("click", () => redraw());
-  menu.querySelector(".vadd").onclick = () => {
+  if (edit) menu.querySelector(".vadd").onclick = () => {
     go(v => { v.views.push({name: "View " + (v.views.length + 1), kind: "custom", layout: {root: {}}}); v.at = v.views.length - 1; });
     redraw(); renameView(menu.querySelector(`.vmi[data-v="${views().at}"]`), views().at, () => redraw());
   };
@@ -3701,7 +3738,14 @@ function renameView(el, i, after) {
     icon = k; ico.innerHTML = MENU_ICON[k]; pick.querySelectorAll("i").forEach(o => o.classList.toggle("on", o.dataset.k === k)); pick.hidden = true;
   };
   const end = keep => { if (done) return; done = true; const val = box.value.trim(); box.remove(); pick.remove();   // draw() waits while it has the focus
-    if (keep && (val && val !== was || icon !== wasIcon)) { const v = views(); v.views[i].name = val || was; v.views[i].icon = icon; saveViews(v); draw(); } after(); };
+    if (keep && (val && val !== was || icon !== wasIcon)) {
+      const v = views(); v.views[i].name = val || was; v.views[i].icon = icon; saveViews(v);
+      const set = settings(), vk = set.viewKeys || {};   // a key given this view stays with it under its new name
+      if (val && val !== was && Object.values(vk).includes(was)) {
+        set.viewKeys = Object.fromEntries(Object.entries(vk).map(([d, n]) => [d, n === was ? val : n])); localStorage.setItem("settings", JSON.stringify(set));
+      }
+      draw();
+    } after(); };
   // its keys are its own: the menu's arrows, Enter and Space, and Esc closing the menu, wait until it is done
   box.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") end(true); else if (e.key === "Escape") end(false); };
   box.onclick = e => e.stopPropagation();
@@ -4868,6 +4912,7 @@ addEventListener("keydown", e => {
 const SHORTCUTS = [
   ["Agents", [["Alt+1 … 9", "That agent's message box, in list order"], ["Alt+↑ / ↓", "The agent before or after this one"],
     ["Alt+W", "The agent waiting longest"], ["Alt+Enter", "Open this agent's view, or close it"]]],
+  ["Views", [["Ctrl+Alt+1 … 9", ""]]],
   ["Page", [["Alt+V", "Choose the view"], ["Alt+L", "This agent's filter, else the page's"], ["Alt+M", "Maximise this pane, or restore it"]]],
   ["Message box", [["Enter", "Send"], ["Ctrl+Enter", "New line"], ["Esc Esc", "Clear the box"], ["Ctrl+U", "Add images or files"]]],
   ["Anywhere", [["Esc", "Close what is open"], ["Ctrl+Click", "Open an agent in a new tab"], ["? or Alt+/", "These shortcuts"]]],
@@ -4876,7 +4921,8 @@ const SHORTCUTS = [
 function helpMenu(rested) {
   if (menuOn("help")) { if (!rested) menuOff(true); return; }
   const set = settings(), jump = Object.entries(jumpKeys()).sort().map(([d, n]) => [`${MODS[set.mod]}+${d}`, n]);
-  const rows = SHORTCUTS.map(([h, rows]) => [h, rows.flatMap(([k, what]) => k !== "Alt+1 … 9" ? [[k, what]] : jump)]);
+  const vlist = views().views, vjump = Object.entries(viewKeys()).sort().map(([d, i]) => [`${viewMod()}+${d}`, vlist[i].name]);
+  const rows = SHORTCUTS.map(([h, rows]) => [h, rows.flatMap(([k, what]) => k === "Alt+1 … 9" ? jump : k === "Ctrl+Alt+1 … 9" ? vjump : [[k, what]])]);
   menuAt($("#help"), "help", rows.map(([h, rows]) => `<div class="hd"><div>${h}</div></div>` +
     rows.map(([k, what]) => `<div class="sc"><span>${esc(what)}</span><kbd>${esc(k)}</kbd></div>`).join("")).join(""), false);
   if (rested) menu.dataset.rested = "1";
@@ -4888,7 +4934,7 @@ menuButton($("#help"), helpMenu);
 // until any key is given an agent, then only the keys given one; a jump goes to the agent's message box (its card's,
 // its tab's or a Combined pane's chat, else its view) or always to its view. The defaults are the page as it is
 // without them.
-const SETTINGS = {fs: 100, conv: 100, box: 100, suggest: "on", mod: "alt", keys: {}, jump: "box"};
+const SETTINGS = {fs: 100, conv: 100, box: 100, suggest: "on", mod: "alt", keys: {}, jump: "box", viewKeys: {}};
 // The modifiers a jump key can be held with: Cmd only on a Mac (elsewhere it is the system's own key), and Shift only
 // outside a text box, where Shift with a digit types its symbol. A saved choice this machine lacks falls back to Alt.
 const MAC = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || "");
@@ -4914,6 +4960,9 @@ function settingsMenu(redraw) {
   const digits = [["", "none"], ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => [d, `${MODS[set.mod]}+${d}`])];
   const keys = names.map(n => `<label class="set"><span>${esc(n)}</span>` +
     pick(`data-agent="${esc(n)}"`, Object.keys(keyed).find(d => keyed[d] === n) || "", digits) + `</label>`).join("");
+  const vkeyed = viewKeys(), vdigits = [["", "none"], ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => [d, `${viewMod()}+${d}`])];
+  const vkeys = views().views.map((x, i) => `<label class="set"><span>${esc(x.name)}</span>` +
+    pick(`data-view="${esc(x.name)}"`, Object.keys(vkeyed).find(d => vkeyed[d] === i) || "", vdigits) + `</label>`).join("");
   menuAt($("#settings"), "settings", `<div class="hd"><div>Settings, kept in this browser</div></div>` +
     `<label class="set"><span>Text size</span>${pick('data-set="fs"', set.fs, sizes)}</label>` +
     `<label class="set"><span>Conversation text</span>${pick('data-set="conv"', set.conv, sizes)}</label>` +
@@ -4922,6 +4971,7 @@ function settingsMenu(redraw) {
     `<div class="hd"><div>Jump to an agent</div></div>` +
     `<label class="set"><span>Hold</span>${pick('data-set="mod"', set.mod, Object.entries(MODS))}</label>` +
     `<label class="set"><span>Goes to</span>${pick('data-set="jump"', set.jump, [["box", "its message box"], ["view", "its full view"]])}</label>${keys}` +
+    `<div class="hd"><div>Switch view</div></div>${vkeys}` +
     `<button data-reset>Reset to defaults</button>`, false, redraw);
   menu.querySelectorAll("select").forEach(sel => sel.onchange = () => {
     const now = settings();
@@ -4929,6 +4979,10 @@ function settingsMenu(redraw) {
       const keys = Object.fromEntries(Object.entries(jumpKeys()).filter(([d, n]) => n !== sel.dataset.agent && d !== sel.value));
       if (sel.value) keys[sel.value] = sel.dataset.agent;
       now.keys = keys;
+    } else if (sel.dataset.view) {   // the view keys as they stand, menu order included, with this view moved to its new key
+      const v = views().views, keys = Object.fromEntries(Object.entries(viewKeys()).map(([d, i]) => [d, v[i].name]).filter(([d, n]) => n !== sel.dataset.view && d !== sel.value));
+      if (sel.value) keys[sel.value] = sel.dataset.view;
+      now.viewKeys = keys;
     } else now[sel.dataset.set] = ["mod", "jump", "session", "suggest"].includes(sel.dataset.set) ? sel.value : +sel.value;
     localStorage.setItem("settings", JSON.stringify(now)); applySettings(); settingsMenu(true); draw();
   });
@@ -4973,6 +5027,13 @@ addEventListener("keydown", e => {
   const typing = e.target.closest?.("textarea, input, select");
   if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === "?" && !typing) { e.preventDefault(); helpMenu(false); return; }
   const digit = /^Digit([1-9])$/.exec(e.code);
+  if (digit && e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey) {   // a view key
+    const i = viewKeys()[digit[1]];
+    if (i == null) return;
+    e.preventDefault(); e.stopPropagation(); menuOff(true);
+    if (i !== views().at) changeViews(v => { v.at = i; });
+    return;
+  }
   if (digit && S && jumpMod(e, settings().mod, typing)) { e.preventDefault(); e.stopPropagation(); focusAgent(jumpTo(digit[1])); return; }
   if (!e.altKey || e.ctrlKey || e.metaKey || !S) return;
   const names = S.agents.map(a => a.name), cur = here(), at = names.indexOf(cur);
@@ -4980,7 +5041,7 @@ addEventListener("keydown", e => {
   const act = e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
     : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
     : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) aim(shownBox(cur)); }
-    : e.code === "KeyV" ? () => $("#pagemode .viewbtn")?.click()
+    : e.code === "KeyV" ? () => viewMenu([$("#pagemode .viewbtn"), $("#viewbar .vtmenu"), $("#viewbar")].find(b => b?.offsetParent), false)
     : e.code === "KeyL" ? () => ((cur && open === cur && $("#dhead .lanes")) || (cur && $(`#main .card[data-name="${CSS.escape(cur)}"] .lanes`)) || $("#pagelanes .fbtn")).click()
     : e.code === "KeyM" ? () => maxToggle()
     : e.code === "Slash" ? () => helpMenu(false) : null;
