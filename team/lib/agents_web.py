@@ -5029,7 +5029,7 @@ function menuSoon(el, wait) {
 // The team's play, pause and stop buttons, one of them on at a time: stop (red) while nobody runs or the page has wound
 // the team down (team/team-paused.sh says so and nobody is working), pause (amber) while the nudger is paused, play (green) while the
 // team runs. Play starts a stopped team (those running when the page last stopped it, else everyone with a Session) or
-// resumes the nudger; pause pauses the nudger; stop asks the lead to wind the team down, after a second click to
+// resumes the nudger; pause pauses the nudger; stop asks the lead to wind the team down (greyed while no lead runs), after a second click to
 // confirm. The button clicked fades in and out in its colour until the page sees the change.
 let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is waiting to see
 function teamButton() {
@@ -5037,7 +5037,7 @@ function teamButton() {
   const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
   const woundDown = !starting && !stopping && !!S.teamUp && S.teamPaused && !working.length;
-  const down = !starting && !stopping && (woundDown || !lead?.live);
+  const down = !starting && !stopping && (woundDown || !S.agents.some(a => a.live));   // no lead alone is not a stopped team
   if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
   if (down || stopping || starting) { clearTimeout(teamAsk); teamAsk = null; }
   const on = starting || stopping || nudgerTo != null ? "" : down ? "stop" : S.nudgerPaused ? "pause" : "play";
@@ -5049,7 +5049,7 @@ function teamButton() {
     pause: nudgerTo ? "Pausing the nudger" : on === "pause" ? "The nudger is paused" : on === "play" ? "Pause the nudger" : "",
     stop: stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
       : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
-      : on === "stop" ? "The team is stopped" : lead ? `Stop the team: ask ${lead.name} to wind everyone down` : "",
+      : on === "stop" ? "The team is stopped" : lead?.live ? `Stop the team: ask ${lead.name} to wind everyone down` : "",
   };
   const key = [on, go, !!teamAsk, ...Object.values(tips)].join("|");
   if ($("#teamctl").dataset.text === key) return;
@@ -5066,7 +5066,7 @@ function teamButton() {
   $("#teamctl .tc-play").onclick = () => { if (go) return; if (on === "stop") post("/api/team/start"); else if (on === "pause") nudge(false); };
   $("#teamctl .tc-pause").onclick = () => { if (!go && on === "play") nudge(true); };
   $("#teamctl .tc-stop").onclick = () => {
-    if (go || on === "stop" || !lead) return;
+    if (go || on === "stop" || !lead?.live) return;
     if (!teamAsk) { teamAsk = setTimeout(() => { teamAsk = null; teamButton(); }, 4000); return teamButton(); }
     clearTimeout(teamAsk); teamAsk = null; post("/api/team/stop"); teamButton();
   };
