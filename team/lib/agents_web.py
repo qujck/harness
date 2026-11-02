@@ -7,6 +7,7 @@
                     (and the header's and footer's plug-ins: team/bar's and each executable in AGENT_BAR_PLUGINS,
                     else ~/.config/agents-web/bar, given the page's numbers, print a line or JSON; see plugins())
   /api/team         every message between the running agents, as one transcript
+  /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last two minutes, for Performance panes
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
@@ -477,10 +478,307 @@ def disk():
             "alert": int(os.environ.get("AGENTS_DASH_DISK_ALERT", "20"))}
 
 
+# The machine's performance for Performance panes (/api/perf), as Task Manager shows it: CPU, memory, each disk's
+# space and the disks' activity, each network interface and each GPU, every PERF_STEP seconds with the last
+# PERF_KEEP readings for the lines under them. Linux reads /proc (under WSL, the WSL machine's own figures, which is
+# where the agents run, not Windows'), and nvidia-smi, else an AMD card's /sys figures, for the GPU; macOS reads one
+# long-running top for the CPU and the disks' activity, sysctl for memory, netstat for the network and ioreg for the
+# GPU. The sampling starts with the first request and stops PERF_IDLE seconds after the last, so a page with no
+# Performance pane costs nothing. nvidia-smi is run once after another in a thread of its own: a run takes seconds
+# (four or five under WSL), and its own loop (-l) reports the GPU's use only on its first line under WSL.
+PERF_STEP, PERF_KEEP, PERF_IDLE = 2, 60, 60
+MAC = os.uname().sysname == "Darwin"
+NVIDIA_SMI = shutil.which("nvidia-smi") or ("/usr/lib/wsl/lib/nvidia-smi" if os.access("/usr/lib/wsl/lib/nvidia-smi", os.X_OK) else None)
+WHOLE_DISK = re.compile(r"(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)")
+VIRTUAL_NET = re.compile(r"lo|lo0|docker\d*|veth.*|br-.*|virbr.*|cni.*|flannel.*|vxlan.*|tailscale.*|utun\d*|awdl\d*|llw\d*|gif\d*|stf\d*|anpi\d*|ap\d*|bridge\d*")
+_perf = {"asked": 0, "running": False, "now": None, "hist": {}}
+_perf_lock = threading.Lock()
+_children = {}   # the long-running nvidia-smi and (macOS) top, with the last reading each printed
+
+
+def proc_cpu(text):
+    """/proc/stat's first line as (busy, total) jiffies: idle and iowait are not busy."""
+    f = [int(x) for x in text.split("\n", 1)[0].split()[1:9]]
+    return sum(f) - f[3] - f[4], sum(f)
+
+
+def proc_mem(text):
+    """/proc/meminfo as bytes: used is what is not available, as Task Manager's In use; swap as Linux reports it."""
+    kb = {k: int(v.split()[0]) * 1024 for k, v in (line.split(":", 1) for line in text.splitlines() if ":" in line)}
+    return {"total": kb.get("MemTotal", 0), "used": kb.get("MemTotal", 0) - kb.get("MemAvailable", 0),
+            "cached": kb.get("Cached", 0), "swap_total": kb.get("SwapTotal", 0),
+            "swap_used": kb.get("SwapTotal", 0) - kb.get("SwapFree", 0)}
+
+
+def proc_disks(text):
+    """/proc/diskstats' whole disks (not partitions) as {name: (bytes read, bytes written, ms busy)}."""
+    out = {}
+    for line in text.splitlines():
+        f = line.split()
+        if len(f) >= 13 and WHOLE_DISK.fullmatch(f[2]):
+            out[f[2]] = (int(f[5]) * 512, int(f[9]) * 512, int(f[12]))
+    return out
+
+
+def proc_net(text):
+    """/proc/net/dev's real interfaces (not loopback, Docker's or VPN tunnels) as {name: (bytes in, bytes out)}."""
+    out = {}
+    for line in text.splitlines()[2:]:
+        name, _, rest = line.partition(":")
+        f, name = rest.split(), name.strip()
+        if len(f) >= 9 and not VIRTUAL_NET.fullmatch(name):
+            out[name] = (int(f[0]), int(f[8]))
+    return out
+
+
+def smi_line(line):
+    """One line of nvidia-smi's CSV (index, name, utilization %, memory used MiB, memory total MiB, temperature)."""
+    f = [x.strip() for x in line.split(",")]
+    if len(f) < 6 or not f[0].isdigit():
+        return None
+    num = lambda x: float(x) if re.fullmatch(r"[\d.]+", x) else None
+    mib = lambda x: num(x) * 2**20 if num(x) is not None else None
+    return {"id": f[0], "name": f[1], "pct": num(f[2]), "mem_used": mib(f[3]), "mem_total": mib(f[4]), "temp": num(f[5])}
+
+
+def mac_size(text):
+    """top's sizes ("123M", "4567K", "1.2G", "890B") as bytes."""
+    m = re.fullmatch(r"([\d.]+)([BKMGT]?)", text.strip())
+    return float(m[1]) * 1024 ** "BKMGT".index(m[2] or "B") if m else None
+
+
+def mac_top(block):
+    """One sample of `top -l 0 -n 0`: CPU busy %, and the disks' bytes read and written since boot."""
+    out = {}
+    if m := re.search(r"CPU usage: [\d.]+% user, [\d.]+% sys, ([\d.]+)% idle", block):
+        out["cpu"] = round(100 - float(m[1]), 1)
+    if m := re.search(r"Disks: \d+/(\S+) read, \d+/(\S+) written", block):
+        out["disk"] = (mac_size(m[1]), mac_size(m[2]))
+    return out
+
+
+def mac_mem(memsize, vm_stat, swapusage):
+    """sysctl hw.memsize, vm_stat and sysctl vm.swapusage as bytes. Used is Activity Monitor's Memory Used: app
+    memory (anonymous pages less purgeable) plus wired and compressed."""
+    page = int(m[1]) if (m := re.search(r"page size of (\d+) bytes", vm_stat)) else 4096
+    pages = {k.strip().strip('"'): int(v.strip().rstrip(".")) for k, v in
+             (line.split(":", 1) for line in vm_stat.splitlines()[1:] if ":" in line) if v.strip().rstrip(".").isdigit()}
+    app = pages.get("Anonymous pages", 0) - pages.get("Pages purgeable", 0)
+    used = (app + pages.get("Pages wired down", 0) + pages.get("Pages occupied by compressor", 0)) * page
+    swap = dict(re.findall(r"(total|used) = ([\d.]+[BKMGT]?)", swapusage))
+    return {"total": int(memsize), "used": used, "cached": pages.get("File-backed pages", 0) * page,
+            "swap_total": mac_size(swap.get("total", "0")) or 0, "swap_used": mac_size(swap.get("used", "0")) or 0}
+
+
+def mac_net(netstat):
+    """`netstat -ib`'s real interfaces as {name: (bytes in, bytes out)}, from each one's link row."""
+    out = {}
+    lines = netstat.splitlines()
+    head = lines[0].split() if lines else []
+    if "Ibytes" not in head:
+        return out
+    ib, ob = head.index("Ibytes"), head.index("Obytes")
+    for line in lines[1:]:
+        f = line.split()
+        # a link row's Network is <Link#n>; an interface with no address has one column fewer, which leaves Ibytes
+        # and Obytes counted from the end the same
+        if len(f) < 7 or not f[2].startswith("<Link#") or VIRTUAL_NET.fullmatch(f[0].rstrip("*")) or f[0] in out:
+            continue
+        shift = len(head) - len(f)
+        try:
+            out[f[0].rstrip("*")] = (int(f[ib - shift]), int(f[ob - shift]))
+        except (ValueError, IndexError):
+            pass
+    return out
+
+
+def mac_gpu(ioreg):
+    """`ioreg -r -d 1 -w 0 -c IOAccelerator`: each GPU's name and Device Utilization %."""
+    out = []
+    for i, part in enumerate(re.split(r"\n(?=\+-o )", ioreg.strip())):
+        if m := re.search(r'"Device Utilization %"=(\d+)', part):
+            name = re.search(r'"model"\s*=\s*"([^"]+)"', part)
+            used = re.search(r'"In use system memory"=(\d+)', part)
+            out.append({"id": str(i), "name": name[1] if name else "GPU", "pct": float(m[1]),
+                        "mem_used": float(used[1]) if used else None, "mem_total": None, "temp": None})
+    return out
+
+
+def amd_gpus():
+    """An AMD card's /sys figures, for a Linux machine with no nvidia-smi."""
+    out = []
+    for dev in sorted(glob.glob("/sys/class/drm/card[0-9]*/device")):
+        try:
+            with open(dev + "/gpu_busy_percent") as f:
+                pct = float(f.read())
+        except (OSError, ValueError):
+            continue
+        def num(name):
+            try:
+                with open(dev + "/" + name) as f:
+                    return float(f.read())
+            except (OSError, ValueError):
+                return None
+        out.append({"id": os.path.basename(os.path.dirname(dev)), "name": "GPU", "pct": pct,
+                    "mem_used": num("mem_info_vram_used"), "mem_total": num("mem_info_vram_total"), "temp": None})
+    return out
+
+
+def read_text(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def child_lines(key, cmd, on_line):
+    """Run cmd for as long as Performance panes are asked for, handing each line it prints to on_line."""
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True)
+    except OSError:
+        return
+    _children[key] = p
+    for line in p.stdout:
+        if _children.get(key) is p:   # a process told to stop says nothing more
+            on_line(line)
+    p.wait()
+
+
+def smi_loop():
+    """nvidia-smi's GPUs into _perf["smi"], run again PERF_STEP seconds after each run ends, while sampling goes on."""
+    while _perf["running"]:
+        out = run(NVIDIA_SMI, "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                  "--format=csv,noheader,nounits", timeout=20)
+        gpus = [g for g in map(smi_line, out.splitlines()) if g]
+        if gpus and _perf["running"]:
+            _perf["smi"] = gpus
+        time.sleep(PERF_STEP)
+    _perf["smi_on"] = False
+
+
+def start_children():
+    if NVIDIA_SMI and not MAC and not _perf.get("smi_on"):
+        _perf["smi_on"] = True
+        threading.Thread(target=smi_loop, daemon=True).start()
+    if MAC and "top" not in _children:
+        block = []
+        def top(line):
+            # a sample starts with its "Processes:" line; the one before it is then complete
+            if line.startswith("Processes:") and block:
+                _perf["top"] = mac_top("".join(block))
+                block.clear()
+            block.append(line)
+        threading.Thread(target=child_lines, args=("top", ["top", "-l", "0", "-n", "0", "-s", str(PERF_STEP)], top), daemon=True).start()
+
+
+def stop_children():
+    for key, p in list(_children.items()):
+        _children.pop(key, None)
+        try:
+            p.terminate()
+        except OSError:
+            pass
+
+
+def perf_counters():
+    """The machine's counters now: CPU (busy, total) or busy %, memory, disks' (read, written, busy ms), the network's
+    (in, out) per interface, and the GPUs."""
+    if MAC:
+        t = _perf.get("top") or {}
+        return {"cpu_pct": t.get("cpu"), "mem": mac_mem(run("sysctl", "-n", "hw.memsize").strip() or 0, run("vm_stat"), run("sysctl", "-n", "vm.swapusage")),
+                "disks": {"disk": t["disk"] + (None,)} if t.get("disk") and None not in t["disk"] else {},
+                "net": mac_net(run("netstat", "-ib")), "gpus": mac_gpu(run("ioreg", "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"))}
+    return {"cpu": proc_cpu(read_text("/proc/stat")), "mem": proc_mem(read_text("/proc/meminfo")),
+            "disks": proc_disks(read_text("/proc/diskstats")), "net": proc_net(read_text("/proc/net/dev")),
+            "gpus": _perf.get("smi") if NVIDIA_SMI else amd_gpus()}
+
+
+def perf_spaces():
+    """Each disk the page shows: the root, home if it is another, the watched disk (AGENTS_DISK_WATCH) and, under WSL,
+    each Windows drive (/mnt/c, ...)."""
+    drives = sorted(f[1] for f in (line.split() for line in read_text("/proc/mounts").splitlines())
+                    if len(f) > 2 and re.fullmatch(r"/mnt/[a-z]", f[1]) and f[2] in ("9p", "drvfs"))
+    paths = ["/", os.path.expanduser("~"), os.environ.get("AGENTS_DISK_WATCH") or setting("AGENTS_DISK_WATCH"), *drives]
+    out, seen = [], set()
+    for p in paths:
+        try:
+            dev, u = os.stat(p).st_dev, shutil.disk_usage(p)
+        except (OSError, TypeError):
+            continue
+        if dev in seen:
+            continue
+        seen.add(dev)
+        label = p[5:].upper() + ":" if re.fullmatch(r"/mnt/[a-z]", p) else p
+        out.append({"label": label, "path": p, "used": u.total - u.free, "total": u.total})
+    return out
+
+
+def perf_reading(prev, cur, dt):
+    """One reading for the page: what cur is, and how fast it moved since prev, dt seconds earlier."""
+    out = {"mem": cur["mem"], "spaces": perf_spaces(), "gpus": cur["gpus"] or []}
+    if "cpu_pct" in cur:
+        if cur["cpu_pct"] is not None:
+            out["cpu"] = cur["cpu_pct"]
+    elif prev and cur["cpu"][1] > prev["cpu"][1]:
+        out["cpu"] = round(100 * (cur["cpu"][0] - prev["cpu"][0]) / (cur["cpu"][1] - prev["cpu"][1]), 1)
+    rate = lambda a, b: max(0, (a - b) / dt) if dt > 0 else 0
+    if prev and dt > 0:
+        d = [(n, v, prev["disks"][n]) for n, v in cur["disks"].items() if n in prev["disks"]]
+        if d:
+            busy = [100 * (v[2] - p[2]) / (dt * 1000) for _, v, p in d if v[2] is not None and p[2] is not None]
+            out["disk"] = {"read": sum(rate(v[0], p[0]) for _, v, p in d), "write": sum(rate(v[1], p[1]) for _, v, p in d),
+                           "active": min(100, round(max(busy), 1)) if busy else None}
+        out["net"] = [{"name": n, "in": rate(v[0], prev["net"][n][0]), "out": rate(v[1], prev["net"][n][1])}
+                      for n, v in sorted(cur["net"].items()) if n in prev["net"]]
+    return out
+
+
+def perf_loop():
+    prev = None
+    while time.time() - _perf["asked"] < PERF_IDLE:
+        t = time.time()
+        cur = perf_counters()
+        r = perf_reading(prev and prev[1], cur, t - prev[0] if prev else 0)
+        hist = _perf["hist"]
+        def keep(key, value):
+            if value is not None:
+                hist[key] = (hist.get(key, []) + [value])[-PERF_KEEP:]
+        keep("cpu", r.get("cpu"))
+        keep("mem", round(100 * r["mem"]["used"] / r["mem"]["total"], 1) if r["mem"]["total"] else None)
+        if r.get("disk"):
+            keep("disk", r["disk"]["active"] if r["disk"]["active"] is not None else r["disk"]["read"] + r["disk"]["write"])
+        for n in r.get("net", []):
+            keep("net:" + n["name"], n["in"] + n["out"])
+        for g in r["gpus"]:
+            keep("gpu:" + g["id"], g["pct"])
+        r["hist"] = dict(hist)
+        if prev:   # the first reading has nothing to measure a rate against
+            _perf["now"] = r
+        prev = (t, cur)
+        time.sleep(max(0.1, PERF_STEP - (time.time() - t)))
+    stop_children()
+    with _perf_lock:
+        _perf.update(running=False, now=None, hist={}, smi=None, top=None)
+
+
+def perf_json():
+    with _perf_lock:
+        _perf["asked"] = time.time()
+        if not _perf["running"]:
+            _perf["running"] = True
+            start_children()
+            threading.Thread(target=perf_loop, daemon=True).start()
+    info = {"system": "macOS" if MAC else "WSL" if "microsoft" in os.uname().release.lower() else "Linux",
+            "cores": os.cpu_count(), "step": PERF_STEP, "keep": PERF_KEEP,
+            "gpu_source": "ioreg" if MAC else "nvidia-smi" if NVIDIA_SMI else "amdgpu"}
+    return json.dumps({**info, **(_perf["now"] or {"warming": True})}).encode()
+
 # Plug-ins for the page's header and footer (owner, 2026-11-01: "header should default to what we have, with other
 # options addable as plug in style scripts"): each executable file in AGENT_BAR_PLUGINS, else ~/.config/agents-web/bar,
 # is an item the page can add, named by its file name, and keyed "x:<name>". The harness's own are in team/bar - Week,
-# Session, Team and Disk - keyed by their bare names, and in the bar until taken out. Each is run in the background
+# Session, Team and Disk, slim forms of them and slim CPU, Memory, Network and GPU bars - keyed by their bare names,
+# Week, Session, Team and Disk in the bar until taken out. Each is run in the background
 # for at most five seconds, given the page's numbers as JSON on its input (bar_facts()), and what it prints is the
 # item: a line of text, under its file name, or JSON:
 #   label, title        the name it shows and what a rest on it says
@@ -492,6 +790,8 @@ def disk():
 #   hidden              true: the item is not shown this time (Disk with nothing to watch)
 #   slim                true: all on one low line, the label and value beside the meter or sparkline; a label of ""
 #                       shows none, and name is what the bar's Add list calls it instead
+#   icon                one of the page's bar icons, shown in place of the label, which stays in its title: week, day,
+#                       disk, cpu, mem, net, gpu or tok
 #   place               "header" or "footer": the only one of the two it can be put in (else either)
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
 # the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
@@ -538,6 +838,8 @@ def plug_item(j, name):
         item["slim"] = True
     if j.get("name"):
         item["name"] = str(j["name"])[:40]
+    if isinstance(j.get("icon"), str) and re.fullmatch(r"[a-z]{1,12}", j["icon"]):
+        item["icon"] = j["icon"]
     if j.get("place") in ("header", "footer"):
         item["place"] = j["place"]
     return item
@@ -562,9 +864,9 @@ def run_plugin(path, name, facts=None):
 
 
 def bar_facts(st):
-    """The page's numbers a plug-in is given: the account's week and session, the budget's plan and day, the disk,
-    and each running agent's state and activity."""
-    return {**{k: st.get(k) for k in ("now", "week", "session", "plan", "even", "day", "disk")},
+    """The page's numbers a plug-in is given: the account's week and session, the budget's plan and day, the disk, each
+    running agent's state and activity, and the machine's latest performance reading (None while nothing samples it)."""
+    return {**{k: st.get(k) for k in ("now", "week", "session", "plan", "even", "day", "disk")}, "perf": _perf["now"], "cores": os.cpu_count(),
             "agents": [{k: a.get(k) for k in ("name", "status", "rate", "series")} for a in st.get("agents", [])]}
 
 
@@ -1426,8 +1728,9 @@ def state():
         rec = live.get(name)
         if not rec and not where.get(name):
             # a developer or tester with no session is on the bench, waiting for agent-spawn.sh; a standing agent with
-            # none is there too, stopped, and its menu starts it (owner, 2026-10-31)
-            if role in ("dev", "tester") or role in STANDING:
+            # none is there too, stopped, and its menu starts it (owner, 2026-10-31). One the page is starting leaves
+            # the bench at once, as a stopped agent.
+            if name not in _starting and (role in ("dev", "tester") or role in STANDING):
                 # its model, effort and last compaction are its last session's, the model read from its transcript
                 # once the session's context row has gone
                 was = last.get(name)
@@ -1632,6 +1935,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, team_json(), "application/json")
         elif path == "/api/state":
             self.send(200, state_json(), "application/json")
+        elif path == "/api/perf":
+            self.send(200, perf_json(), "application/json")
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -1935,6 +2240,11 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .stat.slim{flex-direction:row;align-items:center;gap:7px;min-width:0}
 .stat.slim .meter{width:110px;height:6px}.stat.slim .meter u{top:-3px;bottom:-3px}
 .stat.slim .pspark,.stat.slim .pspark svg.spark{width:110px;height:14px}
+/* one with an icon in place of its label is tighter still: the icon, the value and a short meter or sparkline */
+.stat.slim.ico{gap:4px}
+.stat.slim.ico .k{letter-spacing:0;text-transform:none;color:var(--text);display:flex;align-items:center;gap:4px}
+.stat.slim.ico .lab svg{width:14px;height:14px;color:var(--mute);display:block}
+.stat.slim.ico .meter,.stat.slim.ico .pspark,.stat.slim.ico .pspark svg.spark{width:48px}
 .meter{position:relative;height:8px;border-radius:5px;background:var(--track);overflow:visible;width:190px}
 .meter i{position:absolute;inset:0 auto 0 0;border-radius:5px;transition:width .6s}
 .meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px;box-shadow:0 0 6px #fff8}
@@ -2048,10 +2358,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .card.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .card.idle:not(.full) .feed{opacity:.8}
 .card.off{opacity:.45}
-/* an agent the page is starting or stopping fades in and out until it is up or its pane closes */
+/* an agent the page is stopping fades in and out until its pane closes; one it is starting pulses from grey to its
+   colour until it is up */
 @keyframes switching{0%,100%{opacity:1}50%{opacity:.4}}
 .switching{animation:switching 2.4s ease-in-out infinite}
-.switching.waiting,.tabbar button.switching.waiting{animation:alarm 1s ease-in-out infinite,switching 2.4s ease-in-out infinite}
+.switching.waiting,.tabbar button.switching.waiting,.chr.switching.waiting,.face.switching.waiting{animation:alarm 1s ease-in-out infinite,switching 2.4s ease-in-out infinite}
+.icontabs .face.switching.busy:not(.sel),.iconrow .face.switching.busy{animation:breathe 2.4s ease-in-out infinite,switching 2.4s ease-in-out infinite}
+@keyframes waking{0%,100%{opacity:.45;filter:grayscale(1)}50%{opacity:1;filter:none}}
+.waking{animation:waking 2.4s ease-in-out infinite}
 @keyframes alarm{0%,100%{border-color:#b87400;box-shadow:0 0 0 0 #ffb02000,0 0 10px 0 #ffb02044}50%{border-color:#ffc94d;box-shadow:0 0 0 4px #ffb02088,0 0 46px 6px #ffb020cc}}
 @keyframes wash{0%,100%{opacity:.06}50%{opacity:.3}}
 @keyframes pillflash{0%,100%{background:#8a5a00}50%{background:#ffc94d}}
@@ -2454,7 +2768,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
 .mini svg.spark{height:16px;margin-top:3px}
-.mini:not(:has(svg.spark)){padding-bottom:8px}   /* with no sparkline, as much space below the name as above */
+.mini:not(:has(svg.spark)){padding-bottom:8px}
+.mini.perf{cursor:default}
+.mini.perf .name .dot{display:none}   /* an agent's state; a figure has none */
+.mini .pdet{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}   /* with no sparkline, as much space below the name as above */
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
@@ -2683,9 +3000,15 @@ document.addEventListener("mouseup", e => {
 });
 // A fenced block is a code box; on a card (flat) it is code-styled lines in the text instead, so the card's few-line
 // cut ends on a whole line rather than slicing through a box.
+// A block indented under a list item loses its fence's indent from every line, as Markdown has it, so what it shows
+// and what its Copy copies start at the code's own first column; the closing fence's indent goes with it.
+const unfence = (code, before) => {
+  const n = /(?:^|\n)([ \t]*)$/.exec(before)?.[1].length || 0, strip = new RegExp(`^[ \\t]{0,${n}}`, "gm");
+  return code.replace(/\n[ \t]*$/, "").replace(strip, "");
+};
 const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
-  .map((part, i) => !(i % 2) ? prose(part) : flat ? `<code class="flat">${esc(part.replace(/\n$/, ""))}</code>\n`
-    : `<pre class="code">${esc(part.replace(/\n$/, ""))}${COPY}</pre>`).join("");
+  .map((part, i, all) => !(i % 2) ? prose(part) : flat ? `<code class="flat">${esc(unfence(part, all[i - 1]))}</code>\n`
+    : `<pre class="code">${esc(unfence(part, all[i - 1]))}${COPY}</pre>`).join("");
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
@@ -3148,7 +3471,10 @@ function patchNode(a, b) {
   const box = a.matches("textarea, .att"), kept = box ? ["style", "disabled", "title"] : [];
   for (const {name} of [...a.attributes]) if (!b.hasAttribute(name) && !kept.includes(name)) a.removeAttribute(name);
   for (const {name, value} of [...b.attributes]) if (a.getAttribute(name) !== value && !kept.includes(name)) a.setAttribute(name, value);
+  // a menu once used shows its own choice whatever its options' selected attributes become, so it is set to the one marked
+  const pick = a.nodeName === "SELECT" ? b.querySelector("option[selected]")?.value : undefined;
   if (!box) patchKids(a, b);
+  if (pick !== undefined && a.value !== pick) a.value = pick;
 }
 
 function draw() {
@@ -3362,7 +3688,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -3426,6 +3752,17 @@ function barOf() {
 }
 // Each plug-in drawn as a stat: its label over its value, or with a meter or a sparkline, "Label: value" over it; its
 // title on a rest. A colour is a CSS colour or one of the page's own by name.
+// The icons a plug-in can show in place of its label (its icon), drawn as the menus' are.
+const BAR_ICON = Object.fromEntries(Object.entries({
+  week: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
+  day: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
+  disk: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4 9.5h5"/><circle cx="11.8" cy="9.5" r=".7"/>',
+  cpu: '<rect x="4" y="4" width="8" height="8" rx="1"/><rect x="6.2" y="6.2" width="3.6" height="3.6"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>',
+  mem: '<rect x="1.5" y="4.5" width="13" height="6" rx="1"/><path d="M4 6.8v1.7M6.7 6.8v1.7M9.3 6.8v1.7M12 6.8v1.7M3.5 10.5v2M12.5 10.5v2"/>',
+  net: '<path d="M5 13.5V3M2.5 5.5 5 3l2.5 2.5M11 2.5V13M8.5 10.5 11 13l2.5-2.5"/>',
+  gpu: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="6" cy="8" r="2.2"/><path d="M10.5 6.5h2M10.5 9.5h2M3 12v2"/>',
+  tok: '<path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
 const plugColour = c => PLUG_COLOUR[c] || c || "";
 function drawPlugs() {
@@ -3438,12 +3775,15 @@ function drawPlugs() {
     const e = $(`.bi[data-item="${x.key}"]`), st = e.querySelector(".stat"), m = x.meter, inline = !!(m || x.spark);
     st.style.display = x.hidden ? "none" : "";
     st.title = x.title;
-    st.classList.toggle("slim", !!x.slim);
+    const icon = x.slim && BAR_ICON[x.icon];
+    st.classList.toggle("slim", !!x.slim); st.classList.toggle("ico", !!icon);
     const parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
     const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); return b; });
-    e.querySelector(".lab").textContent = x.label;
-    e.querySelector(".kv").replaceChildren(...(inline && els.length ? [...(x.label ? [": "] : []), ...els] : []));
-    e.querySelector(".k").style.display = x.label || inline && els.length ? "" : "none";
+    const lab = e.querySelector(".lab");
+    if (icon) { if (lab.dataset.icon !== x.icon) { lab.dataset.icon = x.icon; lab.innerHTML = icon; } }
+    else { delete lab.dataset.icon; lab.textContent = x.label; }
+    e.querySelector(".kv").replaceChildren(...(inline && els.length ? [...(x.label && !icon ? [": "] : []), ...els] : []));
+    e.querySelector(".k").style.display = icon || x.label || inline && els.length ? "" : "none";
     e.querySelector(".v").replaceChildren(...(inline ? [] : els));
     e.querySelector(".v").style.display = inline ? "none" : "";
     const mt = e.querySelector(".meter");
@@ -3792,6 +4132,8 @@ function customHtml(ceil, tabRow) {
         : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
+    } else if (n.show === "perf") {
+      body = perfHtml(n);
     } else if (n.show === "combined") {
       body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "team") {
@@ -3820,12 +4162,12 @@ function customHtml(ceil, tabRow) {
     const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file", "perf"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
       ${["tabs", "combined", "meeting"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
-      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : ""}
+      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" ? perfBtn(path, n) : ""}
       ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
     return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, pageLocked()) : ""}${body}</div></div>`;
@@ -3960,7 +4302,7 @@ function combinedHtml(path, n, full, big) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await Promise.all([loadTeam(), loadFiles()]);
+  await Promise.all([loadTeam(), loadFiles(), loadPerf()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" || n.show === "meeting" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -4001,6 +4343,51 @@ async function loadFiles() {
       fileDocs[p] = r.ok ? {text: await r.text()} : {status: r.status};
     } catch (e) {}
   }));
+}
+// Performance panes: the machine's CPU, memory, disks, network and GPUs, read again with every load (/api/perf),
+// one row each as the List pane has one per agent, with its last two minutes under it. Which of them a pane shows
+// (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
+// Network and GPU bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
+let perfNow = null;
+const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar"];
+async function loadPerf() {
+  const b = barOf();
+  if (!leaves(layout().root).some(([, n]) => n.show === "perf") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
+  try { perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); } catch (e) {}
+}
+const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"]];
+const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf"};
+const perfOn = n => Array.isArray(n.perf) ? n.perf : PERF_ITEMS.map(([k]) => k);
+const perfBtn = (path, n) => filterBtn("perfsel", "perf:" + path, perfOn(n), PERF_ITEMS.map(([k]) => k), PERF_ITEMS, "");
+// sizes in Task Manager's way: 1024 to a K, a GB and so on; a disk's rate in bytes and the network's in bits
+const perfSize = (b, unit = "B") => { if (b == null) return "–"; let i = 0; while (b >= 1000 && i < 4) { b /= 1024; i++; } return `${b < 10 && i ? b.toFixed(1) : Math.round(b)} ${["", "K", "M", "G", "T"][i]}${unit}`; };
+// used and total in the total's unit: "23 / 31 GB"
+const perfOf = (used, total) => { const t = perfSize(total), i = ["", "K", "M", "G", "T"].indexOf(t.split(" ")[1]?.[0] ?? ""), u = (used || 0) / 1024 ** Math.max(0, i);
+  return `${u < 10 && i > 0 ? u.toFixed(1) : Math.round(u)} / ${t}`; };
+function perfHtml(n) {
+  const d = perfNow, on = perfOn(n);
+  if (!on.length) return `<div class="blank">Choose what to show</div>`;
+  if (!d || d.warming) return `<div class="blank">Reading…</div>`;
+  const h = d.hist || {};
+  const row = (key, name, detail, pct, series, ceil, tip = "") =>
+    `<div class="mini perf" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"><div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
+    `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${gauge(pct)}">${Math.round(pct)}%</span>`}</div>` +
+    `${series ? spark(series, ceil, PERF_COLOUR[key]) : ""}</div>`;
+  const rows = {
+    cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, h.cpu, 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
+    mem: () => { const m = d.mem;
+      return row("mem", "Memory", `${perfOf(m.used, m.total)}${m.swap_total ? ` · swap ${perfOf(m.swap_used, m.swap_total)}` : ""}`,
+        m.total ? 100 * m.used / m.total : null, h.mem, 100, "In use, as Task Manager counts it: what is not available to programs"); },
+    disk: () => (d.disk ? row("disk", "Disk", `read ${perfSize(d.disk.read)}/s · write ${perfSize(d.disk.write)}/s`, d.disk.active, h.disk,
+        d.disk.active == null ? Math.max(1, ...h.disk) : 100, d.disk.active == null ? "Read and written" : "Active time, the busiest disk") : "") +
+      d.spaces.map(sp => row("disk", sp.label, `${perfOf(sp.used, sp.total)} · ${perfSize(sp.total - sp.used)} free`, 100 * sp.used / sp.total, null, 0, sp.path)).join(""),
+    net: () => (d.net || []).map(x => row("net", x.name, `↓ ${perfSize(x.in * 8, "b")}/s · ↑ ${perfSize(x.out * 8, "b")}/s`, null,
+      h["net:" + x.name], Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent")).join("") || row("net", "Network", "no interface", null),
+    gpu: () => d.gpus.map(g => row("gpu", d.gpus.length > 1 ? `GPU ${g.id}` : "GPU", [g.name, g.mem_total ? perfOf(g.mem_used, g.mem_total) : g.mem_used ? perfSize(g.mem_used) : "",
+      g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, h["gpu:" + g.id], 100, g.pct == null ? "Its use is not reported just now" : "")).join("")
+      || row("gpu", "GPU", d.gpu_source === "nvidia-smi" ? "reading…" : "no figures here: no nvidia-smi or AMD card", null),
+  };
+  return `<div class="others perfs">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
 }
 // Where each part of a pane was scrolled to, put back after a redraw: a part that is replaced, or moved as a kept feed
 // is, comes back at its top (owner, 2026-11-01: "sometimes when I click the padlock both panes scroll to the very top").
@@ -4078,6 +4465,11 @@ function customClicks() {
     const path = el.closest(".pane").dataset.path;
     filterButton(el, roleItems(), () => rolesOn(nodeAt(layout().root, path)), r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`,
       r => { change(l => { const n = nodeAt(l.root, path), on = rolesOn(n); n.roles = on.includes(r) ? on.filter(x => x !== r) : [...on, r]; }); setTimeout(load); }, "Roles");
+  });
+  main.querySelectorAll(".pane .perfsel.fbtn").forEach(el => {
+    const path = el.closest(".pane").dataset.path;
+    filterButton(el, PERF_ITEMS, () => perfOn(nodeAt(layout().root, path)), k => `Show or leave out ${PERF_ITEMS.find(([x]) => x === k)[1]}`,
+      k => change(l => { const n = nodeAt(l.root, path), on = perfOn(n); n.perf = on.includes(k) ? on.filter(x => x !== k) : PERF_ITEMS.map(([x]) => x).filter(x => x === k || on.includes(x)); }));
   });
   main.querySelectorAll(".pane .who.fbtn").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -4313,8 +4705,9 @@ function unseen(a) {
 
 // The column of every agent beside an open one, the open one marked: name with its state and unseen count (as a tab),
 // ticket, how long, context and burn.
-// " switching" while the page is starting the agent (alone or with the team) or stopping it, for its card, tab, List row and tile.
-const switching = a => (a.live ? S.halting : S.starting).includes(a.name) ? " switching" : "";
+// " waking" while the page is starting the agent (alone or with the team), " switching" while it is stopping it, for its
+// card, tab, List row, tile and icon.
+const switching = a => !a.live && S.starting.includes(a.name) ? " waking" : a.live && S.halting.includes(a.name) ? " switching" : "";
 function minis(cur, agents = S.agents) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series));
   return agents.map(a => {
@@ -4355,8 +4748,8 @@ function shadow(a) {
 const LEFT_BADGE = new Set(["tester", "hot"]);
 // An agent as a small Characters tile: its portrait, else its role's shadow with the agent's initial bottom left, over
 // a bar in its colour. A running agent's tile carries its state, so a waiting one flashes like its Characters tile; the
-// bench's have none.
-const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " " + stOf(a) : ""}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
+// bench's have none. One the page is starting or stopping pulses.
+const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " " + stOf(a) : ""}${switching(a)}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
@@ -5500,9 +5893,9 @@ def self_test():
         wait_for(lambda: not _plugging, 5, 0.1)
         t("a harness plug-in is keyed by its bare name and is given the page's numbers",
           ([x["key"] for x in plugins()][0], json.load(open(T + "/facts"))), ("echo", {"week": 70, "agents": [{"name": "Ada", "series": [1, 2]}]}))
-        t("  and the facts it is given are the page's numbers, and each agent's state and activity only",
+        t("  and the facts it is given are the page's numbers, each agent's state and activity, and the machine's performance",
           sorted(bar_facts({"week": 1, "tabs": [], "agents": [{"name": "A", "status": "busy", "rate": 3, "series": [1], "convo": "x"}]})),
-          ["agents", "day", "disk", "even", "now", "plan", "session", "week"])
+          ["agents", "cores", "day", "disk", "even", "now", "perf", "plan", "session", "week"])
         _plugged[T + "/shipped/echo"]["every"], _plugged[T + "/shipped/echo"]["at"] = 30, time.time() - 20
         plugins()
         t("  run again only once its own pace has passed", T + "/shipped/echo" in _plugging, False)
@@ -5553,6 +5946,105 @@ def self_test():
         t("a plug-in's slim, name and place are kept, and a place other than header or footer is none",
           [plug_item({"label": "", "slim": True, "name": "N", "place": "footer"}, "n"), "place" in plug_item({"place": "top"}, "n")],
           [{"label": "", "title": "", "colour": "", "value": "", "slim": True, "name": "N", "place": "footer"}, False])
+        # the machine's performance, for Performance panes and the CPU, Memory, Network and GPU bars: each source's
+        # text as its command or /proc file prints it, and a reading made from two samples
+        def perf_checks():
+            # ── Linux ────────────────────────────────────────────────────────────────────
+            t("CPU busy leaves out idle and iowait",
+                   proc_cpu("cpu  100 5 50 800 20 3 2 0 0 0\ncpu0 1 2 3 4 5 6 7 8 9 10\n"), (160, 980))
+            mem = proc_mem("MemTotal:       32768000 kB\nMemFree:  1000 kB\nMemAvailable:   12288000 kB\nCached:  6000000 kB\n"
+                             "SwapTotal:       8388608 kB\nSwapFree:        1048576 kB\n")
+            t("memory in use is what is not available", mem["used"], (32768000 - 12288000) * 1024)
+            t("swap in use is total less free", mem["swap_used"], (8388608 - 1048576) * 1024)
+            disks = proc_disks("   8       0 sda 1395 400 176634 753 0 0 0 0 0 1420 753 0 0 0 0 0 0\n"
+                                 "   8       1 sda1 100 0 2000 10 5 0 80 1 0 20 11 0 0 0 0\n"
+                                 " 259       0 nvme0n1 10 0 8 1 4 0 16 2 0 70 3 0 0 0 0\n"
+                                 " 259       1 nvme0n1p1 10 0 8 1 4 0 16 2 0 70 3 0 0 0 0\n   7   0 loop0 1 0 2 0 0 0 0 0 0 4 0\n")
+            t("whole disks only, not partitions or loop devices", sorted(disks), ["nvme0n1", "sda"])
+            t("a disk's bytes read and written and ms busy", disks["sda"], (176634 * 512, 0, 1420))
+            net = proc_net("Inter-|   Receive    |  Transmit\n face |bytes packets errs drop fifo frame compressed multicast|bytes packets\n"
+                             "    lo: 500 5 0 0 0 0 0 0 500 5 0 0 0 0 0 0\n  eth0: 1000 10 0 0 0 0 0 0 2000 20 0 0 0 0 0 0\n"
+                             "docker0: 7 1 0 0 0 0 0 0 9 1 0 0 0 0 0 0\nvethab12: 7 1 0 0 0 0 0 0 9 1 0 0 0 0 0 0\n")
+            t("real interfaces only, bytes in and out", net, {"eth0": (1000, 2000)})
+            t("an nvidia-smi line", smi_line("0, NVIDIA GeForce RTX 4060 Laptop GPU, 37, 1024, 8188, 49"),
+                   {"id": "0", "name": "NVIDIA GeForce RTX 4060 Laptop GPU", "pct": 37.0, "mem_used": 1024.0 * 2**20,
+                    "mem_total": 8188.0 * 2**20, "temp": 49.0})
+            t("a figure nvidia-smi cannot give is None", smi_line("0, GPU, [Unknown Error], 0, 8188, [N/A]")["pct"], None)
+            t("nvidia-smi's errors are not a GPU", smi_line("NVIDIA-SMI has failed because it couldn't communicate"), None)
+
+            # ── macOS ────────────────────────────────────────────────────────────────────
+            top = """Processes: 512 total, 2 running, 510 sleeping, 2345 threads
+            2026/11/02 09:00:00
+            Load Avg: 2.10, 2.35, 2.40
+            CPU usage: 5.26% user, 3.15% sys, 91.58% idle
+            SharedLibs: 512M resident, 98M data, 45M linkedit.
+            PhysMem: 15G used (2345M wired, 1234M compressor), 789M unused.
+            Networks: packets: 1234567/1234M in, 987654/567M out.
+            Disks: 2345678/45G read, 1234567/320M written.
+            """
+            t("top's CPU is what is not idle", mac_top(top)["cpu"], 8.4)
+            t("top's disks read and written", mac_top(top)["disk"], (45 * 1024**3, 320 * 1024**2))
+            vm_stat = """Mach Virtual Memory Statistics: (page size of 16384 bytes)
+            Pages free:                               12345.
+            Pages active:                            234567.
+            Pages wired down:                         98765.
+            Pages purgeable:                           4321.
+            "Translation faults":                 123456789.
+            File-backed pages:                       150000.
+            Anonymous pages:                         300000.
+            Pages occupied by compressor:             50000.
+            """
+            mem = mac_mem("17179869184\n", vm_stat, "total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)\n")
+            t("Memory Used is app memory, wired and compressed", mem["used"], (300000 - 4321 + 98765 + 50000) * 16384)
+            t("macOS total memory", mem["total"], 17179869184)
+            t("macOS swap", (mem["swap_used"], mem["swap_total"]), (1024.5 * 1024**2, 2048 * 1024**2))
+            netstat = """Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+            lo0        16384 <Link#1>                        123456     0   45678901   123456     0   45678901     0
+            lo0        16384 127           localhost         123456     -   45678901   123456     -   45678901     -
+            en0        1500  <Link#6>    a4:83:e7:12:34:56  9876543     0 12345678901  5432109     0  987654321     0
+            en0        1500  192.168.1     192.168.1.20      9876543     - 12345678901  5432109     - 987654321     -
+            en5*       1500  <Link#9>                             0     0          0        0     0          0     0
+            utun0      1380  <Link#15>                            12     0       1234       34     0       5678     0
+            """
+            t("netstat's real interfaces, from their link rows, with or without an address",
+                   mac_net(netstat), {"en0": (12345678901, 987654321), "en5": (0, 0)})
+            ioreg = """+-o AGXAcceleratorG14X  <class AGXAcceleratorG14X, id 0x100000abc, registered, matched, active, busy 0 (0 ms), retain 50>
+                {
+                  "model" = "Apple M2"
+                  "PerformanceStatistics" = {"In use system memory"=123456789,"Device Utilization %"=12,"Renderer Utilization %"=10}
+                }
+            """
+            t("ioreg's GPU", mac_gpu(ioreg), [{"id": "0", "name": "Apple M2", "pct": 12.0, "mem_used": 123456789.0,
+                                                       "mem_total": None, "temp": None}])
+            t("no GPU figures, no GPU", mac_gpu(""), [])
+
+            # ── readings ─────────────────────────────────────────────────────────────────
+            g["perf_spaces"] = lambda: []
+            prev = {"cpu": (100, 1000), "mem": {"total": 4, "used": 1}, "disks": {"sda": (0, 0, 0)}, "net": {"eth0": (0, 0)}, "gpus": []}
+            cur = {"cpu": (400, 2000), "mem": {"total": 4, "used": 2}, "disks": {"sda": (4096, 8192, 1000)}, "net": {"eth0": (2000, 4000)}, "gpus": []}
+            r = perf_reading(prev, cur, 2)
+            t("CPU busy between two samples", r["cpu"], 30.0)
+            t("disk rates and active time", r["disk"], {"read": 2048, "write": 4096, "active": 50.0})
+            t("network rates", r["net"], [{"name": "eth0", "in": 1000, "out": 2000}])
+            r = perf_reading(None, cur, 0)
+            t("a first sample has no rates", ("cpu" in r, "disk" in r, "net" in r), (False, False, False))
+            mac = {**cur, "cpu_pct": None, "disks": {"disk": (100, 200, None)}}
+            r = perf_reading({**prev, "cpu_pct": 5.0, "disks": {"disk": (0, 0, None)}}, mac, 2)
+            t("macOS before top's first sample has no CPU", "cpu" in r, False)
+            t("macOS disks have rates but no active time", r["disk"], {"read": 50, "write": 100, "active": None})
+        spaces = perf_spaces
+        try:
+            perf_checks()
+        finally:
+            g["perf_spaces"] = spaces
+        t("team/bar/cpubar: green, red from 95%, \"…\" with no reading",
+          ((j := sh("cpubar", {"perf": {"cpu": 30}, "cores": 4}))["value"][0]["colour"], j["meter"]["colour"], j["icon"],
+           sh("cpubar", {"perf": {"cpu": 96}})["meter"]["colour"], sh("cpubar", {"perf": None})["value"]), ("green", "", "cpu", "red", "…"))
+        t("team/bar/netbar: its last two minutes where no link speed can be read",
+          ((j := sh("netbar", {"perf": {"net": [{"name": "nosuch0", "in": 1, "out": 2}], "hist": {"net:nosuch0": [1, 2]}}}))["spark"], "meter" in j),
+          ([1, 2], False))
+        t("a plug-in's icon is kept, and one that is not a plain name is not", ("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
+          (True, False))
     finally:
         for k in kids:
             k.kill()

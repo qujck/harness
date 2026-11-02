@@ -10,5 +10,5 @@ if not d or d.get("free_gb") is None or not d.get("total_gb"):
 else:
     f, t = d["free_gb"], d["total_gb"]
     c = "red" if f < d["alert"] else "amber" if f < d["warn"] else ""
-    print(json.dumps({"label": "Disk", "value": d["label"], "name": "Disk bar", "slim": True, "every": 30, "title": f"{d['label']}: {f} GB free of {t}",
+    print(json.dumps({"label": "Disk", "value": d["label"], "name": "Disk bar", "slim": True, "icon": "disk", "every": 30, "title": f"Disk: how full the disk at {d['label']} is\n{f} GB free of {t}",
                       "meter": {"pct": 100 * (t - f) / t, "mark": None, "colour": c}}))

@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Network bar: the machine's network traffic, as the Performance pane reads it, on one low line: "Network: 1.2 Mb/s",
+every interface together, beside a short meter, green, of the busiest interface's use of its link speed (the busier
+direction, as a link carries each way at full speed); amber from 80%, red from 95%. Where no link speed can be read,
+its last two minutes instead. Each interface's received and sent are in its title. "…" until the page's sampling,
+which runs while this is in a bar, has a reading."""
+import json
+import sys
+
+
+def rate(bytes_s):
+    b, i = bytes_s * 8, 0
+    while b >= 1000 and i < 4:
+        b /= 1024
+        i += 1
+    return f"{b:.1f}" if b < 10 and i else f"{round(b)}", ["", "K", "M", "G", "T"][i] + "b/s"
+
+
+def link(name):
+    """The interface's link speed in bits a second, or None where it cannot be read (macOS, or a link that is down)."""
+    try:
+        with open(f"/sys/class/net/{name}/speed") as f:
+            mbit = int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+    return mbit * 1_000_000 if mbit > 0 else None
+
+
+perf = json.load(sys.stdin).get("perf") or {}
+net = perf.get("net")
+if net is None:
+    print(json.dumps({"label": "Network", "name": "Network bar", "slim": True, "icon": "net", "every": 2, "value": "…", "title": "Reading the network"}))
+else:
+    uses = [(100 * max(x["in"], x["out"]) * 8 / s, x, s) for x in net if (s := link(x["name"]))]
+    lines = [f"{x['name']}: ↓ {' '.join(rate(x['in']))} ↑ {' '.join(rate(x['out']))}"
+             + (f" of {round(s / 1e6)} Mb/s" if (s := link(x["name"])) else "") for x in net]
+    item = {"label": "Network", "name": "Network bar", "slim": True, "icon": "net", "every": 2, "title": "Network: the machine's network traffic; the meter is its busiest connection against that connection's top speed\n"
+            + ("\n".join(lines) or "No network interface")}
+    if uses:
+        p = min(100, max(u for u, _, _ in uses))
+        c = "red" if p >= 95 else "amber" if p >= 80 else ""
+        item["meter"] = {"pct": p, "mark": None, "colour": c}
+    else:
+        c = ""
+        series = [list(v) for k, v in (perf.get("hist") or {}).items() if k.startswith("net:")]
+        n = max((len(v) for v in series), default=0)
+        item["spark"] = [sum(v[i - n + len(v)] for v in series if i - n + len(v) >= 0) for i in range(n)]
+    item["value"] = [{"text": " ".join(rate(sum(x["in"] + x["out"] for x in net))), "colour": c or "green", "bold": True}]
+    print(json.dumps(item))

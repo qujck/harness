@@ -14,8 +14,8 @@ if not dy:
     print(json.dumps({"hidden": True, "name": "Day bar"}))
 else:
     c = "red" if dy["used"] > dy["quota"] else "amber" if dy["quota"] - dy["used"] <= 1 else "green"
-    print(json.dumps({"label": "Day", "name": "Day bar", "slim": True, "every": 5,
+    print(json.dumps({"label": "Day", "name": "Day bar", "slim": True, "icon": "day", "every": 5,
                       "value": [{"text": f"{dy['used']}%", "colour": c, "bold": True}],
-                      "title": f"The day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%)",
+                      "title": f"Day: how much of today's share of the week is used\nThe day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%)",
                       "meter": {"pct": 100 * dy["used"] / dy["quota"] if dy["quota"] else 100, "mark": None,
                                 "colour": c if c != "green" else ""}}))
