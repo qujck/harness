@@ -13,7 +13,8 @@ over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w
 spare = not dy and over and s.get("even") is not None and w < s["even"]
 last = dy and not over and dy["quota"] - dy["used"] <= 1   # the day's last 1%
 c = "amber" if spare or last else "red" if over else "green"
-print(json.dumps({"label": "Week", "name": "Week bar", "slim": True, "every": 5,
+print(json.dumps({"label": "Week", "name": "Week bar", "slim": True, "icon": "week", "every": 5,
                   "value": [{"text": f"{w}%" if w is not None else "?", "colour": c, "bold": True}],
-                  "title": f"The account's week: {w}% used, stop at {p}%" if w is not None else "No reading of the account's week yet",
+                  "title": "Week: how much of the account's weekly allowance is used; the mark is where it should stop\n"
+                           + (f"{w}% used, stop at {p}%" if w is not None else "No reading yet"),
                   "meter": {"pct": w or 0, "mark": p, "colour": c if over or last else ""}}))

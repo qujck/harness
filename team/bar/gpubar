@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""GPU bar: the GPU's use, as the Performance pane reads it, on one low line: "GPU: 12%" beside a short meter, green, the
+busiest GPU where there are several, each one's name, memory and temperature in its title; amber from 80%, red from
+95%. "…" until the page's sampling, which runs while this is in a bar, has a reading; hidden with no GPU figures."""
+import json
+import sys
+
+perf = json.load(sys.stdin).get("perf")
+gpus = [g for g in (perf or {}).get("gpus") or [] if g.get("pct") is not None]
+if perf is None:
+    print(json.dumps({"label": "GPU", "name": "GPU bar", "slim": True, "icon": "gpu", "every": 2, "value": "…", "title": "Reading the GPU"}))
+elif not gpus:
+    print(json.dumps({"hidden": True, "name": "GPU bar", "every": 2}))
+else:
+    p = max(g["pct"] for g in gpus)
+    c = "red" if p >= 95 else "amber" if p >= 80 else ""
+    gb = lambda b: f"{b / 1024 ** 3:.1f} GB"
+    tip = "\n".join(f"{g.get('name') or 'GPU ' + str(g.get('id'))}: {g['pct']}%"
+                    + (f", {gb(g['mem_used'])} of {gb(g['mem_total'])}" if g.get("mem_total") else "")
+                    + (f", {g['temp']} °C" if g.get("temp") is not None else "") for g in gpus)
+    print(json.dumps({"label": "GPU", "name": "GPU bar", "slim": True, "icon": "gpu", "every": 2, "title": "GPU: how busy the machine's graphics card is\n" + tip,
+                      "value": [{"text": f"{round(p)}%", "colour": c or "green", "bold": True}],
+                      "meter": {"pct": p, "mark": None, "colour": c}}))

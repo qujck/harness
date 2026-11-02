@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Memory bar: the machine's memory in use, as the Performance pane reads it, on one low line: "Memory: 61%" beside a
+short meter, green; amber from 85%, red from 95%, the sizes in its title. "…" until the page's sampling, which runs while
+this is in a bar, has a reading."""
+import json
+import sys
+
+
+def size(b):
+    i = 0
+    while b >= 1000 and i < 4:
+        b /= 1024
+        i += 1
+    return f"{b:.1f}" if b < 10 and i else f"{round(b)}", ["", "K", "M", "G", "T"][i] + "B"
+
+
+m = ((json.load(sys.stdin).get("perf") or {}).get("mem")) or {}
+if not m.get("total"):
+    print(json.dumps({"label": "Memory", "name": "Memory bar", "slim": True, "icon": "mem", "every": 2, "value": "…", "title": "Reading the memory"}))
+else:
+    p = 100 * m["used"] / m["total"]
+    c = "red" if p >= 95 else "amber" if p >= 85 else ""
+    swap = f", swap {' '.join(size(m['swap_used']))} of {' '.join(size(m['swap_total']))}" if m.get("swap_total") else ""
+    print(json.dumps({"label": "Memory", "name": "Memory bar", "slim": True, "icon": "mem", "every": 2,
+                      "title": f"Memory: how much of the machine's memory is in use\n{' '.join(size(m['used']))} in use of {' '.join(size(m['total']))}{swap}",
+                      "value": [{"text": f"{round(p)}%", "colour": c or "green", "bold": True}],
+                      "meter": {"pct": p, "mark": None, "colour": c}}))
