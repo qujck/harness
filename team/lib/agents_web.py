@@ -1895,7 +1895,7 @@ header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--lin
 footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: as low as its tallest item */
 /* the bar's items, in the header or the footer; while the layout is unlocked each is outlined, dragged and taken out with its ✕ */
 .bi{position:relative;display:flex;align-items:center;flex:none;min-width:0}
-.bi[data-item=bench]{flex:1}
+.bi[data-item=bench]{flex:1 1 auto}   /* its chips' whole width first, then a share of what is left; it shrinks, and overlaps, only past that (owner, 2026-11-02) */
 /* a spacer takes the room left, so what comes after it keeps to the right; it shows only while the layout is unlocked */
 .bi.gap{flex:1;min-width:0}
 .editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
@@ -1961,7 +1961,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
 .face.waiting{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
-.bench > span:first-child{display:flex;align-items:center;gap:2px}
+.bench > span:first-child{display:flex;align-items:center;gap:2px;text-transform:uppercase}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
 .colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
