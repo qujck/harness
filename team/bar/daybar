@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Day bar: the open development day's share (team/agents-day-budget.sh) on one low line, "Day: 12%" beside a meter
 filled to how much of the share is used; amber with 1% of it left, red once spent past it.
-Between days (in strength, the verification day), the same, its share the room left to the week's plan. Hidden otherwise."""
+Between days (in strength, the verification day), the same, its share what the week's plan has grown by since it began.
+Hidden otherwise."""
 import json
 import sys
 
 s = json.load(sys.stdin)
 dy = s.get("day")
-if dy and dy.get("quota") is None:   # between days (the verification day): its share is the room left to the week's plan
-    dy = {**dy, "quota": max(s["plan"] - dy["from"], 0)} if s.get("plan") is not None else None
+if dy and dy.get("quota") is None:   # between days with no plan to share out: the week alone
+    dy = None
 if not dy:
     print(json.dumps({"hidden": True, "name": "Day bar"}))
 else:
