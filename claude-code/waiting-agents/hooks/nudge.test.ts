@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { decide, envFileValue, freshRows, mainCheckoutOf, nudgeText, parseTarget, roleWords, statePaths } from './nudge.ts'
+import { decide, envFileValue, freshRows, mainCheckoutOf, nudgeText, parseTarget, roleWords, stateKey, statePaths } from './nudge.ts'
 import { parseRoster } from './watch.ts'
 
 const ROSTER = JSON.stringify({
@@ -149,7 +149,7 @@ test('two nudges for one state, a threshold apart, and never a third', async ($,
 
 test('a new state is nudged afresh, and the bound survives a restart through the store', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
-  mock.store(on, { nudgeState: { key: 'Dev', count: 2, lastMs: T0 - 60_000 } })
+  mock.store(on, { nudgeState: { key: 'lead\nDev', count: 2, lastMs: T0 - 60_000 } })
   const sent: string[] = []
   const log: string[] = []
   const w = world()
@@ -308,6 +308,9 @@ test('roster roles, settings, row freshness and the bound, unit by unit', async 
   expect(decide('b', { key: 'a', count: 2, lastMs: T0 }, T0, 900)).toEqual({ send: true, count: 1 })
   expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 899_000 }, T0, 900).send).toBe(false)
   expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 900_000 }, T0, 900)).toEqual({ send: true, count: 2 })
+  // The head of testing's two nudges must not use up the delivery lead's when the day hands back with the same agents idle.
+  const dev = [{ name: 'Dev', role: 'developer', idleS: 960 }]
+  expect(stateKey(dev, 'lead')).not.toBe(stateKey(dev, 'testing'))
 })
 
 test('once the team has been active, the same agents idling again are nudged afresh', async ($, on) => {

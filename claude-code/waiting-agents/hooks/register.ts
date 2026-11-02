@@ -304,7 +304,7 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
     return
   }
   if (!isFree) { await logVerdict($, paths.log, now, `hold: ${TARGET_ROLE[target]} is mid-turn; idle: ${describe(idle)}`); return }
-  const key = stateKey(idle)
+  const key = stateKey(idle, target)
   const prev = (await $.store.get(NUDGE_STATE)) as NudgeState | undefined
   const verdict = decide(key, prev, now, thresholdS)
   if (!verdict.send) { await logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`); return }

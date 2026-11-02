@@ -118,9 +118,11 @@ export function idleAgents(team: ReadonlyMap<string, string>, rows: ReadonlyMap<
   return idle
 }
 
-// The state a nudge is about: the same agents idle is the same state, however long they stay idle.
-export function stateKey(idle: readonly Idle[]): string {
-  return idle.map(i => i.name).sort().join('\n')
+// The state a nudge is about: the same agents idle for the same target is the same state, however long they stay idle.
+// The target is part of it, so the head of testing's two nudges never use up the delivery lead's when the day hands
+// back with the same agents idle (2026-11-02: Carl was held "already nudged 2 times" from 12:39 with nobody working).
+export function stateKey(idle: readonly Idle[], target: 'lead' | 'testing'): string {
+  return [target, ...idle.map(i => i.name).sort()].join('\n')
 }
 
 export function describe(idle: readonly Idle[]): string {
