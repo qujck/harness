@@ -4222,7 +4222,13 @@ async function load() {
     colours = Object.fromEntries([...S.agents, ...S.bench].map(a => [a.name, a.colour]));
     draw();
     if (menu.classList.contains("on")) menu.refresh?.();
-  } catch (e) { $("#counts").innerHTML = `<span class="pill" style="color:var(--red)">offline</span>`; }
+  } catch (e) {
+    // a server that cannot be reached and an error while drawing both land here; the pill's title and the console say which
+    console.error("agents-web refresh failed", e);
+    const why = e instanceof TypeError && /fetch/i.test(e.message) ? "The page server cannot be reached" : `${e.name}: ${e.message}${e.stack ? "\n" + e.stack.split("\n").slice(1, 4).join("\n") : ""}`;
+    $("#counts").innerHTML = `<span class="pill" style="color:var(--red)" title="${esc(why)}">offline</span>`;
+    $("#counts").dataset.html = "";
+  }
 }
 
 // What the owner has seen of each agent's conversation, as the time of its newest turn when they last saw it: every
