@@ -1912,8 +1912,9 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
-.barplus{margin-left:auto;flex:none;width:28px;height:24px;padding:0;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--mute);font:inherit;
-  font-size:calc(16px*var(--fs,1));line-height:1;text-align:center;text-align-last:center;appearance:none;-webkit-appearance:none;cursor:pointer}
+.barplus{margin-left:auto;flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:1px solid var(--line2);
+  border-radius:6px;background:var(--soft);color:var(--mute);cursor:pointer}
+.barplus svg{width:14px;height:14px}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
@@ -3405,8 +3406,7 @@ function drawPlugs() {
       `<div class="k"><span class="lab"></span><span class="kv"></span></div><div class="v"></div><div class="meter"><i></i><u></u></div><div class="pspark"></div></div>` +
       (BAR_FIXED.includes(x.key) ? "" : `<i class="bx" title="Take this out of the bar">✕</i>`) + `</div>`);
     const e = $(`.bi[data-item="${x.key}"]`), st = e.querySelector(".stat"), m = x.meter, inline = !!(m || x.spark);
-    // Session shows only when Settings shows the session limit
-    st.style.display = x.hidden || x.key === "session" && settings().session !== "on" ? "none" : "";
+    st.style.display = x.hidden ? "none" : "";
     st.title = x.title;
     st.classList.toggle("slim", !!x.slim);
     const parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
@@ -3436,15 +3436,14 @@ function placeBar() {
     if ([...box.querySelectorAll(":scope > .bi")].map(e => e.dataset.item).join() !== keys.join())
       for (const k of keys) if ($(`.bi[data-item="${k}"]`)) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
     if (box.id !== "barbin") box.classList.toggle("editing", edit);
-    // bare: nothing in it shows, only spacers or items hidden for now (Session while Settings hides it, Disk with nothing to watch)
+    // bare: nothing in it shows, only spacers or items hidden for now (Disk with nothing to watch)
     if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
     const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"))   // A to Z (owner, 2026-11-01)
       .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
     if (plus && plus.dataset.k !== want) plus.remove();
-    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<select class="barplus" data-k="${want}" title="Put an item back">` +
-      `<option value="">+</option>${can.map(k => `<option value="${esc(k)}">${esc(barName(k))}</option>`).join("")}</select>`);
+    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Put an item back">${MENU_ICON.plus}</button>`);
   }
 }
 document.addEventListener("click", e => {
@@ -3454,11 +3453,20 @@ document.addEventListener("click", e => {
   const b = barOf(), k = x.parentElement.dataset.item;
   saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: [...b.off, k]}); draw();
 }, true);
-document.addEventListener("change", e => {
+// a bar's + opens a menu of the items it can take back, A to Z; a click on one puts it at the end of that bar
+document.addEventListener("click", e => {
   const s = e.target.closest?.(".barplus");
-  if (!s?.value) return;
-  const b = barOf(), k = s.value, foot = !!s.closest("footer");
-  saveBar({head: foot ? b.head : [...b.head, k], foot: foot ? [...b.foot, k] : b.foot, off: b.off.filter(i => i !== k)}); draw();
+  if (!s) return;
+  e.stopPropagation();
+  const foot = !!s.closest("footer"), key = "barplus:" + (foot ? "foot" : "head");
+  if (menuOn(key)) return menuOff(true);
+  menuAt(s, key, `<div class="hd"><div>Put back</div></div>` +
+    s.dataset.k.split(",").map(k => `<div class="mi" data-k="${esc(k)}">${MENU_ICON.plus}${esc(barName(k))}</div>`).join(""), false);
+  menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
+    const b = barOf(), k = mi.dataset.k;
+    menuOff(true);
+    saveBar({head: foot ? b.head : [...b.head, k], foot: foot ? [...b.foot, k] : b.foot, off: b.off.filter(i => i !== k)}); draw();
+  });
 });
 // a dragged item moves as the pointer does, before the item whose middle it is short of, and is kept where it is let go
 let barDrag = null;
@@ -4838,7 +4846,7 @@ menuButton($("#help"), helpMenu);
 // until any key is given an agent, then only the keys given one; a jump goes to the agent's message box (its card's,
 // its tab's or a Combined pane's chat, else its view) or always to its view. The defaults are the page as it is
 // without them.
-const SETTINGS = {fs: 100, conv: 100, box: 100, session: "off", suggest: "on", mod: "alt", keys: {}, jump: "box"};
+const SETTINGS = {fs: 100, conv: 100, box: 100, suggest: "on", mod: "alt", keys: {}, jump: "box"};
 // The modifiers a jump key can be held with: Cmd only on a Mac (elsewhere it is the system's own key), and Shift only
 // outside a text box, where Shift with a digit types its symbol. A saved choice this machine lacks falls back to Alt.
 const MAC = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || "");
@@ -4868,7 +4876,6 @@ function settingsMenu(redraw) {
     `<label class="set"><span>Text size</span>${pick('data-set="fs"', set.fs, sizes)}</label>` +
     `<label class="set"><span>Conversation text</span>${pick('data-set="conv"', set.conv, sizes)}</label>` +
     `<label class="set"><span>Message box text</span>${pick('data-set="box"', set.box, sizes)}</label>` +
-    `<label class="set"><span>Session limit</span>${pick('data-set="session"', set.session, [["off", "hidden"], ["on", "shown"]])}</label>` +
     `<label class="set"><span>Suggested prompts</span>${pick('data-set="suggest"', set.suggest, [["on", "shown"], ["off", "hidden"]])}</label>` +
     `<div class="hd"><div>Jump to an agent</div></div>` +
     `<label class="set"><span>Hold</span>${pick('data-set="mod"', set.mod, Object.entries(MODS))}</label>` +
