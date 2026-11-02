@@ -1901,7 +1901,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
 .editing > .bi.gap::before{content:"Spacer"}
 .bi.div{flex:none;align-self:stretch;width:1px;margin:4px 0;background:var(--line2)}
-.editing > .bi.div{width:3px;background:var(--faint)}   /* wider while unlocked, to grab */
+.editing > .bi.div{width:15px;padding:0 6px;background:var(--faint);background-clip:content-box}   /* wider while unlocked, to grab: a 3px line, the padding either side is grip */
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
@@ -2586,6 +2586,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   header,footer{flex-wrap:wrap;gap:10px 14px;padding:8px 12px}
   .bi.tight + .bi.tight,.bi:not(.tight) + .bi.tight{margin-left:0}
   .bi[data-item=bench]{flex:1 1 100%}
+  .editing > .bi.div{width:35px;padding:0 16px}   /* a finger's width to grab it by (owner, 2026-11-02: "impossible to grab on the phone") */
   .colgrip{display:none}
   main{display:block;overflow-y:auto;padding:10px}
   main > section.tab{margin-bottom:12px}
