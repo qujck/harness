@@ -32,7 +32,9 @@
 # THE HISTORY. Each new day and each `end` appends a line to the file beside the day's, <file>.log: the epoch, the verb,
 # the week reading then ("?" with none) and the quota. `history` reads it back as stretches: a day (start to end) and
 # the time between days (end to the next start; in strength, a verification day, which has no quota yet: the owner,
-# 2026-11-01, "we just monitor, once we've measured we can decide a cap"). A stretch's spend is the reading at its end
+# 2026-11-01, "we just monitor, once we've measured we can decide a cap"). The status line between days gives that
+# stretch a share all the same: what the week's plan (team/agents-budget.sh, the owner's adjustments included) has
+# grown by since it began (owner, 2026-11-02: "the day usage should be 3 of 5% not 3 of 16%"). A stretch's spend is the reading at its end
 # less the reading at its start; one still open ends at now's reading; one across a week reset, or with a reading
 # missing at either end, has no figure ("?"). A rerun of `start` on an open day is not a new day and is not logged,
 # except as "raise" when it changes the quota.
@@ -43,8 +45,8 @@
 #
 # A verb that writes needs HARNESS_PROJECT in the environment (or AGENT_DAY_BUDGET), as agents-budget.sh's do: run
 # from the harness checkout the project would default to "harness", and a day opened there is read by nobody.
-# AGENT_BUDGET_NOW (epoch seconds) pins the clock and AGENT_DAY_BUDGET_READING ("<used %>") the reading, for the
-# self-test.
+# AGENT_BUDGET_NOW (epoch seconds) pins the clock, AGENT_DAY_BUDGET_READING ("<used %>") the reading and AGENTS_BUDGET
+# the plan's script, for the self-test.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../scripts/lib/selftest-flag.sh
@@ -89,6 +91,11 @@ day_selftest() {
   out=$(run 1500 50); rc=$?; check "  and leaves no day open" "$rc" 3
   out=$(run 1800 53); has "  and counts what the stretch after it spends" "$out" "between days since 08:25: 3% used (week 53%, from 50%)"
   out=$(run 1800 2); has "  but not across a week reset" "$out" "day  none: no day open"
+  printf '#!/usr/bin/env bash\necho "budget  on: week 1%% used of $(( (AGENT_BUDGET_NOW - %s) / 600 ))%% planned so far"\n' "$D0" > "$T/plan"
+  out=$(AGENTS_BUDGET="$T/plan" run 3600 53); has "  its share is what the plan has grown by since it began" "$out" \
+    "between days since 08:25: 3% of the plan's 4% used (week 53%, from 50%)"
+  printf '#!/usr/bin/env bash\necho "budget  none set"\n' > "$T/plan"
+  out=$(AGENTS_BUDGET="$T/plan" run 3600 53); has "  and with no plan, no share" "$out" "between days since 08:25: 3% used (week 53%, from 50%)"
   out=$(run 0 45 start 0); rc=$?; check "a zero quota is refused" "$rc" 2
   out=$(run 0 45 start ten); rc=$?; check "a quota that is not a number is refused" "$rc" 2
   out=$(env -u HARNESS_PROJECT -u AGENT_DAY_BUDGET HOME="$T" AGENT_DAY_BUDGET_READING=40 bash "$_here/agents-day-budget.sh" start 15 2>&1); rc=$?
@@ -150,16 +157,21 @@ note() {
 
 began() { if [ "$(date -d "@$1" +%F)" = "$TODAY" ]; then date -d "@$1" +%H:%M; else date -d "@$1" '+%a %H:%M'; fi; }
 
+# The week's plan at an epoch (team/agents-budget.sh's "of N% planned"), or nothing.
+plan_at() { AGENT_BUDGET_NOW=$1 bash "${AGENTS_BUDGET:-$_here/agents-budget.sh}" 2>/dev/null | sed -n 's/.* of \([0-9]*\)% planned.*/\1/p'; }
+
 # With no day open: the stretch since the last `end` (in strength, the verification day), as what it has spent, so the
-# team page keeps a counter (owner, 2026-11-01: "The day counter disappeared"). Plain "no day open" with no end
-# logged, no reading at either end, or a week reset since.
+# team page keeps a counter (owner, 2026-11-01: "The day counter disappeared"), against its share when the plan can
+# be read at both ends. Plain "no day open" with no end logged, no reading at either end, or a week reset since.
 between() {
-  local at verb rd now_used
+  local at verb rd now_used p0 p1 share=""
   read -r at verb rd _ < <(tail -n 1 "$LOG" 2>/dev/null)
   now_used=$(reading)
   if [ "${verb:-}" = end ] && [[ "$rd" =~ ^[0-9]+$ ]] && [ -n "$now_used" ] && [ "$now_used" -ge $((rd - RESET_DROP)) ]; then
-    printf 'day  none: between days since %s: %s%% used (week %s%%, from %s%%)\n' \
-      "$(began "$at")" "$((now_used > rd ? now_used - rd : 0))" "$now_used" "$rd"
+    p0=$(plan_at "$at"); p1=$(plan_at "$NOW")
+    if [ -n "$p0" ] && [ -n "$p1" ]; then share=" of the plan's $((p1 > p0 ? p1 - p0 : 0))%"; fi
+    printf 'day  none: between days since %s: %s%%%s used (week %s%%, from %s%%)\n' \
+      "$(began "$at")" "$((now_used > rd ? now_used - rd : 0))" "$share" "$now_used" "$rd"
   else
     echo "day  none: no day open"
   fi

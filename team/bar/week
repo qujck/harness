@@ -3,14 +3,15 @@
 with the page's numbers on its input). Green on the plan, amber while the week's contingency is being spent, red past
 an even share of the whole allowance. While a development day is open (team/agents-day-budget.sh), the day instead:
 "Week: 70% - Day: 12%", marked where the week stood when the day started plus its share, amber with 1% of it left, red once spent past it.
-Between days (in strength, the verification day) that counts as a day whose share runs to the week's plan."""
+Between days (in strength, the verification day) that counts as a day whose share is what the week's plan has grown by
+since it began (team/agents-day-budget.sh)."""
 import json
 import sys
 
 s = json.load(sys.stdin)
 w, dy = s.get("week"), s.get("day")
-if dy and dy.get("quota") is None:   # between days (the verification day): its share is the room left to the week's plan
-    dy = {**dy, "quota": max(s["plan"] - dy["from"], 0)} if s.get("plan") is not None else None
+if dy and dy.get("quota") is None:   # between days with no plan to share out: the week alone
+    dy = None
 p = dy["from"] + dy["quota"] if dy else s.get("plan")
 over = dy["used"] > dy["quota"] if dy else w is not None and p is not None and w >= p
 spare = not dy and over and s.get("even") is not None and w < s["even"]
