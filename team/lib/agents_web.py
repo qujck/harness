@@ -5950,7 +5950,18 @@ addEventListener("keydown", e => {
   else if (paneBig && !open) { paneBig = null; draw(); }
   else if (open || !unmax()) closeDetail();
 });
-addEventListener("resize", () => { draw(); const c = $("#dconv"); if (open && pinned) c.scrollTop = c.scrollHeight; });
+addEventListener("resize", () => { draw(); const c = $("#dconv"); if (open && pinned) c.scrollTop = c.scrollHeight; kbKeep(); });
+// The conversations at their newest turn when a message box is tapped are put back there by each resize for the next
+// two seconds, whatever scrolled them as the keyboard opened: on a phone the shrink itself can scroll one a little,
+// which reads as scrolled up, and a redraw is skipped while the finger is still down (owner, 2026-11-02: "the box
+// jumps up and newest appears").
+let kbEnds = null;
+addEventListener("focusin", e => { if (e.target.matches?.("textarea.say")) kbEnds = {at: Date.now(), panes: paneEnds(), conv: !!open && pinned}; }, true);
+function kbKeep() {
+  if (!kbEnds || Date.now() - kbEnds.at > 2000) return;
+  document.querySelectorAll(FEEDS).forEach(f => { if (kbEnds.panes.has(f.parentElement.closest("[data-name]").dataset.name)) { f.scrollTop = f.scrollHeight; markEnd(f); } });
+  if (kbEnds.conv && open) { const c = $("#dconv"); pinned = true; c.scrollTop = c.scrollHeight; $("#dbottom").classList.remove("on"); }
+}
 // Where the on-screen keyboard shrinks only the visible part of the page (iOS ignores interactive-widget), the page
 // is sized and moved to that part, so the footer sits on the keyboard with no gap (owner, 2026-11-01: "halved the
 // gap"). A pinch-zoom, which also shrinks it, leaves the page alone.
@@ -5962,6 +5973,7 @@ if (window.visualViewport) {
     // The browser can scroll the page itself to show the box, though the page does not scroll: that lifts the footer.
     const se = document.scrollingElement;
     if (se.scrollTop) se.scrollTop = 0;
+    kbKeep();
   };
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
