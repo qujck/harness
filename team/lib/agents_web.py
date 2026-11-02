@@ -1912,7 +1912,6 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
   background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
-.editing > .bi.must > .bx{display:none}   /* the only view picker in the bars stays */
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
@@ -3390,8 +3389,9 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // The header and the footer (owner, 2026-11-01: "make the header a panel, and later create a footer panel too"): each
 // view keeps which of the bar's items sit in each, in order (its bar: head, foot, and off for those taken out), every
 // item in the header until chosen, the footer empty. While a custom view's layout is unlocked an item is dragged within
-// or between the two, taken out with its ✕ and put back with the Add at the end of either. The logo, Views and the
-// padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again.
+// or between the two, taken out with its ✕ and put back with the Add at the end of either. The logo and the
+// padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
+// and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
   controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
@@ -3406,9 +3406,6 @@ const BAR_SPARE = ["viewbar"];
 // Any other plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
 const BAR_FIXED = ["brand", "lock"];
-// The Views dropdown and the Views toolbar: one of them is always in a bar, so the views can always be reached; the
-// last one there has no ✕, and with neither placed the dropdown goes back in the header.
-const VIEW_PICKERS = ["view", "viewbar"];
 const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEMS[k] || FREE_KINDS[k] || x?.name || x?.label || k; };
 // A plug-in that says where it goes (its place, header or footer) can be put only there (owner, 2026-11-01: "each
 // plug-in can say header, footer or both").
@@ -3424,9 +3421,7 @@ function barOf() {
   // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
   // or at the footer's end if it can only go there
   for (const [i, k] of mine.entries()) if (BAR_SPARE.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
-  const back = !VIEW_PICKERS.some(k => head.includes(k) || foot.includes(k));
-  if (back) head.splice(head.includes("lock") ? head.indexOf("lock") : head.length, 0, "view");
-  return {head, foot, off: [...new Set([...off, ...all.filter(k => !mine.includes(k) && !placed(k))])].filter(k => !back || k !== "view")};
+  return {head, foot, off: [...new Set([...off, ...all.filter(k => !mine.includes(k) && !placed(k))])]};
 }
 // Each plug-in drawn as a stat: its label over its value, or with a meter or a sparkline, "Label: value" over it; its
 // title on a rest. A colour is a CSS colour or one of the page's own by name.
@@ -3476,8 +3471,6 @@ function placeBar() {
     // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch)
     if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
-    box.querySelectorAll(":scope > .bi").forEach(e => e.classList.toggle("must", VIEW_PICKERS.includes(e.dataset.item) &&
-      !VIEW_PICKERS.some(o => o !== e.dataset.item && (b.head.includes(o) || b.foot.includes(o)))));
     const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER")), ...Object.keys(FREE_KINDS)]   // A to Z (owner, 2026-11-01)
       .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
@@ -3490,7 +3483,6 @@ document.addEventListener("click", e => {
   if (!x) return;
   e.stopPropagation(); e.preventDefault();
   const b = barOf(), k = x.parentElement.dataset.item;
-  if (VIEW_PICKERS.includes(k) && !VIEW_PICKERS.some(o => o !== k && (b.head.includes(o) || b.foot.includes(o)))) return;
   saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: FREE.test(k) ? b.off : [...b.off, k]}); draw();
 }, true);
 // a bar's + opens a menu of the items it can take, A to Z; a click on one puts it at the end of that bar
@@ -4869,6 +4861,7 @@ function menuAt(anchor, key, html, beside, stay) {
     return;
   }
   menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
+  if (!anchor?.offsetParent) anchor = $(".brand");   // a button out of the bars, reached by its shortcut: from the logo
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
   // a menu beside its tile would cover a tile next to it along a row, either side, so there it opens below (or above)
   // the tile instead
@@ -5049,7 +5042,7 @@ addEventListener("keydown", e => {
   const act = e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
     : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
     : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) aim(shownBox(cur)); }
-    : e.code === "KeyV" ? () => viewMenu([$("#pagemode .viewbtn"), $("#viewbar .vtmenu"), $("#viewbar")].find(b => b?.offsetParent), false)
+    : e.code === "KeyV" ? () => viewMenu([$("#pagemode .viewbtn"), $("#viewbar .vtmenu"), $("#viewbar")].find(b => b?.offsetParent) || $(".brand"), false)
     : e.code === "KeyL" ? () => ((cur && open === cur && $("#dhead .lanes")) || (cur && $(`#main .card[data-name="${CSS.escape(cur)}"] .lanes`)) || $("#pagelanes .fbtn")).click()
     : e.code === "KeyM" ? () => maxToggle()
     : e.code === "Slash" ? () => helpMenu(false) : null;
