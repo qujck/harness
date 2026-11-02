@@ -30,7 +30,7 @@ Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each
 active.` (the names only: each agent's role and idle time go to the log) A queued prompt runs as a turn of its own once the session is idle and never touches the
 prompt box, so nothing the owner is typing there is disturbed. The same set of idle agents is nudged at most
 twice, a full threshold apart; the count survives a restart through the mod's store and is cleared once nobody
-is idle, so the bound covers one idle spell and the next starts afresh; a different set is a new state. It never
+is idle, so the bound covers one idle spell and the next starts afresh; a different set, or the same set for the other target (the head of testing in testing time), is a new state. It never
 prods the idle agents and assigns nothing. Only developers, testers, the code reviewer and process improvement
 are nudged (`NUDGE_ROLES` in `hooks/nudge.ts`): the head of testing defines what is true rather than working a
 ticket, and assistants are not on the team. Every verdict, holds included, is appended to
