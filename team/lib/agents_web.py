@@ -4803,6 +4803,8 @@ let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, the layout
 // is on, as the page's refresh does to keep a menu up to date (menu.refresh, which a menu that changes sets).
 function menuAt(anchor, key, html, beside, stay) {
   if (stay) {
+    // a portrait being looked at full size is not redrawn under the mouse, which would close and reopen it
+    if (menu.querySelector(".mpor:hover")) return;
     const at = [...menu.querySelectorAll(".mi")].findIndex(m => m.classList.contains("at"));
     menu.innerHTML = html; menu.querySelectorAll(".mi")[at]?.classList.add("at");
     return;
@@ -4826,6 +4828,14 @@ new ResizeObserver(() => {
   if (r.right > innerWidth - 6) menu.style.left = Math.max(6, innerWidth - 6 - r.width) + "px";
   if (r.bottom > innerHeight - 6) menu.style.top = Math.max(6, innerHeight - 6 - r.height) + "px";
 }).observe(menu);
+// A menu's portrait shown at full size grows from the corner that keeps it inside the window: up from its bottom
+// edge when there is no room below it, rightwards from its left edge when there is none to its left.
+menu.addEventListener("mouseover", e => {
+  const img = e.target.closest?.(".mpor img");
+  if (!img) return;
+  const r = img.parentElement.getBoundingClientRect(), big = r.width * 2.67;
+  img.style.transformOrigin = `${r.right - big < 6 ? "left" : "right"} ${r.top + big > innerHeight - 6 ? "bottom" : "top"}`;
+});
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
