@@ -2271,7 +2271,9 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
 .face.waiting{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
-.bench > span:first-child{display:flex;align-items:center;gap:2px;text-transform:uppercase}
+.bench > span:first-child{display:flex;align-items:center;gap:2px}
+.bench > span:first-child:empty{display:none}   /* no "bench" word (owner, 2026-11-02): only its filter button, while unlocked */
+.bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
 .colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
@@ -3496,7 +3498,7 @@ function draw() {
   // unlocked, shows them by name or as icons (their portrait, else their role's shadow, as a pane's Icon badge); until
   // one is picked, icons while a Characters pane is on the page.
   const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !pageLocked();
-  $("#bench").innerHTML = S.bench.length ? `<span>bench${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
+  $("#bench").innerHTML = S.bench.length ? `<span>${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
     const tip = `data-name="${esc(b.name)}"`;
     return style === "icon" ? face(b, tip)
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
