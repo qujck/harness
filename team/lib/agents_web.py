@@ -1900,6 +1900,8 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi.gap{flex:1;min-width:0}
 .editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
 .editing > .bi.gap::before{content:"Spacer"}
+.bi.div{flex:none;align-self:stretch;width:1px;margin:4px 0;background:var(--line2)}
+.editing > .bi.div{width:3px;background:var(--faint)}   /* wider while unlocked, to grab */
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
@@ -2625,7 +2627,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </header>
 <main id="main"></main>
 <footer></footer>
-<div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap1"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap2"><i class="bx" title="Take this out of the bar">✕</i></div><div class="bi gap" data-item="gap3"><i class="bx" title="Take this out of the bar">✕</i></div></div>
+<div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
@@ -3392,20 +3394,22 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help",
-  gap1: "Spacer", gap2: "Spacer 2", gap3: "Spacer 3"};
+  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
-// the right; three, to centre a group or split the bar three ways. Out of the bar until added.
-const BAR_GAPS = ["gap1", "gap2", "gap3"];
-// The Views toolbar, every view as its icon in a row, the one showing marked, is out of the bar until added too.
-const BAR_SPARE = [...BAR_GAPS, "viewbar"];
+// the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
+// of their own. Each is its own item, keyed by its kind and a number ("gap-3", "div-k2x"; "gap1" from before), made by
+// the + menu's Spacer or Divider, which stay there to add another, and gone when its ✕ is clicked.
+const FREE = /^(gap|div)(\d+|-[a-z0-9]+)$/;
+const FREE_KINDS = {"new:gap": "Spacer", "new:div": "Divider"};
+// The Views toolbar, every view as its icon in a row, the one showing marked, is out of the bar until added.
+const BAR_SPARE = ["viewbar"];
 // Any other plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
 const BAR_FIXED = ["brand", "lock"];
 // The Views dropdown and the Views toolbar: one of them is always in a bar, so the views can always be reached; the
 // last one there has no ✕, and with neither placed the dropdown goes back in the header.
 const VIEW_PICKERS = ["view", "viewbar"];
-const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEMS[k] || x?.name || x?.label || k; };
+const barName = k => { const x = plugs().find(x => x.key === k); return BAR_ITEMS[k] || FREE_KINDS[k] || x?.name || x?.label || k; };
 // A plug-in that says where it goes (its place, header or footer) can be put only there (owner, 2026-11-01: "each
 // plug-in can say header, footer or both").
 const fits = (k, foot) => { const p = plugs().find(x => x.key === k)?.place; return !p || p === (foot ? "footer" : "header"); };
@@ -3414,8 +3418,9 @@ const fits = (k, foot) => { const p = plugs().find(x => x.key === k)?.place; ret
 function pageBar() { try { const b = JSON.parse(localStorage.getItem("bar")); if (b) return b; } catch (e) {} return shownView().bar || {}; }
 function barOf() {
   const b = pageBar(), mine = Object.keys(BAR_ITEMS), all = [...new Set([...mine, ...plugs().map(x => x.key)])];
-  const foot = (b.foot || []).filter(k => all.includes(k) && fits(k, true)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
-  const head = (b.head || []).filter(k => all.includes(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
+  const ok = k => all.includes(k) || FREE.test(k);
+  const foot = (b.foot || []).filter(k => ok(k) && fits(k, true)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
+  const head = (b.head || []).filter(k => ok(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
   // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
   // or at the footer's end if it can only go there
   for (const [i, k] of mine.entries()) if (BAR_SPARE.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
@@ -3460,21 +3465,24 @@ const saveBar = b => { try { localStorage.setItem("bar", JSON.stringify(b)); } c
 const barEditing = () => !pageLocked();
 function placeBar() {
   drawPlugs();
-  const b = barOf(), edit = barEditing();
+  const b = barOf(), edit = barEditing(), free = [...b.head, ...b.foot].filter(k => FREE.test(k));
+  document.querySelectorAll(".bi.gap, .bi.div").forEach(e => free.includes(e.dataset.item) || e.remove());
+  for (const k of free) if (!$(`.bi[data-item="${k}"]`)) $("#barbin").insertAdjacentHTML("beforeend",
+    `<div class="bi ${k.startsWith("gap") ? "gap" : "div"}" data-item="${k}"><i class="bx" title="Take this out of the bar">✕</i></div>`);
   for (const [box, keys] of [[$("header"), b.head], [$("footer"), b.foot], [$("#barbin"), b.off]]) {
     if ([...box.querySelectorAll(":scope > .bi")].map(e => e.dataset.item).join() !== keys.join())
       for (const k of keys) if ($(`.bi[data-item="${k}"]`)) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
     if (box.id !== "barbin") box.classList.toggle("editing", edit);
-    // bare: nothing in it shows, only spacers or items hidden for now (Disk with nothing to watch)
-    if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap)")].some(e => e.firstElementChild?.style.display !== "none"));
+    // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch)
+    if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
     box.querySelectorAll(":scope > .bi").forEach(e => e.classList.toggle("must", VIEW_PICKERS.includes(e.dataset.item) &&
       !VIEW_PICKERS.some(o => o !== e.dataset.item && (b.head.includes(o) || b.foot.includes(o)))));
-    const can = b.off.filter(k => fits(k, box.tagName === "FOOTER"))   // A to Z (owner, 2026-11-01)
+    const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER")), ...Object.keys(FREE_KINDS)]   // A to Z (owner, 2026-11-01)
       .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
     if (plus && plus.dataset.k !== want) plus.remove();
-    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Put an item back">${MENU_ICON.plus}</button>`);
+    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Add an item">${MENU_ICON.plus}</button>`);
   }
 }
 document.addEventListener("click", e => {
@@ -3483,19 +3491,19 @@ document.addEventListener("click", e => {
   e.stopPropagation(); e.preventDefault();
   const b = barOf(), k = x.parentElement.dataset.item;
   if (VIEW_PICKERS.includes(k) && !VIEW_PICKERS.some(o => o !== k && (b.head.includes(o) || b.foot.includes(o)))) return;
-  saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: [...b.off, k]}); draw();
+  saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: FREE.test(k) ? b.off : [...b.off, k]}); draw();
 }, true);
-// a bar's + opens a menu of the items it can take back, A to Z; a click on one puts it at the end of that bar
+// a bar's + opens a menu of the items it can take, A to Z; a click on one puts it at the end of that bar
 document.addEventListener("click", e => {
   const s = e.target.closest?.(".barplus");
   if (!s) return;
   e.stopPropagation();
   const foot = !!s.closest("footer"), key = "barplus:" + (foot ? "foot" : "head");
   if (menuOn(key)) return menuOff(true);
-  menuAt(s, key, `<div class="hd"><div>Put back</div></div>` +
+  menuAt(s, key, `<div class="hd"><div>Add</div></div>` +
     s.dataset.k.split(",").map(k => `<div class="mi" data-k="${esc(k)}">${MENU_ICON.plus}${esc(barName(k))}</div>`).join(""), false);
   menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
-    const b = barOf(), k = mi.dataset.k;
+    const b = barOf(), kind = FREE_KINDS[mi.dataset.k] && mi.dataset.k.slice(4), k = kind ? `${kind}-${Date.now().toString(36)}` : mi.dataset.k;
     menuOff(true);
     saveBar({head: foot ? b.head : [...b.head, k], foot: foot ? [...b.foot, k] : b.foot, off: b.off.filter(i => i !== k)}); draw();
   });
