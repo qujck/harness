@@ -2759,6 +2759,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .paneover{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:18px;border-radius:0 0 14px 14px;
   background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
 .paneover > .cards{flex:1;min-height:0;padding:0;cursor:default}
+.teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
@@ -5114,6 +5115,8 @@ function customClicks() {
   main.querySelectorAll(".paneover").forEach(o => {
     const h = o.parentElement.querySelector(".teamlog > .thead");
     if (h) o.style.paddingTop = (h.getBoundingClientRect().bottom - o.getBoundingClientRect().top + 8) + "px";
+    const name = localStorage.getItem("focus:pane:" + o.closest(".pane").dataset.path);   // its agent's own icon stays clear
+    h?.querySelectorAll(".cnames [data-name]").forEach(el => el.classList.toggle("focal", el.dataset.name === name));
     const f = o.querySelector(".feed");   // one at its newest turn stays there, now it is shorter
     if (f?.dataset.end === "1") f.scrollTop = f.scrollHeight;
   });
