@@ -3941,16 +3941,16 @@ function roleList() {
   for (const a of [...S.agents, ...S.bench]) seen[a.role] ??= {role: a.role, name: a.roleName || a.role, colour: a.colour};
   return Object.values(seen).sort((x, y) => (ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99));
 }
-// A grid or tabs pane's agents, role by role in the order the roles were picked (n.roles keeps it), roster order
+// A grid, tabs or Combined pane's agents, role by role in the order the roles were picked (n.roles keeps it), A to Z
 // within a role.
-const paneAgents = n => n.show === "meeting" ? meetAgents(n) : (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r));
-// A Meeting pane: those in the meeting along its top, role by role, over their conversations as one and the meeting's
+const byName = (x, y) => x.name.localeCompare(y.name, undefined, {sensitivity: "base"});
+const paneAgents = n => n.show === "meeting" ? meetAgents(n) : (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
+// A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over their conversations as one and the meeting's
 // message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to message a
 // single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is in it (n.who,
 // "role:<role>" and "name:<agent>" keys, chosen with its Who button while the layout is unlocked) is the whole team
 // until chosen.
-const byRole = list => list.map((a, i) => [a, i]).sort(([x, i], [y, j]) =>
-  ((ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99)) || i - j).map(([a]) => a);
+const byRole = list => [...list].sort((x, y) => ((ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99)) || byName(x, y));
 const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name) || (n.extra || []).includes(a.name);
 const meetAgents = n => byRole(S.agents.filter(a => inMeeting(n, a)));
 // The meeting's box goes to everyone (owner, 2026-11-01): a message typed there goes to every member who is running,
