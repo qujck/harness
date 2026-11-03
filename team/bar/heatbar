@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Heat bar: the machine's hottest temperature sensor, as the Performance pane reads it, on one low line: "Heat: 59 °C"
+beside a short meter against 100 °C, green; amber from 80 °C, red from 90 °C; every sensor in its title. Fan speed is
+not readable on most machines, so how hot the machine runs stands in for how hard its fans work. "…" until the
+page's sampling, which runs while this is in a bar, has a reading; with no sensor to read, hidden, except on a Mac,
+where it shows "–" and says which tool to install (macOS gives no temperature without sudo)."""
+import json
+import platform
+import sys
+
+perf = json.load(sys.stdin).get("perf")
+temps = (perf or {}).get("temps")
+base = {"label": "Heat", "name": "Heat bar", "slim": True, "icon": "heat", "every": 2}
+if temps is None:
+    print(json.dumps({**base, "value": "…", "title": "Reading the temperatures"}))
+elif not temps and platform.system() == "Darwin":
+    print(json.dumps({**base, "value": [{"text": "–", "colour": "faint"}],
+                      "title": "Heat: no temperature to read. macOS gives none without sudo: install smctemp or osx-cpu-temp from Homebrew"}))
+elif not temps:
+    print(json.dumps({"hidden": True, "name": "Heat bar", "every": 2}))
+else:
+    hot = temps[0]["c"]
+    c = "red" if hot >= 90 else "amber" if hot >= 80 else ""
+    print(json.dumps({**base, "title": "Heat: the machine's hottest temperature sensor, standing in for its fans, whose speed it does not report\n"
+                      + "\n".join(f"{t['name']}: {t['c']:.0f} °C" for t in temps),
+                      "value": [{"text": f"{hot:.0f} °C", "colour": c or "green", "bold": True}],
+                      "meter": {"pct": min(100, hot), "mark": None, "colour": c}}))
