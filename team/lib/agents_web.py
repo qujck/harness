@@ -23,6 +23,10 @@
                              compacted once it is up if the page stopped it
   POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
+  /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
+  POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
+  POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
+  POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
 
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
 (docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
@@ -1182,6 +1186,293 @@ def halt_when_idle(name):
             _state["at"] = 0
 
 
+# ── meetings ──────────────────────────────────────────────────────────────────
+# A meeting is the owner and the agents in it, every line anyone says going to everyone else (owner, 2026-11-03: "in
+# a real meeting each line would go to all attendees"). Each agent attends through a meeting session of its own, a
+# fresh Claude session named "<Agent> · meeting" whose conversation holds only the meeting, so hearing a line costs
+# little however long the agent's own conversation has grown, and the agent's own work carries on undisturbed. A
+# session speaks to the meeting only with meeting-say; nothing else it says or does reaches the others. A line for a
+# session that is working waits, and everything waiting goes to it together once it is idle. Pause holds the lines
+# between sessions until the owner speaks or resumes. End asks each session to suggest what its agent should be told;
+# each suggestion waits for the owner (send, edited or not, or skip), and once all are settled the sessions close.
+# The meeting's state and its log (one JSON line per thing said) are kept in MEETINGS, and a readable record of it,
+# written as it goes, in MEETING_RECORDS.
+MEETINGS = os.environ.get("AGENTS_MEETINGS") or os.path.join(STATE_DIR, "meetings")
+MEETING_RECORDS = os.environ.get("AGENTS_MEETING_RECORDS") or os.path.join(STATE_DIR, "meeting-records")
+MEETING_SAY = os.environ.get("AGENTS_MEETING_SAY") or os.path.join(ROOT, "team/meeting-say")
+MEETING_MODEL = os.environ.get("AGENTS_MEETING_MODEL") or ""   # every session on this model, else its agent's
+_meetings = {}   # id -> its state, as kept in MEETINGS/<id>.json
+_meet_lock = threading.RLock()
+
+
+def meeting_session(name):
+    return f"{name} · meeting"
+
+
+def meeting_owner():
+    return setting("AGENTS_OWNER_NAME") or "Owner"
+
+
+def load_meetings():
+    for f in glob.glob(os.path.join(MEETINGS, "*.json")):
+        try:
+            with open(f) as fh:
+                m = json.load(fh)
+            _meetings[m["id"]] = m
+        except (OSError, ValueError, KeyError):
+            pass
+
+
+def meeting_log(m):
+    try:
+        with open(os.path.join(MEETINGS, m["id"] + ".jsonl")) as f:
+            return [json.loads(line) for line in f if line.strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def save_meeting(m):
+    """Its state, then its readable record from the state and the log."""
+    os.makedirs(MEETINGS, exist_ok=True)
+    tmp = os.path.join(MEETINGS, m["id"] + ".json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(m, f, indent=1)
+    os.replace(tmp, os.path.join(MEETINGS, m["id"] + ".json"))
+    try:
+        os.makedirs(MEETING_RECORDS, exist_ok=True)
+        with open(os.path.join(MEETING_RECORDS, m["record"]), "w") as f:
+            f.write(meeting_md(m, meeting_log(m)))
+    except OSError:
+        pass
+
+
+def clock(ts):
+    return time.strftime("%H:%M", time.localtime(ts))
+
+
+def meeting_md(m, log):
+    """The readable record: who attended and when, every line said, and what each agent was sent at the end."""
+    out = [f"# Meeting: {m['topic'] or m['view'] or 'untitled'}", "",
+           f"- **Started:** {time.strftime('%d %b %Y %H:%M', time.localtime(m['opened']))}"
+           + (f"; **ended:** {clock(m['ended'])}" if m.get("ended") else ""),
+           f"- **Attending:** {meeting_owner()}, " + ", ".join(
+               n + (f" (brought in at {clock(m['joined'][n])})" if n in m["added"] else "") for n in m["who"]), "", "## Said", ""]
+    for line in log:
+        if line["kind"] == "say":
+            text = line["text"].replace("\n", "\n  ")
+            out.append(f"- **{line['who']}** ({clock(line['at'])}): {text}")
+        else:
+            out.append(f"- *{clock(line['at'])}: {line['text']}*")
+    if m.get("handover"):
+        out += ["", "## Sent to each agent at the end", ""]
+        for n, h in m["handover"].items():
+            state = {"asked": "no suggestion yet", "suggested": "waiting for you", "skipped": "skipped",
+                     "queued": "waiting to be sent: its agent is busy or not running", "sent": "sent"}.get(h["state"], h["state"])
+            if h["state"] == "skipped" and not h.get("suggested"):
+                state = "nothing to send" if "suggested" in h else "not running at the end"
+            out.append(f"- **{n}**: {state}" + (" (edited)" if h.get("edited") else ""))
+            if h.get("suggested"):
+                out.append(f"  - Suggested: {h['suggested']}")
+            if h.get("sent") and h.get("edited"):
+                out.append(f"  - Sent: {h['sent']}")
+    return "\n".join(out) + "\n"
+
+
+def meeting_add_line(m, who, text, kind="say"):
+    """Adds a line to the log and the record; a thing said is held for every other attendee to hear."""
+    line = {"at": time.time(), "who": who, "text": text, "kind": kind}
+    os.makedirs(MEETINGS, exist_ok=True)
+    with open(os.path.join(MEETINGS, m["id"] + ".jsonl"), "a") as f:
+        f.write(json.dumps(line) + "\n")
+    if kind == "say":
+        for n in m["who"]:
+            if n != who:
+                m["held"].setdefault(n, []).append(f"{who}: {text}")
+    save_meeting(m)
+
+
+def meeting_prompt(m, name):
+    others = [meeting_owner(), *[n for n in m["who"] if n != name]]
+    role = next((r["role"] for r in roster() if r["name"] == name), "")
+    return (f"You are {name}'s meeting session: {name}, the {role or 'agent'}, attending a meeting"
+            f"{' about ' + m['topic'] if m['topic'] else ''} with {', '.join(others)}. {name} itself is a separate session that carries on its own work; "
+            f"you are only here for the meeting. First read {name}'s durable record, its latest session entries "
+            f"(bash scripts/ledger-db.sh session-entries --agent {name} --limit 5), and its role document in docs/roles/, "
+            f"so you know what {name} knows.\n\n"
+            f"How the meeting works:\n"
+            f"- Everything said in the meeting reaches you as a message, each line headed with who said it.\n"
+            f"- You speak to the meeting ONLY with: {MEETING_SAY} \"what you say\". Nothing else you write reaches anyone.\n"
+            f"- Speak when you have something to add; you need not answer every line. Keep it short, as in a real meeting.\n"
+            f"- You may read files and run read-only commands to inform the discussion. Change nothing: no edits, no git, "
+            f"no messages to other agents, and do not write {name}'s durable record or any record of your own.\n\n"
+            f"When you have read the record, tell the meeting you are here, with meeting-say.")
+
+
+def open_meeting_session(m, name):
+    """Starts the agent's meeting session in a byobu session of its own, on its agent's model (or MEETING_MODEL)."""
+    model = MEETING_MODEL or (transcript_model(last_sessions().get(name)) or "").split(" ")[0].lower()
+    os.makedirs(MEETINGS, exist_ok=True)
+    prompt = os.path.join(MEETINGS, f"{m['id']}-{name}.prompt")
+    with open(prompt, "w") as f:
+        f.write(meeting_prompt(m, name))
+    env = " ".join(f"{k}={shlex.quote(v)}" for k, v in (("MEETING_ID", m["id"]), ("MEETING_AS", name), ("AGENT_NAME", name), ("AGENTS_WEB_PORT", str(PORT))))
+    cmd = (f"cd {shlex.quote(ROOT)} && exec env {env} claude{' --model ' + shlex.quote(model) if model else ''}"
+           f" -n {shlex.quote(meeting_session(name))} --permission-mode auto --allowedTools {shlex.quote(f'Bash({MEETING_SAY}:*)')}"
+           f" --disallowedTools Edit,Write,NotebookEdit -- \"$(cat {shlex.quote(prompt)})\"")   # -- ends the tool lists, which take every word after them
+    tmux = f"meet-{m['id']}-{name}"
+    m["tmux"][name] = tmux
+    subprocess.run(["bash", "-lic", 'exec byobu new-session -d -s "$0" -x 200 -y 50 bash -c "$1"', tmux, cmd],
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+
+
+def start_meeting(who, topic, view):
+    now = time.time()
+    mid = time.strftime("%Y%m%d-%H%M", time.localtime(now)) + "-" + uuid.uuid4().hex[:4]
+    slug = re.sub(r"[^a-z0-9]+", "-", (topic or view or "meeting").lower()).strip("-")[:40] or "meeting"
+    m = {"id": mid, "topic": topic, "view": view, "opened": now, "ended": None, "ending": False, "paused": False,
+         "who": [], "added": [], "joined": {}, "present": {}, "held": {}, "notice": {}, "handover": {}, "tmux": {},
+         "record": time.strftime("%Y-%m-%d_%H-%M", time.localtime(now)) + f"_{slug}.md"}
+    with _meet_lock:
+        _meetings[mid] = m
+        for n in who:
+            meeting_join(m, n)
+        save_meeting(m)
+    return m
+
+
+def meeting_join(m, name, added=False):
+    """An attendee: one of those the meeting started with, or one brought in with Add."""
+    if name in m["who"]:
+        return
+    m["who"].append(name)
+    m["joined"][name] = time.time()
+    if added:
+        m["added"].append(name)
+        meeting_add_line(m, "", f"{name} was brought in", "event")
+    # what was said before they came in, so they join the conversation where it is
+    said = [f"{x['who']}: {x['text']}" for x in meeting_log(m) if x["kind"] == "say"]
+    if said:
+        m["held"][name] = ["(said before you joined)", *said]
+    threading.Thread(target=open_meeting_session, args=(m, name), daemon=True).start()
+
+
+def meeting_said(m, name, text, handover=False):
+    """What a session (or the owner, name None) says to the meeting; a session's first line is its arrival."""
+    with _meet_lock:
+        if name and name not in m["who"]:
+            return False
+        if handover and name:
+            h = m["handover"].setdefault(name, {})
+            nothing = text.strip().lower().rstrip(".") in ("nothing", "none", "")
+            h.update(state="skipped" if nothing else "suggested", suggested="" if nothing else text)
+            save_meeting(m)
+            meeting_settle(m)
+            return True
+        if name and name not in m["present"]:
+            m["present"][name] = time.time()
+        if name is None:
+            m["paused"] = False
+        meeting_add_line(m, name or meeting_owner(), text)
+    return True
+
+
+def meeting_end(m):
+    """Asks each session for what its agent should be told; a session not running has nothing to suggest."""
+    with _meet_lock:
+        m["ending"] = True
+        live = live_sessions()
+        for n in m["who"]:
+            if meeting_session(n) in live:
+                m["handover"][n] = {"state": "asked"}
+                m["notice"][n] = ("The meeting is ending. Suggest the message your agent's own session should be sent about it: "
+                                  f"what was decided and what {n} must act on, with: {MEETING_SAY} --handover \"the message\". "
+                                  f"If there is nothing for {n}, run: {MEETING_SAY} --handover nothing")
+            else:
+                m["handover"][n] = {"state": "skipped"}
+        meeting_add_line(m, "", "the meeting was ended", "event")
+        meeting_settle(m)
+
+
+def meeting_handover(m, name, action, text=None):
+    """The owner's word on a session's suggestion: send it (edited or not) to the agent, or skip it."""
+    with _meet_lock:
+        h = m["handover"].get(name)
+        if not h or h["state"] not in ("suggested", "asked"):
+            return False
+        if action == "skip":
+            h["state"] = "skipped"
+        else:
+            text = (text or h.get("suggested") or "").strip()
+            if not text:
+                return False
+            h.update(state="queued", sent=text, edited=text != h.get("suggested"))
+        save_meeting(m)
+        meeting_settle(m)
+        return True
+
+
+def meeting_settle(m):
+    """Once every suggestion is settled, the sessions close and the meeting ends."""
+    if not m["ending"] or m.get("ended") or any(h["state"] in ("asked", "suggested") for h in m["handover"].values()):
+        return
+    for tmux in m["tmux"].values():
+        subprocess.run(["tmux", "kill-session", "-t", "=" + tmux], stderr=subprocess.DEVNULL)
+    m["ended"] = time.time()
+    save_meeting(m)
+
+
+def meeting_deliver():
+    """meeting_deliver_once every second and a half, for as long as the page runs."""
+    while True:
+        time.sleep(1.5)
+        try:
+            meeting_deliver_once()
+        except Exception:   # the loop must outlive any one meeting's trouble
+            time.sleep(5)
+
+
+def meeting_deliver_once():
+    """Each session's held lines (and any notice) to it once it is idle, all together; and each suggestion the owner
+    sent to its agent once that agent is idle. Pause holds the lines between sessions."""
+    with _meet_lock:
+        todo = [m for m in _meetings.values() if not m.get("ended") or any(h["state"] == "queued" for h in m["handover"].values())]
+    if not todo:
+        return
+    live = live_sessions()
+    idle = lambda n: (live.get(n) or {}).get("status") == "idle"
+    for m in todo:
+        tag = f"[Meeting{': ' + m['topic'] if m['topic'] else ''}]"
+        for n in m["who"]:
+            s = meeting_session(n)
+            with _meet_lock:
+                lines = [] if m["paused"] or m.get("ended") else list(m["held"].get(n, []))
+                notice = None if m.get("ended") else m["notice"].get(n)
+            if (lines or notice) and idle(s) and type_into(s, "\n".join([tag, *lines] + ([notice] if notice else []))):
+                with _meet_lock:
+                    m["held"][n] = m["held"].get(n, [])[len(lines):]
+                    m["notice"].pop(n, None)
+                    save_meeting(m)
+            h = m["handover"].get(n) or {}
+            if h.get("state") == "queued" and idle(n) and type_into(n, f"{tag} {h['sent']}"):
+                with _meet_lock:
+                    h["state"] = "sent"
+                    save_meeting(m)
+
+
+def meetings_json():
+    """Every meeting not yet ended, or ended in the last hour, with its log, for the page."""
+    now = time.time()
+    with _meet_lock:
+        out = [{**{k: m[k] for k in ("id", "topic", "view", "opened", "ended", "ending", "paused", "who", "added", "joined", "present", "handover", "record")},
+                "held": {n: len(v) for n, v in m["held"].items()}, "log": meeting_log(m)}
+               for m in _meetings.values() if not m.get("ended") or now - m["ended"] < 3600]
+    live = live_sessions()
+    for m in out:
+        m["live"] = [n for n in m["who"] if meeting_session(n) in live]
+        m["busy"] = [n for n in m["who"] if (live.get(meeting_session(n)) or {}).get("status") == "busy"]
+    return json.dumps({"meetings": out, "records": MEETING_RECORDS}).encode()
+
+
 # ── the conversation ──────────────────────────────────────────────────────────
 _paths, _feeds = {}, {}
 _lock = threading.Lock()
@@ -2037,6 +2328,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, state_json(), "application/json")
         elif path == "/api/perf":
             self.send(200, perf_json(), "application/json")
+        elif path == "/api/meetings":
+            self.send(200, meetings_json(), "application/json")
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -2092,7 +2385,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|answer|stop|start|halt|compact)", self.path)
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
-        if not m and not team and not nudger and self.path != "/api/paste":
+        meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
+        if not m and not team and not nudger and not meet and self.path != "/api/paste":
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -2100,6 +2394,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, b"only the team page can send\n", "text/plain")
         if team:
             return self.team(team.group(1))
+        if meet:
+            return self.meeting(meet.group(1), meet.group(2))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
         if not m:
@@ -2135,6 +2431,51 @@ class Handler(BaseHTTPRequestHandler):
         if ok is None:
             return self.send(404, b"that agent is not in a pane\n", "text/plain")
         self.send(200 if ok else 500, json.dumps({"sent": ok}).encode(), "application/json")
+
+    def meeting(self, mid, what):
+        """A meeting started ({"who": [...], "topic", "view"}), or one of an open meeting's: a line said ({"text"}, and
+        "as" and "handover" from meeting-say), someone brought in ({"name"}), Pause ({"on"}), End, or the owner's word
+        on a suggestion ({"name", "action": "send" or "skip", "text"})."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(min(n, SAY_MAX_BYTES)) or b"{}")
+            assert isinstance(body, dict)
+        except (ValueError, AssertionError):
+            return self.send(400, b"bad request\n", "text/plain")
+        names = {r["name"] for r in roster()}
+        if not mid:
+            who = [str(x) for x in body.get("who") or [] if str(x) in names]
+            if not who:
+                return self.send(400, b"nobody to meet\n", "text/plain")
+            m = start_meeting(list(dict.fromkeys(who)), str(body.get("topic") or "").strip()[:80], str(body.get("view") or "")[:40])
+            return self.send(200, json.dumps({"id": m["id"]}).encode(), "application/json")
+        with _meet_lock:
+            m = _meetings.get(mid)
+        if not m or m.get("ended"):
+            return self.send(404, b"no such meeting open\n", "text/plain")
+        text = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]+", " ", str(body.get("text") or "").replace("\r\n", "\n")).strip()
+        ok = False
+        if what == "say":
+            who = body.get("as")
+            if (not text and not body.get("handover")) or (who is not None and who not in names) or (m["ending"] and not body.get("handover")):
+                return self.send(400, b"nothing to say, or not now\n", "text/plain")
+            ok = meeting_said(m, who, text, bool(body.get("handover")))
+        elif what == "add" and body.get("name") in names and not m["ending"]:
+            with _meet_lock:
+                meeting_join(m, body["name"], added=True)
+                save_meeting(m)
+            ok = True
+        elif what == "pause":
+            with _meet_lock:
+                m["paused"] = bool(body.get("on"))
+                meeting_add_line(m, "", "paused" if m["paused"] else "resumed", "event")
+            ok = True
+        elif what == "end" and not m["ending"]:
+            meeting_end(m)
+            ok = True
+        elif what == "handover":
+            ok = meeting_handover(m, str(body.get("name")), body.get("action"), text)
+        self.send(200 if ok else 409, json.dumps({"ok": ok}).encode(), "application/json")
 
     def answer(self, name):
         """Answers the prompt open in the agent's pane with one of its options, {"n": 3, "label": "Type something.",
@@ -2671,7 +3012,7 @@ table.md th{background:var(--line);font-weight:600}
 .icontabs .face.busy:not(.sel),.iconrow .face.busy{outline:2px solid transparent;outline-offset:2px;animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{0%,100%{outline-color:transparent}50%{outline-color:color-mix(in srgb,var(--c) 45%,transparent)}}
 .icontabs .ftab{position:relative;display:flex}
-.tabbar .away{opacity:.45;filter:grayscale(1)}   /* a meeting member who is not running */
+.tabbar .away{opacity:.45;filter:grayscale(1)}   /* a meeting attendee whose meeting session is not running */
 .tabbar button.away{cursor:default}   /* an icon with its unseen count on its corner, clear of its clipping */
 .icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
 .teamlog .thead > .cnames.iconrow{gap:10px}   /* clear of each other's outlines, which stand 4px out */
@@ -2903,7 +3244,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .vmi .vname{flex:1}
 .meetbar{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
 .meetbar span{margin-right:auto}
-.meetbar.ask span,.meetbar.on b{color:var(--text)}
+.meetbar.on b{color:var(--text)}
 .meetbar.on{border-bottom:1px solid var(--line)}
 .meetbar + .icontabs{padding:6px 13px 10px}   /* the faces under the bar, in line with its text and clear of the conversation below */
 #menu .mi .mute{color:var(--mute)}
@@ -2911,6 +3252,24 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .meetbar .mbtn:hover{background:var(--on)}
 .meetbar .mbtn.warn{color:var(--red);border-color:var(--red)}
 .meetbar .mbtn svg{width:12px;height:12px}
+/* the meeting's topic before it starts, how many are in it (amber above three, red above five), and the agents' faces:
+   one on the way greyed, one whose meeting session is working pulsing */
+.meetbar .mtopic{flex:1;min-width:0;margin-right:auto;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 8px}
+.meetbar .mcount{margin-right:0;min-width:18px;padding:0 6px;border-radius:999px;text-align:center;font-weight:650;color:var(--text);background:var(--soft);border:1px solid var(--line2)}
+.meetbar .mcount.amber{color:#000;background:var(--amber);border-color:var(--amber)}
+.meetbar .mcount.red{color:#fff;background:var(--red);border-color:var(--red)}
+/* a meeting session joining fades in and out; one there and thinking has the working agent's breathing outline */
+.meetrow .ftab.away.mbusy .face{animation:switching 1.6s ease-in-out infinite}
+.meetrow .ftab.mbusy:not(.away) .face{outline:2px solid transparent;outline-offset:2px;animation:breathe 2.4s ease-in-out infinite}
+.teamlog.meeting .it.mevent .tx{font-style:italic;color:var(--faint)}
+/* at the meeting's end, each agent's suggestion for its own session, to send as written or edited, or skip */
+.teamlog.meeting .hands{display:flex;flex-direction:column;gap:8px;padding:8px 13px;border-top:1px solid var(--line)}
+.teamlog.meeting .hand{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:calc(12px*var(--fs,1))}
+.teamlog.meeting .hand .htext{flex:1 1 100%;min-height:3.5em;resize:vertical;font:calc(12.5px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:8px;padding:6px 8px}
+.teamlog.meeting .hand .hbtns{display:flex;gap:6px;margin-left:auto}
+.teamlog.meeting .hand .mbtn{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border:1px solid var(--line2);border-radius:999px;color:var(--text);cursor:pointer}
+.teamlog.meeting .hand .mbtn:hover{background:var(--on)}
+.teamlog.meeting .hand .mbtn svg{width:12px;height:12px}
 #menu .mi .dot.hollow{background:none;border:2px solid var(--c);width:8px;height:8px}
 #menu .vmi .vico{display:inline-flex;align-items:center;border-radius:4px}
 #menu .vmi .vico.pick{padding:2px;margin:-3px;border:1px solid var(--line2);cursor:pointer}
@@ -3704,7 +4063,7 @@ function draw() {
     aim(document.querySelector(`.tabbar[data-sec="${CSS.escape(sec)}"]`)?.parentElement.querySelector(`.say[data-name="${name}"]`));
   });
   // A tile in a card-badge tab row opens its agent's menu like any other tile: on a rest or a right-click.
-  document.querySelectorAll(".chrtabs .chr, .icontabs .face, .meetrow button, .tabbar button.away").forEach(m => {
+  document.querySelectorAll(".chrtabs .chr, .icontabs .face").forEach(m => {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
@@ -4045,83 +4404,101 @@ function roleList() {
 // A grid, tabs or Combined pane's agents, role by role in the order the roles were picked (n.roles keeps it), A to Z
 // within a role.
 const byName = (x, y) => x.name.localeCompare(y.name, undefined, {sensitivity: "base"});
-const paneAgents = n => n.show === "meeting" ? meetAgents(n) : (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
-// A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over their conversations as one and the meeting's
-// message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to message a
-// single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is in it (n.who,
-// "role:<role>" and "name:<agent>" keys, chosen with its Who button while the layout is unlocked) is the whole team
-// until chosen.
+const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
+// A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over what was said and the
+// meeting's message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to
+// message a single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is
+// invited (n.who, "role:<role>" and "name:<agent>" keys, chosen with its Who button while the layout is unlocked) is
+// the whole team until chosen.
 const byRole = list => [...list].sort((x, y) => ((ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99)) || byName(x, y));
-const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name) || (n.extra || []).includes(a.name);
-const meetAgents = n => byRole(S.agents.filter(a => inMeeting(n, a)));
-// The meeting's box goes to everyone (owner, 2026-11-01): a message typed there goes to every member who is running,
-// each as if typed into their own box, headed with the meeting's tag, "[<view> <month>-<day> <started>]" (or the
-// view's name alone before Start), so the pane can show just the meeting's conversation (owner, 2026-11-01: "if we
-// prefix messages with the meeting name, the view can actually filter to just that conversation").
+const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name);
+// A meeting (owner, 2026-11-03) is the owner and the agents in it, every line said going to everyone; each agent
+// attends through a meeting session of its own, which speaks with meeting-say (the server's meetings). The pane keeps
+// the meeting it shows (n.meeting) and reads it from /api/meetings with every load while a Meeting pane is on the page.
 const MEET = "~meeting:";
-const meetTag = n => { const d = n.active && new Date(n.active), p = x => String(x).padStart(2, "0");
-  return `[${shownView().name || "Meeting"}${d ? ` ${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` : ""}]`; };
-// An agent's part of the meeting: each tagged message and what followed it, up to the next message the owner (or a
-// peer) sent that agent; the tag itself is not shown.
-function meetThread(list, tag, all) {
-  let on = false;
-  return list.flatMap(it => {
-    const own = OWN.includes(it.kind), mine = own && (it.text || "").startsWith(tag);
-    if (own || ["peer", "shell"].includes(it.kind)) on = mine;
-    return mine ? [{...it, text: it.text.slice(tag.length).trimStart()}] : all || on ? [it] : [];
-  });
+let meetNow = {}, meetRecords = "";
+async function loadMeetings() {
+  if (!leaves(layout().root).some(([, n]) => n.show === "meeting")) return;
+  try { const d = await (await fetch("/api/meetings", {cache: "no-store"})).json(); meetNow = Object.fromEntries(d.meetings.map(m => [m.id, m])); meetRecords = d.records; } catch (e) {}
 }
-const meetAll = path => localStorage.getItem("mode:meet:" + path) === "all";
-const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow">${addButton(MEET + path)}<textarea class="say" rows="1" data-name="${esc(MEET + path)}" autocomplete="off"></textarea>${SEND}</div>`;
+// (the empty .att before the box is where every box's attachments go; a meeting takes text only)
+const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow"><textarea class="say" rows="1" data-name="${esc(MEET + path)}" placeholder="Message the meeting…" autocomplete="off"></textarea>${SEND}</div>`;
 const whoOn = n => Array.isArray(n.who) ? n.who : roleList().map(r => "role:" + r.role);
 const whoItems = () => [...roleList().map(r => ["role:" + r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]),
   ...byRole([...S.agents, ...S.bench]).map(a => ["name:" + a.name, a.name, `<span class="dot hollow" style="--c:${a.colour}"></span>`])];
 const whoBtn = (path, n) => filterBtn("who", "who:" + path, whoOn(n), Array.isArray(n.who) ? whoItems().map(([k]) => k) : whoOn(n), whoItems(), "Who");
-// The meeting's Start, Add and End (owner, 2026-11-01: "start can start anyone not active, and stop can stop anyone
-// it started"; "an add, to bring in other member, just to the current active meeting"). Start starts every standing
-// agent in the meeting that is not running and opens the meeting (n.active); the pane keeps who it started
-// (n.started). Add brings anyone else into the open meeting alone (n.extra), starting a standing agent that is not
-// running. End asks those it started that still run to finish and stop, as an agent's own Stop does, and closes the
-// meeting, its added members with it. Start and End ask first, in the bar, as Stop does in an agent's menu.
-let meetAsk = null;   // {path, what: "start" or "end"} while the bar asks
-const meetAway = n => S.bench.filter(a => a.standing && inMeeting(n, a) && !S.starting.includes(a.name)).map(a => a.name);
-const meetMine = n => (n.started || []).filter(x => S.agents.some(a => a.name === x && a.live) && !S.halting.includes(x));
-const meetOthers = n => byRole([...S.agents.filter(a => a.live), ...S.bench.filter(a => a.standing)]).filter(a => !inMeeting(n, a));
+// The meeting's bar. Before it starts: who is invited (Who, while the layout is unlocked), a topic and Start. While it
+// is open: its topic and time, who is there, Add (anyone on the roster), Pause and End. The count of those in it, the
+// owner among them, turns amber above three and red above five (owner, 2026-11-03: "more than me + 2: amber, more than
+// me + 4: red"), as every line goes to every agent in it. End asks each session to suggest what its agent should be
+// told; each suggestion waits under the meeting for Send (as written, or edited in its box) or Skip.
+const meetAgent = name => S.agents.find(a => a.name === name) || S.bench.find(a => a.name === name) || {name, colour: colours[name] || "#888"};
+const meetInvited = n => byRole([...S.agents, ...S.bench].filter(a => inMeeting(n, a)));
+const meetOf = n => n.meeting && meetNow[n.meeting];
 const andList = list => list.length < 2 ? list.join("") : list.slice(0, -1).join(", ") + " and " + list.at(-1);
-function meetBar(path, n) {
-  const away = meetAway(n), mine = meetMine(n), them = meetAgents(n);
-  const busy = [...S.starting, ...S.halting].filter(x => (n.started || []).includes(x));
-  if (meetAsk?.path === path) {
-    const start = meetAsk.what === "start", who = start ? away : mine;
-    if (who.length) return `<div class="meetbar ask"><span>${start ? `Start ${esc(andList(who))}?` : `End the meeting, and ask ${esc(andList(who))} to finish, update ${who.length > 1 ? "their records" : "their record"} and stop?`}</span>` +
-      `<b class="mbtn${start ? "" : " warn"}" data-meet="${meetAsk.what}!">${MENU_ICON[start ? "start" : "power"]}${start ? "Start" : "End"}</b><b class="mbtn" data-meet="cancel">${MENU_ICON.close}Cancel</b></div>`;
-    meetAsk = null;
-  }
-  const here = `${them.filter(a => a.live).length} here${away.length ? `, ${away.length} not running` : ""}${busy.length ? ` · ${S.starting.some(x => busy.includes(x)) ? "starting" : "stopping"} ${esc(andList(busy))}…` : ""}`;
-  return n.active
-    ? `<div class="meetbar on"><span><b>Meeting</b> since ${new Date(n.active).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} · ${here}</span>` +
-      `<b class="mbtn" data-meet="add" data-menu="meetadd:${esc(path)}" title="Bring someone else into this meeting">${MENU_ICON.plus}Add</b>` +
-      `<b class="mbtn" data-meet="end" title="${mine.length ? `End the meeting and stop ${esc(andList(mine))}, whom it started` : "End the meeting"}">${MENU_ICON.stop}End</b></div>`
-    : `<div class="meetbar"><span>${here}</span><b class="mbtn" data-meet="start" title="${away.length ? `Start the meeting and ${esc(andList(away))}` : "Start the meeting"}">${MENU_ICON.start}Start</b></div>`;
+const meetHhmm = t => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+function meetCount(agents) {
+  const n = agents + 1, cls = n > 5 ? "red" : n > 3 ? "amber" : "";
+  return `<span class="mcount${cls ? " " + cls : ""}" title="${n} in the meeting, you among them${cls ? `: every line goes to each of the ${agents} agents` : ""}">${n}</span>`;
 }
-// The open meeting's Add menu: everyone running or standing who is not in it; a pick brings them in, starting one
-// that is not running.
+function meetBar(path, n, big) {
+  const m = meetOf(n), max = maxButton(big), btn = (what, icon, label, tip, cls = "") => `<b class="mbtn${cls}" data-meet="${what}" title="${esc(tip)}">${MENU_ICON[icon]}${label}</b>`;
+  if (!m) {
+    const who = meetInvited(n).map(a => a.name);
+    return `<div class="meetbar"><input class="mtopic" data-name="mtopic:${esc(path)}" placeholder="Topic (optional)" autocomplete="off">${meetCount(who.length)}` +
+      (who.length ? btn("start", "start", "Start", `Start a meeting with ${andList(who)}: each joins through a meeting session of its own`) : `<span>Choose who with Who</span>`) + max + `</div>`;
+  }
+  const title = `<b>${esc(m.topic || "Meeting")}</b> ${m.ended ? `ended at ${meetHhmm(m.ended)}` : `since ${meetHhmm(m.opened)}`}`;
+  if (m.ended) return `<div class="meetbar on"><span>${title} · the record is <a class="link" href="/doc?p=${encodeURIComponent(meetRecords + "/" + m.record)}" title="${esc(meetRecords + "/" + m.record)}" onclick="return showDoc(event, this)">${esc(m.record)}</a></span>${btn("new", "plus", "New meeting", "Set up the next meeting")}${max}</div>`;
+  const here = m.who.filter(x => m.present[x]).length;
+  return `<div class="meetbar on"><span>${title} · ${here} of ${m.who.length} here${m.paused ? " · <b>paused</b>" : ""}${m.ending ? " · ending" : ""}</span>${meetCount(m.who.length)}` +
+    (m.ending ? "" : `<b class="mbtn" data-meet="add" data-menu="meetadd:${esc(path)}" title="Bring someone else into this meeting">${MENU_ICON.plus}Add</b>` +
+      btn("pause", m.paused ? "start" : "pause", m.paused ? "Resume" : "Pause", m.paused ? "Let the agents hear each other again" : "Hold the agents' lines to each other until you speak or resume") +
+      btn("end", "stop", "End", "End the meeting: each agent suggests what its own session should be told, for you to send or skip", " warn")) + max + `</div>`;
+}
+// Everyone in the meeting along its top: one not yet arrived greyed, one whose session is working pulsing.
+function meetFaces(n) {
+  const m = meetOf(n);
+  const them = m ? m.who.map(meetAgent) : meetInvited(n);
+  return them.length ? `<div class="tabbar icontabs meetrow">${them.map(a => {
+    const on = m && !m.ended && m.live.includes(a.name), here = on && m.present[a.name], busy = on && m.busy.includes(a.name);
+    const tip = `${a.name}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : on ? ", joining" : ", inactive"}`;
+    return `<span class="ftab${here ? "" : " away"}${busy ? " mbusy" : ""}">${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}" title="${esc(tip)}"`)}</span>`; }).join("")}</div>` : "";
+}
+// The meeting as it was said, the owner's lines and each agent's, then, once it is ending, each agent's suggestion.
+function meetingHtml(path, n) {
+  const m = meetOf(n), iso = t => new Date(t * 1000).toISOString();
+  const lines = !m ? `<div class="empty">${meetInvited(n).length ? "Start the meeting: each line anyone says goes to everyone in it" : "Choose who is invited with Who"}</div>`
+    : m.log.map(l => l.kind !== "say" ? `<div class="it mevent"><span class="tx">${esc(l.text)}</span><span class="ago" data-ts="${iso(l.at)}">${since(iso(l.at))}</span></div>`
+      : l.who === S.owner || !m.who.includes(l.who) ? item({kind: "owner", who: l.who, text: l.text, ts: iso(l.at), lane: "owner"}, false, "")
+      : item({kind: "said", text: l.text, ts: iso(l.at), lane: "owner"}, false, l.who)).join("") || `<div class="empty">Waiting for everyone to arrive</div>`;
+  const hand = m && m.ending ? `<div class="hands">${m.who.map(x => { const h = m.handover[x] || {}, c = meetAgent(x).colour;
+    const head = `<span class="name" style="--c:${c}">${esc(x)}</span>`;
+    if (h.state === "asked") return `<div class="hand">${head}<span class="mute">is writing what ${esc(x)} should be told…</span></div>`;
+    if (h.state === "suggested") return `<div class="hand" data-n="${esc(x)}">${head}<span class="mute">suggests sending ${esc(x)}:</span>` +
+      `<textarea class="htext" data-name="hand:${esc(m.id)}:${esc(x)}" rows="3">${esc(h.suggested)}</textarea>` +
+      `<span class="hbtns"><b class="mbtn" data-hand="send" title="Send this, as it now reads, to ${esc(x)}">${MENU_ICON.start}Send</b><b class="mbtn" data-hand="skip" title="Send nothing">${MENU_ICON.close}Skip</b></span></div>`;
+    const said = {skipped: h.suggested ? "skipped" : "nothing to send", queued: `waiting for ${esc(x)} to be free`, sent: "sent"}[h.state] || esc(h.state || "");
+    return `<div class="hand done">${head}<span class="mute">${said}${h.edited ? " (edited)" : ""}</span></div>`; }).join("")}</div>` : "";
+  const box = m && !m.ending && !m.ended ? `<div class="chat">${meetRow(path)}</div>` : "";
+  return `<div class="teamlog combined meeting" data-name="~meeting:${esc(path)}"><div class="feed">${lines}</div><button class="newest" title="Back to the newest line">↓ Newest</button>${hand}${box}</div>`;
+}
+// The open meeting's Add menu: everyone on the roster not in it; a pick brings them in through a meeting session.
 function meetAdd(btn, path) {
-  const key = "meetadd:" + path, n = nodeAt(layout().root, path);
+  const key = "meetadd:" + path, m = meetOf(nodeAt(layout().root, path));
+  if (!m) return;
   if (menuOn(key)) return menuOff(true);
-  const them = meetOthers(n);
-  menuAt(btn, key, `<div class="hd"><div>Add to this meeting</div></div>` + (them.length ? them.map(a => `<div class="mi" data-add="${esc(a.name)}">` +
-    `<span class="dot" style="--c:${a.colour}"></span>${esc(a.name)}${a.live ? "" : `<span class="mute">&nbsp;· starts them</span>`}</div>`).join("")
-    : `<div class="mi off">Everyone is here</div>`), false);
-  menu.querySelectorAll(".mi[data-add]").forEach(mi => mi.onclick = () => {
-    const name = mi.dataset.add, away = !S.agents.some(a => a.name === name && a.live);
-    menuOff(true);
-    const l = layout(), m = nodeAt(l.root, path);
-    m.extra = [...new Set([...(m.extra || []), name])];
-    if (away) m.started = [...new Set([...(m.started || []), name])];
-    saveLayout(l); draw(); setTimeout(load);
-    if (away) post(`/api/agent/${encodeURIComponent(name)}/start`);
-  });
+  const them = byRole([...S.agents, ...S.bench]).filter(a => !m.who.includes(a.name));
+  menuAt(btn, key, `<div class="hd"><div>Bring into this meeting</div></div>` + (them.length ? them.map(a => `<div class="mi" data-add="${esc(a.name)}">` +
+    `<span class="dot" style="--c:${a.colour}"></span>${esc(a.name)}</div>`).join("") : `<div class="mi off">Everyone is here</div>`), false);
+  menu.querySelectorAll(".mi[data-add]").forEach(mi => mi.onclick = () => { menuOff(true); meetPost(m.id, "add", {name: mi.dataset.add}); });
+}
+async function meetPost(id, what, body = {}) {
+  const r = await fetch(`/api/meeting${id ? "/" + id + "/" + what : ""}`, {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+    body: JSON.stringify(body)}).catch(() => null);
+  const d = r && r.ok ? await r.json().catch(() => ({})) : null;
+  await loadMeetings(); draw();
+  return d;
 }
 // A Characters pane's agents: those in its roles, the same way, or every agent until roles are chosen for it.
 const chrAgents = n => Array.isArray(n.roles) ? paneAgents(n) : S.agents;
@@ -4276,15 +4653,7 @@ function customHtml(ceil, tabRow) {
       const [sel, row] = tabRow("pane:" + path, of, n.badge);
       body = `${row}<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, sel, path)}</div>`;
     } else if (n.show === "meeting") {
-      // everyone in it along the top, over their conversations as one; the faces are not tabs: there is nobody to pick
-      // members who are not running follow, greyed, their menu (and its Start) on a rest
-      const them = meetAgents(n), away = byRole(S.bench.filter(a => inMeeting(n, a))), badge = n.badge || "icon";
-      const off = away.map(a => badge === "icon"
-        ? `<span class="ftab away">${face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}, not running"`)}</span>`
-        : `<button class="away" style="--c:${a.colour}" data-name="${esc(a.name)}" title="${esc(a.name)}, not running"><span class="dot"></span>${esc(a.name)}</button>`).join("");
-      const row = them.length ? tabRow("meet:" + path, them, badge, true)[1].replace(/ data-tab="[^"]*"/g, "").replace('class="tabbar', 'class="tabbar meetrow').replace(/<\/div>$/, off + "</div>")
-        : off ? `<div class="tabbar${badge === "icon" ? " icontabs" : ""}">${off}</div>` : "";
-      body = `${meetBar(path, n)}${row}${combinedHtml(path, n, fullView(n) || path === maxed, path === maxed)}`;
+      body = `${meetBar(path, n, path === maxed)}${meetFaces(n)}${meetingHtml(path, n)}`;
     } else if (n.show === "grid" || n.show === "tabs") {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
@@ -4295,7 +4664,7 @@ function customHtml(ceil, tabRow) {
       ${n.show && !["others", "characters", "file", "perf"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
-      ${["tabs", "combined", "meeting"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
+      ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" ? perfBtn(path, n) : ""}
       ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
@@ -4413,33 +4782,31 @@ function foldSent(out, it) {
   return out;
 }
 function combinedHtml(path, n, full, big) {
-  const meet = n.show === "meeting", chosen = paneAgents(n).filter(a => !meet || a.live).map(a => a.name), on = clanesOf(n);
+  const chosen = paneAgents(n).map(a => a.name), on = clanesOf(n);
   const shown = it => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
   // a message sent from the pane shows at once, as in an agent's own view, until the agent's conversation has it
-  const tag = meet && meetTag(n), all = meet && meetAll(path), part = list => meet ? meetThread(list, tag, all) : list;
-  const items = chosen.flatMap(a => part((paneConv[a] || []).concat(echoItems(paneConv[a] || [], a))).filter(it => (it.ts || it.kind === "ask") && shown(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
+  const items = chosen.flatMap(a => (paneConv[a] || []).concat(echoItems(paneConv[a] || [], a)).filter(it => (it.ts || it.kind === "ask") && shown(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
     .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0)
     .reduce(foldSent, []);
   const log = full ? items : items.slice(-30);
   seenUpTo(log);
-  const key = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, tag, all, [...openRuns], noImage.size].join("|");
+  const key = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, [...openRuns], noImage.size].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
   // the chat opened from an agent's menu in this pane: its badge and its message box, under the conversation
-  // a Meeting pane's is the meeting's own, always open
-  const talk = !meet && S.agents.find(a => a.live && a.name === n.chat && chosen.includes(a.name));
+  const talk = S.agents.find(a => a.live && a.name === n.chat && chosen.includes(a.name));
   const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Chat with another agent"`;
-  const chat = meet ? `<div class="chat">${meetRow(path)}</div>` : talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
+  const chat = talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${meet ? `<span class="cnames">${chosen.length} in the meeting</span><span class="seg mode" data-sec="meet:${esc(path)}">${[["this", "This meeting", "Only this meeting's messages and the answers to them"], ["all", "Everything", "Everything its members said"]].map(([m, label, tip]) => `<b data-mode="${m}" class="${(m === "all") === all ? "on" : ""}" title="${tip}">${label}</b>`).join("")}</span>` : n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
+  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
     : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${meet ? "nobody in this meeting is running" : (n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await Promise.all([loadTeam(), loadFiles(), loadPerf()]);
+  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
-    n.show === "combined" || n.show === "meeting" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
+    n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
     try {
       const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
@@ -4621,24 +4988,23 @@ function customClicks() {
     filterButton(el, whoItems(), () => whoOn(nodeAt(layout().root, path)), k => `${k.startsWith("role:") ? "Every" : "Only"} ${whoItems().find(([x]) => x === k)?.[1] || k} in the meeting, or not`,
       k => { change(l => { const n = nodeAt(l.root, path), on = whoOn(n); n.who = on.includes(k) ? on.filter(x => x !== k) : [...on, k]; }); setTimeout(load); }, "Who");
   });
-  main.querySelectorAll(".meetbar [data-meet]").forEach(el => el.onclick = e => {
-    const path = el.closest(".pane").dataset.path, n = nodeAt(layout().root, path), what = el.dataset.meet;
+  // the meeting's bar: Start (with the topic typed beside it), Add, Pause or Resume, End, and New meeting once ended
+  main.querySelectorAll(".meetbar [data-meet]").forEach(el => el.onclick = async e => {
+    const path = el.closest(".pane").dataset.path, n = nodeAt(layout().root, path), m = meetOf(n), what = el.dataset.meet;
     if (what === "add") { e.stopPropagation(); return meetAdd(el, path); }
-    const open = (m, away) => { m.active = Date.now(); m.started = [...new Set([...(m.started || []), ...away])]; };
-    const close = m => { delete m.active; delete m.started; delete m.extra; };
-    meetAsk = null;
-    if (what === "start") { if (meetAway(n).length) meetAsk = {path, what}; else change(l => open(nodeAt(l.root, path), [])); }
-    else if (what === "end") { if (meetMine(n).length) meetAsk = {path, what}; else change(l => close(nodeAt(l.root, path))); }
-    else if (what === "start!") {
-      const away = meetAway(n);
-      change(l => open(nodeAt(l.root, path), away));
-      away.forEach(x => post(`/api/agent/${encodeURIComponent(x)}/start`));
-    } else if (what === "end!") {
-      const mine = meetMine(n);
-      change(l => close(nodeAt(l.root, path)));
-      mine.forEach(x => post(`/api/agent/${encodeURIComponent(x)}/halt`));
-    }
-    draw(); setTimeout(load);
+    if (what === "start") {
+      const topic = el.closest(".meetbar").querySelector(".mtopic")?.value.trim() || "";
+      const d = await meetPost(null, "start", {who: meetInvited(n).map(a => a.name), topic, view: shownView().name || ""});
+      if (d?.id) change(l => { nodeAt(l.root, path).meeting = d.id; });
+      setTimeout(load);
+    } else if (what === "new") change(l => { delete nodeAt(l.root, path).meeting; });
+    else if (m && what === "pause") meetPost(m.id, "pause", {on: !m.paused});
+    else if (m && what === "end") meetPost(m.id, "end");
+  });
+  // a suggestion at the meeting's end: Send sends it as its box now reads; Skip sends nothing
+  main.querySelectorAll(".hand [data-hand]").forEach(el => el.onclick = () => {
+    const h = el.closest(".hand"), m = meetOf(nodeAt(layout().root, el.closest(".pane").dataset.path));
+    if (m) meetPost(m.id, "handover", {name: h.dataset.n, action: el.dataset.hand, text: h.querySelector(".htext")?.value || ""});
   });
   main.querySelectorAll(".teamlog .clanes").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -5105,28 +5471,52 @@ function histKey(e, box, name) {
   setTimeout(() => { if (box.selectionStart === box.selectionEnd && box.selectionStart === (up ? 0 : box.value.length) && box.value === v) step(); });
   return false;
 }
-// The / list under a message box: typing / and a name lists the commands that match (Claude Code's own, the user's
-// and the team's commands and skills, the plugins'), ↑/↓ choose, Tab completes, Enter completes and sends, Esc closes.
-let slashCmds = null, slash = {box: null, at: 0, list: []};
+// The list under a message box. Typing / and a name lists the commands that match (Claude Code's own, the user's and
+// the team's commands and skills, the plugins'); in a meeting's box, typing @ lists the meeting's attendees. ↑/↓
+// choose, Tab completes, Enter completes (and sends a command), Esc closes.
+let slashCmds = null, slash = {box: null, at: 0, list: [], at_: null};
 const slashEl = Object.assign(document.createElement("div"), {id: "slash"});
 document.body.append(slashEl);
+// The @name being typed in a meeting's box, up to the caret: {from, q, names}, or null.
+function mentionAt(box) {
+  if (!box.dataset.name?.startsWith(MEET) || box.selectionStart !== box.selectionEnd) return null;
+  const m = /(^|\s)@(\w*)$/.exec(box.value.slice(0, box.selectionStart));
+  const meet = m && meetOf(nodeAt(layout().root, box.dataset.name.slice(MEET.length)) || {});
+  return meet && {from: box.selectionStart - m[2].length - 1, q: m[2].toLowerCase(), names: meet.who.map(meetAgent).sort(byName)};
+}
 async function slashShow(box) {
+  const at = mentionAt(box);
+  if (at) {
+    const list = at.names.filter(a => a.name.toLowerCase().startsWith(at.q)).map(a => ({name: a.name, desc: a.roleName || ""}));
+    if (!list.length) return slashOff();
+    slash = {box, at: slash.box === box ? Math.min(slash.at, list.length - 1) : 0, list, at_: at};
+    return slashDraw(box, "@");
+  }
   const m = /^\/([\w:.-]*)$/.exec(box.value);
   if (!m) return slashOff();
   slashCmds = slashCmds || await fetch("/api/commands").then(r => r.json()).catch(() => []);
   const q = m[1].toLowerCase(), named = c => c.name.toLowerCase();
   const list = [...slashCmds.filter(c => named(c).startsWith(q)), ...slashCmds.filter(c => !named(c).startsWith(q) && named(c).includes(q))].slice(0, 8);
   if (!list.length || box.value !== "/" + m[1]) return slashOff();
-  slash = {box, at: slash.box === box ? Math.min(slash.at, list.length - 1) : 0, list};
-  slashEl.innerHTML = list.map((c, i) => `<div class="sl${i === slash.at ? " at" : ""}" data-i="${i}"><b>/${esc(c.name)}</b><span>${esc(c.desc)}</span></div>`).join("");
+  slash = {box, at: slash.box === box ? Math.min(slash.at, list.length - 1) : 0, list, at_: null};
+  slashDraw(box, "/");
+}
+function slashDraw(box, mark) {
+  slashEl.innerHTML = slash.list.map((c, i) => `<div class="sl${i === slash.at ? " at" : ""}" data-i="${i}"><b>${mark}${esc(c.name)}</b><span>${esc(c.desc)}</span></div>`).join("");
   const r = box.getBoundingClientRect();
   slashEl.style.cssText = `display:block;left:${r.left}px;width:${Math.max(r.width, 320)}px;bottom:${innerHeight - r.top + 4}px`;
   slashEl.querySelectorAll(".sl").forEach(el => el.onmousedown = e => { e.preventDefault(); slash.at = +el.dataset.i; slashDone(false); });
 }
-function slashOff() { slash = {box: null, at: 0, list: []}; slashEl.style.display = "none"; }
+function slashOff() { slash = {box: null, at: 0, list: [], at_: null}; slashEl.style.display = "none"; }
 function slashDone(send, name) {
-  const box = slash.box, c = slash.list[slash.at];
+  const box = slash.box, c = slash.list[slash.at], at = slash.at_;
   slashOff();
+  if (at) {
+    const head = box.value.slice(0, at.from) + "@" + c.name + " ";
+    box.value = head + box.value.slice(box.selectionStart).replace(/^\w*\s?/, "");
+    box.setSelectionRange(head.length, head.length); grow(box); keep(box); box.focus();
+    return;
+  }
   box.value = "/" + c.name + (send ? "" : " "); grow(box); keep(box); box.focus();
   if (send) say(name, box);
 }
@@ -5174,32 +5564,19 @@ async function say(name, input) {
   } catch (e) { if (echo) { echoes[name] = echoes[name].filter(m => m !== echo); echoed(name); } const b = box(); b.value = text; grow(b); keep(b); flash(b, "failed"); b.title = String(e.message || e); }
   saying.delete(name); input.disabled = false; aim(box());
 }
-// A message to the whole meeting: sent to each member who is running at once, each with its own echo; the box gets the
-// text back only if it reached nobody, and says who it missed.
+// A message to the meeting: the server logs it and passes it to everyone in it; the box gets the text back if it fails.
 async function sayAll(key, input) {
-  const path = key.slice(MEET.length), n = nodeAt(layout().root, path), text = input.value.trim(), sent = atts[key] || [];
-  if (!text && !sent.length || input.disabled || saying.has(key)) return;
-  const to = n ? meetAgents(n).filter(a => a.live && !openAsk(a)).map(a => a.name) : [];
-  if (!to.length) { flash(input, "failed"); input.title = "Nobody in this meeting can take a message now"; return; }
+  const m = meetOf(nodeAt(layout().root, key.slice(MEET.length)) || {}), text = input.value.trim();
+  if (!text || input.disabled || saying.has(key)) return;
+  if (!m || m.ended || m.ending) { flash(input, "failed"); input.title = "The meeting is not open"; return; }
   input.value = ""; grow(input); keep(input); input.disabled = true; saying.add(key);
-  const said = text ? meetTag(n) + " " + text : meetTag(n), mine = to.map(name => [name, {text: said, at: Date.now(), state: "sending"}]);
-  for (const [name, echo] of mine) if (echo) (echoes[name] = echoes[name] || []).push(echo);
-  draw();
-  const box = () => input.isConnected ? input : document.querySelector(`#main .say[data-name="${CSS.escape(key)}"]`) || input;
-  const ok = await Promise.all(mine.map(([name, echo]) => fetch("/api/agent/" + encodeURIComponent(name) + "/say", {method: "POST",
-      headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text: said, images: sent.map(i => i.path)})})
-    .then(r => r.ok).catch(() => false).then(good => {
-      if (good) echo.state = "sent"; else echoes[name] = echoes[name].filter(m => m !== echo);
-      if (good) { if (text) logSent(name, text); chase(name, said); }
-      return good;
-    })));
-  const missed = to.filter((x, i) => !ok[i]);
-  if (missed.length < to.length) { if (text) logSent(key, text); atts[key] = (atts[key] || []).filter(i => !sent.includes(i)); showAtt(key); }
-  draw();
-  const b = box();
-  if (missed.length === to.length) { b.value = text; grow(b); keep(b); }
-  flash(b, missed.length ? "failed" : "sent"); b.title = missed.length ? `Not sent to ${andList(missed)}` : "";
-  saying.delete(key); input.disabled = false; aim(box());
+  const r = await fetch(`/api/meeting/${m.id}/say`, {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+    body: JSON.stringify({text})}).catch(() => null);
+  const b = input.isConnected ? input : document.querySelector(`#main .say[data-name="${CSS.escape(key)}"]`) || input;
+  if (r?.ok) logSent(key, text); else { b.value = text; grow(b); keep(b); }
+  flash(b, r?.ok ? "sent" : "failed"); b.title = r?.ok ? "" : "Not said: the meeting did not take it";
+  saying.delete(key); input.disabled = false;
+  await loadMeetings(); draw(); aim(b);
 }
 // After a message is sent, that agent alone is asked for its conversation every half second until the message shows
 // in it (as the owner's turn, or queued), for up to ten seconds; the page and its view then refresh at once rather
@@ -5576,7 +5953,7 @@ function focusAgent(name) {
   }
   const box = () => shownBox(name);
   if (!box()) {
-    const pane = (localStorage.getItem("page") || "grid") === "custom" && leaves(layout().root).find(([, n]) => ["tabs", "meeting"].includes(n.show) && paneAgents(n).some(a => a.name === name));
+    const pane = (localStorage.getItem("page") || "grid") === "custom" && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
     if (pane) { localStorage.setItem("tab:pane:" + pane[0], name); draw(); }
     else $(`#main .tabbar button[data-tab="${CSS.escape(name)}"]`)?.click();
   }
@@ -5624,6 +6001,7 @@ function lastCompact(a) {
 const STANDING_ROLES = new Set(["lead", "hot", "ops", "support", "review", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
+  if (anchor.closest?.(".meetrow")) return meetMenu(anchor, name, beside, rested);
   const bench = S.bench.find(x => x.name === name), a = S.agents.find(x => x.name === name) || bench, key = "agent:" + name;
   if (!a || !stay && !anchor.isConnected) return;
   if (menuOn(key) && !confirm && !stay) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
@@ -5663,6 +6041,26 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     else if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
     else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
     else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, Open shows the agent there
+  });
+}
+// A meeting attendee's menu. The face stands for the agent's meeting session, not the agent, so it has none of the
+// agent's own items: everything said in a meeting goes to everyone in it. It shows who it is and whether its session
+// is active and, while the meeting is open, Mention puts @<name> in the meeting's box.
+function meetMenu(anchor, name, beside, rested) {
+  const a = meetAgent(name), key = "meet:" + name, pane = anchor.closest(".pane");
+  const box = pane?.querySelector('textarea.say[data-name^="~meeting:"]');
+  const m = meetOf(nodeAt(layout().root, pane?.dataset.path || "") || {}), state = anchor.title.split(", ").slice(1).join(", ");
+  if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(name)} · meeting</span>` +
+    `<div>${esc(a.roleName || "")}</div>${state ? `<div>${esc(state[0].toUpperCase() + state.slice(1))}</div>` : ""}</div>` +
+    `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div></div>` +
+    (m && !m.ended && box ? `<div class="mi" data-go="mention">${MENU_ICON.said}Mention @${esc(name)}</div>` : ""), beside);
+  if (rested) menu.dataset.rested = "1";
+  menu.querySelectorAll(".mi[data-go=mention]").forEach(mi => mi.onclick = () => {
+    menuOff(true);
+    const at = box.selectionStart ?? box.value.length, pre = box.value.slice(0, at), gap = !pre || /\s$/.test(pre) ? "" : " ";
+    box.value = pre + gap + "@" + name + " " + box.value.slice(at); grow(box); keep(box); aim(box);
+    box.setSelectionRange(pre.length + gap.length + name.length + 2, pre.length + gap.length + name.length + 2);
   });
 }
 // A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
@@ -6215,6 +6613,68 @@ def self_test():
           ("84 °C", "amber", "heat", "red", "green", "…", True))
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
+        def meeting_checks():
+            opened, typed, killed, real = [], [], [], subprocess
+            class Run:   # subprocess with run() noting each command (the tmux sessions closed) and running none
+                def __getattr__(self, k):
+                    return getattr(real, k)
+                @staticmethod
+                def run(c, *a, **k):
+                    killed.append(c)
+            g.update(MEETINGS=T + "/meetings", MEETING_RECORDS=T + "/meeting-records", _meetings={}, subprocess=Run(),
+                     open_meeting_session=lambda m, n: (opened.append(n), m["tmux"].__setitem__(n, "meet-" + n)),
+                     type_into=lambda n, text, images=(): typed.append((n, text)) or True, setting=lambda n: "",
+                     live_sessions=lambda: {"A · meeting": {"status": "idle"}, "B · meeting": {"status": "idle"}, "A": {"status": "idle"}},
+                     roster=lambda: [{"name": "A", "role": "developer"}, {"name": "B", "role": "tester"}, {"name": "C", "role": "developer"}])
+            me = meeting_owner()
+            m = start_meeting(["A", "B"], "Plan", "V")
+            t("a meeting opens a meeting session for each agent", opened, ["A", "B"])
+            meeting_said(m, "A", "hello")
+            t("a session's line is held for the others only", {k: v for k, v in m["held"].items() if v}, {"B": ["A: hello"]})
+            m["paused"] = True
+            meeting_said(m, "B", "hi A")
+            t("the owner speaking ends a Pause", (m["paused"], meeting_said(m, None, "go on") and m["paused"]), (True, False))
+            t("the owner's line is held for every session", (m["held"]["A"][-1], m["held"]["B"][-1]), (f"{me}: go on", f"{me}: go on"))
+            meeting_join(m, "C", added=True)
+            t("an agent brought in hears what was said before it joined", m["held"]["C"][:2], ["(said before you joined)", "A: hello"])
+            meeting_end(m)
+            t("End asks each running session for a handover; one not running has nothing", {n: h["state"] for n, h in m["handover"].items()},
+              {"A": "asked", "B": "asked", "C": "skipped"})
+            meeting_said(m, "A", "Do the thing", handover=True)
+            meeting_said(m, "B", "nothing", handover=True)
+            t("a suggested handover waits for the owner; \"nothing\" is skipped", ({n: h["state"] for n, h in m["handover"].items()}, m["ended"]),
+              ({"A": "suggested", "B": "skipped", "C": "skipped"}, None))
+            meeting_handover(m, "A", "send", "Do the thing, edited")
+            t("an edited handover is queued, the meeting ends and its sessions close",
+              (m["handover"]["A"]["state"], m["handover"]["A"]["edited"], bool(m["ended"]), len(killed)), ("queued", True, True, 3))
+            with open(os.path.join(MEETING_RECORDS, m["record"])) as f:
+                rec = f.read()
+            t("the readable record has the lines, who was brought in and what was sent",
+              all(x in rec for x in ("**A**", "C was brought in", "Sent: Do the thing, edited", "B**: nothing to send")), True)
+            m2 = start_meeting(["A", "B"], "", "V")
+            typed.clear()
+            meeting_said(m2, None, "first")
+            meeting_said(m2, "A", "second")
+            g["live_sessions"] = lambda: {"A · meeting": {"status": "idle"}, "B · meeting": {"status": "busy"}, "A": {"status": "busy"}}
+            meeting_deliver_once()
+            t("an idle session hears its lines; a busy one waits", typed, [("A · meeting", f"[Meeting]\n{me}: first")])
+            g["live_sessions"] = lambda: {"A · meeting": {"status": "idle"}, "B · meeting": {"status": "idle"}, "A": {"status": "idle"}}
+            typed.clear()
+            meeting_deliver_once()
+            t("a session idle again hears every held line in one go, and an idle agent gets its queued handover", sorted(typed),
+              [("A", "[Meeting: Plan] Do the thing, edited"), ("B · meeting", f"[Meeting]\n{me}: first\nA: second")])
+            t("the handover is then marked sent", m["handover"]["A"]["state"], "sent")
+            m2["paused"] = True
+            meeting_said(m2, "B", "third")
+            typed.clear()
+            meeting_deliver_once()
+            t("nothing is delivered while the meeting is paused", typed, [])
+        keep = {k: g[k] for k in ("MEETINGS", "MEETING_RECORDS", "_meetings", "subprocess", "open_meeting_session", "type_into",
+                                  "setting", "live_sessions", "roster")}
+        try:
+            meeting_checks()
+        finally:
+            g.update(keep)
         t("a plug-in's icon is kept, and one that is not a plain name is not", ("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
           (True, False))
     finally:
@@ -6229,6 +6689,8 @@ def main():
     import sys
     if sys.argv[1:] == ["--self-test"]:
         self_test()
+    load_meetings()
+    threading.Thread(target=meeting_deliver, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
