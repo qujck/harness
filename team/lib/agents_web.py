@@ -3814,8 +3814,9 @@ function placeBar() {
     // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch)
     if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
-    const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER")), ...Object.keys(FREE_KINDS)]   // A to Z (owner, 2026-11-01)
-      .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"}));
+    // the items out of the bars A to Z (owner, 2026-11-01), then Divider and Spacer, last
+    const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER"))
+      .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"})), ...Object.keys(FREE_KINDS).sort()];
     const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
     if (plus && plus.dataset.k !== want) plus.remove();
     if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Add an item">${MENU_ICON.plus}</button>`);
@@ -3828,15 +3829,18 @@ document.addEventListener("click", e => {
   const b = barOf(), k = x.parentElement.dataset.item;
   saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: FREE.test(k) ? b.off : [...b.off, k]}); draw();
 }, true);
-// a bar's + opens a menu of the items it can take, A to Z; a click on one puts it at the end of that bar
+// a bar's + opens a menu of the items it can take, A to Z, then a line and Divider and Spacer; a click on one puts it
+// at the end of that bar
 document.addEventListener("click", e => {
   const s = e.target.closest?.(".barplus");
   if (!s) return;
   e.stopPropagation();
   const foot = !!s.closest("footer"), key = "barplus:" + (foot ? "foot" : "head");
   if (menuOn(key)) return menuOff(true);
+  const ks = s.dataset.k.split(",");
   menuAt(s, key, `<div class="hd"><div>Add</div></div>` +
-    s.dataset.k.split(",").map(k => `<div class="mi" data-k="${esc(k)}">${MENU_ICON.plus}${esc(barName(k))}</div>`).join(""), false);
+    ks.map((k, i) => (FREE_KINDS[k] && i && !FREE_KINDS[ks[i - 1]] ? `<div class="sep"></div>` : "") +
+      `<div class="mi" data-k="${esc(k)}">${MENU_ICON.plus}${esc(barName(k))}</div>`).join(""), false);
   menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
     const b = barOf(), kind = FREE_KINDS[mi.dataset.k] && mi.dataset.k.slice(4), k = kind ? `${kind}-${Date.now().toString(36)}` : mi.dataset.k;
     menuOff(true);
