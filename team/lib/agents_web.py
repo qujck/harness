@@ -3765,6 +3765,20 @@ const BAR_ICON = Object.fromEntries(Object.entries({
   gpu: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="6" cy="8" r="2.2"/><path d="M10.5 6.5h2M10.5 9.5h2M3 12v2"/>',
   tok: '<path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+// Each item's icon in a bar's + menu: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
+const ADD_ICON = Object.fromEntries(Object.entries({
+  session: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
+  bench: '<path d="M4 3.5h8v3.5M2 7h12M2 10.5h12M3.5 7v6M12.5 7v6"/>',
+  viewbar: '<rect x="1.5" y="5" width="3.5" height="6" rx="1"/><rect x="6.25" y="5" width="3.5" height="6" rx="1"/><rect x="11" y="5" width="3.5" height="6" rx="1"/>',
+  theme: '<circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor"/>',
+  settings: '<path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/>',
+  help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4"/><circle cx="8" cy="11.6" r=".4"/>',
+  "new:div": '<path d="M8 2v12"/>',
+  "new:gap": '<path d="M2 8h12M4.5 5.5 2 8l2.5 2.5M11.5 5.5 14 8l-2.5 2.5"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+Object.assign(ADD_ICON, {week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON.disk, tally: MENU_ICON.team, controls: MENU_ICON.start,
+  lanes: MENU_ICON.filter, view: MENU_ICON.grid});
+const addIcon = k => ADD_ICON[k] || BAR_ICON[plugs().find(x => x.key === k)?.icon] || MENU_ICON.chart;
 const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
 const plugColour = c => PLUG_COLOUR[c] || c || "";
 function drawPlugs() {
@@ -3840,7 +3854,7 @@ document.addEventListener("click", e => {
   const ks = s.dataset.k.split(",");
   menuAt(s, key, `<div class="hd"><div>Add</div></div>` +
     ks.map((k, i) => (FREE_KINDS[k] && i && !FREE_KINDS[ks[i - 1]] ? `<div class="sep"></div>` : "") +
-      `<div class="mi" data-k="${esc(k)}">${MENU_ICON.plus}${esc(barName(k))}</div>`).join(""), false);
+      `<div class="mi" data-k="${esc(k)}">${addIcon(k)}${esc(barName(k))}</div>`).join(""), false);
   menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
     const b = barOf(), kind = FREE_KINDS[mi.dataset.k] && mi.dataset.k.slice(4), k = kind ? `${kind}-${Date.now().toString(36)}` : mi.dataset.k;
     menuOff(true);
