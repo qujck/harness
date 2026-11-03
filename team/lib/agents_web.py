@@ -2313,6 +2313,12 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .pane.lifted{opacity:.55}
 .pane.drop{outline:2px dashed var(--cyan);outline-offset:-2px}
 .pbody{flex:1;min-height:0;display:flex;flex-direction:column}
+/* an agent picked in a Combined pane, a little inside it, over the Combined view greyed out behind */
+.pbody:has(> .paneover){position:relative}
+.paneover{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:18px;border-radius:0 0 14px 14px;
+  background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
+.paneover > .cards{flex:1;min-height:0;padding:0;cursor:default}
+.paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
@@ -2578,8 +2584,9 @@ table.md th{background:var(--line);font-weight:600}
 /* A full card in a grid pane is measured on its own, not by the pane */
 .cards > .cell{container-type:inline-size;min-height:0;display:flex;flex-direction:column}
 .cards > .cell > .card{flex:1}
-.maxbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
-.maxbtn:hover{background:var(--on);color:var(--text)}
+.maxbtn,.backbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
+.maxbtn:hover,.backbtn:hover{background:var(--on);color:var(--text)}
+.card > .top > .lead{display:flex;align-items:center;gap:6px}   /* the back button before the name, in a Combined pane showing one agent */
 /* a maximised pane's card has its terminal at the top right of its conversation, as the agent's own view does */
 .card.full > .termwrap{display:none}
 .card.full:hover{transform:none}
@@ -2614,7 +2621,7 @@ table.md th{background:var(--line);font-weight:600}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .row2{grid-row:1;align-self:center}
-  .card.full > .top > .name{grid-column:1;margin:10px 0 8px 12px}
+  .card.full > .top > .name,.card.full > .top > .lead{grid-column:1;margin:10px 0 8px 12px}
   .card.full > .top > .role{grid-column:2}
   .card.full > .top > .ticket{grid-column:3;margin:0}
   .card.full > .top + .row2{grid-column:4;padding:0}
@@ -2788,7 +2795,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .teamlog .chead .face{width:26px;height:26px;border-radius:6px;border-bottom-width:2px}
 .teamlog .chead .name{font-size:calc(12px*var(--fs,1));line-height:13px;padding:0 6px 2px}
 .teamlog .chead .pick{cursor:pointer}
-.combined .cnames [data-name]{user-select:none}   /* a double-click opens a chat, not a selection */
 .pbody > .ctabs{flex:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;margin:6px 12px 6px;border-bottom:1px solid var(--line)}
 .ctabs .ctab{display:flex;align-items:center;gap:6px;padding:4px 10px 5px;margin-bottom:-1px;border:1px solid transparent;border-bottom:none;
   border-radius:7px 7px 0 0;font:600 calc(12px*var(--fs,1)) var(--sans);color:var(--mute);cursor:pointer;user-select:none}
@@ -3342,7 +3348,7 @@ document.addEventListener("click", e => {
   try { localStorage.setItem("folded", JSON.stringify(f.includes(name) ? f.filter(x => x !== name) : [...f, name])); } catch (e) {}
   draw();
 }, true);
-function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = {}) {
+function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, lead = ""} = {}) {
   const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
@@ -3350,7 +3356,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false} = 
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top"><span class="name">${esc(a.name)}</span><span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(a.name)}</span></span>` : `<span class="name">${esc(a.name)}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
@@ -4124,15 +4130,15 @@ function customHtml(ceil, tabRow) {
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
   // layout is being changed); a maximised one always does. Every card has the maximise button docked at the end of its head.
-  const paneCard = (n, a, path) => {
+  const paneCard = (n, a, path, lead = "") => {
     const big = path === maxed;
-    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false));
+    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
     const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name)].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
-      t ? paneTermHtml(a.name, t) : "", {key, keep});
+      t ? paneTermHtml(a.name, t) : "", {key, keep, lead});
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
@@ -4155,7 +4161,10 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "perf") {
       body = perfHtml(n);
     } else if (n.show === "combined") {
-      body = combinedHtml(path, n, fullView(n) || path === maxed, path === maxed);
+      // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
+      const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
+      body = one && path === maxed ? card1
+        : combinedHtml(path, n, fullView(n) || path === maxed, path === maxed) + (one ? `<div class="paneover">${card1}</div>` : "");
     } else if (n.show === "team") {
       body = teamHtml(path, fullView(n) || path === maxed, new Set(n.hide || []), path === maxed);
     } else if (n.show === "grid" && of.length) {
@@ -4227,6 +4236,11 @@ function tileRows(n, path, count) {
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
+// An agent clicked in a Combined pane fills that pane with its card (kept in this browser as "focus:pane:<path>")
+// until the card's back button; its maximise button then takes it over the page. One no longer running gives the pane
+// back to the Combined view.
+const BACK_BUTTON = `<b class="backbtn" title="Back to Combined"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 6h-9M5 2.5 1.5 6 5 9.5"/></svg></b>`;
+const paneFocus = (path, n) => { const x = localStorage.getItem("focus:pane:" + path); return x && paneAgents(n).find(a => a.live && a.name === x) || null; };
 let paneUnder = null;
 document.addEventListener("mouseover", e => { paneUnder = e.target.closest?.("#main .pane") || paneUnder; });
 addEventListener("keydown", e => { if (e.key === "F11" && e.shiftKey && maxToggle()) e.preventDefault(); });
@@ -4334,7 +4348,8 @@ async function loadPaneConvs() {
     } catch (e) {}
   }));
 }
-// A pane dragged by its grip onto another swaps places with it, the pick of tab in a Tabs pane going with it.
+// A pane dragged by its grip onto another swaps places with it, the pick of tab in a Tabs pane, and the agent a
+// Combined pane shows, going with it.
 // Redraws wait while it is held, as they do while a divider is dragged.
 function movePane(e, grip, from, change) {
   e.preventDefault(); grip.setPointerCapture(e.pointerId);
@@ -4347,9 +4362,11 @@ function movePane(e, grip, from, change) {
     mark(null); grip.onpointermove = grip.onpointerup = grip.onpointercancel = null;
     src.classList.remove("lifted"); document.body.classList.remove("moving-pane"); resizing = false;
     if (!to) return;
-    const ta = localStorage.getItem("tab:pane:" + from), tb = localStorage.getItem("tab:pane:" + to);
-    tb == null ? localStorage.removeItem("tab:pane:" + from) : localStorage.setItem("tab:pane:" + from, tb);
-    ta == null ? localStorage.removeItem("tab:pane:" + to) : localStorage.setItem("tab:pane:" + to, ta);
+    for (const pre of ["tab:pane:", "focus:pane:"]) {
+      const ta = localStorage.getItem(pre + from), tb = localStorage.getItem(pre + to);
+      tb == null ? localStorage.removeItem(pre + from) : localStorage.setItem(pre + from, tb);
+      ta == null ? localStorage.removeItem(pre + to) : localStorage.setItem(pre + to, ta);
+    }
     change(l => { const a = nodeAt(l.root, from), b = nodeAt(l.root, to); putAt(l, from, b); putAt(l, to, a); });
   };
 }
@@ -4580,9 +4597,9 @@ function customClicks() {
         hide.has(x) ? hide.delete(x) : hide.add(x); n.hide = [...hide];
       }), "Agents");
   });
-  // An agent in the list ("others") or a tile ("characters"), a name in a Combined pane's header, or a turn in a Team or Combined pane (the
-  // agent on the name clicked, else the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
-  // a tabs pane behind another tab is brought to the front first.
+  // An agent in the list ("others") or a tile ("characters"), or a turn in a Team pane (the agent on the name clicked, else
+  // the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
+  // a tabs pane behind another tab is brought to the front first. In a Combined pane (its header or a turn) see pick.
   const goTo = name => {
     const box = () => main.querySelector(`.pane .card[data-name="${CSS.escape(name)}"] .say`);
     const tabs = !box() && leaves(layout().root).find(([, n]) => n.show === "tabs" && paneAgents(n).some(a => a.name === name));
@@ -4591,7 +4608,15 @@ function customClicks() {
   };
   // an agent that is not running has nothing to open: a click on its row or tile opens its menu instead, as a tap
   // does on a touch screen, where nothing rests on it (the menu's Open goes to it)
-  const open = m => m.classList.contains("off") || touched ? menuSoon(m, 0) : (menuOff(true), goTo(m.dataset.name));
+  const open = m => m.classList.contains("off") || touched ? menuSoon(m, 0) : (menuOff(true), pick(m, m.dataset.name));
+  // in a Combined pane, the agent fills the pane; anywhere else, goTo
+  const pick = (el, name) => {
+    const path = el.closest(".pane")?.dataset.path;
+    if (!path || !el.closest(".teamlog.combined") || nodeAt(layout().root, path)?.show !== "combined") return goTo(name);
+    localStorage.setItem("focus:pane:" + path, name); draw();
+    const box = main.querySelector(`.pane[data-path="${path}"] .card[data-name="${CSS.escape(name)}"] .say`);
+    if (box) aim(box);
+  };
   main.querySelectorAll(".others .mini").forEach(m => {
     m.onclick = () => open(m);
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
@@ -4603,21 +4628,25 @@ function customClicks() {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
-  menuGo = goTo;
+  menuGo = (name, from) => from ? pick(from, name) : goTo(name);   // from an agent in a Combined pane, it fills the pane
   main.querySelectorAll(".teamlog:not(.combined) .thead .name").forEach(el => el.onclick = () => goTo(el.dataset.name));   // a Combined pane's are above
-  // in a Combined pane's header a double-click on an agent opens the chat with it; a single click, once it is plainly
-  // not the first of two, does what it does anywhere else
-  main.querySelectorAll(".combined .cnames [data-name]").forEach(el => {
-    const one = el.onclick, path = el.closest(".pane").dataset.path;
-    let wait = 0;
-    el.onclick = e => { clearTimeout(wait); if (e.detail < 2) wait = setTimeout(() => one(e), 250); };
-    el.ondblclick = () => { clearTimeout(wait); menuOff(true); getSelection().removeAllRanges(); if (S.agents.find(a => a.name === el.dataset.name)?.live) chatWith(path, el.dataset.name); };
-  });
   main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
     const row = e.target.closest(".it[data-agent]");
     if (!row || !getSelection().isCollapsed || e.target.closest("a, img, .thumbs, pre, [data-run]")) return;
     const named = e.target.closest(".who")?.textContent, name = S.agents.some(a => a.name === named) ? named : row.dataset.agent;
-    if (S.agents.some(a => a.name === name)) goTo(name);
+    if (S.agents.some(a => a.name === name)) pick(f, name);
+  });
+  // a card over a Combined view starts below its header, so the agents along it show, greyed, above the card
+  main.querySelectorAll(".paneover").forEach(o => {
+    const h = o.parentElement.querySelector(".teamlog > .thead");
+    if (h) o.style.paddingTop = (h.getBoundingClientRect().bottom - o.getBoundingClientRect().top + 8) + "px";
+    const f = o.querySelector(".feed");   // one at its newest turn stays there, now it is shorter
+    if (f?.dataset.end === "1") f.scrollTop = f.scrollHeight;
+  });
+  // the back button, or a click on the greyed Combined view round the card, closes it
+  main.querySelectorAll(".pane .backbtn, .paneover").forEach(b => b.onclick = e => {
+    if (b.matches(".paneover") && e.target !== b) return;
+    e.stopPropagation(); localStorage.removeItem("focus:pane:" + b.closest(".pane").dataset.path); draw();
   });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
@@ -5263,7 +5292,7 @@ const inWindow = name => window.open("/?only#" + encodeURIComponent(name), "_bla
 // closes it): a Characters tile's beside the tile, after a moment's rest or at once on a right-click, going when the
 // pointer has left both; a filter button's under the button on a click, going on a click elsewhere. Esc closes either.
 const menu = $("#menu");
-let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo: Open, the layout's way to show an agent (its box, else its view)
+let menuShow = 0, menuHide = 0, menuGo = () => {};   // menuGo(name, anchor): Open, the layout's way to show an agent (its box, else its view)
 // menuAt draws a menu at its anchor; with stay, an open one is drawn again where it is, keeping the item the keyboard
 // is on, as the page's refresh does to keep a menu up to date (menu.refresh, which a menu that changes sets).
 function menuAt(anchor, key, html, beside, stay) {
@@ -5508,7 +5537,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
-      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat<kbd>Double-click</kbd></div>` : "") + `<div class="sep"></div>${compact}${power}`), beside, stay);
+      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat</div>` : "") + `<div class="sep"></div>${compact}${power}`), beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
   menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
@@ -5518,7 +5547,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     if (go === "chat") chatWith(chatIn, name);
     else if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
     else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
-    else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : menuGo))(name);   // with a view open, Open shows the agent there
+    else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, Open shows the agent there
   });
 }
 // A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
