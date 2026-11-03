@@ -918,15 +918,45 @@ def panes():
 SAY_MAX_BYTES = 4 << 20
 
 
+def typed_lines(pane):
+    """The lines typed in the pane's input box (between the two rules round its ❯ line), as many screen lines as it
+    takes; 0 when it is empty or holds only Claude Code's dim suggestion (dim text is never typed text)."""
+    dim = re.compile(r"\x1b\[2m[^\x1b]*")
+    lines = [ESCAPES.sub("", dim.sub("", l)).rstrip() for l in run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()]
+    rule = lambda l: l.startswith("──")
+    for i in range(len(lines) - 1, 0, -1):
+        if lines[i].startswith("❯") and rule(lines[i - 1]) and not re.match(r"❯\s*\d+\.", lines[i]):   # not a question's options
+            end = next((j for j in range(i + 1, len(lines)) if rule(lines[j])), None)
+            if end is None:
+                return 0
+            box = [lines[i][1:].strip()] + [l.strip() for l in lines[i + 1:end]]
+            return len(box) if any(box) else 0
+    return 0
+
+
+def clear_input(pane):
+    """Empties the pane's input box when something is in it, as Claude Code leaves a message there when its turn is
+    stopped before any answer: Ctrl+U clears a line and Backspace joins the one above, so nothing here can stop a turn,
+    send, or open a menu, whatever state the box is in."""
+    for _ in range(3):
+        n = typed_lines(pane)
+        if not n:
+            return True
+        subprocess.run(["tmux", "send-keys", "-t", pane, "C-u", *["BSpace", "C-u"] * n])
+        time.sleep(0.3)
+
+
 def type_into(name, text, images=()):
     """Types a message into the agent's pane, then Enter; None when it is in no pane, else whether tmux took it.
     The text goes in as one bracketed paste, as a terminal pastes, so its line breaks stay line breaks in the agent's
     message box instead of sending it early. Each image follows as a paste of its path alone, which Claude Code
     attaches as an image, as when a file is dragged in; any other file stays as its path, for the agent to open,
-    with a space after it so the next one does not run on."""
+    with a space after it so the next one does not run on. Anything already in the box (a stopped message Claude Code
+    put back) is cleared first, so the message is not joined onto it."""
     where = panes().get(name)
     if not where:
         return None
+    clear_input(where["pane"])
     ok = True
     parts = [i if os.path.splitext(i)[1].lower() in IMAGE_TYPES else i + " " for i in images]
     for i, part in enumerate(([text + " "] if text else []) + parts):
@@ -1512,7 +1542,7 @@ def suggestion(pane):
     for line in reversed(run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()):
         if "❯" not in ESCAPES.sub("", line):
             continue
-        m = re.fullmatch(r"(?:\x1b\[[0-9;:]*m)*❯[\s\xa0]+\x1b\[2m([^\x1b]+)\x1b\[0m\s*", line.rstrip())
+        m = re.fullmatch(r"(?:\x1b\[[0-9;:]*m)*❯[\s\xa0]+\x1b\[2m([^\x1b]+)\x1b\[0m(?:\x1b\[[0-9;:]*m)*\s*", line.rstrip())
         return m[1].strip() if m else ""
     return ""
 
@@ -4963,8 +4993,13 @@ function keys(e, box, name) {
 // this browser. In an agent's box, ↑ with the caret on the top line steps back through what was sent to that agent and
 // ↓ on the bottom line forward again, to what was being written before the first ↑. Whether the caret was on that line
 // is told by where the key left it: the browser moves it to the very start (or end) only from the top (or bottom) line.
+// Once stepping, ↑ and ↓ go on stepping wherever the caret is, through a message of several lines too, until any other
+// key, click or touch (hist.chain).
 const sentBy = (() => { try { return JSON.parse(localStorage.getItem("sentBy")) || {}; } catch (e) { return {}; } })();
-let hist = {box: null, at: 0, draft: "", shown: null};
+let hist = {box: null, at: 0, draft: "", shown: null, chain: false};
+const plainArrow = e => (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+document.addEventListener("keydown", e => { if (!plainArrow(e)) hist.chain = false; }, true);
+document.addEventListener("pointerdown", () => { hist.chain = false; }, true);
 function logSent(name, text) {
   const log = sentBy[name] = sentBy[name] || [];
   if (log[log.length - 1] !== text) log.push(text);
@@ -4974,9 +5009,10 @@ function logSent(name, text) {
 }
 function histKey(e, box, name) {
   const sentLog = sentBy[name] || [];
-  if (!["ArrowUp", "ArrowDown"].includes(e.key) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || box.selectionStart !== box.selectionEnd) return false;
+  if (!plainArrow(e)) return false;
   const up = e.key === "ArrowUp", from = box.selectionStart, v = box.value;
-  if (up ? v.slice(0, from).includes("\n") : v.slice(from).includes("\n")) return false;
+  const chained = hist.chain && hist.box === box && hist.name === name && v === hist.shown;
+  if (!chained && (box.selectionStart !== box.selectionEnd || (up ? v.slice(0, from).includes("\n") : v.slice(from).includes("\n")))) return false;
   const step = () => {
     if (hist.box !== box || hist.name !== name || box.value !== hist.shown) hist = {box, name, at: sentLog.length, draft: box.value, shown: null};
     const to = hist.at + (up ? -1 : 1);
@@ -4984,9 +5020,10 @@ function histKey(e, box, name) {
     hist.at = to;
     box.value = hist.shown = to === sentLog.length ? hist.draft : sentLog[to];
     box.selectionStart = box.selectionEnd = up ? 0 : box.value.length;   // so the next ↑ (or ↓) steps on at once
+    hist.chain = true;
     grow(box); keep(box);
   };
-  if (hist.box === box && hist.name === name && box.value === hist.shown) { e.preventDefault(); step(); return true; }
+  if (chained) { e.preventDefault(); step(); return true; }
   setTimeout(() => { if (box.selectionStart === box.selectionEnd && box.selectionStart === (up ? 0 : box.value.length) && box.value === v) step(); });
   return false;
 }
