@@ -3277,7 +3277,7 @@ function toggleLane(name, lane) {
   m[name] = set;
   localStorage.setItem("lanes", JSON.stringify(m));
 }
-const laneSeg = name => filterBtn("lanes", "lanes:" + name, laneOf(name), ALL, LANES, name ? "" : "Filter").replace("<b ", `<b data-name="${esc(name)}" `);
+const laneSeg = name => filterBtn("lanes", "lanes:" + name, laneOf(name), ALL, LANES, "").replace("<b ", `<b data-name="${esc(name)}" `);
 // A conversation as shown: the chosen lanes only (an open prompt and the working line always), with each run of automated events folded
 // into one line; in the agent view a folded run opens on a click.
 const openRuns = new Set();
