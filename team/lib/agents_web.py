@@ -3306,6 +3306,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .say:focus{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 25%,transparent)}
 .say.sent{border-color:var(--green)}
 .say.failed{border-color:var(--red)}
+.say.dropping{border-color:var(--cyan);box-shadow:0 0 0 3px color-mix(in srgb,var(--cyan) 25%,transparent)}
 .say{padding-right:34px}
 .send{flex:none;align-self:flex-start;position:relative;z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);padding:0;border:0;border-radius:6px;
   background:none;color:var(--mute);cursor:pointer}   /* inside the box: the row's gap and its own width pulled back over the box's end */
@@ -5653,6 +5654,26 @@ function pick(name, box) {
   input.onchange = () => { upload([...input.files], name, box); aim(box); };
   input.click();
 }
+// A file dragged from this computer onto a message row goes with the message, as one picked with its + does. Dropped
+// anywhere else on the page it is ignored: the browser would otherwise leave the page to open it.
+const hasFiles = e => e.dataTransfer?.types.includes("Files");
+const dropBox = e => { const b = e.target.closest?.(".sayrow")?.querySelector("textarea.say"); return b && !b.disabled ? b : null; };
+const dropMark = b => { document.querySelectorAll(".say.dropping").forEach(x => x.classList.remove("dropping")); b?.classList.add("dropping"); };
+document.addEventListener("dragover", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const b = dropBox(e);
+  e.dataTransfer.dropEffect = b ? "copy" : "none";
+  dropMark(b);
+});
+document.addEventListener("dragleave", e => { if (hasFiles(e) && !e.relatedTarget) dropMark(null); });
+document.addEventListener("drop", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dropMark(null);
+  const b = dropBox(e);
+  if (b) { upload([...e.dataTransfer.files], b.dataset.name || open, b); aim(b); }
+});
 const addButton = name => `<button class="add" data-name="${esc(name)}" title="Add images or files (Ctrl+U)"></button>`;
 function showAtt(name) {
   const list = atts[name] || [];
