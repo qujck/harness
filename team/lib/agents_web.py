@@ -2916,7 +2916,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.tools .call{display:block}
 .it.tools .call + .call{padding-left:1.35em}
 .it.tools .call + .call{margin-top:2px}
-.it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(10.5px*var(--fs,1)) var(--mono);padding-left:4px}
+.it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(10.5px*var(--fs,1)) var(--mono);padding-left:4px;min-width:calc(3ch + 4px);text-align:right}   /* 9s to 10s does not move the line */
 code{font:calc(11.5px*var(--fs,1)) var(--mono);background:var(--codebg);padding:0 4px;border-radius:4px;color:var(--text)}
 code.flat{padding:0;background:none;color:var(--mute)}
 .it.pics{flex-wrap:wrap}
@@ -3399,7 +3399,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </head>
 <body>
 <header>
-  <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="45" fill="#12161C"/><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="#12161C" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="1.5" y="1.5" width="197" height="197" rx="44" fill="#F4F4F0" stroke="#D6D6CF" stroke-width="3"/><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="150" y2="50"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="#F4F4F0" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
+  <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="none" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="none" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -5391,6 +5391,21 @@ function grow(t) {
   t.style.height = t.scrollHeight + 2 + "px";
   t.style.overflowY = t.scrollHeight > t.clientHeight + 2 ? "auto" : "hidden";
 }
+// A new line at the caret, kept in view in a box past its cap. The text before the caret, laid out in a hidden copy of
+// the box, gives the caret's depth, wrapped lines included.
+function newLine(t) {
+  t.setRangeText("\n", t.selectionStart, t.selectionEnd, "end");
+  grow(t);
+  const copy = t.cloneNode();
+  copy.value = t.value.slice(0, t.selectionStart);
+  copy.style.cssText += `;position:absolute;visibility:hidden;width:${t.offsetWidth}px;height:0;min-height:0`;
+  t.after(copy);
+  const depth = copy.scrollHeight;
+  copy.remove();
+  const line = parseFloat(getComputedStyle(t).lineHeight);
+  if (depth > t.scrollTop + t.clientHeight) t.scrollTop = depth - t.clientHeight;
+  else if (depth - line < t.scrollTop) t.scrollTop = depth - line;
+}
 // A working agent's turn can be stopped, as Esc stops it in the terminal. From the click until the agent is no
 // longer busy (or ten seconds pass) its Stop buttons show it is stopping and its working line reads "Stopping…".
 const stopping = {};
@@ -5431,7 +5446,7 @@ function keys(e, box, name) {
   }
   if (e.key !== "Enter") return;
   e.preventDefault();
-  if (e.ctrlKey) { box.setRangeText("\n", box.selectionStart, box.selectionEnd, "end"); grow(box); }
+  if (e.ctrlKey) newLine(box);
   else {
     if (openAsk(S.agents.find(a => a.name === name))) { flash(box, "failed"); box.title = ASK_SHUT; } else say(name, box);
   }
