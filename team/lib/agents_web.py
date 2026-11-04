@@ -16,7 +16,7 @@
                              answered with option n: its digit, or for a typed option the text, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
-  POST /api/team/start       team/team-start.sh, then each agent the page stopped is compacted once it is up, and the
+  POST /api/team/start       team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
                              delivery lead is told the team is back up to start the day
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
   POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
@@ -91,6 +91,7 @@ TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-
 TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
+STOPPED = os.environ.get("AGENTS_STOPPED") or os.path.join(STATE_DIR, "stopped")   # standing agents stopped one by one from the page, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
 STANDING = {"lead", "hot", "ops", "support", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 # (the three chiefs, owner 2026-10-31: Carl development, Vera test, Ed operations; production support is Ed's role until the roster renames it)
@@ -1149,15 +1150,37 @@ def team_paused():
         return False
 
 
-def team_up():
-    """Who the next start brings back: those running when the page last stopped the team who are still on the roster,
-    the lead always among them; None with no record, when the whole team starts."""
+def names_in(path):
+    """The names in a file of one name a line; None with no such file."""
     try:
-        with open(TEAM_UP) as f:
-            names = {n.strip() for n in f if n.strip()}
+        with open(path) as f:
+            return {n.strip() for n in f if n.strip()}
     except OSError:
         return None
-    return [r["name"] for r in roster() if r["name"] in names or role_of(r["role"])[0] == "lead"]
+
+
+def keep_stopped(name, stopped):
+    """Records that a standing agent was stopped on its own, or started again. It stays stopped across a restart of the
+    machine, which leaves no record of who was running, until its own Start."""
+    names = names_in(STOPPED) or set()
+    names = names | {name} if stopped else names - {name}
+    os.makedirs(os.path.dirname(STOPPED), exist_ok=True)
+    with open(STOPPED, "w") as f:
+        f.write("".join(n + "\n" for n in sorted(names)))
+
+
+def team_up():
+    """Who the next start brings back, the lead always among them: those running when the page last stopped the team
+    who are still on the roster. With no such record, the roster except the agents stopped one by one; None if that is
+    the whole team."""
+    lead = lambda r: role_of(r["role"])[0] == "lead"
+    names = names_in(TEAM_UP)
+    if names is not None:
+        return [r["name"] for r in roster() if r["name"] in names or lead(r)]
+    stopped = names_in(STOPPED) or set()
+    if not any(r["name"] in stopped and not lead(r) for r in roster()):
+        return None
+    return [r["name"] for r in roster() if r["name"] not in stopped or lead(r)]
 
 
 def start_team(lead, names):
@@ -2593,6 +2616,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, b"that agent is running\n", "text/plain")
             if not os.path.isfile(TEAM_START_SH):
                 return self.send(500, f"{TEAM_START_SH} is not there\n".encode(), "text/plain")
+            keep_stopped(name, False)
             _starting.add(name)
             threading.Thread(target=start_one, args=(name,), daemon=True).start()
             return self.send(202, json.dumps({"starting": name}).encode(), "application/json")
@@ -2601,6 +2625,7 @@ class Handler(BaseHTTPRequestHandler):
         ok = type_into(name, AGENT_STOP)
         if ok is None:
             return self.send(409, b"that agent is not running\n", "text/plain")
+        keep_stopped(name, True)
         _halting.add(name)
         compact_later([name])
         threading.Thread(target=halt_when_idle, args=(name,), daemon=True).start()
