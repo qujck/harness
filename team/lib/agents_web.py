@@ -7,7 +7,8 @@
                     (and the header's and footer's plug-ins: team/bar's and each executable in AGENT_BAR_PLUGINS,
                     else ~/.config/agents-web/bar, given the page's numbers, print a line or JSON; see plugins())
   /api/team         every message between the running agents, as one transcript
-  /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last two minutes, for Performance panes
+  /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last ten minutes, for Performance panes
+  /api/perf/history?key=cpu&span=3600   one of those over 2 minutes, 10, an hour or a day, for the enlarged graph
   /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
@@ -484,18 +485,21 @@ def disk():
 
 # The machine's performance for Performance panes (/api/perf), as Task Manager shows it: CPU, memory, each disk's
 # space and the disks' activity, each network interface and each GPU, every PERF_STEP seconds with the last
-# PERF_KEEP readings for the lines under them. Linux reads /proc (under WSL, the WSL machine's own figures, which is
+# PERF_KEEP readings for the lines under them, and for the enlarged graph (/api/perf/history) every reading of the last
+# hour and each minute's average over the last day. Linux reads /proc (under WSL, the WSL machine's own figures, which is
 # where the agents run, not Windows'), and nvidia-smi, else an AMD card's /sys figures, for the GPU; macOS reads one
 # long-running top for the CPU and the disks' activity, sysctl for memory, netstat for the network and ioreg for the
-# GPU. The sampling starts with the first request and stops PERF_IDLE seconds after the last, so a page with no
-# Performance pane costs nothing. nvidia-smi is run once after another in a thread of its own: a run takes seconds
+# GPU. The sampling starts with the first request and then runs for as long as the page does, so the history is there
+# whenever a graph is opened, while a page that never shows the figures costs nothing. nvidia-smi is run once after another in a thread of its own: a run takes seconds
 # (four or five under WSL), and its own loop (-l) reports the GPU's use only on its first line under WSL.
-PERF_STEP, PERF_KEEP, PERF_IDLE = 2, 60, 60
+PERF_STEP, PERF_KEEP = 10, 60
+PERF_SPANS = (120, 600, 3600, 86400)   # the enlarged graph's timescales: every reading up to an hour, minutes beyond
 MAC = os.uname().sysname == "Darwin"
 NVIDIA_SMI = shutil.which("nvidia-smi") or ("/usr/lib/wsl/lib/nvidia-smi" if os.access("/usr/lib/wsl/lib/nvidia-smi", os.X_OK) else None)
 WHOLE_DISK = re.compile(r"(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)")
 VIRTUAL_NET = re.compile(r"lo|lo0|docker\d*|veth.*|br-.*|virbr.*|cni.*|flannel.*|vxlan.*|tailscale.*|utun\d*|awdl\d*|llw\d*|gif\d*|stf\d*|anpi\d*|ap\d*|bridge\d*")
-_perf = {"asked": 0, "running": False, "now": None, "hist": {}}
+_perf = {"running": False, "now": None, "hist": {}}
+_perf_long, _perf_mins = {}, {}   # per series: [time, value] for the last hour; [minute, sum, count] for the last day
 _perf_lock = threading.Lock()
 _children = {}   # the long-running nvidia-smi and (macOS) top, with the last reading each printed
 
@@ -744,15 +748,6 @@ def start_children():
         threading.Thread(target=child_lines, args=("top", ["top", "-l", "0", "-n", "0", "-s", str(PERF_STEP)], top), daemon=True).start()
 
 
-def stop_children():
-    for key, p in list(_children.items()):
-        _children.pop(key, None)
-        try:
-            p.terminate()
-        except OSError:
-            pass
-
-
 def perf_counters():
     """The machine's counters now: CPU (busy, total) or busy %, memory, disks' (read, written, busy ms), the network's
     (in, out) per interface, and the GPUs."""
@@ -806,9 +801,38 @@ def perf_reading(prev, cur, dt):
     return out
 
 
+def perf_record(key, t, value):
+    """One reading of a series into its last hour and its last day's minutes."""
+    raw = _perf_long.setdefault(key, [])
+    raw.append([round(t), value])
+    while raw[0][0] < t - 3600:
+        raw.pop(0)
+    mins, m = _perf_mins.setdefault(key, []), int(t // 60) * 60
+    if mins and mins[-1][0] == m:
+        mins[-1][1] += value
+        mins[-1][2] += 1
+    else:
+        mins.append([m, value, 1])
+    while mins[0][0] < t - 86400:
+        mins.pop(0)
+
+
+def perf_history(key, span):
+    """A series over the last span seconds for the enlarged graph: every reading up to an hour, each minute's
+    average beyond. None for a series or span there is none of."""
+    if span not in PERF_SPANS or key not in _perf_long:
+        return None
+    since = time.time() - span
+    if span <= 3600:
+        points = [p for p in list(_perf_long[key]) if p[0] >= since]
+    else:
+        points = [[m + 30, round(total / n, 2)] for m, total, n in list(_perf_mins.get(key, [])) if m >= since - 60]
+    return {"key": key, "span": span, "step": PERF_STEP if span <= 3600 else 60, "points": points}
+
+
 def perf_loop():
     prev = None
-    while time.time() - _perf["asked"] < PERF_IDLE:
+    while True:
         t = time.time()
         cur = perf_counters()
         r = perf_reading(prev and prev[1], cur, t - prev[0] if prev else 0)
@@ -816,6 +840,8 @@ def perf_loop():
         def keep(key, value):
             if value is not None:
                 hist[key] = (hist.get(key, []) + [value])[-PERF_KEEP:]
+                if prev:
+                    perf_record(key, t, value)
         keep("cpu", r.get("cpu"))
         keep("mem", round(100 * r["mem"]["used"] / r["mem"]["total"], 1) if r["mem"]["total"] else None)
         if r.get("disk"):
@@ -830,14 +856,10 @@ def perf_loop():
             _perf["now"] = r
         prev = (t, cur)
         time.sleep(max(0.1, PERF_STEP - (time.time() - t)))
-    stop_children()
-    with _perf_lock:
-        _perf.update(running=False, now=None, hist={}, smi=None, top=None, temps=None)
 
 
 def perf_json():
     with _perf_lock:
-        _perf["asked"] = time.time()
         if not _perf["running"]:
             _perf["running"] = True
             start_children()
@@ -2328,6 +2350,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, state_json(), "application/json")
         elif path == "/api/perf":
             self.send(200, perf_json(), "application/json")
+        elif path == "/api/perf/history":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            try:
+                h = perf_history(q.get("key", [""])[0], int(q.get("span", ["0"])[0]))
+            except ValueError:
+                h = None
+            self.send(200 if h else 404, json.dumps(h).encode() if h else b"no such series\n", "application/json" if h else "text/plain")
         elif path == "/api/meetings":
             self.send(200, meetings_json(), "application/json")
         elif path == "/api/commands":
@@ -2651,6 +2680,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
+:not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar]){cursor:pointer}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
 .editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab;touch-action:none}
 .editing > .bi.tight + .bi.tight{margin-left:0}
@@ -2943,6 +2973,23 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #lightbox figcaption a{color:#9cf}
 #lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
 #lightbox .x:hover{color:#fff}
+#graphbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
+#graphbox.on{display:flex}
+#graphbox .doc{display:flex;flex-direction:column;width:min(1100px,100%);border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 14px 40px #0009}
+#graphbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
+#graphname{font-weight:600;color:var(--text)}
+#graphsum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#graphbox .x{cursor:pointer;font-size:calc(18px*var(--fs,1));line-height:1}
+#graphbox .x:hover{color:var(--text)}
+#graphbody{position:relative;height:min(360px,60vh);padding:14px 16px 10px}
+#graphbody svg{display:block;width:100%;height:100%;overflow:visible}
+#graphbody text{font:calc(10.5px*var(--fs,1)) var(--mono);fill:var(--mute)}
+#graphbody .grid{stroke:var(--line);stroke-width:1}
+#graphbody .cursor{stroke:var(--mute);stroke-dasharray:3 3}
+#graphtip{position:absolute;top:8px;padding:3px 7px;border-radius:5px;border:1px solid var(--line2);background:var(--box);font:calc(11px*var(--fs,1)) var(--mono);color:var(--text);pointer-events:none;white-space:nowrap}
+#graphbody .blank{display:grid;place-items:center;height:100%;color:var(--mute)}
+.mini.perf[data-series]{cursor:pointer}
+@media (max-width:600px){#graphbox{padding:12px}}
 #docbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #docbox.on{display:flex}
 #docbox .doc{display:flex;flex-direction:column;width:min(920px,100%);max-height:100%;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 14px 40px #0009}
@@ -3416,6 +3463,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 <div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
+<div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
@@ -4852,7 +4900,7 @@ async function loadFiles() {
   }));
 }
 // Performance panes: the machine's CPU, memory, disks, network, GPUs and heat, read again with every load (/api/perf),
-// one row each as the List pane has one per agent, with its last two minutes under it. Which of them a pane shows
+// one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
 // Network, GPU and Heat bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
 let perfNow = null;
@@ -4876,33 +4924,117 @@ function perfHtml(n) {
   if (!on.length) return `<div class="blank">Choose what to show</div>`;
   if (!d || d.warming) return `<div class="blank">Reading…</div>`;
   const h = d.hist || {};
-  // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C)
-  const row = (key, name, detail, pct, series, ceil, tip = "", unit = "%", colour = gauge(pct)) =>
-    `<div class="mini perf" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"><div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
+  // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C);
+  // a row with a series (sk, its key in the history) opens it as the enlarged graph, its values read as gunit
+  const row = (key, name, detail, pct, sk, ceil, tip = "", unit = "%", colour = gauge(pct), gunit = "%") =>
+    `<div class="mini perf" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    `<div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
     `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${colour}">${Math.round(pct)}${unit}</span>`}</div>` +
-    `${series ? spark(series, ceil, PERF_COLOUR[key]) : ""}</div>`;
+    `${sk && h[sk] ? spark(h[sk], ceil, PERF_COLOUR[key]) : ""}</div>`;
   const rows = {
-    cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, h.cpu, 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
+    cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, "cpu", 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
     mem: () => { const m = d.mem;
       return row("mem", "Memory", `${perfOf(m.used, m.total)}${m.swap_total ? ` · swap ${perfOf(m.swap_used, m.swap_total)}` : ""}`,
-        m.total ? 100 * m.used / m.total : null, h.mem, 100, "In use, as Task Manager counts it: what is not available to programs"); },
-    disk: () => (d.disk ? row("disk", "Disk", `read ${perfSize(d.disk.read)}/s · write ${perfSize(d.disk.write)}/s`, d.disk.active, h.disk,
-        d.disk.active == null ? Math.max(1, ...h.disk) : 100, d.disk.active == null ? "Read and written" : "Active time, the busiest disk") : "") +
+        m.total ? 100 * m.used / m.total : null, "mem", 100, "In use, as Task Manager counts it: what is not available to programs"); },
+    disk: () => (d.disk ? row("disk", "Disk", `read ${perfSize(d.disk.read)}/s · write ${perfSize(d.disk.write)}/s`, d.disk.active, "disk",
+        d.disk.active == null ? Math.max(1, ...h.disk) : 100, d.disk.active == null ? "Read and written" : "Active time, the busiest disk",
+        "%", gauge(d.disk.active), d.disk.active == null ? "B" : "%") : "") +
       d.spaces.map(sp => row("disk", sp.label, `${perfOf(sp.used, sp.total)} · ${perfSize(sp.total - sp.used)} free`, 100 * sp.used / sp.total, null, 0, sp.path)).join(""),
     net: () => (d.net || []).map(x => row("net", x.name, `↓ ${perfSize(x.in * 8, "b")}/s · ↑ ${perfSize(x.out * 8, "b")}/s`, null,
-      h["net:" + x.name], Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent")).join("") || row("net", "Network", "no interface", null),
+      "net:" + x.name, Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent", "%", undefined, "b")).join("") || row("net", "Network", "no interface", null),
     gpu: () => d.gpus.map(g => row("gpu", d.gpus.length > 1 ? `GPU ${g.id}` : "GPU", [g.name, g.mem_total ? perfOf(g.mem_used, g.mem_total) : g.mem_used ? perfSize(g.mem_used) : "",
-      g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, h["gpu:" + g.id], 100, g.pct == null ? "Its use is not reported just now" : "")).join("")
+      g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, "gpu:" + g.id, 100, g.pct == null ? "Its use is not reported just now" : "")).join("")
       || row("gpu", "GPU", d.gpu_source === "nvidia-smi" ? "reading…" : "no figures here: no nvidia-smi or AMD card", null),
     // the hottest sensor, green, amber from 80 °C and red from 90 °C, as the Heat bar is; every sensor on a rest
     heat: () => { const t = d.temps, hot = t?.[0]?.c;
-      return t?.length ? row("heat", "Heat", `${t[0].name}${t.length > 1 ? ` · hottest of ${t.length} sensors` : ""}`, hot, h.heat, 100,
+      return t?.length ? row("heat", "Heat", `${t[0].name}${t.length > 1 ? ` · hottest of ${t.length} sensors` : ""}`, hot, "heat", 100,
           "The hottest sensor, standing in for the fans, whose speed is not reported\n" + t.map(x => `${x.name}: ${Math.round(x.c)} °C`).join("\n"),
-          " °C", hot >= 90 ? "var(--red)" : hot >= 80 ? "var(--amber)" : "var(--green)")
+          " °C", hot >= 90 ? "var(--red)" : hot >= 80 ? "var(--amber)" : "var(--green)", "°C")
         : row("heat", "Heat", t ? (d.heat_source === "windows" || d.heat_source === "sys" ? "no temperature sensors here" : "no temperature: install smctemp or osx-cpu-temp from Homebrew") : "reading…", null); },
   };
   return `<div class="others perfs">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
 }
+// A Performance row's enlarged graph, over the page: its series over 2 minutes, 10, an hour or a day (the last chosen,
+// kept in this browser), read again every ten seconds while it is open, with gridlines, times along the bottom, its
+// latest, average and highest over the span, and the reading under the pointer. A gap in the readings (the page was not
+// running) is a gap in the line.
+const GRAPH_SPANS = [[120, "2m"], [600, "10m"], [3600, "1h"], [86400, "24h"]];
+let graphOf = null, graphTimer = null;
+const graphSpan = () => { const v = +localStorage.getItem("graphspan"); return GRAPH_SPANS.some(([s]) => s === v) ? v : 600; };
+// a reading in its unit: a percentage, °C, the network's bits a second or the disks' bytes a second
+const graphFmt = (v, unit) => v == null ? "–" : unit === "%" ? `${v < 10 && v % 1 ? v.toFixed(1) : Math.round(v)}%` : unit === "°C" ? `${Math.round(v)} °C`
+  : unit === "b" ? perfSize(v * 8, "b") + "/s" : perfSize(v) + "/s";
+function openGraph(key, label, colour, unit) {
+  graphOf = {key, label, colour: colour || "var(--cyan)", unit, data: null};
+  $("#graphname").textContent = label; $("#graphsum").textContent = ""; $("#graphbody").innerHTML = `<div class="blank">Reading…</div>`;
+  $("#graphbox").classList.add("on");
+  clearInterval(graphTimer); graphTimer = setInterval(loadGraph, 10000);
+  loadGraph();
+}
+// The CPU, Memory, Network, GPU and Heat bars open the graph their Performance rows do, while the layout is locked.
+const BAR_GRAPH = {
+  cpubar: () => ["cpu", "CPU", "cpu", "%"],
+  membar: () => ["mem", "Memory", "mem", "%"],
+  heatbar: () => ["heat", "Heat", "heat", "°C"],
+  gpubar: () => { const g = (perfNow?.gpus || []).reduce((a, b) => !a || b.pct > a.pct ? b : a, null); return g && ["gpu:" + g.id, "GPU", "gpu", "%"]; },
+  netbar: () => { const n = (perfNow?.net || []).reduce((a, b) => !a || b.in + b.out > a.in + a.out ? b : a, null); return n && ["net:" + n.name, n.name, "net", "b"]; },
+};
+addEventListener("click", async e => {
+  const bar = e.target.closest(".bi.plug"), of = bar && !barEditing() && BAR_GRAPH[bar.dataset.item];
+  if (!of) return;
+  await loadPerf();   // the sampling behind the graph, and which network and GPU are the busiest
+  const g = of();
+  if (g) openGraph(g[0], g[1], PERF_COLOUR[g[2]], g[3]);
+});
+function closeGraph() { $("#graphbox").classList.remove("on"); clearInterval(graphTimer); graphOf = null; }
+$("#graphbox").onclick = e => { if (e.target.id === "graphbox" || e.target.id === "graphx") closeGraph(); };
+$("#graphspan").onclick = e => { const b = e.target.closest("[data-span]"); if (!b) return; localStorage.setItem("graphspan", b.dataset.span); loadGraph(); };
+async function loadGraph() {
+  const g = graphOf, span = graphSpan();
+  $("#graphspan").innerHTML = GRAPH_SPANS.map(([s, t]) => `<b data-span="${s}" class="${s === span ? "on" : ""}">${t}</b>`).join("");
+  if (!g) return;
+  try {
+    const r = await fetch(`/api/perf/history?key=${encodeURIComponent(g.key)}&span=${span}`, {cache: "no-store"});
+    if (g !== graphOf) return;
+    g.data = r.ok ? await r.json() : {span, step: 10, points: []};
+  } catch (e) { return; }
+  drawGraph();
+}
+function drawGraph() {
+  const g = graphOf, body = $("#graphbody");
+  if (!g?.data) return;
+  const {points, span, step} = g.data, now = Date.now() / 1000, vals = points.map(p => p[1]);
+  if (!points.length) { body.innerHTML = `<div class="blank">No readings in this span yet</div>`; $("#graphsum").textContent = ""; return; }
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length, top = Math.max(...vals);
+  $("#graphsum").textContent = `now ${graphFmt(vals[vals.length - 1], g.unit)} · average ${graphFmt(avg, g.unit)} · highest ${graphFmt(top, g.unit)}`;
+  const W = Math.max(200, body.clientWidth - 32), H = Math.max(120, body.clientHeight - 24), L = 64, B = 22;
+  const ceil = g.unit === "%" ? 100 : g.unit === "°C" ? Math.max(100, top * 1.1) : Math.max(1, top * 1.15);
+  const x = t => L + (W - L) * (t - (now - span)) / span, y = v => (H - B) * (1 - Math.min(v, ceil) / ceil);
+  // the line, broken where readings are more than three steps apart
+  let line = "", area = "", run = [];
+  const flush = () => { if (!run.length) return; const d = run.map((p, i) => (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join(" ");
+    line += d + " "; area += `${d} L${x(run[run.length - 1][0]).toFixed(1)} ${H - B} L${x(run[0][0]).toFixed(1)} ${H - B} Z `; run = []; };
+  points.forEach((p, i) => { if (i && p[0] - points[i - 1][0] > step * 3) flush(); run.push(p); });
+  flush();
+  const grid = [0, .25, .5, .75, 1].map(f => `<line class="grid" x1="${L}" x2="${W}" y1="${y(ceil * f)}" y2="${y(ceil * f)}"/><text x="${L - 8}" y="${y(ceil * f) + 3.5}" text-anchor="end">${graphFmt(ceil * f, g.unit)}</text>`).join("");
+  const clock = (t, secs = span <= 120) => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", hourCycle: "h23", ...(secs ? {second: "2-digit"} : {})});
+  const times = [0, .25, .5, .75, 1].map(f => `<text x="${L + (W - L) * f}" y="${H - 5}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${clock(now - span * (1 - f))}</text>`).join("");
+  const id = "gg" + Math.random().toString(36).slice(2);
+  body.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${g.colour}" stop-opacity=".35"/><stop offset="1" stop-color="${g.colour}" stop-opacity="0"/></linearGradient></defs>` +
+    `${grid}${times}<path d="${area}" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${g.colour}" stroke-width="1.8" vector-effect="non-scaling-stroke"/>` +
+    `<line class="cursor" y1="0" y2="${H - B}" style="display:none"/><circle r="3.5" fill="${g.colour}" style="display:none"/></svg><div id="graphtip" style="display:none"></div>`;
+  const svg = body.querySelector("svg"), cur = svg.querySelector(".cursor"), dot = svg.querySelector("circle"), tip = $("#graphtip");
+  svg.onmousemove = e => {
+    const box = svg.getBoundingClientRect(), t = (now - span) + span * ((e.clientX - box.left) * W / box.width - L) / (W - L);
+    const p = points.reduce((a, b) => Math.abs(b[0] - t) < Math.abs(a[0] - t) ? b : a);
+    cur.setAttribute("x1", x(p[0])); cur.setAttribute("x2", x(p[0])); cur.style.display = "";
+    dot.setAttribute("cx", x(p[0])); dot.setAttribute("cy", y(p[1])); dot.style.display = "";
+    tip.textContent = `${clock(p[0], true)} · ${graphFmt(p[1], g.unit)}`; tip.style.display = "";
+    tip.style.left = Math.min(box.width - tip.offsetWidth, Math.max(0, x(p[0]) * box.width / W - tip.offsetWidth / 2)) + 16 + "px";
+  };
+  svg.onmouseleave = () => { cur.style.display = dot.style.display = tip.style.display = "none"; };
+}
+addEventListener("resize", () => { if (graphOf) drawGraph(); });
 // Where each part of a pane was scrolled to, put back after a redraw: a part that is replaced, or moved as a kept feed
 // is, comes back at its top (owner, 2026-11-01: "sometimes when I click the padlock both panes scroll to the very top").
 const scrollKey = e => (e.closest("[data-name]")?.dataset.name || "") + "|" + e.className + "|" + (e.dataset.key || "");
@@ -5093,7 +5225,8 @@ function customClicks() {
     const box = main.querySelector(`.pane[data-path="${path}"] .card[data-name="${CSS.escape(name)}"] .say`);
     if (box) aim(box);
   };
-  main.querySelectorAll(".others .mini").forEach(m => {
+  main.querySelectorAll(".mini.perf[data-series]").forEach(m => m.onclick = () => openGraph(m.dataset.series, m.dataset.label, m.style.getPropertyValue("--c"), m.dataset.unit));
+  main.querySelectorAll(".others .mini:not(.perf)").forEach(m => {
     m.onclick = () => open(m);
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
@@ -5786,6 +5919,7 @@ $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if ($("#lightbox").classList.contains("on")) closeImg();
+  else if ($("#graphbox").classList.contains("on")) closeGraph();
   else if ($("#docbox").classList.contains("on")) closeDoc();
   else if ($("#dterm").classList.contains("big")) zoom(false);
   else if (paneBig && !open) { paneBig = null; draw(); }
