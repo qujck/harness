@@ -1245,6 +1245,9 @@ def halt_when_idle(name):
 MEETINGS = os.environ.get("AGENTS_MEETINGS") or os.path.join(STATE_DIR, "meetings")
 MEETING_RECORDS = os.environ.get("AGENTS_MEETING_RECORDS") or os.path.join(STATE_DIR, "meeting-records")
 MEETING_SAY = os.environ.get("AGENTS_MEETING_SAY") or os.path.join(ROOT, "team/meeting-say")
+# where meeting sessions start: the folder the projects sit in, which the owner has trusted once for all of them;
+# a meeting needs no project of its own (it speaks only through MEETING_SAY) and trust is not inherited (folder_trusted)
+MEETING_DIR = os.environ.get("AGENTS_MEETING_DIR") or os.path.dirname(ROOT)
 MEETING_MODEL = os.environ.get("AGENTS_MEETING_MODEL") or ""   # every session on this model, else its agent's
 _meetings = {}   # id -> its state, as kept in MEETINGS/<id>.json
 _meet_lock = threading.RLock()
@@ -1361,7 +1364,7 @@ def open_meeting_session(m, name):
     with open(prompt, "w") as f:
         f.write(meeting_prompt(m, name))
     env = " ".join(f"{k}={shlex.quote(v)}" for k, v in (("MEETING_ID", m["id"]), ("MEETING_AS", name), ("AGENT_NAME", name), ("AGENTS_WEB_PORT", str(PORT))))
-    cmd = (f"cd {shlex.quote(ROOT)} && exec env {env} claude{' --model ' + shlex.quote(model) if model else ''}"
+    cmd = (f"cd {shlex.quote(MEETING_DIR)} && exec env {env} claude{' --model ' + shlex.quote(model) if model else ''}"
            f" -n {shlex.quote(meeting_session(name))} --permission-mode auto --allowedTools {shlex.quote(f'Bash({MEETING_SAY}:*)')}"
            f" --disallowedTools Edit,Write,NotebookEdit -- \"$(cat {shlex.quote(prompt)})\"")   # -- ends the tool lists, which take every word after them
     tmux = f"meet-{m['id']}-{name}"
@@ -2546,9 +2549,9 @@ class Handler(BaseHTTPRequestHandler):
             who = [str(x) for x in body.get("who") or [] if str(x) in names]
             if not who:
                 return self.send(400, b"nobody to meet\n", "text/plain")
-            if folder_trusted(ROOT) is False:   # every meeting session would sit at the prompt, seen by nobody
-                return self.send(409, (f"Claude Code has not trusted {ROOT}, where meeting sessions start, so each would wait at its "
-                                       f"trust prompt. Trust it once: run claude in {ROOT} and choose \"Yes, I trust this folder\".\n").encode(),
+            if folder_trusted(MEETING_DIR) is False:   # every meeting session would sit at the prompt, seen by nobody
+                return self.send(409, (f"Claude Code has not trusted {MEETING_DIR}, where meeting sessions start, so each would wait at its "
+                                       f"trust prompt. Trust it once: run claude in {MEETING_DIR} and choose \"Yes, I trust this folder\".\n").encode(),
                                  "text/plain")
             m = start_meeting(list(dict.fromkeys(who)), str(body.get("topic") or "").strip()[:80], str(body.get("view") or "")[:40])
             return self.send(200, json.dumps({"id": m["id"]}).encode(), "application/json")
@@ -6878,6 +6881,7 @@ def self_test():
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
         def meeting_checks():
             opened, typed, killed, real = [], [], [], subprocess
+            open_session = open_meeting_session
             class Run:   # subprocess with run() noting each command (the tmux sessions closed) and running none
                 def __getattr__(self, k):
                     return getattr(real, k)
@@ -6958,8 +6962,14 @@ def self_test():
             t("one running but silent is stuck as that", meeting_stuck(m3, "A", {"A · meeting": {}}), "running but has not said it is here")
             m3["present"]["A"] = time.time()
             t("one that has said it is here is not stuck", meeting_stuck(m3, "A", {}), None)
+            g.update(last_sessions=lambda: {}, subprocess=Run())   # notes the byobu command, starts nothing
+            killed.clear()
+            open_session(m3, "A")
+            t("a meeting session starts in the folder the projects sit in, not in the project",
+              (killed[-1][-1].startswith(f"cd {shlex.quote(MEETING_DIR)} && "),
+               os.environ.get("AGENTS_MEETING_DIR") is not None or MEETING_DIR == os.path.dirname(ROOT)), (True, True))
         keep = {k: g[k] for k in ("MEETINGS", "MEETING_RECORDS", "_meetings", "subprocess", "open_meeting_session", "type_into",
-                                  "setting", "live_sessions", "roster", "CLAUDE_JSON", "meeting_screen")}
+                                  "setting", "live_sessions", "roster", "CLAUDE_JSON", "meeting_screen", "last_sessions")}
         try:
             meeting_checks()
         finally:
