@@ -71,5 +71,8 @@ for an agent already on the roster. The line has two shapes: a developer or test
 lead's `bash team/agent-spawn.sh <role> --name <Name> --ticket <id>`; every other role gets a `cd`
 into its own sibling tree `<project>-<name>` with the row's address and `claude`. It refuses (no line,
 the reason on stderr) a retired name, an empty address and a missing tree, and for a missing tree prints
-the one `git worktree add` that makes it. `roster_role` (same library) records a change of role. Never edit a
+the one `git worktree add` that makes it. Onboarding a standing role makes that tree, and
+`bash scripts/agent-onboard.sh --make-tree <Name>` makes it for an agent rostered earlier and then prints
+the line; the team page's Start uses it. Only an empty path becomes a tree: a file, a directory or another
+clone already there is left alone and refused. `roster_role` (same library) records a change of role. Never edit a
 row's `name` or `email`.
