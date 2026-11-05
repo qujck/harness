@@ -681,6 +681,28 @@ def sys_temps():
     return out
 
 
+_fans_seen = set()
+
+
+def sys_fans(root="/sys/class/hwmon", seen=_fans_seen):
+    """[{"name", "rpm", "duty"}] for each hwmon fan that has turned since the page started, named by its label, else its
+    chip and number ("nct6799 fan2"). A header with nothing on it reads 0 for ever and is left out; a fan that stops
+    when cool reads 0 for a while and stays in. duty is the chip's PWM output to it as a percentage, where it gives one.
+    A board's fan chip needs its driver (nct6775, it87, ...) loaded, or there are no fans here to read."""
+    out = []
+    for f in sorted(glob.glob(root + "/hwmon*/fan*_input"), key=lambda p: [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", p)]):
+        v, base, d = read_text(f).strip(), f[:-len("_input")], os.path.dirname(f)
+        if not v.isdigit():
+            continue
+        name = read_text(base + "_label").strip() or f"{read_text(d + '/name').strip()} {os.path.basename(base)}"
+        if int(v) > 0:
+            seen.add(name)
+        if name in seen:
+            pwm = read_text(d + "/pwm" + os.path.basename(base)[3:]).strip()
+            out.append({"name": name, "rpm": int(v), "duty": round(100 * int(pwm) / 255) if pwm.isdigit() else None})
+    return out
+
+
 def windows_temps(text):
     """(zone, °C) from lines of "<zone>=<tenths of a kelvin>"; a zone with no reading gives 0."""
     out = []
@@ -714,11 +736,12 @@ def read_temps():
 
 
 def heat_loop():
-    """The temperatures into _perf["temps"], read again PERF_STEP seconds after each read ends, while sampling goes on."""
+    """The temperatures into _perf["temps"] and the fans into _perf["fans"], read again PERF_STEP seconds after each read
+    ends, while sampling goes on."""
     while _perf["running"]:
-        temps = read_temps()
+        temps, fans = read_temps(), [] if MAC else sys_fans()
         if _perf["running"]:
-            _perf["temps"] = temps
+            _perf["temps"], _perf["fans"] = temps, fans
         time.sleep(PERF_STEP)
     _perf["heat_on"] = False
 
@@ -788,7 +811,8 @@ def perf_spaces():
 
 def perf_reading(prev, cur, dt):
     """One reading for the page: what cur is, and how fast it moved since prev, dt seconds earlier."""
-    out = {"mem": cur["mem"], "spaces": perf_spaces(), "gpus": cur["gpus"] or [], "temps": _perf.get("temps")}
+    out = {"mem": cur["mem"], "spaces": perf_spaces(), "gpus": cur["gpus"] or [], "temps": _perf.get("temps"),
+           "fans": _perf.get("fans")}
     if "cpu_pct" in cur:
         if cur["cpu_pct"] is not None:
             out["cpu"] = cur["cpu_pct"]
@@ -856,6 +880,8 @@ def perf_loop():
         for g in r["gpus"]:
             keep("gpu:" + g["id"], g["pct"])
         keep("heat", r["temps"][0]["c"] if r["temps"] else None)
+        for f in r["fans"] or []:
+            keep("fan:" + f["name"], f["rpm"])
         r["hist"] = dict(hist)
         if prev:   # the first reading has nothing to measure a rate against
             _perf["now"] = r
@@ -878,7 +904,7 @@ def perf_json():
 # Plug-ins for the page's header and footer (owner, 2026-11-01: "header should default to what we have, with other
 # options addable as plug in style scripts"): each executable file in AGENT_BAR_PLUGINS, else ~/.config/agents-web/bar,
 # is an item the page can add, named by its file name, and keyed "x:<name>". The harness's own are in team/bar - Week,
-# Session, Team and Disk, slim forms of them and slim CPU, Memory, Network, GPU and Heat bars - keyed by their bare names,
+# Session, Team and Disk, slim forms of them and slim CPU, Memory, Network, GPU, Heat and Fans bars - keyed by their bare names,
 # Week, Session, Team and Disk in the bar until taken out. Each is run in the background
 # for at most five seconds, given the page's numbers as JSON on its input (bar_facts()), and what it prints is the
 # item: a line of text, under its file name, or JSON:
@@ -892,7 +918,7 @@ def perf_json():
 #   slim                true: all on one low line, the label and value beside the meter or sparkline; a label of ""
 #                       shows none, and name is what the bar's Add list calls it instead
 #   icon                one of the page's bar icons, shown in place of the label, which stays in its title: week, day,
-#                       disk, cpu, mem, net, gpu, tok or heat
+#                       disk, cpu, mem, net, gpu, tok, heat or fan
 #   place               "header" or "footer": the only one of the two it can be put in (else either)
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
 # the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
@@ -2768,7 +2794,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
-:not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar]){cursor:pointer}
+:not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar],[data-item=fanbar]){cursor:pointer}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
 .editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab;touch-action:none}
 .editing > .bi.tight + .bi.tight{margin-left:0}
@@ -4368,6 +4394,7 @@ const BAR_ICON = Object.fromEntries(Object.entries({
   gpu: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="6" cy="8" r="2.2"/><path d="M10.5 6.5h2M10.5 9.5h2M3 12v2"/>',
   tok: '<path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z"/>',
   heat: '<path d="M6.5 2.6a1.5 1.5 0 0 1 3 0v6.5a3 3 0 1 1-3 0z"/><path d="M8 6.5v4"/>',
+  fan: '<circle cx="8" cy="8" r="1.4"/><path d="M8 6.6C6.6 4.6 7 2 9 2.2s1.4 2.8-1 4.4M9.4 8.4c2.4-.4 4.6.8 4 2.7s-2.9 1-4-1.4M6.8 8.9c-1 2.2-3.3 3.4-4.4 1.8s.9-3 4.2-2.6"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // Each item's icon in a bar's + menu: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
 const ADD_ICON = Object.fromEntries(Object.entries({
@@ -4988,19 +5015,19 @@ async function loadFiles() {
     } catch (e) {}
   }));
 }
-// Performance panes: the machine's CPU, memory, disks, network, GPUs and heat, read again with every load (/api/perf),
+// Performance panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
 // one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
-// Network, GPU and Heat bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
+// Network, GPU, Heat and Fans bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
 let perfNow = null;
-const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar"];
+const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"];
 async function loadPerf() {
   const b = barOf();
   if (!leaves(layout().root).some(([, n]) => n.show === "perf") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
   try { perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); } catch (e) {}
 }
-const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"]];
-const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba"};
+const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"], ["fan", "Fans"]];
+const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba", fan: "#ff9b72"};
 const perfOn = n => Array.isArray(n.perf) ? n.perf : PERF_ITEMS.map(([k]) => k);
 const perfBtn = (path, n) => filterBtn("perfsel", "perf:" + path, perfOn(n), PERF_ITEMS.map(([k]) => k), PERF_ITEMS, "");
 // sizes in Task Manager's way: 1024 to a K, a GB and so on; a disk's rate in bytes and the network's in bits
@@ -5037,9 +5064,13 @@ function perfHtml(n) {
     // the hottest sensor, green, amber from 80 °C and red from 90 °C, as the Heat bar is; every sensor on a rest
     heat: () => { const t = d.temps, hot = t?.[0]?.c;
       return t?.length ? row("heat", "Heat", `${t[0].name}${t.length > 1 ? ` · hottest of ${t.length} sensors` : ""}`, hot, "heat", 100,
-          "The hottest sensor, standing in for the fans, whose speed is not reported\n" + t.map(x => `${x.name}: ${Math.round(x.c)} °C`).join("\n"),
+          (d.fans?.length ? "The hottest sensor\n" : "The hottest sensor, standing in for the fans, whose speed is not reported\n") + t.map(x => `${x.name}: ${Math.round(x.c)} °C`).join("\n"),
           " °C", hot >= 90 ? "var(--red)" : hot >= 80 ? "var(--amber)" : "var(--green)", "°C")
         : row("heat", "Heat", t ? (d.heat_source === "windows" || d.heat_source === "sys" ? "no temperature sensors here" : "no temperature: install smctemp or osx-cpu-temp from Homebrew") : "reading…", null); },
+    // each fan that has turned, its speed and the share of full power the board gives it; one that stops when cool reads 0
+    fan: () => (d.fans || []).map(f => row("fan", f.name, f.duty == null ? (f.rpm ? "" : "stopped") : `${f.rpm ? "" : "stopped · "}power ${f.duty}%`,
+        f.rpm, "fan:" + f.name, Math.max(1, ...(h["fan:" + f.name] || [])), "Its speed in turns a minute", " rpm", "var(--text)", "rpm")).join("")
+      || row("fan", "Fans", d.fans ? "no fan speeds here: the board's fan chip needs its driver (nct6775 or it87)" : "reading…", null),
   };
   return `<div class="others perfs">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
 }
@@ -5052,6 +5083,7 @@ let graphOf = null, graphTimer = null;
 const graphSpan = () => { const v = +localStorage.getItem("graphspan"); return GRAPH_SPANS.some(([s]) => s === v) ? v : 600; };
 // a reading in its unit: a percentage, °C, the network's bits a second or the disks' bytes a second
 const graphFmt = (v, unit) => v == null ? "–" : unit === "%" ? `${v < 10 && v % 1 ? v.toFixed(1) : Math.round(v)}%` : unit === "°C" ? `${Math.round(v)} °C`
+  : unit === "rpm" ? `${Math.round(v)} rpm`
   : unit === "b" ? perfSize(v * 8, "b") + "/s" : perfSize(v) + "/s";
 function openGraph(key, label, colour, unit) {
   graphOf = {key, label, colour: colour || "var(--cyan)", unit, data: null};
@@ -5060,11 +5092,12 @@ function openGraph(key, label, colour, unit) {
   clearInterval(graphTimer); graphTimer = setInterval(loadGraph, 10000);
   loadGraph();
 }
-// The CPU, Memory, Network, GPU and Heat bars open the graph their Performance rows do, while the layout is locked.
+// The CPU, Memory, Network, GPU, Heat and Fans bars open the graph their Performance rows do, while the layout is locked.
 const BAR_GRAPH = {
   cpubar: () => ["cpu", "CPU", "cpu", "%"],
   membar: () => ["mem", "Memory", "mem", "%"],
   heatbar: () => ["heat", "Heat", "heat", "°C"],
+  fanbar: () => { const f = (perfNow?.fans || []).reduce((a, b) => !a || b.rpm > a.rpm ? b : a, null); return f && ["fan:" + f.name, f.name, "fan", "rpm"]; },
   gpubar: () => { const g = (perfNow?.gpus || []).reduce((a, b) => !a || b.pct > a.pct ? b : a, null); return g && ["gpu:" + g.id, "GPU", "gpu", "%"]; },
   netbar: () => { const n = (perfNow?.net || []).reduce((a, b) => !a || b.in + b.out > a.in + a.out ? b : a, null); return n && ["net:" + n.name, n.name, "net", "b"]; },
 };
@@ -6795,7 +6828,7 @@ def self_test():
         t("a plug-in's slim, name and place are kept, and a place other than header or footer is none",
           [plug_item({"label": "", "slim": True, "name": "N", "place": "footer"}, "n"), "place" in plug_item({"place": "top"}, "n")],
           [{"label": "", "title": "", "colour": "", "value": "", "slim": True, "name": "N", "place": "footer"}, False])
-        # the machine's performance, for Performance panes and the CPU, Memory, Network, GPU and Heat bars: each source's
+        # the machine's performance, for Performance panes and the CPU, Memory, Network, GPU, Heat and Fans bars: each source's
         # text as its command or /proc file prints it, and a reading made from two samples
         def perf_checks():
             # ── Linux ────────────────────────────────────────────────────────────────────
@@ -6898,8 +6931,32 @@ def self_test():
            sh("heatbar", {"perf": {"temps": [{"name": "CPU", "c": 40}]}})["value"][0]["colour"],
            sh("heatbar", {"perf": None})["value"], sh("heatbar", {"perf": {"temps": []}}).get("hidden")),
           ("84 °C", "amber", "heat", "red", "green", "…", True))
+        fans = [{"name": "nct6799 fan2", "rpm": 0, "duty": 36}, {"name": "nct6799 fan3", "rpm": 1039, "duty": 85}]
+        t("team/bar/fanbar: the fastest fan, the most power as its meter, amber from 80%, \"…\" with no reading, hidden with no fan",
+          ((j := sh("fanbar", {"perf": {"fans": fans}}))["value"][0]["text"], j["meter"], j["icon"],
+           sh("fanbar", {"perf": {"fans": [{**fans[0], "duty": 96}]}})["value"][0]["text"],
+           sh("fanbar", {"perf": {"fans": [{**fans[0], "duty": 96}]}})["meter"]["colour"],
+           "meter" in sh("fanbar", {"perf": {"fans": [{"name": "GPU", "rpm": 800, "duty": None}]}}),
+           sh("fanbar", {"perf": None})["value"], sh("fanbar", {"perf": {"fans": []}}).get("hidden")),
+          ("1039 rpm", {"pct": 85, "mark": None, "colour": "amber"}, "fan", "stopped", "red", False, "…", True))
+        t("team/bar/heatbar: says the fans are not reported only where they are not",
+          [("standing in" in sh("heatbar", {"perf": {"temps": [{"name": "CPU", "c": 40}], "fans": f}})["title"]) for f in (fans, [], None)],
+          [False, True, True])
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
+        hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one
+        for p, v in (("hwmon7/name", "nct6799"), ("hwmon7/fan1_input", "0"), ("hwmon7/fan2_input", "0"), ("hwmon7/pwm2", "91"),
+                     ("hwmon7/fan3_input", "1039"), ("hwmon7/pwm3", "255"), ("hwmon7/fan10_input", "512"),
+                     ("hwmon2/name", "amdgpu"), ("hwmon2/fan1_input", "800"), ("hwmon2/fan1_label", "GPU")):
+            os.makedirs(os.path.dirname(os.path.join(hw, p)), exist_ok=True)
+            with open(os.path.join(hw, p), "w") as f:
+                f.write(v + "\n")
+        t("fans: a header that has never turned is left out, its PWM as power, labels kept, fan10 after fan3",
+          sys_fans(hw, set()), [{"name": "GPU", "rpm": 800, "duty": None}, {"name": "nct6799 fan3", "rpm": 1039, "duty": 100},
+                                {"name": "nct6799 fan10", "rpm": 512, "duty": None}])
+        t("fans: one that has turned stays in when it stops", [f["name"] for f in sys_fans(hw, {"nct6799 fan2"})],
+          ["GPU", "nct6799 fan2", "nct6799 fan3", "nct6799 fan10"])
+        t("fans: none where no chip reports them", sys_fans(os.path.join(T, "nohwmon"), set()), [])
         def meeting_checks():
             opened, typed, killed, real = [], [], [], subprocess
             open_session = open_meeting_session
