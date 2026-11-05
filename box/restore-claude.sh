@@ -70,7 +70,7 @@ dir() { # dir <claude-name> <fallback>
 
 # cmd <claude-name> <fallback-dir> -> sets $C and $D for one pane; an agent with no named
 # conversation yet gets an empty slot, so the grid keeps its shape. "-" is a deliberately
-# empty slot. An empty slot says so in the pane (claude/empty-slot.py); Enter gives a shell.
+# empty slot. An empty slot says so in the pane (box/empty-slot.py); Enter gives a shell.
 EMPTY="python3 /home/peter/dev/harness/box/empty-slot.py"
 cmd() {
   if [ "$1" = - ]; then C=$EMPTY; D=/home/peter; return; fi
@@ -144,7 +144,7 @@ python3 /home/peter/dev/harness/box/delivery-sync.py || echo "WARNING delivery-s
 byobu set-option -w -t Delivery remain-on-exit on
 
 # --- the delivery lead, with the team panel ---
-# The panel's settings live in claude/team-panel.sh, beside this script, and the owner's weekly budget in
+# The panel's settings live in box/team-panel.sh, beside this script, and the owner's weekly budget in
 # ~/.local/state/strength/agents-budget.env, the one file strength's spawn wrapper also reads. Without it the
 # panel refuses to start and says so in its pane.
 BUDGET=/home/peter/.local/state/strength/agents-budget.env
