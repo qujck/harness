@@ -681,6 +681,28 @@ def sys_temps():
     return out
 
 
+_fans_seen = set()
+
+
+def sys_fans(root="/sys/class/hwmon", seen=_fans_seen):
+    """[{"name", "rpm", "duty"}] for each hwmon fan that has turned since the page started, named by its label, else its
+    chip and number ("nct6799 fan2"). A header with nothing on it reads 0 for ever and is left out; a fan that stops
+    when cool reads 0 for a while and stays in. duty is the chip's PWM output to it as a percentage, where it gives one.
+    A board's fan chip needs its driver (nct6775, it87, ...) loaded, or there are no fans here to read."""
+    out = []
+    for f in sorted(glob.glob(root + "/hwmon*/fan*_input"), key=lambda p: [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", p)]):
+        v, base, d = read_text(f).strip(), f[:-len("_input")], os.path.dirname(f)
+        if not v.isdigit():
+            continue
+        name = read_text(base + "_label").strip() or f"{read_text(d + '/name').strip()} {os.path.basename(base)}"
+        if int(v) > 0:
+            seen.add(name)
+        if name in seen:
+            pwm = read_text(d + "/pwm" + os.path.basename(base)[3:]).strip()
+            out.append({"name": name, "rpm": int(v), "duty": round(100 * int(pwm) / 255) if pwm.isdigit() else None})
+    return out
+
+
 def windows_temps(text):
     """(zone, °C) from lines of "<zone>=<tenths of a kelvin>"; a zone with no reading gives 0."""
     out = []
@@ -714,11 +736,12 @@ def read_temps():
 
 
 def heat_loop():
-    """The temperatures into _perf["temps"], read again PERF_STEP seconds after each read ends, while sampling goes on."""
+    """The temperatures into _perf["temps"] and the fans into _perf["fans"], read again PERF_STEP seconds after each read
+    ends, while sampling goes on."""
     while _perf["running"]:
-        temps = read_temps()
+        temps, fans = read_temps(), [] if MAC else sys_fans()
         if _perf["running"]:
-            _perf["temps"] = temps
+            _perf["temps"], _perf["fans"] = temps, fans
         time.sleep(PERF_STEP)
     _perf["heat_on"] = False
 
@@ -788,7 +811,8 @@ def perf_spaces():
 
 def perf_reading(prev, cur, dt):
     """One reading for the page: what cur is, and how fast it moved since prev, dt seconds earlier."""
-    out = {"mem": cur["mem"], "spaces": perf_spaces(), "gpus": cur["gpus"] or [], "temps": _perf.get("temps")}
+    out = {"mem": cur["mem"], "spaces": perf_spaces(), "gpus": cur["gpus"] or [], "temps": _perf.get("temps"),
+           "fans": _perf.get("fans")}
     if "cpu_pct" in cur:
         if cur["cpu_pct"] is not None:
             out["cpu"] = cur["cpu_pct"]
@@ -856,6 +880,8 @@ def perf_loop():
         for g in r["gpus"]:
             keep("gpu:" + g["id"], g["pct"])
         keep("heat", r["temps"][0]["c"] if r["temps"] else None)
+        for f in r["fans"] or []:
+            keep("fan:" + f["name"], f["rpm"])
         r["hist"] = dict(hist)
         if prev:   # the first reading has nothing to measure a rate against
             _perf["now"] = r
@@ -4988,7 +5014,7 @@ async function loadFiles() {
     } catch (e) {}
   }));
 }
-// Performance panes: the machine's CPU, memory, disks, network, GPUs and heat, read again with every load (/api/perf),
+// Performance panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
 // one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
 // Network, GPU and Heat bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
@@ -4999,8 +5025,8 @@ async function loadPerf() {
   if (!leaves(layout().root).some(([, n]) => n.show === "perf") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
   try { perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); } catch (e) {}
 }
-const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"]];
-const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba"};
+const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"], ["fan", "Fans"]];
+const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba", fan: "#ff9b72"};
 const perfOn = n => Array.isArray(n.perf) ? n.perf : PERF_ITEMS.map(([k]) => k);
 const perfBtn = (path, n) => filterBtn("perfsel", "perf:" + path, perfOn(n), PERF_ITEMS.map(([k]) => k), PERF_ITEMS, "");
 // sizes in Task Manager's way: 1024 to a K, a GB and so on; a disk's rate in bytes and the network's in bits
@@ -5037,9 +5063,13 @@ function perfHtml(n) {
     // the hottest sensor, green, amber from 80 °C and red from 90 °C, as the Heat bar is; every sensor on a rest
     heat: () => { const t = d.temps, hot = t?.[0]?.c;
       return t?.length ? row("heat", "Heat", `${t[0].name}${t.length > 1 ? ` · hottest of ${t.length} sensors` : ""}`, hot, "heat", 100,
-          "The hottest sensor, standing in for the fans, whose speed is not reported\n" + t.map(x => `${x.name}: ${Math.round(x.c)} °C`).join("\n"),
+          (d.fans?.length ? "The hottest sensor\n" : "The hottest sensor, standing in for the fans, whose speed is not reported\n") + t.map(x => `${x.name}: ${Math.round(x.c)} °C`).join("\n"),
           " °C", hot >= 90 ? "var(--red)" : hot >= 80 ? "var(--amber)" : "var(--green)", "°C")
         : row("heat", "Heat", t ? (d.heat_source === "windows" || d.heat_source === "sys" ? "no temperature sensors here" : "no temperature: install smctemp or osx-cpu-temp from Homebrew") : "reading…", null); },
+    // each fan that has turned, its speed and the share of full power the board gives it; one that stops when cool reads 0
+    fan: () => (d.fans || []).map(f => row("fan", f.name, f.duty == null ? (f.rpm ? "" : "stopped") : `${f.rpm ? "" : "stopped · "}power ${f.duty}%`,
+        f.rpm, "fan:" + f.name, Math.max(1, ...(h["fan:" + f.name] || [])), "Its speed in turns a minute", " rpm", "var(--text)", "rpm")).join("")
+      || row("fan", "Fans", d.fans ? "no fan speeds here: the board's fan chip needs its driver (nct6775 or it87)" : "reading…", null),
   };
   return `<div class="others perfs">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
 }
@@ -5052,6 +5082,7 @@ let graphOf = null, graphTimer = null;
 const graphSpan = () => { const v = +localStorage.getItem("graphspan"); return GRAPH_SPANS.some(([s]) => s === v) ? v : 600; };
 // a reading in its unit: a percentage, °C, the network's bits a second or the disks' bytes a second
 const graphFmt = (v, unit) => v == null ? "–" : unit === "%" ? `${v < 10 && v % 1 ? v.toFixed(1) : Math.round(v)}%` : unit === "°C" ? `${Math.round(v)} °C`
+  : unit === "rpm" ? `${Math.round(v)} rpm`
   : unit === "b" ? perfSize(v * 8, "b") + "/s" : perfSize(v) + "/s";
 function openGraph(key, label, colour, unit) {
   graphOf = {key, label, colour: colour || "var(--cyan)", unit, data: null};
@@ -6900,6 +6931,19 @@ def self_test():
           ("84 °C", "amber", "heat", "red", "green", "…", True))
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
+        hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one
+        for p, v in (("hwmon7/name", "nct6799"), ("hwmon7/fan1_input", "0"), ("hwmon7/fan2_input", "0"), ("hwmon7/pwm2", "91"),
+                     ("hwmon7/fan3_input", "1039"), ("hwmon7/pwm3", "255"), ("hwmon7/fan10_input", "512"),
+                     ("hwmon2/name", "amdgpu"), ("hwmon2/fan1_input", "800"), ("hwmon2/fan1_label", "GPU")):
+            os.makedirs(os.path.dirname(os.path.join(hw, p)), exist_ok=True)
+            with open(os.path.join(hw, p), "w") as f:
+                f.write(v + "\n")
+        t("fans: a header that has never turned is left out, its PWM as power, labels kept, fan10 after fan3",
+          sys_fans(hw, set()), [{"name": "GPU", "rpm": 800, "duty": None}, {"name": "nct6799 fan3", "rpm": 1039, "duty": 100},
+                                {"name": "nct6799 fan10", "rpm": 512, "duty": None}])
+        t("fans: one that has turned stays in when it stops", [f["name"] for f in sys_fans(hw, {"nct6799 fan2"})],
+          ["GPU", "nct6799 fan2", "nct6799 fan3", "nct6799 fan10"])
+        t("fans: none where no chip reports them", sys_fans(os.path.join(T, "nohwmon"), set()), [])
         def meeting_checks():
             opened, typed, killed, real = [], [], [], subprocess
             open_session = open_meeting_session
