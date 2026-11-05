@@ -3,7 +3,9 @@
 The register is `agents/roster.json`, written by `bash scripts/agent-onboard.sh <Name> <role>`
 (which also prints the launch line that gives the session its identity). One row per agent that has ever
 worked in the repo: `name`, `role`, `email`, `status` (`active` | `retired`), `onboarded`,
-`offboarded`, `evidence`. Four roles exist in every project that uses this harness, whatever the
+`offboarded`, `evidence`, and an optional `full_name` (free text, `--full-name "Deacon St. John"` at
+onboarding) for the name people read; the `name` stays the identity, since it must fit
+`^[A-Za-z][A-Za-z0-9_-]{1,31}$` (so James O'Brian is `OBrian`). Four roles exist in every project that uses this harness, whatever the
 team size — a solo project holds all four in one head and still benefits from knowing which hat
 is on:
 

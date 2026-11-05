@@ -177,6 +177,18 @@ roster_email_for_name() {
   ' 2>/dev/null
 }
 
+# roster_full_name_for_name <name>  ← json on stdin → the row's `full_name`, else the name itself;
+# empty for an unknown name. The full name is for people to read (a page, a stand-up line); it is
+# never an identity: routing, claims and the address all go by `name`. (owner, 2026-11-05)
+roster_full_name_for_name() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || return 0
+  jq -r --arg n "${name,,}" '
+    (.agents // []) | map(select((.name // "" | ascii_downcase) == $n)) | .[0]
+    | if . == null then "" else (.full_name // .name) end
+  ' 2>/dev/null
+}
+
 # The derived form, and the ONLY one. Lowercase the name; one domain.
 # ⚠ Do NOT add a second spelling here. The whole naming rule is that there is one.
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/harness-env.sh" 2>/dev/null || true
@@ -192,6 +204,7 @@ roster_lookup_role()   { _roster_json | roster_role_for_name   "${1:-}"; }
 roster_lookup_remit()  { _roster_json | roster_remit_for_name  "${1:-}"; }
 roster_lookup_status() { _roster_json | roster_status_for_name "${1:-}"; }
 roster_lookup_email()  { _roster_json | roster_email_for_name  "${1:-}"; }
+roster_lookup_full_name() { _roster_json | roster_full_name_for_name "${1:-}"; }
 roster_has_name()      { _roster_json | roster_known           "${1:-}"; }
 roster_has_email()     { _roster_json | roster_email_known     "${1:-}"; }
 roster_list_active()   { _roster_json | roster_active; }
@@ -211,18 +224,24 @@ roster_any_name()      { _roster_json | roster_name_for_any_email "${1:-}"; }
 # REFUSE rather than guess — a register that silently accepts a contradictory write is worse than
 # one that stops.
 
-# roster_add <name> <role> <date> [evidence]
+# roster_add <name> <role> <date> [evidence] [full name]
+# The full name is optional and free text ("Deacon St. John", "James O'Brian") because the name
+# cannot be: it must fit ^[A-Za-z][A-Za-z0-9_-]{1,31}$. No full name, no field.
 # ⚠ REFUSES A NAME THAT IS ALREADY KNOWN, INCLUDING A RETIRED ONE. That refusal is the point: a
 # retired name must never be re-onboarded while its old commits still carry the address.
 roster_add() {
-  local name="${1:?roster_add <name> <role> <date> [evidence]}" role="${2:?role}" date="${3:?date}"
-  local ev="${4:-declared}" f tmp
+  local name="${1:?roster_add <name> <role> <date> [evidence] [full name]}" role="${2:?role}" date="${3:?date}"
+  local ev="${4:-declared}" full="${5:-}" f tmp
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_add: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
     delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|tester) ;;
     *) printf 'roster_add: unknown role %q — must be one of delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer, tester (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
   esac
+  if [[ "$full" == *[$'\t\n\r']* || ${#full} -gt 64 ]]; then
+    printf 'roster_add: full name %q must be one line of at most 64 characters\n' "$full" >&2
+    return 1
+  fi
   if roster_has_name "$name"; then
     printf 'roster_add: %q is already in the roster (status: %s). A name is NEVER reused — a retired one still owns its commits.\n' \
       "$name" "$(roster_lookup_status "$name")" >&2
@@ -232,8 +251,9 @@ roster_add() {
   # ⚠ `jq … > "$tmp" && mv` leaks the temp when jq fails: the mv never runs and nothing else touches
   # it. (fix_scripts_leak_a_mktemp_file_per_call_and_nothing_gates_it)
   if jq --arg n "$name" --arg r "$role" --arg d "$date" \
-        --arg e "$(roster_email_of_name "$name")" --arg ev "$ev" '
-       .agents += [{name:$n, email:$e, role:$r, status:"active", onboarded:$d, offboarded:null, evidence:$ev}]
+        --arg e "$(roster_email_of_name "$name")" --arg ev "$ev" --arg fn "$full" '
+       .agents += [{name:$n, email:$e, role:$r, status:"active", onboarded:$d, offboarded:null, evidence:$ev}
+                   + (if $fn == "" then {} else {full_name:$fn} end)]
      ' "$f" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
 }
 
@@ -554,6 +574,23 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     || printf '  ok    …and the owner is NOT an agent: the two readers answer different questions\n'
   t 'Peter Parker' 'a human address resolves to a name for messages' \
     "$(printf '%s' "$FXH" | roster_name_for_any_email qujck@outlook.com)"
+
+  # ── the full name: for reading, never an identity ─────────────────────────
+  FXF='{"agents":[{"name":"OBrian","email":"obrian@example.test","full_name":"James O'"'"'Brian","status":"active"},
+                  {"name":"Blair","email":"blair@example.test","status":"active"}]}'
+  t "James O'Brian" 'a full name is read from the row'    "$(printf '%s' "$FXF" | roster_full_name_for_name obrian)"
+  t Blair 'a row with no full name answers its name'      "$(printf '%s' "$FXF" | roster_full_name_for_name Blair)"
+  t ''    'an unknown name has no full name'             "$(printf '%s' "$FXF" | roster_full_name_for_name Nobody)"
+  _fx="$(mktemp)"; printf '{"agents":[]}' > "$_fx"
+  ROSTER_FILE="$_fx" roster_add Deacon delivery-lead 2026-11-05 test 'Deacon St. John' 2>/dev/null
+  ROSTER_FILE="$_fx" roster_add Blair developer 2026-11-05 test 2>/dev/null
+  t 'Deacon St. John' 'roster_add writes the full name'   "$(ROSTER_FILE="$_fx" roster_lookup_full_name Deacon)"
+  t 'null' 'and writes no field when there is none'       "$(jq -c '.agents[1].full_name' "$_fx")"
+  ROSTER_FILE="$_fx" roster_add Zed developer 2026-11-05 test $'two\nlines' 2>/dev/null \
+    && { printf '  FAIL  a two-line full name was written\n'; fails=1; } \
+    || printf '  ok    a full name over one line is refused\n'
+  t 2 '…and nothing was written for it'                  "$(jq '.agents | length' "$_fx")"
+  rm -f "$_fx"
 
   t ed@example.test    'the derived address lowercases the name'  "$(roster_email_of_name Ed)"
   t saffron@example.test 'and does so for every name'             "$(roster_email_of_name Saffron)"
