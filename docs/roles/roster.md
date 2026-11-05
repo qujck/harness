@@ -12,6 +12,7 @@ is on:
 | `delivery-lead` | [delivery-lead.md](delivery-lead.md) | the ledger, the pipeline's routing, who works on what |
 | `developer` | [developer.md](developer.md) | the code and everything they start, to a terminal state |
 | `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; runs no tests, directs no testers, fixes nothing it finds |
+| `head-of-operations` *(optional)* | [head-of-operations.md](head-of-operations.md) | the released product and what it runs on: production reports, P1s, alerts, backups, the dev/test box; a standing chief with a release sign-off |
 | `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |
 | `code-reviewer` *(optional)* | [code-reviewer.md](code-reviewer.md) | a review of every PR, posted on the PR; talks only to the delivery lead |
 | `tester` *(optional)* | [tester.md](tester.md) | what is true about the one ticket it is started for; fixes nothing it finds |
