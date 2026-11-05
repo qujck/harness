@@ -1138,8 +1138,8 @@ def restore(*args):
     with open(TEAM_START_LOG, "a") as log:
         log.write(f"\n{time.strftime('%Y-%m-%d %H:%M:%S')} team-start.sh {' '.join(args)}\n")
         log.flush()
-        subprocess.run(["bash", "-lic", 'exec bash "$0" "$@"', TEAM_START_SH, *args], stdin=subprocess.DEVNULL,
-                       stdout=log, stderr=subprocess.STDOUT, timeout=300)
+        return subprocess.run(["bash", "-lic", 'exec bash "$0" "$@"', TEAM_START_SH, *args], stdin=subprocess.DEVNULL,
+                              stdout=log, stderr=subprocess.STDOUT, timeout=300).returncode
 
 
 def team_paused():
@@ -1206,8 +1206,8 @@ def start_team(lead, names):
 
 def start_one(name):
     try:
-        restore("--only", name)
-        compact_when_up(name)
+        if restore("--only", name) == 0:   # one that did not start comes back at once, its reason in TEAM_START_LOG
+            compact_when_up(name)
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
