@@ -1,8 +1,10 @@
-# Claude Code host config
+# box/ — streak's own wiring for the team
 
-Host-level config for Claude Code that lives outside any project repo and would otherwise have no
-history. Same reason `caddy/`, `cloudflared/` and the Windows `*.ps1` helpers are in here: it is machine
-state that is painful to reconstruct and impossible to review after the fact.
+The scripts that run the team on Peter's box (`streak`): the byobu layout and restore after a reboot, the
+Delivery tab sync, the team panel and web page launchers, the activity hook and the status line. Unlike the
+rest of this repo they are not generic: they name `/home/peter`, the strength checkout and this box's budget
+file. They came from `qujck/download` (a torrenting stack that had grown the box's config) on 2026-11-05,
+with their history, so that the team-running scripts live in one repo with one owner.
 
 ## `statusline.sh`
 
@@ -10,7 +12,7 @@ state that is painful to reconstruct and impossible to review after the fact.
 `statusLine.command` straight at this path:
 
 ```json
-"statusLine": { "command": "/home/peter/dev/download/claude/statusline.sh", "refreshInterval": 5 }
+"statusLine": { "command": "/home/peter/dev/harness/box/statusline.sh", "refreshInterval": 5 }
 ```
 
 Claude Code pipes a JSON blob to it on stdin and renders the line it prints — model, agent name, cwd,

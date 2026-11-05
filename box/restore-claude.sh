@@ -71,7 +71,7 @@ dir() { # dir <claude-name> <fallback>
 # cmd <claude-name> <fallback-dir> -> sets $C and $D for one pane; an agent with no named
 # conversation yet gets an empty slot, so the grid keeps its shape. "-" is a deliberately
 # empty slot. An empty slot says so in the pane (claude/empty-slot.py); Enter gives a shell.
-EMPTY="python3 /home/peter/dev/download/claude/empty-slot.py"
+EMPTY="python3 /home/peter/dev/harness/box/empty-slot.py"
 cmd() {
   if [ "$1" = - ]; then C=$EMPTY; D=/home/peter; return; fi
   if [ -z "$(transcript "$1")" ]; then echo "note    $1 has no named conversation yet, empty slot"; C=$EMPTY; D=$2; return; fi
@@ -136,9 +136,9 @@ columns Delivery "$S" "${SLOTS[@]}"
 # Spawned agents (harness agent-spawn.sh starts each in its own strength-<name> session) are moved
 # into Delivery, and a benched agent's pane turned back into an empty slot, by delivery-sync.py, which
 # tmux runs whenever a session is created or a pane dies. It also keeps the layout rules above.
-byobu set-hook -g session-created 'run-shell -b "python3 /home/peter/dev/download/claude/delivery-sync.py"'
-byobu set-hook -g pane-died 'run-shell -b "python3 /home/peter/dev/download/claude/delivery-sync.py"'
-python3 /home/peter/dev/download/claude/delivery-sync.py || echo "WARNING delivery-sync.py failed: see byobu show-messages"
+byobu set-hook -g session-created 'run-shell -b "python3 /home/peter/dev/harness/box/delivery-sync.py"'
+byobu set-hook -g pane-died 'run-shell -b "python3 /home/peter/dev/harness/box/delivery-sync.py"'
+python3 /home/peter/dev/harness/box/delivery-sync.py || echo "WARNING delivery-sync.py failed: see byobu show-messages"
 # A pane whose agent exits stays in place, marked dead, so the grid never shrinks on its own.
 # Bring one agent back in its own pane with:  byobu respawn-pane -t <pane>  (it reruns the resume)
 byobu set-option -w -t Delivery remain-on-exit on
@@ -161,7 +161,7 @@ if exists "Delivery Lead"; then echo "skip    Delivery Lead (already running)"
 else
   cmd "$LEAD" "$(tree "$LEAD")"
   c=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s "Delivery Lead" -c "$D" "$C")
-  p=$(byobu split-window -h -d -P -F '#{pane_id}' -l 32 -t "$c" "bash /home/peter/dev/download/claude/team-panel.sh")
+  p=$(byobu split-window -h -d -P -F '#{pane_id}' -l 32 -t "$c" "bash /home/peter/dev/harness/box/team-panel.sh")
   # Pane sizes scale in proportion when the window resizes, so pin the panel back to 32 columns
   # every time it does.
   byobu set-hook -t "Delivery Lead" window-resized "resize-pane -t $p -x 32"
@@ -191,7 +191,7 @@ fi
 # --- Web: the team as a web page (harness team/agents-web.sh) on http://127.0.0.1:8787, the panel's settings ---
 if exists Web; then echo "skip    Web (already running)"
 else
-  byobu new-session -d -s Web -n Web -c /home/peter "bash /home/peter/dev/download/claude/team-web.sh"
+  byobu new-session -d -s Web -n Web -c /home/peter "bash /home/peter/dev/harness/box/team-web.sh"
   echo "started Web (the team page, http://127.0.0.1:8787)"
 fi
 
