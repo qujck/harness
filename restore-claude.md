@@ -25,29 +25,31 @@ roster. Run it to bring back any single missing session. Sessions and who is in 
 
 | Session | Panes |
 |---|---|
-| `Delivery` | Four columns, each split top and bottom: Saffron / Anthony, Cara / Ed (the devs), Vera / Tommy (testing), an empty shell / Stephanie |
-| `Delivery Lead` | Carl, with the team panel in a 32-column pane on the right |
+| `Delivery` | Columns of two (top / bottom), worked out from the roster: developers, then testers, then anyone else, with the code reviewer (Stephanie) always in the bottom-right pane. Developers and testers never share a column; a gap is an empty shell. Never fewer than 8 panes, more columns as the team grows. Now: Cara / Anthony, Saffron / empty, Tommy / empty, empty / Stephanie |
+| `Delivery Lead` | Carl, with the team panel in 32 columns on the right |
 | `Project` | Rowan on the left, Alfred on the right |
+| `Ops` | Vera on the left, Ed on the right |
 
 Vera runs from her own folder, `~/vera`, which isn't a project. Claude Code never remembers
 trust for your home folder, so running her from `~` asked every restart. Her memory there is
 a link to the one in `~`, so she keeps her test-lead memories.
 
-Delivery and Project come back whole or not at all. If one pane in them dies, kill
-that session and re-run the script. A session name with a space needs quotes:
+Delivery, Project and Ops come back whole or not at all. In Delivery a pane whose agent exits stays in
+place, marked dead; bring that one back with `byobu respawn-pane -t <pane>`. Kill and re-run the
+whole session only to pick up a roster change. A session name with a space needs quotes:
 `byobu attach -t 'Delivery Lead'`.
 
 ## Get into a session
 
     byobu attach -t Project
 
-Names: `Delivery`, `Delivery Lead`, `Project`.
+Names: `Delivery`, `Delivery Lead`, `Project`, `Ops`.
 
 ## Get out of a session (Claude keeps running)
 
 Press **F6**. Closing the terminal window does the same.
 
-## Move between the panes in `Delivery` or `Project`
+## Move between the panes in `Delivery`, `Project` or `Ops`
 
 **Shift+F3** / **Shift+F4**, or click the pane.
 

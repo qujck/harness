@@ -1,7 +1,7 @@
 # Claude Code host config
 
 Host-level config for Claude Code that lives outside any project repo and would otherwise have no
-history. Same reason `caddy/`, `cloudflared/` and `install-startup-task.ps1` are in here: it is machine
+history. Same reason `caddy/`, `cloudflared/` and the Windows `*.ps1` helpers are in here: it is machine
 state that is painful to reconstruct and impossible to review after the fact.
 
 ## `statusline.sh`
