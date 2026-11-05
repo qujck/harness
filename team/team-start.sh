@@ -23,7 +23,13 @@ _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project="${TEAM_START_PROJECT:-}"
 [ -n "$project" ] || { [ -n "${ROSTER_FILE:-}" ] && project="$(cd "$(dirname "$ROSTER_FILE")/.." 2>/dev/null && pwd)"; }
 roster="${ROSTER_FILE:-$project/agents/roster.json}"
-launch_line() { (cd "$project" && bash scripts/agent-onboard.sh --launch-line "$1"); }
+# --make-tree makes a standing agent's missing tree before printing its line; a project whose onboarding
+# predates it gets --launch-line, which refuses a missing tree and prints the command that makes it.
+launch_line() {
+  local verb=--launch-line
+  grep -q -- '"--make-tree"' "$project/scripts/agent-onboard.sh" 2>/dev/null && verb=--make-tree
+  (cd "$project" && bash scripts/agent-onboard.sh "$verb" "$1")
+}
 [ -n "${TEAM_START_LAUNCH_LINE:-}" ] && launch_line() { bash -c "$TEAM_START_LAUNCH_LINE" _ "$1"; }
 
 # running <email>: whether a Claude Code process carries this roster address, wherever it was started

@@ -440,6 +440,24 @@ roster_sibling_tree() {
   return 1
 }
 
+# roster_make_sibling_tree <name>  → the tree's path (rc 0), making it when NOTHING is there; rc 1 with
+# the reason on stderr otherwise. This is the one place a tree is made, and only a caller that has
+# decided to make it calls it (onboarding a standing role, or `--make-tree`), never the line printer
+# (owner, 2026-11-05: "yes" to onboarding making the tree). Anything already at the path (a file, a
+# directory, another clone) is left alone and refused: making a tree must never cost what was there.
+roster_make_sibling_tree() {
+  local n="${1:?roster_make_sibling_tree <name>}" shared dir
+  dir="$(roster_sibling_tree "$n" 2>/dev/null)" && { printf '%s\n' "$dir"; return 0; }
+  shared="$(roster_shared_checkout)" || { printf 'roster: cannot find the shared checkout from %s\n' "${REPO_ROOT:-.}" >&2; return 1; }
+  dir="${shared%/*}/$(roster_project_name)-${n,,}"
+  [[ -e "$dir" || -L "$dir" ]] && { printf 'roster: %s has no tree, and %s is already something else: left alone, nothing made\n' "$n" "$dir" >&2; return 1; }
+  # A fresh origin/main where there is a remote; the fixture has none, and a failed fetch still makes the tree.
+  git -C "$shared" fetch -q origin main >/dev/null 2>&1 || true
+  git -C "$shared" worktree add -q --detach "$dir" origin/main >&2 \
+    || { printf 'roster: git worktree add of %s failed: nothing made\n' "$dir" >&2; return 1; }
+  printf '%s\n' "$dir"
+}
+
 # roster_launch_line_for <name> <role> <email>  → the line for those facts, or a refusal. The facts
 # are arguments, so onboarding can print the line for a row it has not written yet; the one thing
 # read here is the tree, for a role that starts in one.

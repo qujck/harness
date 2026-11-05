@@ -6,6 +6,7 @@
 #   bash scripts/agent-onboard.sh <Name> <role> --dry-run  # check and print, register nothing
 #   bash scripts/agent-onboard.sh <Name> <role> --full-name "Deacon St. John"   # the name people read
 #   bash scripts/agent-onboard.sh --launch-line <Name>     # just the line, for an agent already rostered
+#   bash scripts/agent-onboard.sh --make-tree <Name>       # make a rostered agent's missing tree, then the line
 #   bash scripts/agent-onboard.sh --self-test
 #
 # role ∈ delivery-lead | head-of-testing | head-of-operations | developer | process-improvement | code-reviewer | tester
@@ -16,6 +17,9 @@
 # `<project>-<name>` with the row's address. It refuses (rc 1, no line) a retired name, an empty address
 # and a missing tree, and for a missing tree prints the `git worktree add` that makes it.
 # (backported from acme, 2026-10-25)
+#
+# Onboarding a standing role MAKES its tree (owner, 2026-11-05), and `--make-tree` makes one for an agent
+# rostered before that. Only an empty path is made into a tree; anything already there is refused.
 #
 # ── ⚠ THE PRINTED LINE IS THE DELIVERABLE, NOT A CONVENIENCE ────────────────────────────────────
 #
@@ -115,6 +119,7 @@ if selftest_is_flag "${1:-}"; then
  {"name":"Pat","email":"pat@example.test","role":"process-improvement","status":"active"},
  {"name":"Hal","email":"hal@example.test","role":"code-reviewer","status":"active"},
  {"name":"Ivy","email":"ivy@example.test","role":"delivery-lead","status":"active"},
+ {"name":"Bo","email":"bo@example.test","role":"code-reviewer","status":"active"},
  {"name":"Arnold","email":"arnold@example.test","role":"developer","status":"retired"},
  {"name":"Rhea","email":"rhea@example.test","role":"head-of-testing","status":"retired"}]}
 EOF_ROSTER
@@ -176,6 +181,30 @@ EOF_ROSTER
   _t "a dry run for a role with no tree yet prints the worktree add, not a line" \
      "$(printf '%s' "$_out" | /usr/bin/grep -c 'worktree add --detach') $(printf '%s' "$_out" | /usr/bin/grep -c 'GIT_AUTHOR')" '1 0'
 
+  # ── making the tree: --make-tree, and onboarding a standing role ─────────────────────────────
+  _mt() { ROSTER_FILE="${_RF:-$_T/roster.json}" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" --make-tree "$1" 2>"$_T/err"; }
+  _wt() { _g -C "$_T/acme" worktree list --porcelain | /usr/bin/grep -c "acme-$1\$"; }
+  _t "--make-tree makes a missing tree and prints the line" "$(_mt Bo | head -1; echo "rc=${PIPESTATUS[0]}")" \
+     "$(printf 'cd %q && \\\nrc=0' "$_T/acme-bo")"
+  _t "…as a worktree of the shared checkout" "$(_wt bo)" 1
+  _t "…and a second run reuses it" "$(_mt bo | head -1; echo "rc=${PIPESTATUS[0]}") $(_wt bo)" \
+     "$(printf 'cd %q && \\\nrc=0 1' "$_T/acme-bo")"
+  _t "--make-tree leaves a FILE alone and refuses" "$(_mt Pat; echo "rc=$?") $(cat "$_T/acme-pat")" 'rc=1 not a tree'
+  _t "…saying something else is there" "$(/usr/bin/grep -c 'already something else' "$_T/err")" 1
+  _t "--make-tree leaves a plain directory empty and refuses" "$(_mt Hal; echo "rc=$?") [$(ls -A "$_T/acme-hal")]" 'rc=1 []'
+  _t "--make-tree does not adopt another repository" "$(_mt Ivy; echo "rc=$?") $(_wt ivy)" 'rc=1 0'
+  _t "--make-tree makes no tree for a retired name" "$(_mt Rhea; echo "rc=$?") $([[ -e "$_T/acme-rhea" ]] && echo made || echo none)" 'rc=1 none'
+  _t "--make-tree makes no tree for a spawned role" "$(_mt Cara; echo "rc=$?") $([[ -e "$_T/acme-cara" ]] && echo made || echo none)" \
+     $'bash team/agent-spawn.sh developer --name Cara --ticket <ticket-id>\nrc=0 none'
+  _t "--make-tree refuses an unrostered name" "$(_mt Nobody; echo "rc=$?")" rc=1
+  cp "$_T/roster.json" "$_T/real.json"
+  _out="$(ROSTER_FILE="$_T/real.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" Sol code-reviewer 2>&1)"
+  _t "onboarding a standing role makes its tree" "$(_wt sol)" 1
+  _t "…and prints its line, not the worktree add" \
+     "$(printf '%s' "$_out" | /usr/bin/grep -c 'GIT_AUTHOR_EMAIL="sol@example.test"') $(printf '%s' "$_out" | /usr/bin/grep -c 'worktree add --detach')" '1 0'
+  ROSTER_FILE="$_T/real.json" ROSTER_TREES_DIR="$_T" HARNESS_PROJECT=acme ROSTER_DOMAIN=example.test bash "$0" Wren5 developer >/dev/null 2>&1
+  _t "onboarding a developer makes no tree" "$([[ -e "$_T/acme-wren5" ]] && echo made || echo none)" none
+
   if [[ $fails -eq 0 ]]; then echo "agent-onboard --self-test: PASS"; exit 0; fi
   echo "agent-onboard --self-test: FAIL"; exit 1
 fi
@@ -186,6 +215,19 @@ if [[ "${1:-}" == "--launch-line" ]]; then
   [[ -n "$NAME" ]] || { printf 'usage: agent-onboard.sh --launch-line <Name>\n' >&2; exit 2; }
   roster_has_name "$NAME" || { printf '%s is not in agents/roster.json — onboard them first.\n' "$NAME" >&2; exit 1; }
   # The generator's rc is the answer: a retired name, an empty address or a missing tree prints no line.
+  roster_launch_line "$NAME"
+  exit $?
+fi
+
+# `--make-tree <Name>` — an agent rostered before onboarding made trees: make the missing one, then the line.
+if [[ "${1:-}" == "--make-tree" ]]; then
+  NAME="${2:-}"
+  [[ -n "$NAME" && $# -eq 2 ]] || { printf 'usage: agent-onboard.sh --make-tree <Name>\n' >&2; exit 2; }
+  roster_has_name "$NAME" || { printf '%s is not in agents/roster.json — onboard them first.\n' "$NAME" >&2; exit 1; }
+  # A retired name and a spawned role get no tree: the line's refusal or the spawn command is the answer.
+  if [[ "$(roster_lookup_status "$NAME")" == active ]] && ! roster_role_is_spawned "$(roster_lookup_role "$NAME")"; then
+    roster_make_sibling_tree "$NAME" >/dev/null || exit 1
+  fi
   roster_launch_line "$NAME"
   exit $?
 fi
@@ -254,6 +296,11 @@ else
     ledger_role_onboard "$NAME" "$(roster_lookup_email "$NAME")" "$ROLE" "$(date -u +%Y-%m-%d)"
     printf '\n'
   fi
+fi
+
+# A standing role starts in its own tree, so onboarding makes it; a refusal here leaves the line's own refusal to say why.
+if [[ "$DRY" != 1 ]] && ! roster_role_is_spawned "$ROLE"; then
+  _tree="$(roster_make_sibling_tree "$NAME")" && printf 'Its tree is %s.\n\n' "$_tree"
 fi
 
 # The row exists unless this is a dry run; a dry run prints from the facts roster_add WILL write.
