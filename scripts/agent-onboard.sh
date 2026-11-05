@@ -7,7 +7,7 @@
 #   bash scripts/agent-onboard.sh --launch-line <Name>     # just the line, for an agent already rostered
 #   bash scripts/agent-onboard.sh --self-test
 #
-# role ∈ delivery-lead | head-of-testing | developer | process-improvement | code-reviewer | tester
+# role ∈ delivery-lead | head-of-testing | head-of-operations | developer | process-improvement | code-reviewer | tester
 #        (they name docs/roles/<role>.md; the last two are optional)
 #
 # The line is roster.sh's roster_launch_line, and it has two shapes: a developer or tester gets the
@@ -55,7 +55,7 @@ onboard_verdict() { # $1 name · $2 role · $3 known 0|1
   # The same shape init.sh:499 validates, so a name that onboards is a name that can start a session.
   [[ "$name" =~ ^[A-Za-z][A-Za-z0-9_-]{1,31}$ ]] || { printf 'bad-name'; return; }
   case "$role" in
-    delivery-lead|head-of-testing|developer|process-improvement|code-reviewer|tester) ;;
+    delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|tester) ;;
     *) printf 'bad-role'; return ;;
   esac
   [[ "$known" == "1" ]] && { printf 'taken'; return; }
@@ -81,6 +81,7 @@ if selftest_is_flag "${1:-}"; then
   _t "an unknown role is refused"          "$(onboard_verdict Wren wizard 0)"           bad-role
   _t "delivery-lead is a role"             "$(onboard_verdict Wren delivery-lead 0)"    ok
   _t "head-of-testing is a role"           "$(onboard_verdict Wren head-of-testing 0)"  ok
+  _t "head-of-operations is a role"        "$(onboard_verdict Wren head-of-operations 0)"  ok
   _t "process-improvement is a role"       "$(onboard_verdict Wren process-improvement 0)"  ok
   _t "code-reviewer is a role"             "$(onboard_verdict Wren code-reviewer 0)"    ok
   _t "tester is a role"                    "$(onboard_verdict Wren tester 0)"           ok
@@ -192,7 +193,7 @@ NAME="${1:-}"; ROLE="${2:-}"; DRY=0
 [[ -n "$NAME" && -n "$ROLE" ]] || {
   printf 'usage: agent-onboard.sh <Name> <role> [--dry-run]\n' >&2
   printf '       agent-onboard.sh --launch-line <Name>\n' >&2
-  printf '  role: delivery-lead | head-of-testing | developer | process-improvement | code-reviewer | tester\n' >&2
+  printf '  role: delivery-lead | head-of-testing | head-of-operations | developer | process-improvement | code-reviewer | tester\n' >&2
   exit 2
 }
 case "${3:-}" in --dry-run) DRY=1 ;; '') ;; *) printf 'unknown argument: %s\n' "$3" >&2; exit 2 ;; esac
@@ -207,7 +208,7 @@ case "$(onboard_verdict "$NAME" "$ROLE" "$KNOWN")" in
     exit 1 ;;
   bad-role)
     printf 'REFUSING: %q is not a role.\n' "$ROLE" >&2
-    printf '  Use delivery-lead, head-of-testing, developer, process-improvement, code-reviewer or tester — they name\n' >&2
+    printf '  Use delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer or tester — they name\n' >&2
     printf '  docs/roles/<role>.md,\n' >&2
     printf '  which CLAUDE.md step 00 requires the agent to read.\n' >&2
     exit 1 ;;

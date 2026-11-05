@@ -99,7 +99,7 @@ roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER" | roster_grouped; }
 role_rank() {
   case "$1" in
     delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; code-reviewer) echo 3 ;;
-    head-of-testing) echo 4 ;; production-support) echo 5 ;; process-improvement) echo 6 ;;
+    head-of-testing) echo 4 ;; head-of-operations|production-support) echo 5 ;; process-improvement) echo 6 ;;
     assistant) echo 9 ;; *) echo 8 ;;
   esac
 }
@@ -120,6 +120,7 @@ short_role() {
     tester) echo tester ;;
     code-reviewer) echo review ;;
     process-improvement) echo process ;;
+    head-of-operations) echo ops ;;
     production-support) echo support ;;
     assistant) echo pa ;;
     *) echo "${1:0:7}" ;;
@@ -245,7 +246,7 @@ role_colour() {
   key=AGENT_COLOUR_${1^^}; key=${key//-/_}
   case "$1" in
     delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
-    code-reviewer) def=cyan ;; production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
+    code-reviewer) def=cyan ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
     *) def="" ;;
   esac
   case "${!key-$def}" in
