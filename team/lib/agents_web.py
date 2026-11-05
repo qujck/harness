@@ -311,7 +311,8 @@ def live_sessions():
     """Roster name -> Claude Code's own record of the session, for every session whose process and socket are live.
     A session is the agent whose roster address its process carries in GIT_AUTHOR_EMAIL, else the one its record is
     named, and only while its process is the session's own: Claude Code started for it, or else started no later than
-    the session did (team/lib/agent-session.sh)."""
+    the session did (team/lib/agent-session.sh). An agent's meeting session, its record named "<Agent> · meeting", is
+    keyed by that name (meeting_session)."""
     people = roster()
     by_email = {r["email"]: r["name"] for r in people if r["email"]}
     by_name = {r["name"].lower(): r["name"] for r in people}
@@ -326,6 +327,9 @@ def live_sessions():
             continue
         sock, email = rec.get("messagingSocketPath"), proc_email(pid)
         name = by_email.get(email) if email else by_name.get((rec.get("name") or "").lower())
+        said = rec.get("name") or ""
+        if said.endswith(MEETING_SUFFIX) and said[:-len(MEETING_SUFFIX)].lower() in by_name:   # a meeting session is its own
+            name = meeting_session(by_name[said[:-len(MEETING_SUFFIX)].lower()])
         if not name or not sock or not os.path.exists(sock) \
                 or not (claude_for(pid, rec.get("sessionId"), name) or pid_since(pid, rec.get("startedAt"))):
             continue
@@ -991,8 +995,10 @@ def plugins(facts=None):
 
 def panes():
     """Roster name -> its tmux pane: the pane id and size of the session agent-spawn.sh starts for it,
-    <project>-<name>, else of a pane titled with its name (a session started by hand)."""
+    <project>-<name>, else of a pane titled with its name (a session started by hand); and "<name> · meeting" -> its
+    meeting session's pane, titled so."""
     names = {r["name"].lower(): r["name"] for r in roster()}
+    names.update({meeting_session(n).lower(): meeting_session(n) for n in list(names.values())})   # its meeting session's pane, by title
     out = run("tmux", "list-panes", "-a", "-F",
               "#{session_name}\t#{pane_id}\t#{pane_title}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}")
     lines = [p for p in (line.split("\t") for line in out.splitlines()) if len(p) == 6]
@@ -1253,8 +1259,11 @@ _meetings = {}   # id -> its state, as kept in MEETINGS/<id>.json
 _meet_lock = threading.RLock()
 
 
+MEETING_SUFFIX = " · meeting"
+
+
 def meeting_session(name):
-    return f"{name} · meeting"
+    return name + MEETING_SUFFIX
 
 
 def meeting_owner():
@@ -6513,6 +6522,18 @@ def self_test():
             kid.kill()
             kid.wait()
             os.remove(f"{T}/sessions/{kid.pid}.json")
+        # an agent's meeting session is live under its meeting name; a stranger's is no one's
+        for i, said in enumerate(["Ada · meeting", "Stranger · meeting"]):
+            kid = subprocess.Popen(["sleep", "60"], env=env)
+            kids.append(kid)
+            sock = f"{T}/socks/m{i}"
+            open(sock, "w").close()
+            with open(f"{T}/sessions/{kid.pid}.json", "w") as f:
+                json.dump({"name": said, "sessionId": f"m{i}", "status": "idle", "cwd": T, "messagingSocketPath": sock,
+                           "statusUpdatedAt": int(time.time() * 1000), "startedAt": int(time.time() * 1000)}, f)
+        time.sleep(0.2)
+        t("live sessions: an agent's meeting session by its meeting name, a stranger's not at all",
+          sorted(live_sessions()), ["Ada", "Ada · meeting", "Lea"])
 
         with open(T + "/dash/board", "w") as f:
             f.write("feat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\n")
@@ -6533,7 +6554,7 @@ def self_test():
         with open(T + "/bin/tmux", "w") as f:
             f.write(f"#!/usr/bin/env bash\n[ \"$1\" = load-buffer ] && {{ cat > {T}/loaded; exit 0; }}\n"
                     "[ \"$1\" = list-panes ] && printf '%s\\n' "
-                    "'proj-ada\t%1\t✳ Ada\tnode\t120\t40' 'Work-3\t%2\t✳ Lea\tclaude\t100\t30' 'Work\t%2\t✳ Lea\tclaude\t100\t30' 'other\t%3\t✳ Nobody\tclaude\t80\t24'\n")
+                    "'proj-ada\t%1\t✳ Ada\tnode\t120\t40' 'Work-3\t%2\t✳ Lea\tclaude\t100\t30' 'Work\t%2\t✳ Lea\tclaude\t100\t30' 'other\t%3\t✳ Nobody\tclaude\t80\t24' 'meet-1-Ada\t%4\t✳ Ada · meeting\tclaude\t200\t50'\n")
         with open(T + "/bin/budget", "w") as f:
             f.write("#!/usr/bin/env bash\necho 'budget  over: week 38% used of 36% planned so far'\n")
         os.chmod(T + "/bin/tmux", 0o755)
@@ -6542,8 +6563,8 @@ def self_test():
             f.write("#!/usr/bin/env bash\necho 'day  none: no day open'; exit 3\n")
         os.chmod(T + "/bin/day", 0o644)   # as the script is: run with bash, not by its mode
         os.environ["PATH"] = T + "/bin:" + os.environ["PATH"]
-        t("panes: the agent's own tmux session, or a claude pane titled with its name",
-          {n: p["pane"] for n, p in panes().items()}, {"Ada": "%1", "Lea": "%2"})
+        t("panes: the agent's own tmux session, or a claude pane titled with its name, and its meeting session's pane",
+          {n: p["pane"] for n, p in panes().items()}, {"Ada": "%1", "Lea": "%2", "Ada · meeting": "%4"})
 
         lines = [{"type": "user", "timestamp": "2026-10-27T10:00:00Z", "message": {"content": "please look at the build"}},
                  {"type": "assistant", "timestamp": "2026-10-27T10:00:05Z", "message": {"content": [
