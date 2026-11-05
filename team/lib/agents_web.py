@@ -1370,6 +1370,50 @@ def open_meeting_session(m, name):
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
 
 
+CLAUDE_JSON = os.environ.get("AGENTS_CLAUDE_JSON") or (os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")
+                                                     if os.environ.get("CLAUDE_CONFIG_DIR") else os.path.join(HOME, ".claude.json"))
+MEETING_STUCK_AFTER = 90   # seconds a meeting session may take to say it is here before it shows as stuck
+
+
+def folder_trusted(path):
+    """Whether Claude Code will open a session in path without its trust prompt: True, False, or None when it cannot
+    tell. Trust is kept per folder in .claude.json and is not inherited from a trusted parent (a session in a trusted
+    ~/dev still asked, 2026-11-05); a git worktree takes its main checkout's, which is why the agents' trees never ask."""
+    try:
+        with open(CLAUDE_JSON) as f:
+            projects = json.load(f).get("projects") or {}
+    except (OSError, ValueError):
+        return None
+    paths = [os.path.realpath(path)]
+    try:
+        common = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if common.endswith("/.git"):
+            paths.append(os.path.dirname(common))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return any((projects.get(x) or {}).get("hasTrustDialogAccepted") for x in paths)
+
+
+def meeting_screen(tmux):
+    """What a meeting session's byobu window shows, or None when it has gone."""
+    r = subprocess.run(["tmux", "capture-pane", "-p", "-t", tmux], capture_output=True, text=True, timeout=5)
+    return None if r.returncode else r.stdout
+
+
+def meeting_stuck(m, name, live):
+    """Why an attendee that has not said it is here after MEETING_STUCK_AFTER seconds has not, or None."""
+    if m.get("ended") or m["present"].get(name) or time.time() - m["joined"].get(name, time.time()) < MEETING_STUCK_AFTER:
+        return None
+    tmux = m.get("tmux", {}).get(name)
+    screen = meeting_screen(tmux) if tmux else None
+    if screen is None:
+        return "its session closed"
+    if "trust this folder" in screen:
+        return "waiting at Claude Code's folder trust prompt"
+    return "not arrived" if meeting_session(name) not in live else "running but has not said it is here"
+
+
 def start_meeting(who, topic, view):
     now = time.time()
     mid = time.strftime("%Y%m%d-%H%M", time.localtime(now)) + "-" + uuid.uuid4().hex[:4]
@@ -1515,6 +1559,9 @@ def meetings_json():
     for m in out:
         m["live"] = [n for n in m["who"] if meeting_session(n) in live]
         m["busy"] = [n for n in m["who"] if (live.get(meeting_session(n)) or {}).get("status") == "busy"]
+        with _meet_lock:
+            mm = _meetings.get(m["id"])
+        m["stuck"] = {n: why for n in m["who"] if mm and (why := meeting_stuck(mm, n, live))}
     return json.dumps({"meetings": out, "records": MEETING_RECORDS}).encode()
 
 
@@ -2499,6 +2546,10 @@ class Handler(BaseHTTPRequestHandler):
             who = [str(x) for x in body.get("who") or [] if str(x) in names]
             if not who:
                 return self.send(400, b"nobody to meet\n", "text/plain")
+            if folder_trusted(ROOT) is False:   # every meeting session would sit at the prompt, seen by nobody
+                return self.send(409, (f"Claude Code has not trusted {ROOT}, where meeting sessions start, so each would wait at its "
+                                       f"trust prompt. Trust it once: run claude in {ROOT} and choose \"Yes, I trust this folder\".\n").encode(),
+                                 "text/plain")
             m = start_meeting(list(dict.fromkeys(who)), str(body.get("topic") or "").strip()[:80], str(body.get("view") or "")[:40])
             return self.send(200, json.dumps({"id": m["id"]}).encode(), "application/json")
         with _meet_lock:
@@ -4525,8 +4576,8 @@ function meetBar(path, n, big) {
   }
   const title = `<b>${esc(m.topic || "Meeting")}</b> ${m.ended ? `ended at ${meetHhmm(m.ended)}` : `since ${meetHhmm(m.opened)}`}`;
   if (m.ended) return `<div class="meetbar on"><span>${title} · the record is <a class="link" href="/doc?p=${encodeURIComponent(meetRecords + "/" + m.record)}" title="${esc(meetRecords + "/" + m.record)}" onclick="return showDoc(event, this)">${esc(m.record)}</a></span>${btn("new", "plus", "New meeting", "Set up the next meeting")}${max}</div>`;
-  const here = m.who.filter(x => m.present[x]).length;
-  return `<div class="meetbar on"><span>${title} · ${here} of ${m.who.length} here${m.paused ? " · <b>paused</b>" : ""}${m.ending ? " · ending" : ""}</span>${meetCount(m.who.length)}` +
+  const here = m.who.filter(x => m.present[x]).length, stuck = Object.keys(m.stuck || {}).length;
+  return `<div class="meetbar on"><span>${title} · ${here} of ${m.who.length} here${stuck ? ` · <b title="${esc(Object.entries(m.stuck).map(([x, why]) => `${x}: ${why}`).join("\n"))}">${stuck} stuck</b>` : ""}${m.paused ? " · <b>paused</b>" : ""}${m.ending ? " · ending" : ""}</span>${meetCount(m.who.length)}` +
     (m.ending ? "" : `<b class="mbtn" data-meet="add" data-menu="meetadd:${esc(path)}" title="Bring someone else into this meeting">${MENU_ICON.plus}Add</b>` +
       btn("pause", m.paused ? "start" : "pause", m.paused ? "Resume" : "Pause", m.paused ? "Let the agents hear each other again" : "Hold the agents' lines to each other until you speak or resume") +
       btn("end", "stop", "End", "End the meeting: each agent suggests what its own session should be told, for you to send or skip", " warn")) + max + `</div>`;
@@ -4537,7 +4588,8 @@ function meetFaces(n) {
   const them = m ? m.who.map(meetAgent) : meetInvited(n);
   return them.length ? `<div class="tabbar icontabs meetrow">${them.map(a => {
     const on = m && !m.ended && m.live.includes(a.name), here = on && m.present[a.name], busy = on && m.busy.includes(a.name);
-    const tip = `${a.name}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : on ? ", joining" : ", inactive"}`;
+    const why = m && m.stuck?.[a.name];
+    const tip = `${a.name}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : why ? ", stuck: " + why : on ? ", joining" : ", inactive"}`;
     return `<span class="ftab${here ? "" : " away"}${busy ? " mbusy" : ""}">${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}" title="${esc(tip)}"`)}</span>`; }).join("")}</div>` : "";
 }
 // The meeting as it was said, the owner's lines and each agent's, then, once it is ending, each agent's suggestion.
@@ -4571,7 +4623,7 @@ function meetAdd(btn, path) {
 async function meetPost(id, what, body = {}) {
   const r = await fetch(`/api/meeting${id ? "/" + id + "/" + what : ""}`, {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
     body: JSON.stringify(body)}).catch(() => null);
-  const d = r && r.ok ? await r.json().catch(() => ({})) : null;
+  const d = r && r.ok ? await r.json().catch(() => ({})) : {error: r ? (await r.text().catch(() => "")).trim() || `refused (${r.status})` : "the page's server did not answer"};
   await loadMeetings(); draw();
   return d;
 }
@@ -5155,6 +5207,7 @@ function customClicks() {
       const topic = el.closest(".meetbar").querySelector(".mtopic")?.value.trim() || "";
       const d = await meetPost(null, "start", {who: meetInvited(n).map(a => a.name), topic, view: shownView().name || ""});
       if (d?.id) change(l => { nodeAt(l.root, path).meeting = d.id; });
+      else if (d?.error) alert("The meeting did not start. " + d.error);
       setTimeout(load);
     } else if (what === "new") change(l => { delete nodeAt(l.root, path).meeting; });
     else if (m && what === "pause") meetPost(m.id, "pause", {on: !m.paused});
@@ -6879,8 +6932,34 @@ def self_test():
             typed.clear()
             meeting_deliver_once()
             t("nothing is delivered while the meeting is paused", typed, [])
+            g["subprocess"] = real   # the trust and stuck readers below run git and tmux for real
+            R = os.path.realpath(T)
+            for d in ("yes", "no", "other"):
+                os.makedirs(f"{R}/{d}", exist_ok=True)
+            real.run(["git", "init", "-q", f"{R}/repo"], check=True)
+            real.run(["git", "-C", f"{R}/repo", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+            real.run(["git", "-C", f"{R}/repo", "worktree", "add", "-q", f"{R}/wt"], check=True)
+            g["CLAUDE_JSON"] = f"{R}/claude.json"
+            t("a folder Claude Code has never seen cannot tell nothing: no .claude.json is None", folder_trusted(f"{R}/yes"), None)
+            with open(f"{R}/claude.json", "w") as f:
+                json.dump({"projects": {f"{R}/yes": {"hasTrustDialogAccepted": True}, f"{R}/no": {"hasTrustDialogAccepted": False},
+                                        f"{R}/repo": {"hasTrustDialogAccepted": True}, R: {"hasTrustDialogAccepted": True}}}, f)
+            t("a trusted folder is trusted; one refused or never asked is not, though its parent is",
+              (folder_trusted(f"{R}/yes"), folder_trusted(f"{R}/no"), folder_trusted(f"{R}/other")), (True, False, False))
+            t("a worktree takes its main checkout's trust", folder_trusted(f"{R}/wt"), True)
+            m3 = start_meeting(["A"], "", "V")
+            t("an attendee just joined is not stuck", meeting_stuck(m3, "A", {}), None)
+            m3["joined"]["A"] -= MEETING_STUCK_AFTER + 1
+            g["meeting_screen"] = lambda tmux: None
+            t("one whose session has gone is stuck, and says so", meeting_stuck(m3, "A", {}), "its session closed")
+            g["meeting_screen"] = lambda tmux: " ❯ No, exit\n   Yes, I trust this folder\n"
+            t("one at the trust prompt is stuck there", meeting_stuck(m3, "A", {}), "waiting at Claude Code's folder trust prompt")
+            g["meeting_screen"] = lambda tmux: "> "
+            t("one running but silent is stuck as that", meeting_stuck(m3, "A", {"A · meeting": {}}), "running but has not said it is here")
+            m3["present"]["A"] = time.time()
+            t("one that has said it is here is not stuck", meeting_stuck(m3, "A", {}), None)
         keep = {k: g[k] for k in ("MEETINGS", "MEETING_RECORDS", "_meetings", "subprocess", "open_meeting_session", "type_into",
-                                  "setting", "live_sessions", "roster")}
+                                  "setting", "live_sessions", "roster", "CLAUDE_JSON", "meeting_screen")}
         try:
             meeting_checks()
         finally:
