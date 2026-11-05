@@ -904,7 +904,7 @@ def perf_json():
 # Plug-ins for the page's header and footer (owner, 2026-11-01: "header should default to what we have, with other
 # options addable as plug in style scripts"): each executable file in AGENT_BAR_PLUGINS, else ~/.config/agents-web/bar,
 # is an item the page can add, named by its file name, and keyed "x:<name>". The harness's own are in team/bar - Week,
-# Session, Team and Disk, slim forms of them and slim CPU, Memory, Network, GPU and Heat bars - keyed by their bare names,
+# Session, Team and Disk, slim forms of them and slim CPU, Memory, Network, GPU, Heat and Fans bars - keyed by their bare names,
 # Week, Session, Team and Disk in the bar until taken out. Each is run in the background
 # for at most five seconds, given the page's numbers as JSON on its input (bar_facts()), and what it prints is the
 # item: a line of text, under its file name, or JSON:
@@ -918,7 +918,7 @@ def perf_json():
 #   slim                true: all on one low line, the label and value beside the meter or sparkline; a label of ""
 #                       shows none, and name is what the bar's Add list calls it instead
 #   icon                one of the page's bar icons, shown in place of the label, which stays in its title: week, day,
-#                       disk, cpu, mem, net, gpu, tok or heat
+#                       disk, cpu, mem, net, gpu, tok, heat or fan
 #   place               "header" or "footer": the only one of the two it can be put in (else either)
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
 # the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
@@ -2794,7 +2794,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi.tight + .bi.tight{margin-left:-14px}
 .bi:not(.tight) + .bi.tight{margin-left:auto}   /* the buttons keep to the right, as the bench's room pushed them */
 .bi > .bx{display:none}
-:not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar]){cursor:pointer}
+:not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar],[data-item=fanbar]){cursor:pointer}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
 .editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab;touch-action:none}
 .editing > .bi.tight + .bi.tight{margin-left:0}
@@ -4394,6 +4394,7 @@ const BAR_ICON = Object.fromEntries(Object.entries({
   gpu: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><circle cx="6" cy="8" r="2.2"/><path d="M10.5 6.5h2M10.5 9.5h2M3 12v2"/>',
   tok: '<path d="M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z"/>',
   heat: '<path d="M6.5 2.6a1.5 1.5 0 0 1 3 0v6.5a3 3 0 1 1-3 0z"/><path d="M8 6.5v4"/>',
+  fan: '<circle cx="8" cy="8" r="1.4"/><path d="M8 6.6C6.6 4.6 7 2 9 2.2s1.4 2.8-1 4.4M9.4 8.4c2.4-.4 4.6.8 4 2.7s-2.9 1-4-1.4M6.8 8.9c-1 2.2-3.3 3.4-4.4 1.8s.9-3 4.2-2.6"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // Each item's icon in a bar's + menu: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
 const ADD_ICON = Object.fromEntries(Object.entries({
@@ -5017,9 +5018,9 @@ async function loadFiles() {
 // Performance panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
 // one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
-// Network, GPU and Heat bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
+// Network, GPU, Heat and Fans bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
 let perfNow = null;
-const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar"];
+const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"];
 async function loadPerf() {
   const b = barOf();
   if (!leaves(layout().root).some(([, n]) => n.show === "perf") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
@@ -5091,11 +5092,12 @@ function openGraph(key, label, colour, unit) {
   clearInterval(graphTimer); graphTimer = setInterval(loadGraph, 10000);
   loadGraph();
 }
-// The CPU, Memory, Network, GPU and Heat bars open the graph their Performance rows do, while the layout is locked.
+// The CPU, Memory, Network, GPU, Heat and Fans bars open the graph their Performance rows do, while the layout is locked.
 const BAR_GRAPH = {
   cpubar: () => ["cpu", "CPU", "cpu", "%"],
   membar: () => ["mem", "Memory", "mem", "%"],
   heatbar: () => ["heat", "Heat", "heat", "°C"],
+  fanbar: () => { const f = (perfNow?.fans || []).reduce((a, b) => !a || b.rpm > a.rpm ? b : a, null); return f && ["fan:" + f.name, f.name, "fan", "rpm"]; },
   gpubar: () => { const g = (perfNow?.gpus || []).reduce((a, b) => !a || b.pct > a.pct ? b : a, null); return g && ["gpu:" + g.id, "GPU", "gpu", "%"]; },
   netbar: () => { const n = (perfNow?.net || []).reduce((a, b) => !a || b.in + b.out > a.in + a.out ? b : a, null); return n && ["net:" + n.name, n.name, "net", "b"]; },
 };
@@ -6826,7 +6828,7 @@ def self_test():
         t("a plug-in's slim, name and place are kept, and a place other than header or footer is none",
           [plug_item({"label": "", "slim": True, "name": "N", "place": "footer"}, "n"), "place" in plug_item({"place": "top"}, "n")],
           [{"label": "", "title": "", "colour": "", "value": "", "slim": True, "name": "N", "place": "footer"}, False])
-        # the machine's performance, for Performance panes and the CPU, Memory, Network, GPU and Heat bars: each source's
+        # the machine's performance, for Performance panes and the CPU, Memory, Network, GPU, Heat and Fans bars: each source's
         # text as its command or /proc file prints it, and a reading made from two samples
         def perf_checks():
             # ── Linux ────────────────────────────────────────────────────────────────────
@@ -6929,6 +6931,17 @@ def self_test():
            sh("heatbar", {"perf": {"temps": [{"name": "CPU", "c": 40}]}})["value"][0]["colour"],
            sh("heatbar", {"perf": None})["value"], sh("heatbar", {"perf": {"temps": []}}).get("hidden")),
           ("84 °C", "amber", "heat", "red", "green", "…", True))
+        fans = [{"name": "nct6799 fan2", "rpm": 0, "duty": 36}, {"name": "nct6799 fan3", "rpm": 1039, "duty": 85}]
+        t("team/bar/fanbar: the fastest fan, the most power as its meter, amber from 80%, \"…\" with no reading, hidden with no fan",
+          ((j := sh("fanbar", {"perf": {"fans": fans}}))["value"][0]["text"], j["meter"], j["icon"],
+           sh("fanbar", {"perf": {"fans": [{**fans[0], "duty": 96}]}})["value"][0]["text"],
+           sh("fanbar", {"perf": {"fans": [{**fans[0], "duty": 96}]}})["meter"]["colour"],
+           "meter" in sh("fanbar", {"perf": {"fans": [{"name": "GPU", "rpm": 800, "duty": None}]}}),
+           sh("fanbar", {"perf": None})["value"], sh("fanbar", {"perf": {"fans": []}}).get("hidden")),
+          ("1039 rpm", {"pct": 85, "mark": None, "colour": "amber"}, "fan", "stopped", "red", False, "…", True))
+        t("team/bar/heatbar: says the fans are not reported only where they are not",
+          [("standing in" in sh("heatbar", {"perf": {"temps": [{"name": "CPU", "c": 40}], "fans": f}})["title"]) for f in (fans, [], None)],
+          [False, True, True])
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
         hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one
