@@ -4,6 +4,7 @@
 #
 #   bash scripts/agent-onboard.sh <Name> <role>            # register, then print the launch line
 #   bash scripts/agent-onboard.sh <Name> <role> --dry-run  # check and print, register nothing
+#   bash scripts/agent-onboard.sh <Name> <role> --full-name "Deacon St. John"   # the name people read
 #   bash scripts/agent-onboard.sh --launch-line <Name>     # just the line, for an agent already rostered
 #   bash scripts/agent-onboard.sh --self-test
 #
@@ -189,14 +190,23 @@ if [[ "${1:-}" == "--launch-line" ]]; then
   exit $?
 fi
 
-NAME="${1:-}"; ROLE="${2:-}"; DRY=0
+NAME="${1:-}"; ROLE="${2:-}"; DRY=0; FULL=""
 [[ -n "$NAME" && -n "$ROLE" ]] || {
-  printf 'usage: agent-onboard.sh <Name> <role> [--dry-run]\n' >&2
+  printf 'usage: agent-onboard.sh <Name> <role> [--full-name "<Full Name>"] [--dry-run]\n' >&2
   printf '       agent-onboard.sh --launch-line <Name>\n' >&2
   printf '  role: delivery-lead | head-of-testing | head-of-operations | developer | process-improvement | code-reviewer | tester\n' >&2
   exit 2
 }
-case "${3:-}" in --dry-run) DRY=1 ;; '') ;; *) printf 'unknown argument: %s\n' "$3" >&2; exit 2 ;; esac
+shift 2 2>/dev/null || true
+while (( $# )); do
+  case "$1" in
+    --dry-run) DRY=1 ;;
+    --full-name) [[ -n "${2:-}" ]] || { printf -- '--full-name needs a value\n' >&2; exit 2; }
+                 FULL="$2"; shift ;;
+    *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 KNOWN=0; roster_has_name "$NAME" && KNOWN=1
 
@@ -221,11 +231,11 @@ case "$(onboard_verdict "$NAME" "$ROLE" "$KNOWN")" in
 esac
 
 if [[ "$DRY" == 1 ]]; then
-  printf -- '--dry-run: %s (%s) is clear to onboard. Nothing written.\n\n' "$NAME" "$ROLE"
+  printf -- '--dry-run: %s (%s)%s is clear to onboard. Nothing written.\n\n' "$NAME" "$ROLE" "${FULL:+, full name \"$FULL\"}"
 else
-  roster_add "$NAME" "$ROLE" "$(date -u +%Y-%m-%d)" "declared — onboarded by agent-onboard.sh" \
+  roster_add "$NAME" "$ROLE" "$(date -u +%Y-%m-%d)" "declared — onboarded by agent-onboard.sh" "$FULL" \
     || { printf 'roster_add failed — nothing was written.\n' >&2; exit 1; }
-  printf 'Registered %s (%s) in agents/roster.json.\n' "$NAME" "$ROLE"
+  printf 'Registered %s (%s)%s in agents/roster.json.\n' "$NAME" "$ROLE" "${FULL:+, full name \"$FULL\"}"
   printf '⚠ Commit that change — the roster is only real once it is on main.\n\n'
 
   # ── the ledger's per-agent LOGIN role ────────────────────────────────────────────────────────────
