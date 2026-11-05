@@ -82,6 +82,7 @@ ops/                     # alerts and timers on the box that runs the stack (opt
   ops-alerts.sh          # read / ack the durable alert queue;  ops-alerts-settle.sh: the settle tick (a timer)
   ops-alert-unit-failure.sh  # the OnFailure= hook every timer-driven unit names
   install-units.sh       # render ops/systemd/*.in for this project and install them, user scope
+box/                     # NOT generic: streak's own team wiring (byobu restore, Delivery sync, panel/web launchers, status line, activity hook); see box/README.md
 claude-code/             # Claude Code mods (optional: Claude Code only): one line in ~/.claude/settings.json loads every subfolder, in EVERY session on the box
   self-compact/            # an agent compacts itself at a stopping point of its choosing (compact-me.sh), nudged when the window is nearly full
   waiting-agents/          # tells the delivery lead when a team agent sits at a permission prompt or the team has gone idle; shows nothing in any other session
