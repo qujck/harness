@@ -5382,10 +5382,16 @@ function customClicks() {
     const f = o.querySelector(".feed");   // one at its newest turn stays there, now it is shorter
     if (f?.dataset.end === "1") f.scrollTop = f.scrollHeight;
   });
-  // the back button, or a click on the greyed Combined view round the card, closes it
+  // the greyed agent under a point on a card's overlay, which lies over them and takes their clicks
+  const greyedAt = (o, e) => document.elementsFromPoint(e.clientX, e.clientY).find(el => el.matches(".cnames [data-name]") && el.closest(".pbody") === o.parentElement);
+  main.querySelectorAll(".paneover").forEach(o => o.onmousemove = e => { o.style.cursor = e.target === o && greyedAt(o, e) ? "pointer" : ""; });
+  // the back button, or a click on the greyed Combined view round the card, closes it; a click on a greyed agent opens that agent
   main.querySelectorAll(".pane .backbtn, .paneover").forEach(b => b.onclick = e => {
     if (b.matches(".paneover") && e.target !== b) return;
-    e.stopPropagation(); localStorage.removeItem("focus:pane:" + b.closest(".pane").dataset.path); draw();
+    e.stopPropagation();
+    const other = b.matches(".paneover") && greyedAt(b, e);
+    if (other) return open(other);
+    localStorage.removeItem("focus:pane:" + b.closest(".pane").dataset.path); draw();
   });
   main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
   main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
