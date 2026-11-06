@@ -186,8 +186,18 @@ def sgr(st, params):
         i += 1
 
 
-def ansi_html(text):
-    """Terminal text with SGR colours as escaped HTML spans; any other escape sequence is dropped."""
+def spelled_screen(text, names):
+    """Terminal text with each {name: spelling} written as spelled, where an agent means the person. A URL, a path and a
+    name run into a longer word (strength-Ada, --to=Ada, Ada@host) are what a machine reads, so they keep the roster's."""
+    for name, spelling in names.items():
+        hit = rf"https?://\S+|(?<![\w.])[~/]\S+|(?<![\w./=-]){re.escape(name)}(?![\w/@=-])"
+        text = re.sub(hit, lambda m, name=name, spelling=spelling: spelling if m.group(0) == name else m.group(0), text)
+    return text
+
+
+def ansi_html(text, names=None):
+    """Terminal text with SGR colours as escaped HTML spans; any other escape sequence is dropped. A run of one colour is
+    spelled whole, so the escape before a coloured name cannot hide it."""
     out, buf = [], []
     st = dict(fg=None, bg=None, bold=False, dim=False, inv=False, it=False)
 
@@ -201,7 +211,7 @@ def ansi_html(text):
         css += ["font-weight:600"] if st["bold"] else []
         css += ["opacity:.55"] if st["dim"] else []
         css += ["font-style:italic"] if st["it"] else []
-        t = html.escape("".join(buf))
+        t = html.escape(spelled_screen("".join(buf), names or {}))
         out.append(f'<span style="{";".join(css)}">{t}</span>' if css else t)
         buf.clear()
 
@@ -2378,7 +2388,7 @@ def agent_json(name):
     where = panes().get(name)
     screen = ""
     if where:
-        screen = ansi_html(run("tmux", "capture-pane", "-p", "-e", "-t", where["pane"]).rstrip("\n"))
+        screen = ansi_html(run("tmux", "capture-pane", "-p", "-e", "-t", where["pane"]).rstrip("\n"), shown_names())
     conv = with_ask(by_lane(feed(rec.get("sessionId"), 300), 60), rec.get("status"), where) if rec else []
     return json.dumps({"name": name, "feed": conv, "screen": screen,
                        "cols": (where or {}).get("cols", 0), "rows": (where or {}).get("rows", 0)}).encode()
@@ -6578,6 +6588,15 @@ def self_test():
         with open(SHOWN_NAMES, "w", encoding="utf-8") as f:
             json.dump({"Ada": "A’da"}, f, ensure_ascii=False)
         t("shown names: a listed name reads as written", shown_names(), {"Ada": "A’da"})
+        for words, want in (("ask Ada's review", "ask A’da's review"),
+                            ("Ada, then Ada.", "A’da, then A’da."),
+                            ("cd /home/me/Ada and ~/Ada", "cd /home/me/Ada and ~/Ada"),
+                            ("see https://x.test/Ada now", "see https://x.test/Ada now"),
+                            ("strength-Ada Ada-x --to=Ada Ada@box Adam", "strength-Ada Ada-x --to=Ada Ada@box Adam")):
+            t(f"screen: {words!r}", spelled_screen(words, shown_names()), want)
+        t("screen: a coloured name is spelled, its colour kept", ansi_html("\x1b[1mAda\x1b[0m said", shown_names()),
+          '<span style="font-weight:600">A’da</span> said')
+        t("screen: no names, as written", ansi_html("Ada said"), "Ada said")
         with open(FULL_NAMES, "w", encoding="utf-8") as f:
             json.dump({"Ada": "Ada O’Tucker", "Max": "Captain Max", "Nobody": "Not On The Roster"}, f, ensure_ascii=False)
         t("full names: an agent or assistant listed shows it, the rest their name, and a stray name adds nobody",
