@@ -94,12 +94,22 @@ step "[0/3] Harness — the self-test tier (scripts/selftest-tiers.txt via check
 _st_list="$(bash scripts/check-selftests-are-invoked.sh --list 2>/dev/null)"
 _st_n="$(printf '%s\n' "$_st_list" | awk 'NF' | wc -l)"
 (( _st_n >= 1 )) || fail "the self-test tier list is EMPTY — this step would pass having run nothing"
+# Quiet when it passes; when it fails, what it said, without its ok lines, or a red in CI has no cause to read. A file,
+# not $(...): a self-test's background process holds a pipe open and $(...) would wait for it.
+_selftest() {
+  local out rc=0
+  out="$(mktemp)" || return 1
+  "$@" --self-test >"$out" 2>&1 || rc=$?
+  ((rc == 0)) || sed -E '/^[[:space:]]*ok([[:space:]]|$)/d' "$out" | tail -40 >&2
+  rm -f "$out"
+  return "$rc"
+}
 _st_ran=0
 while IFS= read -r _s; do
   [[ -n "$_s" ]] || continue
   case "$_s" in
-    *.py) python3 "$_s" --self-test >/dev/null 2>&1 || fail "self-test failed: $_s (run: python3 $_s --self-test)" ;;
-    *)    bash "$_s" --self-test >/dev/null 2>&1 || fail "self-test failed: $_s (run: bash $_s --self-test)" ;;
+    *.py) _selftest python3 "$_s" || fail "self-test failed: $_s (run: python3 $_s --self-test)" ;;
+    *)    _selftest bash "$_s" || fail "self-test failed: $_s (run: bash $_s --self-test)" ;;
   esac
   _st_ran=$((_st_ran+1))
 done <<<"$_st_list"
