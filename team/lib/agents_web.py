@@ -74,6 +74,9 @@ PUBLIC_HOST = os.environ.get("AGENT_WEB_PUBLIC_HOST") or ""
 ACCESS_TEAM = (os.environ.get("AGENT_WEB_ACCESS_TEAM") or "").removeprefix("https://").split(".")[0]
 ACCESS_AUD = os.environ.get("AGENT_WEB_ACCESS_AUD") or ""
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
+# {name: the name the page shows the owner}, for the agent's menu and tooltips only. A name is still one spelling
+# everywhere else (the roster's rule), so this file is the page's, and an agent not in it shows its name.
+FULL_NAMES = os.environ.get("AGENT_FULL_NAMES") or ""
 BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budget.sh")
 DAY_BUDGET = os.environ.get("AGENTS_DAY_BUDGET") or os.path.join(ROOT, "team/agents-day-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
@@ -244,7 +247,21 @@ def roster():
             for a in data.get("agents") or [] if a.get("status") == "active" and a.get("name")]
     rows += [{"name": a["name"], "role": "assistant", "email": (a.get("email") or "").lower()}
              for a in data.get("assistants") or [] if a.get("name")]
+    full = full_names()
+    for r in rows:
+        r["fullName"] = full.get(r["name"], r["name"])
     return rows
+
+
+def full_names():
+    """FULL_NAMES as {name: full name}; empty when it is unset, unreadable or not an object, and only non-empty strings
+    count, so a slip in that file leaves the page showing short names."""
+    try:
+        with open(FULL_NAMES, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and v.strip()} if isinstance(data, dict) else {}
 
 
 def team_roster():
@@ -2261,7 +2278,7 @@ def state():
                 # once the session's context row has gone
                 was = last.get(name)
                 row = rows.get(was, {}) if was else {}
-                bench.append({"name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
+                bench.append({"name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
                               "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
                               "lastCompact": last_compact(was), "standing": role in STANDING})
             continue
@@ -2274,7 +2291,7 @@ def state():
         ser = series(burns.get(sid), now) if sid else []
         since = ((rec or {}).get("statusUpdatedAt") or 0) / 1000
         agents.append({
-            "name": name, "role": role, "roleName": role_name, "colour": colour(r["role"]),
+            "name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]),
             "tab": tab, "live": bool(rec), "status": (rec or {}).get("status") or ("off" if not rec else "?"),
             "held": int(now - since) if since else None,
             "ctxUsed": used, "ctxWindow": window,
@@ -4182,7 +4199,7 @@ function draw() {
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || (none ? null : agents[0]);
     if (badge === "icon")
       return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel ? 0 : unseen(a);
-        return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n) : ""}</span>`; }).join("")}</div>`];
+        return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n) : ""}</span>`; }).join("")}</div>`];
     if (badge === "card")
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
       .replace('<div class="chr ', `<div data-tab="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
@@ -4970,7 +4987,7 @@ function combinedHtml(path, n, full, big) {
   const chat = talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
-    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
+    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
 async function loadPaneConvs() {
@@ -6342,7 +6359,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   }
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
   // its name and details, with its second portrait, else its portrait, on the right
-  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
     (bench ? (bench.standing ? power : "") : !a.live ? power :   // a benched developer or tester has only its details, a benched standing agent its Start; one that is not running has nothing to open
@@ -6370,7 +6387,7 @@ function meetMenu(anchor, name, beside, rested) {
   const box = pane?.querySelector('textarea.say[data-name^="~meeting:"]');
   const m = meetOf(nodeAt(layout().root, pane?.dataset.path || "") || {}), state = anchor.title.split(", ").slice(1).join(", ");
   if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
-  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(name)} · meeting</span>` +
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || name)} · meeting</span>` +
     `<div>${esc(a.roleName || "")}</div>${state ? `<div>${esc(state[0].toUpperCase() + state.slice(1))}</div>` : ""}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div></div>` +
     (m && !m.ended && box ? `<div class="mi" data-go="mention">${MENU_ICON.said}Mention @${esc(name)}</div>` : ""), beside);
@@ -6526,6 +6543,17 @@ def self_test():
         t("roster: active agents in file order, then the assistants",
           [(r["name"], r["role"]) for r in roster()],
           [("Lea", "delivery-lead"), ("Ada", "developer"), ("Ben", "developer"), ("Tess", "tester"), ("Max", "assistant")])
+        t("full names: none set, each agent shows its name", [r["fullName"] for r in roster()], ["Lea", "Ada", "Ben", "Tess", "Max"])
+        g["FULL_NAMES"] = os.path.join(T, "full-names.json")
+        for bad in ('{"Ada": ', '["Ada"]', '{"Ada": "", "Ben": 7, "Lea": "  "}'):
+            with open(FULL_NAMES, "w") as f:
+                f.write(bad)
+            t(f"full names: {bad} leaves the short names", [r["fullName"] for r in roster()], ["Lea", "Ada", "Ben", "Tess", "Max"])
+        with open(FULL_NAMES, "w", encoding="utf-8") as f:
+            json.dump({"Ada": "Ada O’Tucker", "Max": "Captain Max", "Nobody": "Not On The Roster"}, f, ensure_ascii=False)
+        t("full names: an agent or assistant listed shows it, the rest their name, and a stray name adds nobody",
+          [(r["name"], r["fullName"]) for r in roster()],
+          [("Lea", "Lea"), ("Ada", "Ada O’Tucker"), ("Ben", "Ben"), ("Tess", "Tess"), ("Max", "Captain Max")])
         t("grouped: by role in the panel's order, file order within a role, an unknown role before the assistant",
           [r["name"] for r in grouped([{"name": n, "role": ro} for n, ro in [
               ("Max", "assistant"), ("Tess", "tester"), ("Rex", "code-reviewer"), ("Zed", "developer"), ("Pip", "ops"),
@@ -6648,6 +6676,9 @@ def self_test():
           [("Lea", "Work", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
         t("  developers and testers with no session are on the bench, and so is a stopped standing agent",
           [(b["name"], b["standing"]) for b in st["bench"]], [("Ben", False), ("Tess", False), ("Max", True)])
+        t("full names: reach the page, on a running agent and on the bench",
+          ([a["fullName"] for a in st["agents"] if a["name"] == "Ada"], [b["fullName"] for b in st["bench"]]),
+          (["Ada O’Tucker"], ["Ben", "Tess", "Captain Max"]))
         t("  the week's plan and the plan shared out evenly", (st["plan"], st["even"]), (36, 40.0))
         t("  and no day, while none is open", st["day"], None)
         for line, want in (("day  on: 11% of the day's 15% used (week 69%, from 58% at 06:05)", {"used": 11, "quota": 15, "from": 58}),

@@ -25,6 +25,8 @@ fi
 # the one strength's spawn wrapper reads; without it the panel would read harness's.
 export HARNESS_PROJECT=strength
 export ROSTER_FILE=/home/peter/dev/strength/agents/roster.json
+# The names the owner sees in an agent's menu and tooltips; everything else keeps the roster's one spelling.
+export AGENT_FULL_NAMES=/home/peter/dev/harness/box/agent-full-names.json
 export CONTEXT_DIR=/home/peter/.local/state/strength/context
 export AGENTS_DASH_CACHE=/home/peter/.local/state/strength/dash
 # Colours: the harness defaults the roles to /color's (Vera purple); Ed's role has no default.
