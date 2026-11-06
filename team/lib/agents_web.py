@@ -6529,7 +6529,7 @@ def self_test():
         # A session is its process's GIT_AUTHOR_EMAIL's agent; without one, the record's name.
         env = {k: v for k, v in os.environ.items() if k != "GIT_AUTHOR_EMAIL"}
         for i, (name, email) in enumerate([("someone-else", "ada@proj.local"), ("lea", ""), ("Stranger", ""), ("Ben", "")]):
-            kid = subprocess.Popen(["sleep", "60"], env=dict(env, **({"GIT_AUTHOR_EMAIL": email} if email else {})))
+            kid = subprocess.Popen(["sleep", "600"], env=dict(env, **({"GIT_AUTHOR_EMAIL": email} if email else {})))
             kids.append(kid)
             sock = f"{T}/socks/{i}"
             open(sock, "w").close()
