@@ -77,6 +77,9 @@ ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json
 # {name: the name the page shows the owner}, for the agent's menu and tooltips only. A name is still one spelling
 # everywhere else (the roster's rule), so this file is the page's, and an agent not in it shows its name.
 FULL_NAMES = os.environ.get("AGENT_FULL_NAMES") or ""
+# {name: how the page spells it}, for a name the roster's characters cannot hold (O’Brian is OBrian). What the page
+# shows wherever it writes a name; data attributes, addresses and the agents' own words keep the roster's spelling.
+SHOWN_NAMES = os.environ.get("AGENT_SHOWN_NAMES") or ""
 BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budget.sh")
 DAY_BUDGET = os.environ.get("AGENTS_DAY_BUDGET") or os.path.join(ROOT, "team/agents-day-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
@@ -254,10 +257,18 @@ def roster():
 
 
 def full_names():
-    """FULL_NAMES as {name: full name}; empty when it is unset, unreadable or not an object, and only non-empty strings
+    return name_file(FULL_NAMES)
+
+
+def shown_names():
+    return name_file(SHOWN_NAMES)
+
+
+def name_file(path):
+    """A file of {name: spelling}; empty when it is unset, unreadable or not an object, and only non-empty strings
     count, so a slip in that file leaves the page showing short names."""
     try:
-        with open(FULL_NAMES, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         return {}
@@ -2320,7 +2331,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
         "disk": disk(),
         "tabs": tabs,
-        "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner",
+        "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
@@ -3615,10 +3626,17 @@ function theme(t) { document.documentElement.classList.toggle("light", t === "li
 theme(new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme") || "dark");
 $("#theme").onclick = () => theme(document.documentElement.classList.contains("light") ? "dark" : "light");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// How the page writes an agent's name: the roster's spelling unless the server says otherwise. Attributes that name
+// an agent for the code (data-name, data-tab) keep the roster's, as everything sent back to the server must.
+const shown = name => S?.shownNames?.[name] || name;
 // The little Markdown agents write: ``` fenced blocks, tables, # headings, - bullets, `code` and **bold**; web
 // addresses become links, and so do full paths to documents the page can show (DOC_TYPES on the server).
 const DOC = /(^|[\s(>])((?:~|\/home)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
-const inline = s => esc(s)
+// A name in an agent's words reads as the page spells it, on the page only: the words stored and sent are untouched,
+// and so is anything meant literally, which is `code`, a web address or a path.
+const spelled = html => Object.entries(S?.shownNames || {}).reduce((out, [name, as]) =>
+  out.replace(new RegExp("`[^`\\n]+`|\\bhttps?://\\S+|(?<![\\w.])[~/]\\S+|\\b" + name + "\\b", "g"), hit => hit === name ? esc(as) : hit), html);
+const inline = s => spelled(esc(s))
   .replace(/^(#{1,6}) +(.+)$/gm, (_, h, t) => `<b class="h h${h.length}">${t}</b>`)
   .replace(/^(\s*)[-*] +/gm, "$1• ")
   .replace(/`([^`\n]+)`/g, "<code>$1</code>")
@@ -3774,7 +3792,7 @@ addEventListener("keydown", e => {
 // words and another agent's message to it, as "→ agent".
 function item(it, compact, agent, tag) {
   if (it.kind === "live" && stopping[agent]) it = {...it, text: "Stopping…"};
-  const ag = to => tag ? (it._agents || [agent]).map(x => `<span class="who ag${to ? " to" : ""}" style="--pc:${colours[x] || "#888"}">${esc(x)}</span>`).join("") : "";
+  const ag = to => tag ? (it._agents || [agent]).map(x => `<span class="who ag${to ? " to" : ""}" style="--pc:${colours[x] || "#888"}">${esc(shown(x))}</span>`).join("") : "";
   if (it.kind === "tools") {
     // on a card, one line run together; in a conversation shown whole, a line for each call
     const t = compact ? "⚙ " + it.calls.map(c => `<b>${esc(c.who)}</b> ${esc(c.text)}`).join(" · ")
@@ -3792,7 +3810,7 @@ function item(it, compact, agent, tag) {
   // the agent's own words carry its name, as the owner's carry theirs
   const who = it.kind === "said" ? agent || "" : it.who;
   const c = colours[it.kind === "said" ? agent : it.with || it.who], pc = c ? ` style="--pc:${c}"` : "";
-  const pics = thumbs(it.text, it.images, agent), own = who ? `<span class="who">${esc(who)}</span>` : "";
+  const pics = thumbs(it.text, it.images, agent), own = who ? `<span class="who">${esc(shown(who))}</span>` : "";
   const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
   return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${heads}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
@@ -3820,7 +3838,7 @@ const askButtons = (it, agent) => {
 const openAsk = a => a?.status === "waiting" && (a.feed || []).find(it => it.kind === "ask" && (it.options || []).length);
 const ASK_SHUT = "A prompt is open in its pane: answer it with its buttons";
 const sayHint = a => a.name?.startsWith(MEET) ? "Message the meeting…" : openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it"
-  : a.suggest && settings().suggest !== "off" ? `${a.suggest}   ⇥ Tab` : `Message ${a.name}…`;
+  : a.suggest && settings().suggest !== "off" ? `${a.suggest}   ⇥ Tab` : `Message ${shown(a.name)}…`;
 // a box is shut or opened again only when the prompt opens or closes, so a message on its way keeps its box disabled
 function shutBox(box, a) {
   const shut = !!openAsk(a);
@@ -4003,7 +4021,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(a.name)}</span></span>` : `<span class="name">${esc(a.name)}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
@@ -4206,7 +4224,7 @@ function draw() {
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
       .replace('<div class="chr ', `<div data-tab="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
     const tab = a => { const n = a === sel ? 0 : unseen(a);
-      return `<button class="${stOf(a)}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</button>`; };
+      return `<button class="${stOf(a)}${switching(a)}" style="--c:${a.colour}" data-tab="${esc(a.name)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</button>`; };
     return [sel, `<div class="tabbar" data-sec="${esc(key)}">${agents.map(tab).join("")}</div>`];
   };
   let html;
@@ -4614,7 +4632,7 @@ async function loadMeetings() {
 const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow"><textarea class="say" rows="1" data-name="${esc(MEET + path)}" placeholder="Message the meeting…" autocomplete="off"></textarea>${SEND}</div>`;
 const whoOn = n => Array.isArray(n.who) ? n.who : roleList().map(r => "role:" + r.role);
 const whoItems = () => [...roleList().map(r => ["role:" + r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]),
-  ...byRole([...S.agents, ...S.bench]).map(a => ["name:" + a.name, a.name, `<span class="dot hollow" style="--c:${a.colour}"></span>`])];
+  ...byRole([...S.agents, ...S.bench]).map(a => ["name:" + a.name, shown(a.name), `<span class="dot hollow" style="--c:${a.colour}"></span>`])];
 const whoBtn = (path, n) => filterBtn("who", "who:" + path, whoOn(n), Array.isArray(n.who) ? whoItems().map(([k]) => k) : whoOn(n), whoItems(), "Who");
 // The meeting's bar. Before it starts: who is invited (Who, while the layout is unlocked), a topic and Start. While it
 // is open: its topic and time, who is there, Add (anyone on the roster), Pause and End. The count of those in it, the
@@ -4635,12 +4653,12 @@ function meetBar(path, n, big) {
   if (!m) {
     const who = meetInvited(n).map(a => a.name);
     return `<div class="meetbar"><input class="mtopic" data-name="mtopic:${esc(path)}" placeholder="Topic (optional)" autocomplete="off">${meetCount(who.length)}` +
-      (who.length ? btn("start", "start", "Start", `Start a meeting with ${andList(who)}: each joins through a meeting session of its own`) : `<span>Choose who with Who</span>`) + max + `</div>`;
+      (who.length ? btn("start", "start", "Start", `Start a meeting with ${andList(who.map(shown))}: each joins through a meeting session of its own`) : `<span>Choose who with Who</span>`) + max + `</div>`;
   }
   const title = `<b>${esc(m.topic || "Meeting")}</b> ${m.ended ? `ended at ${meetHhmm(m.ended)}` : `since ${meetHhmm(m.opened)}`}`;
   if (m.ended) return `<div class="meetbar on"><span>${title} · the record is <a class="link" href="/doc?p=${encodeURIComponent(meetRecords + "/" + m.record)}" title="${esc(meetRecords + "/" + m.record)}" onclick="return showDoc(event, this)">${esc(m.record)}</a></span>${btn("new", "plus", "New meeting", "Set up the next meeting")}${max}</div>`;
   const here = m.who.filter(x => m.present[x]).length, stuck = Object.keys(m.stuck || {}).length;
-  return `<div class="meetbar on"><span>${title} · ${here} of ${m.who.length} here${stuck ? ` · <b title="${esc(Object.entries(m.stuck).map(([x, why]) => `${x}: ${why}`).join("\n"))}">${stuck} stuck</b>` : ""}${m.paused ? " · <b>paused</b>" : ""}${m.ending ? " · ending" : ""}</span>${meetCount(m.who.length)}` +
+  return `<div class="meetbar on"><span>${title} · ${here} of ${m.who.length} here${stuck ? ` · <b title="${esc(Object.entries(m.stuck).map(([x, why]) => `${shown(x)}: ${why}`).join("\n"))}">${stuck} stuck</b>` : ""}${m.paused ? " · <b>paused</b>" : ""}${m.ending ? " · ending" : ""}</span>${meetCount(m.who.length)}` +
     (m.ending ? "" : `<b class="mbtn" data-meet="add" data-menu="meetadd:${esc(path)}" title="Bring someone else into this meeting">${MENU_ICON.plus}Add</b>` +
       btn("pause", m.paused ? "start" : "pause", m.paused ? "Resume" : "Pause", m.paused ? "Let the agents hear each other again" : "Hold the agents' lines to each other until you speak or resume") +
       btn("end", "stop", "End", "End the meeting: each agent suggests what its own session should be told, for you to send or skip", " warn")) + max + `</div>`;
@@ -4652,7 +4670,7 @@ function meetFaces(n) {
   return them.length ? `<div class="tabbar icontabs meetrow">${them.map(a => {
     const on = m && !m.ended && m.live.includes(a.name), here = on && m.present[a.name], busy = on && m.busy.includes(a.name);
     const why = m && m.stuck?.[a.name];
-    const tip = `${a.name}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : why ? ", stuck: " + why : on ? ", joining" : ", inactive"}`;
+    const tip = `${shown(a.name)}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : why ? ", stuck: " + why : on ? ", joining" : ", inactive"}`;
     return `<span class="ftab${here ? "" : " away"}${busy ? " mbusy" : ""}">${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}" title="${esc(tip)}"`)}</span>`; }).join("")}</div>` : "";
 }
 // The meeting as it was said, the owner's lines and each agent's, then, once it is ending, each agent's suggestion.
@@ -4663,11 +4681,11 @@ function meetingHtml(path, n) {
       : l.who === S.owner || !m.who.includes(l.who) ? item({kind: "owner", who: l.who, text: l.text, ts: iso(l.at), lane: "owner"}, false, "")
       : item({kind: "said", text: l.text, ts: iso(l.at), lane: "owner"}, false, l.who)).join("") || `<div class="empty">Waiting for everyone to arrive</div>`;
   const hand = m && m.ending ? `<div class="hands">${m.who.map(x => { const h = m.handover[x] || {}, c = meetAgent(x).colour;
-    const head = `<span class="name" style="--c:${c}">${esc(x)}</span>`;
+    const head = `<span class="name" style="--c:${c}">${esc(shown(x))}</span>`;
     if (h.state === "asked") return `<div class="hand">${head}<span class="mute">is writing what ${esc(x)} should be told…</span></div>`;
     if (h.state === "suggested") return `<div class="hand" data-n="${esc(x)}">${head}<span class="mute">suggests sending ${esc(x)}:</span>` +
       `<textarea class="htext" data-name="hand:${esc(m.id)}:${esc(x)}" rows="3">${esc(h.suggested)}</textarea>` +
-      `<span class="hbtns"><b class="mbtn" data-hand="send" title="Send this, as it now reads, to ${esc(x)}">${MENU_ICON.start}Send</b><b class="mbtn" data-hand="skip" title="Send nothing">${MENU_ICON.close}Skip</b></span></div>`;
+      `<span class="hbtns"><b class="mbtn" data-hand="send" title="Send this, as it now reads, to ${esc(shown(x))}">${MENU_ICON.start}Send</b><b class="mbtn" data-hand="skip" title="Send nothing">${MENU_ICON.close}Skip</b></span></div>`;
     const said = {skipped: h.suggested ? "skipped" : "nothing to send", queued: `waiting for ${esc(x)} to be free`, sent: "sent"}[h.state] || esc(h.state || "");
     return `<div class="hand done">${head}<span class="mute">${said}${h.edited ? " (edited)" : ""}</span></div>`; }).join("")}</div>` : "";
   const box = m && !m.ending && !m.ended ? `<div class="chat">${meetRow(path)}</div>` : "";
@@ -4680,7 +4698,7 @@ function meetAdd(btn, path) {
   if (menuOn(key)) return menuOff(true);
   const them = byRole([...S.agents, ...S.bench]).filter(a => !m.who.includes(a.name));
   menuAt(btn, key, `<div class="hd"><div>Bring into this meeting</div></div>` + (them.length ? them.map(a => `<div class="mi" data-add="${esc(a.name)}">` +
-    `<span class="dot" style="--c:${a.colour}"></span>${esc(a.name)}</div>`).join("") : `<div class="mi off">Everyone is here</div>`), false);
+    `<span class="dot" style="--c:${a.colour}"></span>${esc(shown(a.name))}</div>`).join("") : `<div class="mi off">Everyone is here</div>`), false);
   menu.querySelectorAll(".mi[data-add]").forEach(mi => mi.onclick = () => { menuOff(true); meetPost(m.id, "add", {name: mi.dataset.add}); });
 }
 async function meetPost(id, what, body = {}) {
@@ -4855,7 +4873,7 @@ function customHtml(ceil, tabRow) {
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
-      ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option${a.name === n.name ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
+      ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : ""}
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" ? perfBtn(path, n) : ""}
       ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
@@ -4922,7 +4940,7 @@ function paneTermHtml(name, t) {
   const big = paneBig === name, w = big ? innerWidth - 80 - PAD : THUMB_W - PAD;
   const h = big ? innerHeight - 80 - PAD - 33 : THUMB_H;
   const size = Math.max(1, Math.min(big ? BIG : 99, w / (t.cols * charW), h / (t.rows * 1.25)));
-  return `<div class="termwrap${big ? " big" : ""}" title="${big ? "" : "Expand"}"><div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(name)} — ${t.cols}×${t.rows}</span><b class="pzoom">${big ? "⤡" : "⤢"}</b></div>` +
+  return `<div class="termwrap${big ? " big" : ""}" title="${big ? "" : "Expand"}"><div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(shown(name))} — ${t.cols}×${t.rows}</span><b class="pzoom">${big ? "⤡" : "⤢"}</b></div>` +
     `<div class="screen"><pre style="font-size:${size.toFixed(2)}px;width:${(t.cols * charW * size).toFixed(1)}px;height:${(t.rows * 1.25 * size).toFixed(1)}px">${t.screen || ""}</pre></div></div><span class="x" title="Close (Esc)">✕</span></div>`;
 }
 // The Team pane's transcript: every message between agents, fetched with each load while a Team pane is laid out.
@@ -4948,8 +4966,8 @@ function teamHtml(path, full, hide, big) {
   const shown = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? shown : shown.slice(-30);
   const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
-  const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(m.from)}</span>` +
-    `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(m.to)}</span><span class="tx">${md(m.text)}</span>` +
+  const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(shown(m.from))}</span>` +
+    `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(shown(m.to))}</span><span class="tx">${md(m.text)}</span>` +
     `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
   return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span>${filterBtn("agents", "agents:" + path, names.filter(x => !hide.has(x)), names, teamItems(), "Agents")}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
@@ -4989,7 +5007,7 @@ function combinedHtml(path, n, full, big) {
   const chat = talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
-    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(esc).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(x)}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
+    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(shown(x))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
 async function loadPaneConvs() {
@@ -5526,7 +5544,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = stOf(a), n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(a.name)}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -5562,15 +5580,15 @@ const LEFT_BADGE = new Set(["tester", "hot"]);
 // An agent as a small Characters tile: its portrait, else its role's shadow with the agent's initial bottom left, over
 // a bar in its colour. A running agent's tile carries its state, so a waiting one flashes like its Characters tile; the
 // bench's have none. One the page is starting or stopping pulses.
-const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " " + stOf(a) : ""}${switching(a)}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(a.name)}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
+const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " " + stOf(a) : ""}${switching(a)}" style="--c:${a.colour}" ${attrs}>${a.portrait ? `<img src="${esc(a.portrait)}" alt="${esc(shown(a.name))}">` : shadow(a) + `<span class="ini">${esc([...a.name][0] || "")}</span>`}</span>`;
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
-    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(a.name)}">` +
+    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(a.name)}</span>`) +
+      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>`) +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
@@ -5620,10 +5638,10 @@ async function openDetail(name) {
   if ($("#detail").classList.contains("docked")) localStorage.setItem("tab:page", name);
   open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = ""; $("#dscreen").innerHTML = ""; $("#dterm").classList.remove("big"); $("#dzoom").textContent = "⤢";
   history.replaceState(null, "", "#" + encodeURIComponent(name));
-  if (ONLY) document.title = name;
+  if (ONLY) document.title = shown(name);
   const a = S.agents.find(x => x.name === name) || {};
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(name)}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
@@ -6354,10 +6372,10 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   if (STANDING_ROLES.has(a.role)) {
     power = S.starting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.start)}Starting…</div>`
       : S.halting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.stop)}Stopping…</div>`
-      : !a.live ? `<div class="mi" data-go="start">${MENU_ICON.start}Start ${esc(name)}</div>`
+      : !a.live ? `<div class="mi" data-go="start">${MENU_ICON.start}Start ${esc(shown(name))}</div>`
       : confirm ? `<div class="ask">Ask ${esc(name)} to finish, update its record and stop? Its pane closes once it is idle.</div>` +
-        `<div class="mi warn" data-go="halt">${MENU_ICON.power}Stop ${esc(name)}</div><div class="mi" data-go="cancel">${MENU_ICON.close}Cancel</div>`
-      : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(name)}…</div>`;
+        `<div class="mi warn" data-go="halt">${MENU_ICON.power}Stop ${esc(shown(name))}</div><div class="mi" data-go="cancel">${MENU_ICON.close}Cancel</div>`
+      : `<div class="mi" data-go="ask">${MENU_ICON.power}Stop ${esc(shown(name))}…</div>`;
   }
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
   // its name and details, with its second portrait, else its portrait, on the right
@@ -6409,7 +6427,7 @@ function chatPick(anchor) {
   if (menuOn(key)) return menuOff(true);
   const them = n ? paneAgents(n).filter(a => a.live) : [];
   menuAt(anchor, key, `<div class="hd"><div>Chat with</div></div>` + them.map(a => `<div class="mi" data-pick="${esc(a.name)}">${face(a, "")}` +
-    `${esc(a.name)}${MENU_ICON.check.replace("<svg", `<svg class="tick${a.name === cur ? "" : " off"}"`)}</div>`).join(""), false);
+    `${esc(shown(a.name))}${MENU_ICON.check.replace("<svg", `<svg class="tick${a.name === cur ? "" : " off"}"`)}</div>`).join(""), false);
   menu.querySelectorAll(".mi[data-pick]").forEach(mi => mi.onclick = () => {
     menuOff(true); chatWith(path, mi.dataset.pick === cur ? null : mi.dataset.pick);   // the ticked one closes the chat
   });
@@ -6451,11 +6469,11 @@ function teamButton() {
   const tips = {
     play: starting ? "Starting the team" : nudgerTo === false ? "Resuming the nudger" : on === "play" ? "The team is running"
       : on === "pause" ? "Resume the nudger"
-      : `Start ${S.teamUp ? S.teamUp.join(", ") + ", who were running when the team stopped" : "the team: everyone with a Session on the roster"}`,
+      : `Start ${S.teamUp ? S.teamUp.map(shown).join(", ") + ", who were running when the team stopped" : "the team: everyone with a Session on the roster"}`,
     pause: nudgerTo ? "Pausing the nudger" : on === "pause" ? "The nudger is paused" : on === "play" ? "Pause the nudger" : "",
     stop: stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
       : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
-      : on === "stop" ? "The team is stopped" : lead?.live ? `Stop the team: ask ${lead.name} to wind everyone down` : "",
+      : on === "stop" ? "The team is stopped" : lead?.live ? `Stop the team: ask ${shown(lead.name)} to wind everyone down` : "",
   };
   const key = [on, go, !!teamAsk, ...Object.values(tips)].join("|");
   if ($("#teamctl").dataset.text === key) return;
@@ -6551,6 +6569,15 @@ def self_test():
             with open(FULL_NAMES, "w") as f:
                 f.write(bad)
             t(f"full names: {bad} leaves the short names", [r["fullName"] for r in roster()], ["Lea", "Ada", "Ben", "Tess", "Max"])
+        t("shown names: none set, the state carries none", shown_names(), {})
+        g["SHOWN_NAMES"] = os.path.join(T, "shown-names.json")
+        for bad in ('{"Ada": ', '["Ada"]', '{"Ada": "", "Ben": 7, "Lea": "  "}'):
+            with open(SHOWN_NAMES, "w") as f:
+                f.write(bad)
+            t(f"shown names: {bad} leaves the roster's spelling", shown_names(), {})
+        with open(SHOWN_NAMES, "w", encoding="utf-8") as f:
+            json.dump({"Ada": "A’da"}, f, ensure_ascii=False)
+        t("shown names: a listed name reads as written", shown_names(), {"Ada": "A’da"})
         with open(FULL_NAMES, "w", encoding="utf-8") as f:
             json.dump({"Ada": "Ada O’Tucker", "Max": "Captain Max", "Nobody": "Not On The Roster"}, f, ensure_ascii=False)
         t("full names: an agent or assistant listed shows it, the rest their name, and a stray name adds nobody",
@@ -6708,7 +6735,7 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
