@@ -4170,7 +4170,7 @@ function draw() {
   $("#lock").innerHTML = padlock(pageLocked()); $("#lock").title = pageLocked() ? "Locked: click to change the page" : "Click to lock the page";
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
   teamButton();
-  const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart] : null;
+  const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart, act.selectionEnd, act.selectionDirection] : null;
   document.querySelectorAll("#main .say").forEach(i => { if (i.value) typed[i.dataset.name] = i.value; });
   // A row of tabs, one per agent; the picked one is remembered under "tab:" + key.
   const tabRow = (key, agents, badge, none) => {   // none: nobody is picked until one is (a Meeting's row)
@@ -4253,7 +4253,7 @@ function draw() {
     i.oninput = () => { emojify(i); suggest(i); grow(i); keep(i); };
     i.onkeydown = e => emoKey(e, i) || keys(e, i, i.dataset.name);
     i.onpaste = e => pasted(e, i.dataset.name);
-    if (focus && focus[0] === i.dataset.name) { i.focus(); i.setSelectionRange(focus[1], focus[1]); }
+    if (focus && focus[0] === i.dataset.name) { i.focus(); i.setSelectionRange(focus[1], focus[2], focus[3]); }   // the whole selection and its direction, so Shift+arrows carries on from it
     if (!i.parentElement.previousElementSibling.children.length) showAtt(i.dataset.name);
   });
   main.querySelectorAll(".chat .x").forEach(x => x.onclick = () => chatWith(x.dataset.chat, null));
