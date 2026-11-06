@@ -22,14 +22,21 @@ transcript() { # transcript <claude-name> -> newest .jsonl named <name>, or noth
   printf '%s\n' "$TITLES" | awk -F'\t' -v n="$1" '$2==n {print $1}' | sed 's/:$//' | xargs -r ls -t | head -1
 }
 
-# True if a live Claude Code process holds this name, in any session: its own record says so.
+# True if a live Claude Code process is this agent, in any session. Its identity in its environment says
+# whose it is, so another name on the record, or a crashed session's old record whose pid a new claude reuses,
+# doesn't mislead; without an identity (the house assistant) the record's name says. An agent's meeting
+# session carries the agent's identity but is its own conversation, so it doesn't count.
 running() { # running <claude-name>
-  local f p
+  local f p said who
   for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
     [ -e "$f" ] || continue
     p=${f##*/}; p=${p%.json}
     [ "$(cat "/proc/$p/comm" 2>/dev/null)" = claude ] || continue
-    [ "$(jq -r '.name // "" | ascii_downcase' "$f" 2>/dev/null)" = "${1,,}" ] && return 0
+    said=$(jq -r '.name // ""' "$f" 2>/dev/null)
+    [[ $said == *" · meeting" ]] && continue
+    who=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | sed -n 's/^GIT_AUTHOR_NAME=//p' | head -1)
+    who=${who:-$said}
+    [ "${who,,}" = "${1,,}" ] && return 0
   done
   return 1
 }
