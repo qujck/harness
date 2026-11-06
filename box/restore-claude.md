@@ -26,13 +26,13 @@ roster. Run it to bring back any single missing session. Sessions and who is in 
 | Session | Panes |
 |---|---|
 | `Delivery` | Columns of two (top / bottom), worked out from the roster: developers, then testers, then anyone else, with the code reviewer (Stephanie) always in the bottom-right pane. Developers and testers never share a column; a gap is an empty shell. Never fewer than 8 panes, more columns as the team grows. Now: Cara / Anthony, Saffron / empty, Tommy / empty, empty / Stephanie |
-| `Delivery Lead` | Carl, with the team panel in 32 columns on the right |
-| `Project` | Rowan on the left, Alfred on the right |
-| `Ops` | Vera on the left, Ed on the right |
+| `Delivery Lead` | The delivery lead, with the team panel in 32 columns on the right |
+| `Project` | Process improvement on the left (an empty slot when the role is vacant), the house assistant on the right |
+| `Ops` | The head of testing on the left, the head of operations on the right |
 
-Vera runs from her own folder, `~/vera`, which isn't a project. Claude Code never remembers
-trust for your home folder, so running her from `~` asked every restart. Her memory there is
-a link to the one in `~`, so she keeps her test-lead memories.
+The house assistant runs from its own folder, `~/dev/<name>` (`~/dev/boozer`), which isn't a
+project. Claude Code never remembers trust for your home folder, so running it from `~` asked
+every restart. Its memory folder is a link to the one in `~`, so it keeps its memories.
 
 Delivery, Project and Ops come back whole or not at all. In Delivery a pane whose agent exits stays in
 place, marked dead; bring that one back with `byobu respawn-pane -t <pane>`. Kill and re-run the

@@ -13,6 +13,10 @@
 # starts one. An agent already running is left alone. A developer or tester is not started here: the delivery lead
 # spawns one per ticket (team/agent-spawn.sh). Exit 0 when each asked for is running, 1 when one could not start.
 #
+# An assistant (the roster's .assistants, not on the team) starts only when named with --only: in its own folder beside
+# the project's checkout (<parent>/<name, lower case>), in a tmux session of its own name. It has no launch line and no
+# identity: it sets its address on each commit, so it is known to be running by the folder its process runs in.
+#
 #   TEAM_START_DRY=1          print each command instead of starting it
 #   TEAM_START_PROJECT=<dir>  the project's checkout (default: the one ROSTER_FILE is in)
 set -uo pipefail
@@ -40,12 +44,54 @@ running() {
   done
   return 1
 }
-[ -n "${TEAM_START_RUNNING:-}" ] && running() { [[ " $TEAM_START_RUNNING " == *" $1 "* ]]; }
+# running_in <dir>: whether a Claude Code process runs in this folder
+running_in() {
+  local p
+  for p in $(pgrep -x claude 2>/dev/null); do
+    [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "$1" ] && return 0
+  done
+  return 1
+}
+[ -n "${TEAM_START_RUNNING:-}" ] && {
+  running() { [[ " $TEAM_START_RUNNING " == *" $1 "* ]]; }
+  running_in() { [[ " $TEAM_START_RUNNING " == *" $1 "* ]]; }
+}
+
+# resume_flag <tree>: --continue when this folder has a conversation to resume
+resume_flag() {
+  compgen -G "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/${1//[\/.]/-}/*.jsonl" >/dev/null && printf ' --continue'
+  return 0
+}
+
+# launch <name> <session> <command> <how to see why>: starts the command in a detached tmux session, or prints it
+launch() {
+  local name="$1" session="$2" cmd="$3" hint="$4"
+  if [ -n "${TEAM_START_DRY:-}" ]; then printf 'would start %s in tmux session %s:\n%s\n' "$name" "$session" "$cmd"; return 0; fi
+  tmux has-session -t "=$session" 2>/dev/null && { echo "team-start: tmux session $session exists but $name is not running in it; close it first" >&2; return 1; }
+  tmux new-session -d -s "$session" -x 200 -y 50 bash -lc "$cmd" || { echo "team-start: tmux could not start $session" >&2; return 1; }
+  sleep 2
+  tmux has-session -t "=$session" 2>/dev/null || { echo "team-start: $session ended at once; start it by hand to see why: $hint" >&2; return 1; }
+  case "$cmd" in *" --continue "*) hint=", resuming its newest conversation" ;; *) hint="" ;; esac
+  echo "team-start: started $name in tmux session $session$hint, with Remote Control on"
+}
+
+start_assistant() {
+  local name="$1" tree cont
+  tree="$(dirname "$project")/${name,,}"
+  [ -d "$tree" ] || { echo "team-start: $name is an assistant but its folder $tree is not there" >&2; return 1; }
+  if running_in "$tree"; then echo "team-start: $name is already running"; return 0; fi
+  cont="$(resume_flag "$tree")"
+  launch "$name" "$name" "cd $(printf %q "$tree") && claude --name $name$cont --remote-control ${name,,}" "cd $tree && claude --name $name"
+}
 
 start_one() {
   local name="$1" row role email session line tree cont=""
   row="$(jq -r --arg n "${name,,}" '.agents[]? | select((.name|ascii_downcase) == $n and .status == "active") | "\(.name)\t\(.role)\t\(.email)"' "$roster" 2>/dev/null | head -1)"
-  [ -n "$row" ] || { echo "team-start: $name is not an active agent on $roster" >&2; return 1; }
+  if [ -z "$row" ]; then
+    row="$(jq -r --arg n "${name,,}" '.assistants[]? | select((.name|ascii_downcase) == $n) | .name' "$roster" 2>/dev/null | head -1)"
+    [ -n "$row" ] && { start_assistant "$row"; return; }
+    echo "team-start: $name is not an active agent on $roster" >&2; return 1
+  fi
   IFS=$'\t' read -r name role email <<<"$row"
   case "$role" in developer|tester) echo "team-start: $name ($role) is started per ticket by the delivery lead (team/agent-spawn.sh), not here"; return 0 ;; esac
   if running "$email"; then echo "team-start: $name is already running"; return 0; fi
@@ -53,27 +99,23 @@ start_one() {
   tree="$(sed -n '1s/^cd \(.*\) && \\$/\1/p' <<<"$line")"
   [ -n "$tree" ] || { echo "team-start: $name's launch line does not start in its own tree: $line" >&2; return 1; }
   # resume its newest conversation in that tree, when it has one
-  compgen -G "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/${tree//[\/.]/-}/*.jsonl" >/dev/null && cont=" --continue"
+  cont="$(resume_flag "$tree")"
   session="${HARNESS_PROJECT:-$(basename "$project")}-${name,,}"
-  local cmd="$line --name $name$cont --remote-control $session"
-  if [ -n "${TEAM_START_DRY:-}" ]; then printf 'would start %s in tmux session %s:\n%s\n' "$name" "$session" "$cmd"; return 0; fi
-  tmux has-session -t "=$session" 2>/dev/null && { echo "team-start: tmux session $session exists but $name is not running in it; close it first" >&2; return 1; }
-  tmux new-session -d -s "$session" -x 200 -y 50 bash -lc "$cmd" || { echo "team-start: tmux could not start $session" >&2; return 1; }
-  sleep 2
-  tmux has-session -t "=$session" 2>/dev/null || { echo "team-start: $session ended at once; start it by hand to see why: $line" >&2; return 1; }
-  echo "team-start: started $name in tmux session $session${cont:+, resuming its newest conversation}, with Remote Control on"
+  launch "$name" "$session" "$line --name $name$cont --remote-control $session" "$line"
 }
 
 selftest() {
   local fails=0 out rc T
   check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got '$2', want '$3'"; fails=$((fails + 1)); fi; }
   T="$(mktemp -d)"; trap 'rm -rf "$T"' RETURN
-  mkdir -p "$T/proj/agents" "$T/cfg/projects/-t-proj-lea"; : > "$T/cfg/projects/-t-proj-lea/old.jsonl"
+  mkdir -p "$T/proj/agents" "$T/cfg/projects/-t-proj-lea" "$T/max" "$T/cfg/projects/${T//[\/.]/-}-max"
+  : > "$T/cfg/projects/-t-proj-lea/old.jsonl"; : > "$T/cfg/projects/${T//[\/.]/-}-max/old.jsonl"
   cat > "$T/proj/agents/roster.json" <<'J'
 {"agents":[{"name":"Lea","role":"delivery-lead","email":"lea@p.test","status":"active"},
  {"name":"Vi","role":"head-of-testing","email":"vi@p.test","status":"active"},
  {"name":"Ada","role":"developer","email":"ada@p.test","status":"active"},
- {"name":"Old","role":"delivery-lead","email":"old@p.test","status":"retired"}]}
+ {"name":"Old","role":"delivery-lead","email":"old@p.test","status":"retired"}],
+ "assistants":[{"name":"Max","role":"house-assistant","email":"max@p.test"},{"name":"Noa","role":"house-assistant"}]}
 J
   local env=(TEAM_START_DRY=1 ROSTER_FILE="$T/proj/agents/roster.json" HARNESS_PROJECT=proj CLAUDE_CONFIG_DIR="$T/cfg"
              TEAM_START_LAUNCH_LINE='n="${1,,}"; [ "$n" = nob ] && { echo "no tree" >&2; exit 1; }; printf "cd /t/proj-%s && \\\\\n  GIT_AUTHOR_EMAIL=%s@p.test \\\\\n  claude\n" "$n" "$n"')
@@ -87,9 +129,18 @@ J
   out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Ada 2>&1); rc=$?
   check "a developer is not started here" "$rc:$(grep -c 'per ticket' <<<"$out"):$(grep -c 'would start' <<<"$out")" "0:1:0"
   env "${env[@]}" bash "$_here/team-start.sh" --only Old >/dev/null 2>&1; check "a retired agent is refused" "$?" 1
+  out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Max 2>&1); rc=$?
+  check "an assistant starts in the folder beside the project, in a session of its name" "$rc:$(grep -c -- 'would start Max in tmux session Max:' <<<"$out"):$(grep -cF -- "cd $T/max && claude --name Max --continue --remote-control max" <<<"$out")" "0:1:1"
+  check "  with no identity set for it" "$(grep -c 'GIT_AUTHOR' <<<"$out")" 0
+  out=$(env "${env[@]}" bash "$_here/team-start.sh" --only max 2>&1)
+  check "  whatever the case of the name" "$(grep -c 'would start Max' <<<"$out")" 1
+  out=$(env "${env[@]}" TEAM_START_RUNNING="$T/max" bash "$_here/team-start.sh" --only Max 2>&1); rc=$?
+  check "an assistant running in its folder is left alone" "$rc:$(grep -c 'already running' <<<"$out"):$(grep -c 'would start' <<<"$out")" "0:1:0"
+  out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Noa 2>&1); rc=$?
+  check "an assistant with no folder is refused, and says where it looked" "$rc:$(grep -cF "$T/noa" <<<"$out")" "1:1"
   env "${env[@]}" bash "$_here/team-start.sh" --only Nobody >/dev/null 2>&1; check "a name off the roster is refused" "$?" 1
   out=$(env "${env[@]}" bash "$_here/team-start.sh" 2>&1); rc=$?
-  check "the whole team is every active standing agent" "$rc:$(grep -c 'would start' <<<"$out"):$(grep -c 'Ada\|Old' <<<"$out")" "0:2:0"
+  check "the whole team is every active standing agent, and no assistant" "$rc:$(grep -c 'would start' <<<"$out"):$(grep -c 'Ada\|Old\|Max' <<<"$out")" "0:2:0"
   bash "$_here/team-start.sh" --only >/dev/null 2>&1; check "--only needs a name" "$?" 2
   bash "$_here/team-start.sh" --sole Ada >/dev/null 2>&1; check "an unknown argument is refused" "$?" 2
   [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; return 1; }

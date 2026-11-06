@@ -23,7 +23,7 @@ transcript() { # transcript <claude-name> -> newest .jsonl named <name>, or noth
 
 # Identity is set at launch and a resume needs it as much as a fresh start
 # (strength scripts/start-agent.sh). Rostered agents get their GIT_AUTHOR_* /
-# GIT_COMMITTER_* from agents/roster.json; anyone not on it (Alfred) gets none.
+# GIT_COMMITTER_* from agents/roster.json; anyone not on it (the house assistant) gets none.
 ROSTER=$(git -C "$S" show origin/main:agents/roster.json 2>/dev/null || cat "$S/agents/roster.json" 2>/dev/null || true)
 ident() { # ident <name> -> "env GIT_...=... " or nothing
   local e
@@ -173,7 +173,8 @@ if exists Project; then echo "skip    Project (already running)"
 else
   cmd "$PI" /home/peter/dev
   r=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s Project -n Project -c "$D" "$C")
-  cmd "$PA" /home/peter
+  # The assistant runs from its own folder, ~/dev/<name>: Claude Code never saves trust for the home folder.
+  cmd "$PA" "/home/peter/dev/${PA,,}"
   byobu split-window -h -d -t "$r" -c "$D" "$C"
   echo "started Project ($PI, $PA)"
 fi
