@@ -15,7 +15,7 @@ died without disturbing the others.
 
 If a session shows as `11` instead of a name:
 
-    byobu rename-session -t 11 Vera
+    byobu rename-session -t 11 Delivery
 
 ## Restore each agent individually
 
@@ -25,7 +25,7 @@ roster. Run it to bring back any single missing session. Sessions and who is in 
 
 | Session | Panes |
 |---|---|
-| `Delivery` | Columns of two (top / bottom), worked out from the roster: developers, then testers, then anyone else, with the code reviewer (Stephanie) always in the bottom-right pane. Developers and testers never share a column; a gap is an empty shell. Never fewer than 8 panes, more columns as the team grows. Now: Cara / Anthony, Saffron / empty, Tommy / empty, empty / Stephanie |
+| `Delivery` | Columns of two (top / bottom), worked out from the roster: developers, then testers, then anyone else, with the code reviewer always in the bottom-right pane. Developers and testers never share a column; a gap is an empty shell. Never fewer than 8 panes, more columns as the team grows. |
 | `Delivery Lead` | The delivery lead, with the team panel in 32 columns on the right |
 | `Project` | Process improvement on the left (an empty slot when the role is vacant), the house assistant on the right |
 | `Ops` | The head of testing on the left, the head of operations on the right |
