@@ -1,7 +1,8 @@
 #!/bin/bash
 # Recreate the byobu layout and resume every named Claude session after a reboot.
-# Safe to re-run: sessions that already exist are left alone, so this can be used
-# to bring back one missing session without touching the others.
+# Safe to re-run: sessions that already exist are left alone, and an agent already
+# running anywhere gets an empty slot, so its conversation is never resumed twice. So
+# this can be used to bring back one missing session without touching the others.
 # Attach to any session with:  byobu attach -t <name>
 set -e
 S=/home/peter/dev/strength
@@ -19,6 +20,18 @@ TITLES=$(command grep -oH '"customTitle":"[^"]*"' /home/peter/.claude/projects/*
   awk -F'"customTitle":"' '{sub(/"$/,"",$2); last[$1]=$2} END {for (f in last) print f "\t" last[f]}')
 transcript() { # transcript <claude-name> -> newest .jsonl named <name>, or nothing
   printf '%s\n' "$TITLES" | awk -F'\t' -v n="$1" '$2==n {print $1}' | sed 's/:$//' | xargs -r ls -t | head -1
+}
+
+# True if a live Claude Code process holds this name, in any session: its own record says so.
+running() { # running <claude-name>
+  local f p
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
+    [ -e "$f" ] || continue
+    p=${f##*/}; p=${p%.json}
+    [ "$(cat "/proc/$p/comm" 2>/dev/null)" = claude ] || continue
+    [ "$(jq -r '.name // "" | ascii_downcase' "$f" 2>/dev/null)" = "${1,,}" ] && return 0
+  done
+  return 1
 }
 
 # Identity is set at launch and a resume needs it as much as a fresh start
@@ -74,6 +87,7 @@ dir() { # dir <claude-name> <fallback>
 EMPTY="python3 /home/peter/dev/harness/box/empty-slot.py"
 cmd() {
   if [ "$1" = - ]; then C=$EMPTY; D=/home/peter; return; fi
+  if running "$1"; then echo "skip    $1 (already running), empty slot"; C=$EMPTY; D=$2; return; fi
   if [ -z "$(transcript "$1")" ]; then echo "note    $1 has no named conversation yet, empty slot"; C=$EMPTY; D=$2; return; fi
   C=$(resume "$1"); D=$(dir "$1" "$2")
 }

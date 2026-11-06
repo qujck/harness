@@ -8,7 +8,8 @@ SSH connection. Every command you need is below - nothing else to learn.
     ~/restore-claude.sh
 
 Safe to run at any time. It prints one line per session and only starts the ones
-that aren't already running, so it can also bring back a single agent that has
+that aren't already running, and an agent already running in another session gets an
+empty slot rather than a second copy of its conversation, so it can also bring back a single agent that has
 died without disturbing the others.
 
 ## Rename a session that came up as a number
