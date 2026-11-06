@@ -247,6 +247,11 @@ def roster():
     return rows
 
 
+def team_roster():
+    """The roster without its assistants, who are not on the team: the team's start and stop leave them alone."""
+    return [r for r in roster() if r["role"] != "assistant"]
+
+
 def grouped(rows):
     """Roster rows grouped by role in ROLE_RANK's order, file order kept within a role. A roster appends each new
     agent at the end, so in file order a new developer drew after the testers. roster() stays in file order."""
@@ -1208,17 +1213,17 @@ def team_up():
     lead = lambda r: role_of(r["role"])[0] == "lead"
     names = names_in(TEAM_UP)
     if names is not None:
-        return [r["name"] for r in roster() if r["name"] in names or lead(r)]
+        return [r["name"] for r in team_roster() if r["name"] in names or lead(r)]
     stopped = names_in(STOPPED) or set()
-    if not any(r["name"] in stopped and not lead(r) for r in roster()):
+    if not any(r["name"] in stopped and not lead(r) for r in team_roster()):
         return None
-    return [r["name"] for r in roster() if r["name"] not in stopped or lead(r)]
+    return [r["name"] for r in team_roster() if r["name"] not in stopped or lead(r)]
 
 
 def start_team(lead, names):
     """team/team-start.sh for the named agents (the whole team for None), then, once the lead is up and ready
     for a message, the lead is told to start the day. The record of who was running is used up."""
-    started = names or [r["name"] for r in roster()]
+    started = names or [r["name"] for r in team_roster()]
     try:
         restore(*[a for n in names for a in ("--only", n)]) if names else restore()
         try:
@@ -2651,7 +2656,7 @@ class Handler(BaseHTTPRequestHandler):
         if not lead:
             return self.send(409, b"no delivery lead on the roster\n", "text/plain")
         if what == "stop":
-            running = [r["name"] for r in roster() if r["name"] in live_sessions()]
+            running = [r["name"] for r in team_roster() if r["name"] in live_sessions()]
             ok = type_into(lead, TEAM_STOP)
             if ok is None:
                 return self.send(409, f"{lead} is not running\n".encode(), "text/plain")
@@ -2666,7 +2671,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(500, f"{TEAM_START_SH} is not there\n".encode(), "text/plain")
         names = team_up()
         _halting.discard("team")
-        _starting.update(["team", *(names or [r["name"] for r in roster()])])
+        _starting.update(["team", *(names or [r["name"] for r in team_roster()])])
         threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
         self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
 
@@ -6501,7 +6506,7 @@ def self_test():
         g.update(HOME=T, PROJECT="proj", SESSIONS=T + "/sessions", PROJECTS=T + "/projects", CONTEXT_DIR=T + "/context",
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
                  ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
-                 TEAM_UP=T + "/state/team-up", TEAM_START_LOG=T + "/state/team-start.log",
+                 TEAM_UP=T + "/state/team-up", STOPPED=T + "/state/stopped", COMPACT_ON_START=T + "/state/compact-on-start", TEAM_START_LOG=T + "/state/team-start.log",
                  TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
         with open(T + "/roster.json", "w") as f:
             json.dump({"agents": [
@@ -6706,13 +6711,38 @@ def self_test():
             f.write(f'echo "$*" >> {T}/started\n')
         os.makedirs(T + "/state", exist_ok=True)
         with open(T + "/state/team-up", "w") as f:
-            f.write("Ada\nGone\n")
+            f.write("Ada\nGone\nMax\n")
         t("the next start brings back those recorded who are still on the roster, and the lead", team_up(), ["Lea", "Ada"])
+        t("  and leaves out an assistant, here on the roster and in the record", "Max" in [r["name"] for r in roster()], True)
+        os.rename(T + "/state/team-up", T + "/state/team-up.keep")
+        with open(STOPPED, "w") as f:
+            f.write("Ben\n")
+        t("with an agent stopped on its own, the start is the rest of the team and no assistant", "Max" in team_up(), False)
+        with open(STOPPED, "w") as f:
+            f.write("Max\n")
+        t("  and an assistant stopped on its own does not make the start a partial one", team_up(), None)
+        os.remove(STOPPED)
+        os.rename(T + "/state/team-up.keep", T + "/state/team-up")
         t("a team start without the page's header is refused", code("/api/team/start", "POST", {}, b"")[0], 403)
         t("a team start is taken", code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
         t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
         t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
+        keep = {k: g[k] for k in ("start_team", "type_into", "live_sessions", "compact_when_up")}
+        ran = []
+        g.update(start_team=lambda lead, names: None)
+        code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")
+        t("a whole-team start shows the team as starting, and no assistant", [n in json.loads(code("/api/state")[1])["starting"] for n in ("Ada", "Max")], [True, False])
+        _starting.clear()
+        g.update(start_team=keep["start_team"], compact_when_up=lambda n: ran.append(n) or True, type_into=lambda *a: True)
+        start_team("Lea", None)
+        t("  and waits on the team coming up, not on an assistant", ["Ada" in ran, "Max" in ran], [True, False])
+        g.update(live_sessions=lambda: {"Lea": {"status": "idle"}, "Max": {"status": "idle"}})
+        code("/api/team/stop", "POST", {"X-Team-Say": "1"}, b"")
+        t("a team stop records the team's running agents, and no assistant", names_in(TEAM_UP), {"Lea"})
+        t("  and marks no assistant to compact", sorted(os.listdir(COMPACT_ON_START)), ["Lea"])
+        os.remove(TEAM_UP); os.remove(os.path.join(COMPACT_ON_START, "Lea")); _halting.discard("team"); _team_stop["at"] = 0
+        g.update(keep)
         t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         os.remove(T + "/started")
         t("a stopped standing agent is started from the page", code("/api/agent/Max/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
