@@ -3359,8 +3359,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd:has(.spark){min-width:200px}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
-#menu .hd:has(.hrow){min-width:240px}   /* room for a full name beside the portrait */
-#menu .hd .htxt{flex:1;min-width:min-content;font-size:inherit;color:inherit}   /* a longer name widens the menu, never runs under the portrait */
+#menu:has(.hrow){min-width:264px}   /* room for a full name beside the portrait */
+#menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
+#menu .hd .htxt .name{white-space:normal}   /* a name too long for its room wraps, not under the portrait */
 #menu .mpor{flex:none;width:96px;height:96px}
 #menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px;position:relative;transform-origin:top right;transition:transform .15s ease}
 #menu .mpor:hover img{z-index:2;transform:scale(2.67);box-shadow:0 12px 32px #0009}   /* the mouse over it shows it at full size, in place */
