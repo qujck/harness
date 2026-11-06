@@ -2287,10 +2287,10 @@ def state():
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
             "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
         })
-    # the team has stopped once team/team-paused.sh says so and no running agent is busy or waiting; a lead that has
+    # the team has stopped once team/team-paused.sh says so and no running agent on it is busy or waiting; a lead that has
     # not marked it paused ten minutes after being asked is taken not to be stopping it
     paused = team_paused()
-    if paused and not any(a["live"] and (a["status"] in ("busy", "waiting") or a["compacting"]) for a in agents) or not paused and now - _team_stop["at"] > 600:
+    if paused and not any(a["live"] and a["role"] != "pa" and (a["status"] in ("busy", "waiting") or a["compacting"]) for a in agents) or not paused and now - _team_stop["at"] > 600:
         _halting.discard("team")
     # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
     # agent with no pane there (its own spawn session, or none) goes in its role's section, after them.
@@ -6414,10 +6414,11 @@ function menuSoon(el, wait) {
 let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is waiting to see
 function teamButton() {
   const lead = S.agents.find(a => a.role === "lead"), starting = S.starting.includes("team");
-  const working = S.agents.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
+  const team = S.agents.filter(a => a.role !== "pa");   // an assistant is not on the team: it neither holds a wind-down nor makes a team running
+  const working = team.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
   const woundDown = !starting && !stopping && !!S.teamUp && S.teamPaused && !working.length;
-  const down = !starting && !stopping && (woundDown || !S.agents.some(a => a.live));   // no lead alone is not a stopped team
+  const down = !starting && !stopping && (woundDown || !team.some(a => a.live));   // no lead alone is not a stopped team
   if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
   if (down || stopping || starting) { clearTimeout(teamAsk); teamAsk = null; }
   const on = starting || stopping || nudgerTo != null ? "" : down ? "stop" : S.nudgerPaused ? "pause" : "play";
@@ -6728,11 +6729,12 @@ def self_test():
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
         t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
         t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
-        keep = {k: g[k] for k in ("start_team", "type_into", "live_sessions", "compact_when_up")}
+        t("  and finishes", wait_for(lambda: "team" not in _starting, 30, 0.2), True)   # its finally would clear what the next check reads
+        keep = {k: g[k] for k in ("start_team", "type_into", "live_sessions", "compact_when_up", "team_paused")}
         ran = []
         g.update(start_team=lambda lead, names: None)
         code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")
-        t("a whole-team start shows the team as starting, and no assistant", [n in json.loads(code("/api/state")[1])["starting"] for n in ("Ada", "Max")], [True, False])
+        t("a whole-team start shows the team as starting, and no assistant", [n in state()["starting"] for n in ("Ada", "Max")], [True, False])
         _starting.clear()
         g.update(start_team=keep["start_team"], compact_when_up=lambda n: ran.append(n) or True, type_into=lambda *a: True)
         start_team("Lea", None)
@@ -6741,7 +6743,15 @@ def self_test():
         code("/api/team/stop", "POST", {"X-Team-Say": "1"}, b"")
         t("a team stop records the team's running agents, and no assistant", names_in(TEAM_UP), {"Lea"})
         t("  and marks no assistant to compact", sorted(os.listdir(COMPACT_ON_START)), ["Lea"])
-        os.remove(TEAM_UP); os.remove(os.path.join(COMPACT_ON_START, "Lea")); _halting.discard("team"); _team_stop["at"] = 0
+        os.remove(TEAM_UP); os.remove(os.path.join(COMPACT_ON_START, "Lea"))
+        g.update(team_paused=lambda: True, live_sessions=lambda: {"Max": {"status": "busy"}})
+        state()
+        t("a busy assistant does not hold a wound-down team on stopping", "team" in _halting, False)
+        _halting.add("team")
+        g.update(live_sessions=lambda: {"Ada": {"status": "busy"}})
+        state()
+        t("  and a busy agent on the team does", "team" in _halting, True)
+        _halting.discard("team"); _team_stop["at"] = 0
         g.update(keep)
         t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         os.remove(T + "/started")
