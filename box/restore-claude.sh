@@ -25,7 +25,7 @@ transcript() { # transcript <claude-name> -> newest .jsonl named <name>, or noth
 # True if a live Claude Code process is this agent, in any session. Its identity in its environment says
 # whose it is, so another name on the record, or a crashed session's old record whose pid a new claude reuses,
 # doesn't mislead; without an identity (the house assistant) the record's name says. An agent's meeting
-# session carries the agent's identity but is its own conversation, so it doesn't count.
+# session is its own conversation, so it doesn't count, whatever identity its process carries.
 running() { # running <claude-name>
   local f p said who
   for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
