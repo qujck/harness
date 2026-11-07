@@ -542,7 +542,7 @@ def daylog_json():
     names = shown_names()
     roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a title may have either
     rows = [{"at": at, "type": "day", "day": kind, "by": who,
-             "quota": day_quota_at(at) if kind == "development" else None} for at, kind, who in shown]
+             "quota": day_quota_at(at)} for at, kind, who in shown]
     prs = _prs["rows"] if repo and isinstance(_prs["rows"], list) else []
     for p in prs:
         try:
@@ -6935,7 +6935,11 @@ def self_test():
         rows = json.loads(code("/api/daylog")[1])["rows"]
         t("day log: newest first, each PR under the day it merged in, a bad line left out, the window opening at a start",
           [(r.get("number") or r["day"]) for r in rows], [3, "development", 2, "verification", "verification"])
-        t("  the development day's share, and none on a verification day", (rows[1]["quota"], rows[3]["quota"]), (15, None))
+        t("  the development day's share, and none on a verification day that opened no share", (rows[1]["quota"], rows[3]["quota"]), (15, None))
+        with open(STATE_DIR + "/agents-day-budget.log", "w") as f:
+            f.write(f"{ep(3600) - 1} end 20 0\n{ep(3600) - 1} start 20 5\n{ep(1800) + 2} start 23 15\n")
+        rows2 = json.loads(code("/api/daylog")[1])["rows"]
+        t("  a verification day that opened a share shows it", (rows2[1]["quota"], rows2[3]["quota"]), (15, 5))
         t("  a PR's number and link", (rows[0]["number"], rows[0]["url"]), (3, "https://x/3"))
         with open(SHOWN_NAMES, encoding="utf-8") as f:
             spell = next(iter(json.load(f).items()))
