@@ -3049,7 +3049,8 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 0}
-.daylog .ico{flex:none;width:1.4em;text-align:center;cursor:default}
+.daylog .ico{flex:none;display:flex;align-items:center;height:1.45em;color:var(--mute);cursor:default}
+.daylog .ico svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
 .daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
 .daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
 .daylog .day:first-child{margin-top:0}
@@ -4752,9 +4753,19 @@ async function loadDayLog() {
 const dayLogAt = at => { const d = new Date(at * 1000);
   return `${d.toLocaleDateString("en-GB", {weekday: "short"})} ${d.getDate()}, ${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
 // A row's icon, by the day it starts or the word its PR's ticket name opens with. Hovering says it in words.
-const DAY_LOG_ICONS = {development: ["🚀", "Development day"], verification: ["🔍", "Verification day"], fix: ["🐛", "Bug fix"], feat: ["✨", "Feature"],
-  infra: ["🔧", "Infrastructure"], docs: ["📝", "Documentation"], chore: ["🧹", "Housekeeping"]};
-const dayLogIcon = kind => { const [i, what] = DAY_LOG_ICONS[kind] || ["🔹", kind || "Other"]; return `<span class="ico" title="${esc(what)}">${i}</span>`; };
+const DAY_LOG_ICONS = {
+  development: ["Development day", '<path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4"/>'],
+  verification: ["Verification day", '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14.5 14.5"/>'],
+  fix: ["Bug fix", '<ellipse cx="8" cy="9.5" rx="3.5" ry="4.5"/><path d="M6 5.6 4.5 3.5M10 5.6l1.5-2.1M4.5 8.5H2M11.5 8.5H14M4.8 11.5 2.8 13M11.2 11.5l2 1.5M8 5.5V14"/>'],
+  feat: ["Feature", '<path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"/>'],
+  infra: ["Infrastructure", '<rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/>'],
+  docs: ["Documentation", '<path d="M9.5 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5Z"/><path d="M9.5 1.5V5H13M5.5 8.5h5M5.5 11.5h5"/>'],
+  chore: ["Housekeeping", '<path d="M14 2 8.5 7.5"/><path d="M6.5 6.2 9.8 9.5C9.5 11.5 8.5 13 7 14 4.8 13.5 3 12 2 9.8 4 9.5 5.5 8.2 6.5 6.2Z"/>'],
+};
+const dayLogIcon = kind => {
+  const [what, d] = DAY_LOG_ICONS[kind] || [kind || "Other", '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
+  return `<span class="ico" title="${esc(what)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`;
+};
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
