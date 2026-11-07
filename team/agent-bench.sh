@@ -20,9 +20,8 @@
 #   - is not an active developer, tester or lead on the roster;
 #   - is a lead, and no other lead is up;
 #   - holds a claim (`ledger-db.sh board` shows a ticket claimed_by it): the ticket's row writes come first,
-#     ending with `feature-ticket.sh release <id>`, or the bench would leave an orphaned claim. A lead's PARKED claim
-#     does not count: a park is finished work that keeps its lock, and a lead comes back at the next handover, so it
-#     still has its holder. A developer's or tester's does count: they are spawned per ticket, so nobody may come back;
+#     ending with `feature-ticket.sh release <id>`, or the bench would leave an orphaned claim. A claim the board marks
+#     PARKED does not count: a park is finished work waiting on someone else, and it keeps its lock (Carl, 2026-10-25);
 #   - is mid-turn (its Claude Code record says busy, waiting or shell);
 #   - has uncommitted changes in its worktree `<project>-<name>` (exactly that name, not a substring);
 #   - has written no session entry since its session started (`ledger-db.sh session-entries`), which is
@@ -50,10 +49,10 @@ LDB="${LDB:-bash $_here/ledger-db.sh}"   # overridable so the self-test can stan
 
 USAGE="usage: agent-bench.sh <Name> [--dry-run]"
 
-# PURE: board lines (id|area|claimed_by[  <= note]) on stdin -> the ids claimed by <name>, one per line; with a second
-# argument, leaving out those the board marks PARKED. A board that marks none leaves them all in, so it refuses.
-bench_claims_of() { # <name> [past-parks]
-  awk -F'|' -v n="${1,,}" -v past="${2:-}" '{ split($3, a, " "); if (tolower(a[1]) == n && !(past != "" && $3 ~ /<= PARKED$/)) print $1 }'
+# PURE: board lines (id|area|claimed_by[  <= note]) on stdin -> the ids claimed by <name> and not marked PARKED, one per
+# line. A board that marks none leaves them all in, so it refuses.
+bench_claims_of() { # <name>
+  awk -F'|' -v n="${1,,}" '{ split($3, a, " "); if (tolower(a[1]) == n && $3 !~ /<= PARKED$/) print $1 }'
 }
 
 # The worktrees of this repository whose directory is exactly <session name>, one path per line.
@@ -75,9 +74,8 @@ bench_self_test() {
 
   _t "board: the claimant's ids" "$(printf 'feat_a|ci|Ada\nfeat_b|ci|Adam\nfeat_c|ci|ada  <= DEPARTED, NOBODY IS COMING BACK\n' | bench_claims_of Ada)" \
      $'feat_a\nfeat_c'
-  _t "board: a park counts unless asked past it" "$(printf 'feat_a|ci|Ada  <= PARKED\n' | bench_claims_of Ada)" feat_a
-  _t "board: past parks, only the park is left out" \
-     "$(printf 'feat_a|ci|Ada  <= PARKED\nfeat_b|ci|Ada\nfeat_c|ci|Ada  <= DEPARTED, NOBODY IS COMING BACK\n' | bench_claims_of Ada past-parks)" \
+  _t "board: only the park is left out" \
+     "$(printf 'feat_a|ci|Ada  <= PARKED\nfeat_b|ci|Ada\nfeat_c|ci|Ada  <= DEPARTED, NOBODY IS COMING BACK\n' | bench_claims_of Ada)" \
      $'feat_b\nfeat_c'
 
   # FIXTURES: a git repository with Ada's worktree and a near-namesake's, a roster, Claude Code records in a
@@ -154,7 +152,10 @@ EOF
   out="$(run Ada)"; rc=$?;      _t "an agent holding a claim is refused" "$rc" 1
   _has "  naming the claim and the release" "$out" "Ada still holds feat_mine"
   reset; printf 'feat_park|backend|Ada  <= PARKED\n' >> "$T/board"
-  out="$(run Ada)"; rc=$?;      _t "a developer holding a parked claim is refused" "$rc" 1
+  out="$(run Ada --dry-run)"; rc=$?; _t "a developer whose only claim is parked is benched" "$rc" 0
+  printf 'feat_mine|backend|Ada\n' >> "$T/board"
+  out="$(run Ada --dry-run)"; rc=$?; _t "a developer with an unparked claim as well is refused" "$rc" 1
+  _has "  naming that claim" "$out" "Ada still holds feat_mine:"
   reset; touch "$T/ledger.down"
   out="$(run Ada)"; rc=$?;      _t "a board that cannot be read is a refusal" "$rc" 1
   _has "  said as cannot tell" "$out" "cannot read the board"
@@ -273,8 +274,7 @@ fi
 
 # ── what is still open ────────────────────────────────────────────────────────────────────────────────
 BOARD="$($LDB board 2>&1)" || refuse "cannot read the board (ledger-db.sh board), so cannot tell whether $NAME holds a claim: $BOARD"
-PAST_PARKS=""; [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]] && PAST_PARKS=past-parks
-CLAIMS="$(bench_claims_of "$NAME" "$PAST_PARKS" <<<"$BOARD" | paste -sd' ' -)"
+CLAIMS="$(bench_claims_of "$NAME" <<<"$BOARD" | paste -sd' ' -)"
 [[ -z "$CLAIMS" ]] || refuse "$NAME still holds $CLAIMS: once the PR has merged, its row writes end with \`bash scripts/feature-ticket.sh release <id>\` (developer.md), then bench it"
 
 case "$STATUS" in
