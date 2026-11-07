@@ -96,12 +96,14 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 - **Starting one.** For every ticket that is ready to build, and again when it is ready to test, run
   `bash team/agent-spawn.sh developer --ticket <id> --model <model> --dry-run` (or `tester`). It picks
   a free name at random and prints the command that starts exactly that one, with
-  `--name <Name>` in place of `--dry-run`, then a `budget` line from `team/agents-budget.sh` and what
-  it means for that role. **The budget gates developers only; testers are not budget-gated** (owner,
+  `--name <Name>` in place of `--dry-run`, then a budget line and what it means for that role. While a
+  development day is open the line is `team/agents-day-budget.sh`'s (`day  on` or `day  over`, the day's
+  fixed share of the week), and the week's even pacing is not asked; with no day open it is
+  `team/agents-budget.sh`'s (`budget  on` or `budget  over`). **The budget gates developers only; testers are not budget-gated** (owner,
   2026-10-25):
-  - developer, `budget  on`: run it without asking, then tell the owner in one line, with the budget, e.g.
+  - developer, `budget  on` or `day  on`: run it without asking, then tell the owner in one line, with the budget, e.g.
     *"Started Wren for HAR-12 on the stronger model; week 41% of 44% planned"*.
-  - developer, `budget  over`, or anything else (no budget set, no reading): ask the owner in one line,
+  - developer, `budget  over`, `day  over`, or anything else (no budget set, no reading): ask the owner in one line,
     naming the ticket, the name and the budget line, whether to start it or leave the ticket ready until
     the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`; the words must be their actual words on one line (the script refuses a flag, blanks or the `<…>` placeholder in that slot as a usage error, so a slip never records a fake approval);
     the spawn refuses an off-budget developer without that, and never refuses one with it. The OK is
