@@ -6347,10 +6347,11 @@ function menuAt(anchor, key, html, beside, stay) {
   menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
   if (!anchor?.offsetParent) anchor = $(".brand");   // a button out of the bars, reached by its shortcut: from the logo
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
-  // a menu beside its tile would cover a tile next to it along a row, either side, so there it opens below (or above)
-  // the tile instead
+  // a menu beside its tile or icon would cover the next one along a row, either side, so there it opens below (or above)
+  // instead; an icon in Tabs stands in its own .ftab, whose siblings are the ones along the row
   const inRow = el => { const o = el?.getBoundingClientRect(); return !!o && o.width > 0 && o.top < r.bottom && o.bottom > r.top; };
-  const row = beside && (inRow(anchor.nextElementSibling) || inRow(anchor.previousElementSibling));
+  const along = anchor.closest(".ftab") || anchor;
+  const row = beside && (inRow(along.nextElementSibling) || inRow(along.previousElementSibling));
   if (row) beside = false;
   const left = beside ? (r.right + 6 + w <= innerWidth ? r.right + 6 : r.left - 6 - w) : row ? Math.min(r.left, innerWidth - w - 6) : Math.min(r.right - w, innerWidth - w - 6);
   const top = beside ? r.top : r.bottom + 4 + h <= innerHeight ? r.bottom + 4 : r.top - 4 - h;
