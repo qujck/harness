@@ -25,6 +25,7 @@
   POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
+  /api/daylog        the Day log pane: each development and verification day started, and each PR merged (see "the day log")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -47,6 +48,7 @@ name is answered only with Access's signed token for it: signed by AGENT_WEB_ACC
 the name is refused like any other, so a tunnel route made before its Access login opens nothing.
 """
 import base64
+import calendar
 import glob
 import hashlib
 import html
@@ -452,6 +454,88 @@ def last_minute(ser, now):
 
 
 _board = {"at": 0, "busy": False}
+
+
+# ── the day log ───────────────────────────────────────────────────────────────
+# A rolling record: each development or verification day started, then each PR merged under it, newest first (the
+# owner, 2026-11-07). Nothing new is logged for it. The starts are dev-day.log's, the development day's share is
+# agents-day-budget.log's, and the PRs are AGENTS_PR_REPO's merged list on GitHub, read in the background every two
+# minutes so a slow GitHub never holds the page. A day counts from when its start was logged, so work done before
+# the start succeeded sits under the day before. The window opens at the last start at least DAY_LOG_DAYS old, so
+# its oldest PRs still sit under their day.
+DAY_LOG_DAYS = 7
+DAY_LOG_PRS = 500
+_prs = {"at": 0, "busy": False, "rows": None, "failed": False}
+
+
+def iso_epoch(text):
+    return calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def day_starts():
+    """dev-day.log, oldest first, as (epoch, kind, who). A line that does not parse is left out."""
+    out = []
+    for line in read_text(os.path.join(STATE_DIR, "dev-day.log")).splitlines():
+        f = line.split("\t")
+        try:
+            if len(f) >= 4 and f[1] in ("development", "verification"):
+                out.append((iso_epoch(f[0]), f[1], f[3]))
+        except ValueError:
+            pass
+    return sorted(out, key=lambda r: r[0])
+
+
+def day_quota_at(at):
+    """The share of the week open at this epoch, from agents-day-budget.log, or None. dev-day.sh opens the budget just
+    before it logs the start, so a minute's grace either way of the clock."""
+    quota = None
+    for line in read_text(os.path.join(STATE_DIR, "agents-day-budget.log")).splitlines():
+        f = line.split()
+        if len(f) < 4 or not f[0].isdigit() or int(f[0]) > at + 60:
+            continue
+        if f[1] == "end":
+            quota = None
+        elif f[1] in ("start", "raise") and f[3].isdigit():
+            quota = int(f[3])
+    return quota
+
+
+def refresh_prs(repo, since):
+    out = run("gh", "pr", "list", "--repo", repo, "--state", "merged", "--limit", str(DAY_LOG_PRS),
+              "--search", "merged:>=" + time.strftime("%Y-%m-%d", time.gmtime(since)),
+              "--json", "number,title,mergedAt,url", timeout=90)
+    try:
+        rows = json.loads(out)
+        _prs.update(rows=rows, failed=not isinstance(rows, list))
+    except ValueError:
+        _prs["failed"] = True
+    _prs.update(at=time.time(), busy=False)
+
+
+def daylog_json():
+    now = time.time()
+    starts = day_starts()
+    old = [r for r in starts if r[0] <= now - DAY_LOG_DAYS * 86400]
+    shown = starts[len(old) - 1:] if old else starts
+    since = shown[0][0] if shown else now
+    repo = setting("AGENTS_PR_REPO")
+    if repo and shown and not _prs["busy"] and now - _prs["at"] > 120:
+        _prs["busy"] = True
+        threading.Thread(target=refresh_prs, args=(repo, since), daemon=True).start()
+    names = shown_names()
+    rows = [{"at": at, "type": "day", "day": kind, "by": spelled_screen(who, names),
+             "quota": day_quota_at(at) if kind == "development" else None} for at, kind, who in shown]
+    prs = _prs["rows"] if repo and isinstance(_prs["rows"], list) else []
+    for p in prs:
+        try:
+            at = iso_epoch(p["mergedAt"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if at >= since:
+            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "title": spelled_screen(p.get("title") or "", names)})
+    rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
+    state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
+    return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
 
 
 def refresh_board():
@@ -2510,6 +2594,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200 if h else 404, json.dumps(h).encode() if h else b"no such series\n", "application/json" if h else "text/plain")
         elif path == "/api/meetings":
             self.send(200, meetings_json(), "application/json")
+        elif path == "/api/daylog":
+            self.send(200, daylog_json(), "application/json")
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -2950,6 +3036,19 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+.daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
+.daylog .row{display:flex;gap:12px;padding:3px 0}
+.daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
+.daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
+.daylog .day:first-child{margin-top:0}
+.daylog .day.development{box-shadow:inset 3px 0 var(--green)}
+.daylog .day.verification{box-shadow:inset 3px 0 var(--amber)}
+.daylog .by{color:var(--mute);font-weight:400}
+.daylog a{color:var(--cyan);text-decoration:none;flex:none}
+.daylog a:hover{text-decoration:underline}
+.daylog .note{padding:4px 0 8px;color:var(--mute)}
+.daylog .row > span:last-child{min-width:0;overflow-wrap:anywhere}
+@media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .row:not(.day) > span:last-child{flex-basis:100%}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
 section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(11px*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;letter-spacing:0;text-transform:none}
@@ -4371,7 +4470,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance", daylog: "Day log"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -4633,6 +4732,21 @@ const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.
 // attends through a meeting session of its own, which speaks with meeting-say (the server's meetings). The pane keeps
 // the meeting it shows (n.meeting) and reads it from /api/meetings with every load while a Meeting pane is on the page.
 const MEET = "~meeting:";
+let dayLog = null;
+async function loadDayLog() {
+  if (!leaves(layout().root).some(([, n]) => n.show === "daylog")) return;
+  try { dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); } catch (e) {}
+}
+const dayLogAt = at => { const d = new Date(at * 1000);
+  return `${d.toLocaleDateString("en-GB", {weekday: "short"})} ${d.getDate()}, ${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
+function dayLogHtml() {
+  if (!dayLog) return `<div class="blank">Loading…</div>`;
+  const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
+  if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
+  return `<div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
+    ? `<div class="row day ${esc(r.day)}"><span class="at">${dayLogAt(r.at)}</span><span>Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`} <span class="by">(${esc(r.by)})</span></span></div>`
+    : `<div class="row"><span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span>${esc(r.title)}</span></div>`).join("")}</div>`;
+}
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
   if (!leaves(layout().root).some(([, n]) => n.show === "meeting")) return;
@@ -4856,6 +4970,8 @@ function customHtml(ceil, tabRow) {
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
     } else if (n.show === "perf") {
       body = perfHtml(n);
+    } else if (n.show === "daylog") {
+      body = dayLogHtml();
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -4879,7 +4995,7 @@ function customHtml(ceil, tabRow) {
     const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file", "perf"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file", "perf", "daylog"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
@@ -5022,7 +5138,7 @@ function combinedHtml(path, n, full, big) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings()]);
+  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -6754,6 +6870,52 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
+        # the day log: the two logs and a stand-in gh, with the clock's window taken from now
+        stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
+        ep = lambda ago: int(time.time() - ago)
+        os.makedirs(STATE_DIR, exist_ok=True)
+        os.environ["AGENTS_PR_REPO"] = "o/r"
+        _prs.update(at=time.time(), busy=False, rows=None, failed=False)
+        t("day log: nothing started is no rows", json.loads(code("/api/daylog")[1])["rows"], [])
+        with open(STATE_DIR + "/dev-day.log", "w") as f:
+            f.write(f"{stamp(9 * 86400)}\tdevelopment\tgate=0\tOld\n{stamp(8 * 86400)}\tverification\tgate=0\tOld\n{stamp(3600)}\tverification\tgate=0\tAda\n"
+                    f"not a line\nbad\tdevelopment\tgate=0\tAda\n{stamp(1800)}\tdevelopment\tgate=0\tAda\n")
+        with open(STATE_DIR + "/agents-day-budget.log", "w") as f:
+            f.write(f"{ep(9 * 86400)} start 1 20\n{ep(8 * 86400)} end 5 0\n{ep(1800) + 2} start 23 15\n")
+        real_run = g["run"]
+        g["run"] = lambda *c, **k: json.dumps([
+            {"number": 1, "title": "Too old", "mergedAt": stamp(8.5 * 86400 + 86400), "url": "https://x/1"},
+            {"number": 2, "title": "Under verification, Ada", "mergedAt": stamp(2700), "url": "https://x/2"},
+            {"number": 3, "title": "Under development", "mergedAt": stamp(600), "url": "https://x/3"},
+            {"number": 4, "title": "no merge time", "url": "https://x/4"}])
+        refresh_prs("o/r", 0)
+        rows = json.loads(code("/api/daylog")[1])["rows"]
+        t("day log: newest first, each PR under the day it merged in, a bad line left out, the window opening at a start",
+          [(r.get("number") or r["day"]) for r in rows], [3, "development", 2, "verification", "verification"])
+        t("  the development day's share, and none on a verification day", (rows[1]["quota"], rows[3]["quota"]), (15, None))
+        t("  a PR's number and link", (rows[0]["number"], rows[0]["url"]), (3, "https://x/3"))
+        with open(SHOWN_NAMES, encoding="utf-8") as f:
+            spell = next(iter(json.load(f).items()))
+        g["run"] = lambda *c, **k: json.dumps([{"number": 5, "title": f"PR by {spell[0]}", "mergedAt": stamp(60), "url": "u"}])
+        refresh_prs("o/r", 0)
+        t("  a name in a title is spelled as the page spells it", json.loads(code("/api/daylog")[1])["rows"][0]["title"], f"PR by {spell[1]}")
+        g["run"] = lambda *c, **k: json.dumps([
+            {"number": 2, "title": "b", "mergedAt": stamp(2700), "url": "u"}, {"number": 3, "title": "c", "mergedAt": stamp(600), "url": "u"}])
+        refresh_prs("o/r", 0)
+        g["run"] = lambda *c, **k: ""
+        refresh_prs("o/r", 0)
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: a failed read says so and keeps the PRs it has", (d["prs"], len(d["rows"])), ("failed", 5))
+        g["run"] = lambda *c, **k: json.dumps([{"number": n, "title": "t", "mergedAt": stamp(60), "url": "u"} for n in range(DAY_LOG_PRS)])
+        refresh_prs("o/r", 0)
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: a full read says it may be cut", (d["prs"], d["cut"]), ("ok", True))
+        del os.environ["AGENTS_PR_REPO"]
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: no repository set still shows the days, and says so", (d["prs"], [r["type"] for r in d["rows"]]), ("unset", ["day"] * 3))
+        g["run"] = real_run
+        _prs.update(at=0, busy=False, rows=None, failed=False)
+        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
