@@ -78,7 +78,8 @@ lead off shift stays on the bench for the whole of the other's day.
   names you and says to read your latest session entry first, so that entry IS the handover: write it
   (`bash scripts/progress.sh new`) before you spawn.
 - Bench: the incoming lead runs `bash team/agent-bench.sh <the outgoing lead>`, with the usual gates
-  (idle, clean tree, a session entry since the start). It refuses to bench a lead while no other
+  (idle, clean tree, a session entry since the start); its parked claims stay its own and do not
+    block the bench, an unparked one does. It refuses to bench a lead while no other
   lead is up, so the team is never left without one.
 
 ## The nudger, in verification time

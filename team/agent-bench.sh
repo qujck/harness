@@ -20,7 +20,9 @@
 #   - is not an active developer, tester or lead on the roster;
 #   - is a lead, and no other lead is up;
 #   - holds a claim (`ledger-db.sh board` shows a ticket claimed_by it): the ticket's row writes come first,
-#     ending with `feature-ticket.sh release <id>`, or the bench would leave an orphaned claim;
+#     ending with `feature-ticket.sh release <id>`, or the bench would leave an orphaned claim. A lead's PARKED claim
+#     does not count: a park is finished work that keeps its lock, and a lead comes back at the next handover, so it
+#     still has its holder. A developer's or tester's does count: they are spawned per ticket, so nobody may come back;
 #   - is mid-turn (its Claude Code record says busy, waiting or shell);
 #   - has uncommitted changes in its worktree `<project>-<name>` (exactly that name, not a substring);
 #   - has written no session entry since its session started (`ledger-db.sh session-entries`), which is
@@ -48,9 +50,10 @@ LDB="${LDB:-bash $_here/ledger-db.sh}"   # overridable so the self-test can stan
 
 USAGE="usage: agent-bench.sh <Name> [--dry-run]"
 
-# PURE: board lines (id|area|claimed_by[  <= note]) on stdin -> the ids claimed by <name>, one per line.
-bench_claims_of() { # <name>
-  awk -F'|' -v n="${1,,}" '{ split($3, a, " "); if (tolower(a[1]) == n) print $1 }'
+# PURE: board lines (id|area|claimed_by[  <= note]) on stdin -> the ids claimed by <name>, one per line; with a second
+# argument, leaving out those the board marks PARKED. A board that marks none leaves them all in, so it refuses.
+bench_claims_of() { # <name> [past-parks]
+  awk -F'|' -v n="${1,,}" -v past="${2:-}" '{ split($3, a, " "); if (tolower(a[1]) == n && !(past != "" && $3 ~ /<= PARKED$/)) print $1 }'
 }
 
 # The worktrees of this repository whose directory is exactly <session name>, one path per line.
@@ -72,6 +75,10 @@ bench_self_test() {
 
   _t "board: the claimant's ids" "$(printf 'feat_a|ci|Ada\nfeat_b|ci|Adam\nfeat_c|ci|ada  <= DEPARTED, NOBODY IS COMING BACK\n' | bench_claims_of Ada)" \
      $'feat_a\nfeat_c'
+  _t "board: a park counts unless asked past it" "$(printf 'feat_a|ci|Ada  <= PARKED\n' | bench_claims_of Ada)" feat_a
+  _t "board: past parks, only the park is left out" \
+     "$(printf 'feat_a|ci|Ada  <= PARKED\nfeat_b|ci|Ada\nfeat_c|ci|Ada  <= DEPARTED, NOBODY IS COMING BACK\n' | bench_claims_of Ada past-parks)" \
+     $'feat_b\nfeat_c'
 
   # FIXTURES: a git repository with Ada's worktree and a near-namesake's, a roster, Claude Code records in a
   # throwaway config dir, and stand-ins for tmux and the ledger. The only tmux on PATH is the stand-in.
@@ -129,6 +136,14 @@ EOF
   out="$(run Lea --dry-run)"; rc=$?; _t "a lead with the other lead up is benched" "$rc" 0
   _has "  like anyone else" "$out" "would bench Lea (delivery-lead): stop tmux session proj-lea"
   out="$(run Vi --dry-run)"; rc=$?; _t "and the head of testing likewise, the delivery lead up" "$rc" 0
+  printf 'feat_park|ci|Lea  <= PARKED\n' >> "$T/board"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead holding only a parked claim is benched" "$rc" 0
+  printf 'feat_mine|ci|Lea\n' >> "$T/board"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead holding an unparked claim as well is refused" "$rc" 1
+  _has "  naming that claim" "$out" "Lea still holds feat_mine:"
+  printf 'feat_other|ci|Ben\nfeat_park|ci|Lea\n' > "$T/board"
+  out="$(run Lea --dry-run)"; rc=$?; _t "a lead's claim the board does not mark parked is refused" "$rc" 1
+  printf 'feat_other|ci|Ben\n' > "$T/board"
   printf '[]\n' > "$T/entries"
   out="$(run Lea --dry-run)"; rc=$?; _t "a lead with no session entry, its handover, is refused" "$rc" 1
   out="$(run Cy)"; rc=$?;       _t "a retired agent is refused" "$rc" 1
@@ -138,6 +153,8 @@ EOF
   printf 'feat_mine|backend|Ada\n' >> "$T/board"
   out="$(run Ada)"; rc=$?;      _t "an agent holding a claim is refused" "$rc" 1
   _has "  naming the claim and the release" "$out" "Ada still holds feat_mine"
+  reset; printf 'feat_park|backend|Ada  <= PARKED\n' >> "$T/board"
+  out="$(run Ada)"; rc=$?;      _t "a developer holding a parked claim is refused" "$rc" 1
   reset; touch "$T/ledger.down"
   out="$(run Ada)"; rc=$?;      _t "a board that cannot be read is a refusal" "$rc" 1
   _has "  said as cannot tell" "$out" "cannot read the board"
@@ -256,7 +273,8 @@ fi
 
 # ── what is still open ────────────────────────────────────────────────────────────────────────────────
 BOARD="$($LDB board 2>&1)" || refuse "cannot read the board (ledger-db.sh board), so cannot tell whether $NAME holds a claim: $BOARD"
-CLAIMS="$(bench_claims_of "$NAME" <<<"$BOARD" | paste -sd' ' -)"
+PAST_PARKS=""; [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]] && PAST_PARKS=past-parks
+CLAIMS="$(bench_claims_of "$NAME" "$PAST_PARKS" <<<"$BOARD" | paste -sd' ' -)"
 [[ -z "$CLAIMS" ]] || refuse "$NAME still holds $CLAIMS: once the PR has merged, its row writes end with \`bash scripts/feature-ticket.sh release <id>\` (developer.md), then bench it"
 
 case "$STATUS" in
