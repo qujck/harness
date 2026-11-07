@@ -517,6 +517,12 @@ def short_title(title):
     return re.sub(r"^[a-z0-9]+(?:_[a-z0-9]+)+:\s+(?=\S)", "", title)
 
 
+def title_kind(title):
+    """What a PR's ticket name says it is: the word before the first underscore, as `fix` in `fix_a_thing: what it did`."""
+    m = re.match(r"([a-z0-9]+)(?:_[a-z0-9]+)+:\s+\S", title)
+    return m.group(1) if m else ""
+
+
 def daylog_json():
     now = time.time()
     starts = day_starts()
@@ -537,7 +543,7 @@ def daylog_json():
         except (KeyError, TypeError, ValueError):
             continue
         if at >= since:
-            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "title": spelled_screen(short_title(p.get("title") or ""), names)})
+            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "kind": title_kind(p.get("title") or ""), "title": spelled_screen(short_title(p.get("title") or ""), names)})
     rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
     state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
     return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
@@ -3043,6 +3049,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 0}
+.daylog .ico{flex:none;width:1.4em;text-align:center;cursor:default}
 .daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
 .daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
 .daylog .day:first-child{margin-top:0}
@@ -4744,13 +4751,17 @@ async function loadDayLog() {
 }
 const dayLogAt = at => { const d = new Date(at * 1000);
   return `${d.toLocaleDateString("en-GB", {weekday: "short"})} ${d.getDate()}, ${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
+// A row's icon, by the day it starts or the word its PR's ticket name opens with. Hovering says it in words.
+const DAY_LOG_ICONS = {development: ["🚀", "Development day"], verification: ["🔍", "Verification day"], fix: ["🐛", "Bug fix"], feat: ["✨", "Feature"],
+  infra: ["🔧", "Infrastructure"], docs: ["📝", "Documentation"], chore: ["🧹", "Housekeeping"]};
+const dayLogIcon = kind => { const [i, what] = DAY_LOG_ICONS[kind] || ["🔹", kind || "Other"]; return `<span class="ico" title="${esc(what)}">${i}</span>`; };
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
   if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
   return `<div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
-    ? `<div class="row day ${esc(r.day)}"><span class="at">${dayLogAt(r.at)}</span><span>Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`} <span class="by">(${esc(r.by)})</span></span></div>`
-    : `<div class="row"><span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span>${esc(r.title)}</span></div>`).join("")}</div>`;
+    ? `<div class="row day ${esc(r.day)}">${dayLogIcon(r.day)}<span class="at">${dayLogAt(r.at)}</span><span>Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`} <span class="by">(${esc(r.by)})</span></span></div>`
+    : `<div class="row">${dayLogIcon(r.kind)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span>${esc(r.title)}</span></div>`).join("")}</div>`;
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -6910,6 +6921,8 @@ def self_test():
         g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
         refresh_prs("o/r", 0)
         t("  and the log shows it so", json.loads(code("/api/daylog")[1])["rows"][0]["title"], "what it did")
+        t("  and says what the ticket name called it", json.loads(code("/api/daylog")[1])["rows"][0]["kind"], "fix")
+        t("  a title with no ticket name has no kind", [title_kind(x) for x in ("ci: a colon", "fix_only_a_name", "fix_a_name: ", "feat_a_b: c")], ["", "", "", "feat"])
         g["run"] = lambda *c, **k: json.dumps([
             {"number": 2, "title": "b", "mergedAt": stamp(2700), "url": "u"}, {"number": 3, "title": "c", "mergedAt": stamp(600), "url": "u"}])
         refresh_prs("o/r", 0)
@@ -6927,6 +6940,7 @@ def self_test():
         g["run"] = real_run
         _prs.update(at=0, busy=False, rows=None, failed=False)
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
+        t("  each row starts with its icon", ('${dayLogIcon(r.day)}<span class="at">' in PAGE, '${dayLogIcon(r.kind)}<span class="at">' in PAGE), (True, True))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
