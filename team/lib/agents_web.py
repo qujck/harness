@@ -523,6 +523,12 @@ def title_kind(title):
     return m.group(1) if m else ""
 
 
+def title_name(title):
+    """A strength PR title closes with who made it, `what it did — James`: the words, and the name."""
+    m = re.match(r"(.*\S)\s+—\s+(\S+)$", title, re.S)
+    return (m.group(1), m.group(2)) if m else (title, "")
+
+
 def daylog_json():
     now = time.time()
     starts = day_starts()
@@ -534,7 +540,8 @@ def daylog_json():
         _prs["busy"] = True
         threading.Thread(target=refresh_prs, args=(repo, since), daemon=True).start()
     names = shown_names()
-    rows = [{"at": at, "type": "day", "day": kind, "by": spelled_screen(who, names),
+    roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a title may have either
+    rows = [{"at": at, "type": "day", "day": kind, "by": who,
              "quota": day_quota_at(at) if kind == "development" else None} for at, kind, who in shown]
     prs = _prs["rows"] if repo and isinstance(_prs["rows"], list) else []
     for p in prs:
@@ -543,7 +550,9 @@ def daylog_json():
         except (KeyError, TypeError, ValueError):
             continue
         if at >= since:
-            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "kind": title_kind(p.get("title") or ""), "title": spelled_screen(short_title(p.get("title") or ""), names)})
+            words, by = title_name(short_title(p.get("title") or ""))
+            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "kind": title_kind(p.get("title") or ""),
+                         "by": roster_name.get(by, by), "title": spelled_screen(words, names)})
     rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
     state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
     return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
@@ -3048,20 +3057,22 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
-.daylog .row{display:flex;gap:12px;padding:3px 0}
-.daylog .ico{flex:none;display:flex;align-items:center;height:1.45em;color:var(--mute);cursor:default}
+.daylog .row{display:flex;gap:12px;padding:3px 8px}
+.daylog .wh{flex:none;width:calc(62px*var(--fs,1));display:flex;align-items:center;height:1.45em}
+.daylog .who{font-weight:650;font-size:calc(10.5px*var(--fs,1));line-height:1.4;padding:0 6px;border-radius:4px;letter-spacing:.02em;white-space:nowrap;background:var(--pc);color:var(--ownerfg)}
+.daylog .who.off{background:none;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line2)}
+.daylog .tx{flex:1;min-width:0;overflow-wrap:anywhere}
+.daylog .ico{flex:none;margin-left:auto;display:flex;align-items:center;height:1.45em;color:var(--mute);cursor:default}
 .daylog .ico svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
 .daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
 .daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
 .daylog .day:first-child{margin-top:0}
 .daylog .day.development{box-shadow:inset 3px 0 var(--green)}
 .daylog .day.verification{box-shadow:inset 3px 0 var(--amber)}
-.daylog .by{color:var(--mute);font-weight:400}
 .daylog a{color:var(--cyan);text-decoration:none;flex:none}
 .daylog a:hover{text-decoration:underline}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
-.daylog .row > span:last-child{min-width:0;overflow-wrap:anywhere}
-@media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .row:not(.day) > span:last-child{flex-basis:100%}}
+@media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
 section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(11px*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;letter-spacing:0;text-transform:none}
@@ -4766,13 +4777,18 @@ const dayLogIcon = kind => {
   const [what, d] = DAY_LOG_ICONS[kind] || [kind || "Other", '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
   return `<span class="ico" title="${esc(what)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`;
 };
+// A person's badge, as in the other views: their colour, or an outline for a name no longer on the team.
+const dayLogWho = by => {
+  const c = colours[by];
+  return `<span class="wh">${by ? `<span class="who${c ? "" : " off"}"${c ? ` style="--pc:${esc(c)}"` : ""}>${esc(shown(by))}</span>` : ""}</span>`;
+};
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
   if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
   return `<div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
-    ? `<div class="row day ${esc(r.day)}">${dayLogIcon(r.day)}<span class="at">${dayLogAt(r.at)}</span><span>Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`} <span class="by">(${esc(r.by)})</span></span></div>`
-    : `<div class="row">${dayLogIcon(r.kind)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span>${esc(r.title)}</span></div>`).join("")}</div>`;
+    ? `<div class="row day ${esc(r.day)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`}</span>${dayLogIcon(r.day)}</div>`
+    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span class="tx">${esc(r.title)}</span>${dayLogIcon(r.kind)}</div>`).join("")}</div>`;
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -6932,6 +6948,15 @@ def self_test():
         g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
         refresh_prs("o/r", 0)
         t("  and the log shows it so", json.loads(code("/api/daylog")[1])["rows"][0]["title"], "what it did")
+        for whole, parts in [("what it did — James", ("what it did", "James")), ("no name here", ("no name here", "")), ("a — b and more", ("a — b and more", "")), ("two — dashes — Ada", ("two — dashes", "Ada"))]:
+            t(f"  a title's name: {whole!r}", title_name(whole), parts)
+        g["run"] = lambda *c, **k: json.dumps([{"number": 7, "title": f"fix_a_b: what it did — {spell[1]}", "mergedAt": stamp(60), "url": "u"}])
+        refresh_prs("o/r", 0)
+        r0 = json.loads(code("/api/daylog")[1])["rows"][0]
+        t("  a name in the page's spelling comes back as the roster's, off the end of the words", (r0["by"], r0["title"]), (spell[0], "what it did"))
+        g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
+        refresh_prs("o/r", 0)
+        t("  a day's row names who started it", [r["by"] for r in json.loads(code("/api/daylog")[1])["rows"] if r["type"] == "day"][0], "Ada")
         t("  and says what the ticket name called it", json.loads(code("/api/daylog")[1])["rows"][0]["kind"], "fix")
         t("  a title with no ticket name has no kind", [title_kind(x) for x in ("ci: a colon", "fix_only_a_name", "fix_a_name: ", "feat_a_b: c")], ["", "", "", "feat"])
         g["run"] = lambda *c, **k: json.dumps([
@@ -6951,7 +6976,7 @@ def self_test():
         g["run"] = real_run
         _prs.update(at=0, busy=False, rows=None, failed=False)
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
-        t("  each row starts with its icon", ('${dayLogIcon(r.day)}<span class="at">' in PAGE, '${dayLogIcon(r.kind)}<span class="at">' in PAGE), (True, True))
+        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day)}</div>' in PAGE, '${dayLogIcon(r.kind)}</div>' in PAGE), (True, True, True))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
