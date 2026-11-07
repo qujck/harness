@@ -2953,6 +2953,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
   background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
+html:not(.barsplaced) :is(header,footer){display:none}   /* nothing until the bars are where this browser keeps them, never the markup's order */
 header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
 /* a bar the dragged item cannot go in: boxed and crossed through in red, saying where it can go */
@@ -4635,8 +4636,6 @@ function placeBar() {
     if ([...box.querySelectorAll(":scope > .bi")].map(e => e.dataset.item).join() !== keys.join())
       for (const k of keys) if ($(`.bi[data-item="${k}"]`)) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
     if (box.id !== "barbin") box.classList.toggle("editing", edit);
-    // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch)
-    if (box.id !== "barbin") box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
     // the items out of the bars A to Z (owner, 2026-11-01), then Divider and Spacer, last
     const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER"))
@@ -4645,6 +4644,9 @@ function placeBar() {
     if (plus && plus.dataset.k !== want) plus.remove();
     if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Add an item">${MENU_ICON.plus}</button>`);
   }
+  // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch). Read once every
+  // item has moved: an item on its way out of a bar would keep it showing, empty, until the next placement.
+  for (const box of [$("header"), $("footer")]) box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
 }
 document.addEventListener("click", e => {
   const x = e.target.closest(".editing > .bi > .bx");
@@ -6312,6 +6314,9 @@ if (window.visualViewport) {
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
 
+// The bars as this browser keeps them from the first paint, not after /api/state: the plug-ins join them when it answers.
+try { placeBar(); } catch (e) { console.error("agents-web first bar placement failed", e); }
+document.documentElement.classList.add("barsplaced");
 load().then(() => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1))); });
 // Ctrl- or Cmd-click, or a middle click, on an agent - its card, its row in a list, its name or a turn of its in a
 // Team or Combined pane - opens its view in a new tab instead, as its menu's "Open in new tab" does. That tab (?only)
@@ -7003,6 +7008,8 @@ def self_test():
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
+        t("the bars stay out of sight until placed, and are placed before the first state",
+          ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
