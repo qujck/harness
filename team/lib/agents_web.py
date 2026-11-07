@@ -3062,7 +3062,10 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .daylog .who{font-weight:650;font-size:calc(10.5px*var(--fs,1));line-height:1.4;padding:0 6px;border-radius:4px;letter-spacing:.02em;white-space:nowrap;background:var(--pc);color:var(--ownerfg)}
 .daylog .who.off{background:none;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line2)}
 .daylog .tx{flex:1;min-width:0;overflow-wrap:anywhere}
-.daylog .ico{flex:none;margin-left:auto;display:flex;align-items:center;height:1.45em;color:var(--mute);cursor:default}
+.daylog .ico{position:relative;flex:none;margin-left:auto;display:flex;align-items:center;height:1.45em;color:var(--mute);cursor:pointer}
+.daylog .ico:hover{color:var(--text)}
+.daylog .desc{position:absolute;top:100%;right:0;z-index:5;width:max-content;max-width:min(320px,70vw);margin-top:4px;padding:6px 9px;border:1px solid var(--line2);border-radius:6px;background:var(--box);color:var(--text2);font-weight:400;cursor:default;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.daylog .desc b{display:block;color:var(--text);font-weight:650}
 .daylog .ico svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
 .daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
 .daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
@@ -4765,19 +4768,33 @@ const dayLogAt = at => { const d = new Date(at * 1000);
   return `${d.toLocaleDateString("en-GB", {weekday: "short"})} ${d.getDate()}, ${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
 // A row's icon, by the day it starts or the word its PR's ticket name opens with. Hovering says it in words.
 const DAY_LOG_ICONS = {
-  development: ["Development day", '<path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4"/>'],
-  verification: ["Verification day", '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14.5 14.5"/>'],
-  fix: ["Bug fix", '<ellipse cx="8" cy="9.5" rx="3.5" ry="4.5"/><path d="M6 5.6 4.5 3.5M10 5.6l1.5-2.1M4.5 8.5H2M11.5 8.5H14M4.8 11.5 2.8 13M11.2 11.5l2 1.5M8 5.5V14"/>'],
-  feat: ["Feature", '<path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"/>'],
-  infra: ["Infrastructure", '<rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/>'],
-  docs: ["Documentation", '<path d="M9.5 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5Z"/><path d="M9.5 1.5V5H13M5.5 8.5h5M5.5 11.5h5"/>'],
-  chore: ["Housekeeping", '<path d="M14 2 8.5 7.5"/><path d="M6.5 6.2 9.8 9.5C9.5 11.5 8.5 13 7 14 4.8 13.5 3 12 2 9.8 4 9.5 5.5 8.2 6.5 6.2Z"/>'],
+  development: ["Development day", "The team builds until the day's share of the week is spent.", '<path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4"/>'],
+  verification: ["Verification day", "The full suite runs on main, and is fixed until it is green.", '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14.5 14.5"/>'],
+  fix: ["Bug fix", "Something was wrong, and this PR puts it right.", '<ellipse cx="8" cy="9.5" rx="3.5" ry="4.5"/><path d="M6 5.6 4.5 3.5M10 5.6l1.5-2.1M4.5 8.5H2M11.5 8.5H14M4.8 11.5 2.8 13M11.2 11.5l2 1.5M8 5.5V14"/>'],
+  feat: ["Feature", "Something new that the product can do.", '<path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"/>'],
+  infra: ["Infrastructure", "The scripts, checks and machinery behind the product.", '<rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/>'],
+  docs: ["Documentation", "Written guidance rather than working code.", '<path d="M9.5 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5Z"/><path d="M9.5 1.5V5H13M5.5 8.5h5M5.5 11.5h5"/>'],
+  chore: ["Housekeeping", "Upkeep that changes nothing for the people using the product.", '<path d="M14 2 8.5 7.5"/><path d="M6.5 6.2 9.8 9.5C9.5 11.5 8.5 13 7 14 4.8 13.5 3 12 2 9.8 4 9.5 5.5 8.2 6.5 6.2Z"/>'],
 };
-const dayLogIcon = kind => {
-  const [what, d] = DAY_LOG_ICONS[kind] || [kind || "Other", '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
-  return `<span class="ico" title="${esc(what)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`;
+// A click on an icon says what it means and a second click, or one elsewhere, closes it. dayLogTip is the open row's key,
+// so that a redraw of the pane draws it open again.
+let dayLogTip = "";
+const dayLogDesc = kind => {
+  const [what, more] = DAY_LOG_ICONS[kind] || [kind || "Other", "A PR whose ticket name is not one of the usual kinds."];
+  return `<span class="desc"><b>${esc(what)}</b> ${esc(more)}</span>`;
 };
-// A person's badge, as in the other views: their colour, or an outline for a name no longer on the team.
+const dayLogIcon = (kind, key) => {
+  const [what, , d] = DAY_LOG_ICONS[kind] || [kind || "Other", "", '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
+  return `<span class="ico" role="button" title="${esc(what)}" data-kind="${esc(kind || "")}" data-key="${esc(key)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${dayLogTip === key ? dayLogDesc(kind) : ""}</span>`;
+};
+document.addEventListener("click", e => {
+  const i = e.target.closest(".daylog .ico"), was = dayLogTip;
+  if (!i && !was) return;
+  document.querySelectorAll(".daylog .desc").forEach(x => x.remove());
+  dayLogTip = i && i.dataset.key !== was ? i.dataset.key : "";
+  if (i && dayLogTip) i.insertAdjacentHTML("beforeend", dayLogDesc(i.dataset.kind));
+});
+// A person's badge, as in the other views: their colour, or an outline for a name the page has no colour for.
 const dayLogWho = by => {
   const c = colours[by];
   return `<span class="wh">${by ? `<span class="who${c ? "" : " off"}"${c ? ` style="--pc:${esc(c)}"` : ""}>${esc(shown(by))}</span>` : ""}</span>`;
@@ -4786,9 +4803,10 @@ function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
   if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
-  return `<div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
-    ? `<div class="row day ${esc(r.day)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`}</span>${dayLogIcon(r.day)}</div>`
-    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span class="tx">${esc(r.title)}</span>${dayLogIcon(r.kind)}</div>`).join("")}</div>`;
+  const days = dayLog.rows.filter(r => r.type === "day").length, prs = dayLog.rows.length - days;
+  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${days} day${days === 1 ? "" : "s"} started, ${prs} PR${prs === 1 ? "" : "s"} merged</span></div><div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
+    ? `<div class="row day ${esc(r.day)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`}</span>${dayLogIcon(r.day, "d" + r.at)}</div>`
+    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span class="tx">${esc(r.title)}</span>${dayLogIcon(r.kind, "p" + r.number)}</div>`).join("")}</div></div>`;
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -6980,7 +6998,8 @@ def self_test():
         g["run"] = real_run
         _prs.update(at=0, busy=False, rows=None, failed=False)
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
-        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day)}</div>' in PAGE, '${dayLogIcon(r.kind)}</div>' in PAGE), (True, True, True))
+        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
+        t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
