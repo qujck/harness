@@ -3408,6 +3408,9 @@ table.md th{background:var(--line);font-weight:600}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
 }
+/* folded: no facts or graph, so the conversation takes the second row and the rest follow, the message box in its own */
+.pbody .card.folded,.card.full.folded,.cell > .card.full.folded{grid-template-rows:auto minmax(0,1fr) auto auto}
+.card.full.folded > .termwrap{grid-row:2}
 b.h{display:block;margin-top:2px;font-weight:700}
 .empty{color:var(--faint);font-style:italic;font-size:calc(12px*var(--fs,1))}
 /* detail */
