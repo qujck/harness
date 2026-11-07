@@ -512,6 +512,11 @@ def refresh_prs(repo, since):
     _prs.update(at=time.time(), busy=False)
 
 
+def short_title(title):
+    """A strength PR title opens with its ticket's name, `some_long_slug: what it did`: the log shows what it did."""
+    return re.sub(r"^[a-z0-9]+(?:_[a-z0-9]+)+:\s+(?=\S)", "", title)
+
+
 def daylog_json():
     now = time.time()
     starts = day_starts()
@@ -532,7 +537,7 @@ def daylog_json():
         except (KeyError, TypeError, ValueError):
             continue
         if at >= since:
-            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "title": spelled_screen(p.get("title") or "", names)})
+            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "title": spelled_screen(short_title(p.get("title") or ""), names)})
     rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
     state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
     return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
@@ -6899,6 +6904,12 @@ def self_test():
         g["run"] = lambda *c, **k: json.dumps([{"number": 5, "title": f"PR by {spell[0]}", "mergedAt": stamp(60), "url": "u"}])
         refresh_prs("o/r", 0)
         t("  a name in a title is spelled as the page spells it", json.loads(code("/api/daylog")[1])["rows"][0]["title"], f"PR by {spell[1]}")
+        for whole, shown in [("fix_a_long_ticket_name: what it did (pt3) — James", "what it did (pt3) — James"), ("ci: a colon but no ticket", "ci: a colon but no ticket"),
+                             ("fix_only_a_ticket_name", "fix_only_a_ticket_name"), ("fix_a_name: ", "fix_a_name: "), ("Why: fix_a_name: stays", "Why: fix_a_name: stays")]:
+            t(f"  a title without its ticket's name: {whole!r}", short_title(whole), shown)
+        g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
+        refresh_prs("o/r", 0)
+        t("  and the log shows it so", json.loads(code("/api/daylog")[1])["rows"][0]["title"], "what it did")
         g["run"] = lambda *c, **k: json.dumps([
             {"number": 2, "title": "b", "mergedAt": stamp(2700), "url": "u"}, {"number": 3, "title": "c", "mergedAt": stamp(600), "url": "u"}])
         refresh_prs("o/r", 0)
