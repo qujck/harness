@@ -31,6 +31,8 @@ export AGENT_FULL_NAMES=/home/peter/dev/harness/box/agent-full-names.json
 export AGENT_SHOWN_NAMES=/home/peter/dev/harness/box/agent-shown-names.json
 export CONTEXT_DIR=/home/peter/.local/state/strength/context
 export AGENTS_DASH_CACHE=/home/peter/.local/state/strength/dash
+# The Day log pane's merged PRs.
+export AGENTS_PR_REPO=qujck/strength
 # Colours: the harness defaults the roles to /color's (Vera purple); Ed's role has no default.
 export AGENT_COLOUR_PRODUCTION_SUPPORT=orange
 # The header's disk: the root volume, which holds Docker and the worktrees.
