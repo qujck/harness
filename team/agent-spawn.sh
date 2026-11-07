@@ -31,7 +31,8 @@
 #                Claude mobile app under its tmux session's name (owner, 2026-10-25)
 #
 # THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints team/agents-budget.sh's line, or
-# team/agents-day-budget.sh's while a day is open (its `day  on` / `day  over` read as `budget  on` / `over`):
+# team/agents-day-budget.sh's while a day is open (its `day  on` / `day  over` read as `budget  on` / `over`; a
+# verification day never reads over, nothing stops at its share):
 #   developer  `budget  on` → start it and tell the owner in one line. `over`, or no budget / no reading →
 #              ASK THE OWNER FIRST; a real spawn then needs their answer on the line, --owner-ok "<their words>",
 #              and is refused without it. Never a flat refusal: the owner's OK is the way through. The words

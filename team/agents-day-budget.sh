@@ -29,11 +29,16 @@
 # 15 points spent it is still on, and the reading that shows 16 stops it. A reading lower than the start by more
 # than a few points means the week has reset since the day started, and the day is closed.
 #
+# A VERIFICATION DAY NEVER READS OVER (owner, 2026-11-07: "Verification day is meant to start with 5%"; he has decided no
+# stop). strength's dev-day.sh opens that day's 5% with `start 5` and records the kind in dev-day.json beside the day's
+# file. While that says verification, `status` is `day  on` and exit 0 past the share too, ending VERIFICATION_MARK, so a
+# reader that only knows on and over carries on, and the mod and the page read the mark. It is `day  on` and not a word of
+# its own because strength's agent-spawn.sh takes only `day  on:` and `day  over:` for an answer. No file, or one that
+# cannot be read, is a development day: this script's other projects have no such record.
+#
 # THE HISTORY. Each new day and each `end` appends a line to the file beside the day's, <file>.log: the epoch, the verb,
 # the week reading then ("?" with none) and the quota. `history` reads it back as stretches: a day (start to end) and
-# the time between days (end to the next start; in strength, a verification day, which has no quota yet: the owner,
-# 2026-11-01, "we just monitor, once we've measured we can decide a cap"). The status line between days gives that
-# stretch a share all the same: what the week's plan (team/agents-budget.sh, the owner's adjustments included) has
+# the time between days (end to the next start). The status line between days gives that stretch a share all the same: what the week's plan (team/agents-budget.sh, the owner's adjustments included) has
 # grown by since it began (owner, 2026-11-02: "the day usage should be 3 of 5% not 3 of 16%"). A stretch's spend is the reading at its end
 # less the reading at its start; one still open ends at now's reading; one across a week reset, or with a reading
 # missing at either end, has no figure ("?"). A rerun of `start` on an open day is not a new day and is not logged,
@@ -96,6 +101,24 @@ day_selftest() {
     "between days since 08:25: 3% of the plan's 4% used (week 53%, from 50%)"
   printf '#!/usr/bin/env bash\necho "budget  none set"\n' > "$T/plan"
   out=$(AGENTS_BUDGET="$T/plan" run 3600 53); has "  and with no plan, no share" "$out" "between days since 08:25: 3% used (week 53%, from 50%)"
+  # a verification day: the kind in dev-day.json beside the day's file, past its share too, and only while it says so
+  T4=$(mktemp -d); T1="$T"; T="$T4"; mkdir -p "$T/.local/state/p"; K="$T/.local/state/p/dev-day.json"
+  run 0 40 start 5 >/dev/null; echo '{"kind":"verification"}' > "$K"
+  out=$(run 60 43); rc=$?; check "a verification day within its share is on" "$rc" 0
+  check "  and says what kind it is" "$out" "day  on: 3% of the day's 5% used (week 43%, from 40% at 08:00): verification day, nothing stops at it"
+  out=$(run 60 46); rc=$?; check "a verification day past its share is still on" "$rc" 0
+  has "  and reads how far past" "$out" "day  on: 6% of the day's 5% used"
+  case "$out" in *pause*) check "  and never says to pause" "$out" "" ;; *) echo "ok     and never says to pause" ;; esac
+  echo '{"kind":"development"}' > "$K"
+  out=$(run 60 46); rc=$?; check "the same reading on a development day is over" "$rc" 1; has "  and says to pause" "$out" "write your durable record and pause"
+  out=$(run 60 45); rc=$?; check "  within its share it carries no mark" "$out" "day  on: 5% of the day's 5% used (week 45%, from 40% at 08:00)"
+  for junk in 'not json {{{' '{"started_at":"x"}' '{"kind":"weekend"}'; do
+    printf '%s\n' "$junk" > "$K"; run 60 46 >/dev/null; check "an unreadable kind ($junk) is a development day" "$?" 1
+  done
+  rm -f "$K"; run 60 46 >/dev/null; check "no record of the kind is a development day" "$?" 1
+  echo '{"kind":"verification"}' > "$K"; run 70 46 end >/dev/null
+  out=$(run 80 46); rc=$?; check "a verification day with no share open is no day" "$rc" 3
+  T="$T1"; rm -rf "$T4"
   out=$(run 0 45 start 0); rc=$?; check "a zero quota is refused" "$rc" 2
   out=$(run 0 45 start ten); rc=$?; check "a quota that is not a number is refused" "$rc" 2
   out=$(env -u HARNESS_PROJECT -u AGENT_DAY_BUDGET HOME="$T" AGENT_DAY_BUDGET_READING=40 bash "$_here/agents-day-budget.sh" start 15 2>&1); rc=$?
@@ -144,6 +167,9 @@ open_day() {
   [[ "$at" =~ ^[0-9]+$ && "$start" =~ ^[0-9]+$ && "$quota" =~ ^[0-9]+$ ]] || return 1
   printf '%s %s %s' "$at" "$start" "$quota"
 }
+
+VERIFICATION_MARK=": verification day, nothing stops at it"
+is_verification_day() { [ "$(jq -r '.kind // empty' "$(dirname "$FILE")/dev-day.json" 2>/dev/null)" = verification ]; }
 
 # When the day began: the time, with the weekday once it is not today.
 # Append "<epoch> <verb> <reading or ?> <quota>" to the history; the first line, with a day open, is that day's start.
@@ -206,6 +232,10 @@ case "${1:-status}" in
       echo "day  none: the week has reset since the day started at $(began "$at") (week ${now_used}%)"; exit 3
     fi
     spent=$((now_used > start ? now_used - start : 0))
+    if is_verification_day; then
+      printf 'day  on: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s)%s\n' \
+        "$spent" "$quota" "$now_used" "$start" "$(began "$at")" "$VERIFICATION_MARK"; exit 0
+    fi
     if [ "$spent" -gt "$quota" ]; then
       printf 'day  over: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s): write your durable record and pause\n' \
         "$spent" "$quota" "$now_used" "$start" "$(began "$at")"; exit 1

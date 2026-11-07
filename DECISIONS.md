@@ -668,3 +668,12 @@ scripts' contracts and the page's side.
   team/agent-bench.sh benches a lead with the usual gates plus one: it refuses while no OTHER active lead has a
   running session, so the team is never left without a lead. That rule sits in the harness so every project gets it
   (Carl); strength's own scripts/agent-spawn.sh starts its sessions itself and takes the same shape in its own ticket.
+
+- **2026-11-07 — a verification day's 5% share reads, and stops nothing.** The owner: "Verification day is meant to start
+  with 5%", no stop decided; strength's dev-day.sh opens it (`start 5`). `agents-day-budget.sh status` takes the kind from
+  dev-day.json beside the day's file: on a verification day it stays `day  on`, exit 0, past the share too, ending
+  ": verification day, nothing stops at it". Without this the nudger told the lead to pause at +6, handed the nudger back to
+  the lead as the share opened, and the page and spawn read 5 as a day to stop at. It keeps `day  on` rather than a word of its
+  own because strength's agent-spawn.sh refuses anything but `day  on:` and `day  over:`. No record of the kind is a
+  development day, so other projects are unchanged. A tiny window remains: `start 5` lands before dev-day.sh writes the kind,
+  so a poll in those milliseconds still reads a plain `day  on`.

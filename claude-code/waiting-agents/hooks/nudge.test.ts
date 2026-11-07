@@ -464,6 +464,25 @@ test('a trip leaves a nudge target set by hand alone, and a restart does not tri
   expect(w.wrote).toEqual([])
 })
 
+test('a verification day neither trips, past its share, nor hands the nudger back; the next development day does', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on, { dayTrip: { day: '1793513125', switched: true } })
+  const sent: string[] = []
+  const log: string[] = []
+  const mark = ': verification day, nothing stops at it'
+  const w: World = { ...world(), agents: {}, target: 'testing', day: { status: `day  on: 3% of the day's 5% used (week 77%, from 74% at 09:00)${mark}`, start: '1793600000' }, ran: [], wrote: [] }
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+  await clock.advance(10_000)
+  w.day = { status: `day  on: 6% of the day's 5% used (week 80%, from 74% at 09:00)${mark}`, start: '1793600000' }
+  await clock.advance(60_000)
+  expect(sent).toEqual([])
+  expect(w.wrote).toEqual([])
+  w.day = { status: ON, start: '1793700000' }
+  await clock.advance(60_000)
+  expect(w.wrote).toEqual(['lead\n'])
+})
+
 test('the next development day hands the nudger back to the delivery lead', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on, { dayTrip: { day: '1793513125', switched: true } })
