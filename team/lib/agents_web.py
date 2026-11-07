@@ -597,13 +597,14 @@ def budget_plan():
 
 
 def day_budget():
-    """The development day open now (team/agents-day-budget.sh), as {"used", "quota", "from"}: the points the day has
-    spent, its share and the week's reading when it started. Between days (in strength, the verification day) it counts
+    """The day open now (team/agents-day-budget.sh), as {"used", "quota", "from"}: the points the day has spent, its
+    share and the week's reading when it started, plus "nostop" on a verification day, which nothing stops at its share. Between days it counts
     from the last day's end, its share what the week's plan has grown by since (None with no plan). None otherwise:
     the week's even pacing applies."""
     out = run("bash", DAY_BUDGET)
-    if m := re.search(r"^day  (?:on|over): (\d+)% of the day's (\d+)% used \(week \d+%, from (\d+)%", out, re.M):
-        return dict(zip(("used", "quota", "from"), map(int, m.groups())))
+    if m := re.search(r"^day  (?:on|over): (\d+)% of the day's (\d+)% used \(week \d+%, from (\d+)%.*$", out, re.M):
+        day = dict(zip(("used", "quota", "from"), map(int, m.groups())))
+        return {**day, "nostop": True} if m[0].endswith(": verification day, nothing stops at it") else day
     if m := re.search(r"^day  none: between days since .+?: (\d+)%(?: of the plan's (\d+)%)? used \(week \d+%, from (\d+)%", out, re.M):
         return {"used": int(m[1]), "quota": int(m[2]) if m[2] else None, "from": int(m[3])}
     return None
@@ -6909,6 +6910,8 @@ def self_test():
         for line, want in (("day  on: 11% of the day's 15% used (week 69%, from 58% at 06:05)", {"used": 11, "quota": 15, "from": 58}),
                            ("day  over: 16% of the day's 15% used (week 74%, from 58% at 06:05): write your durable record and pause",
                             {"used": 16, "quota": 15, "from": 58}),
+                           ("day  on: 6% of the day's 5% used (week 80%, from 74% at 09:00): verification day, nothing stops at it",
+                            {"used": 6, "quota": 5, "from": 74, "nostop": True}),
                            ("day  none: between days since 20:44: 3% of the plan's 5% used (week 77%, from 74%)", {"used": 3, "quota": 5, "from": 74}),
                            ("day  none: between days since 20:44: 3% used (week 77%, from 74%)", {"used": 3, "quota": None, "from": 74}),
                            ("day  none: no day open", None),
@@ -7158,6 +7161,12 @@ def self_test():
         day = {"used": 12, "quota": 15, "from": 58}
         t("team/bar/week: with a day open, the week and the day's use, marked at the day's stop",
           (txt(w := sh("week", {"week": 70, "plan": 85, "day": day})), w["meter"]["mark"], w["value"][0]["colour"]), ("70% - Day: 12%", 73, "green"))
+        ver = {"used": 6, "quota": 5, "from": 74, "nostop": True}
+        t("  a verification day past its share stays green in every bar, and says nothing stops it",
+          ([sh(f, {"week": 80, "plan": 85, "day": ver})["value"][0]["colour"] for f in ("week", "weekbar", "daybar")],
+           "nothing stops at it" in sh("week", {"week": 80, "plan": 85, "day": ver})["title"],
+           "nothing stops at it" in sh("weekbar", {"week": 80, "plan": 85, "day": ver})["title"]),
+          (["green", "green", "green"], True, True))
         t("  red once the day has spent past its share", sh("week", {"week": 74, "plan": 85, "day": {**day, "used": 16}})["value"][0]["colour"], "red")
         t("  amber with 1% of the day's share left, green with 2%",
           [sh(f, {"week": 72, "plan": 85, "day": {**day, "used": u}})["value"][0]["colour"] for f in ("week", "weekbar", "daybar") for u in (13, 14, 15)],

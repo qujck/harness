@@ -176,6 +176,8 @@ export function selfNudgeText(count: number, idleS: number, target: 'lead' | 'te
 // owner, the same evening, "I can't approve starting every verification day"; and the shift rule (owner, 2026-10-31)
 // has the head of testing run the verification day while the lead is benched. The pause is counted by session
 // entries, not replies: three agents paused that evening but answered in their own panes.
+// A verification day's 5% share (owner, 2026-11-07) reads `day  on`, past the share too, with a mark on the end. It trips
+// nothing, and it is not the next development day, so the head of testing keeps the nudger until one opens.
 export type DayTrip = { day: string; switched: boolean }
 
 export type DayVerdict = { alert: boolean; target?: 'lead' | 'testing'; store?: DayTrip }
@@ -188,7 +190,7 @@ export function dayVerdict(statusLine: string, day: string | undefined, prev: Da
     const move = target === 'lead'
     return { alert: true, target: move ? 'testing' : undefined, store: { day, switched: move } }
   }
-  if (statusLine.startsWith('day  on') && prev?.switched && prev.day !== day && target === 'testing') {
+  if (statusLine.startsWith('day  on') && !statusLine.endsWith(': verification day, nothing stops at it') && prev?.switched && prev.day !== day && target === 'testing') {
     return { alert: false, target: 'lead', store: { day: prev.day, switched: false } }
   }
   return { alert: false }
