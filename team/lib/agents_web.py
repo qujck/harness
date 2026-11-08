@@ -3861,8 +3861,13 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-hint{font-size:12px;color:var(--mute);text-align:center}
 #phone .ph-empty{padding:30px 10px;text-align:center;color:var(--mute)}
 #phone .ph-pane{flex:1;min-height:0;display:flex;flex-direction:column}
-#phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px}
-#phone .ph-nav{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));height:62px;border-top:1px solid var(--line2);background:var(--card1);padding-bottom:env(safe-area-inset-bottom)}
+#phone .ph-body[data-tab=mix],#phone .ph-body[data-tab=team]{padding:8px;overflow:hidden}
+#phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
+#phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#phone .ph-pane .teamlog .thead{flex-wrap:wrap;row-gap:4px}
+#phone .ph-pane .cnames{flex-wrap:wrap;white-space:normal;overflow:visible}
+#phone .ph-nav span{white-space:nowrap}
+#phone .ph-nav{flex:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));height:62px;border-top:1px solid var(--line2);background:var(--card1);padding-bottom:env(safe-area-inset-bottom)}
 #phone .ph-nav button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--mute);cursor:pointer;position:relative}
 #phone .ph-nav button.on{color:var(--text);font-weight:600}
 #phone .ph-nav svg{width:22px;height:22px}
@@ -5394,13 +5399,13 @@ function teamNames() {
 const teamItems = () => teamNames().map(x => [x, x, `<span class="dot" style="--c:${colours[x] || "#888"}"></span>`]);
 function teamHtml(path, full, hide, big) {
   const names = teamNames();
-  const shown = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? shown : shown.slice(-30);
+  const kept = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? kept : kept.slice(-30);
   const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(shown(m.from))}</span>` +
     `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(shown(m.to))}</span><span class="tx">${md(m.text)}</span>` +
     `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
-  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${shown.length} message${shown.length === 1 ? "" : "s"} between agents</span>${filterBtn("agents", "agents:" + path, names.filter(x => !hide.has(x)), names, teamItems(), "Agents")}${maxButton(big)}</div>` +
+  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${kept.length} message${kept.length === 1 ? "" : "s"} between agents</span>${filterBtn("agents", "agents:" + path, names.filter(x => !hide.has(x)), names, teamItems(), "Agents")}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
 }
 // The Combined pane: the conversations of the running agents in the roles chosen from its Roles menu as one, in time
@@ -5422,9 +5427,9 @@ function foldSent(out, it) {
 }
 function combinedHtml(path, n, full, big) {
   const chosen = paneAgents(n).map(a => a.name), on = clanesOf(n);
-  const shown = it => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
+  const lanesOn = it => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
   // a message sent from the pane shows at once, as in an agent's own view, until the agent's conversation has it
-  const items = chosen.flatMap(a => (paneConv[a] || []).concat(echoItems(paneConv[a] || [], a)).filter(it => (it.ts || it.kind === "ask") && shown(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
+  const items = chosen.flatMap(a => (paneConv[a] || []).concat(echoItems(paneConv[a] || [], a)).filter(it => (it.ts || it.kind === "ask") && lanesOn(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
     .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0)
     .reduce(foldSent, []);
   const log = full ? items : items.slice(-30);
@@ -6972,16 +6977,17 @@ addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventD
 // window keeps the desktop page; "Desktop layout" in the team menu keeps it on a phone too, in this browser.
 const PHONE_MQ = matchMedia("(max-width:700px)");
 const phoneOn = () => PHONE_MQ.matches && !ONLY && localStorage.getItem("phone") !== "off";
-const phoneTab = () => ["list", "faces", "day"].includes(localStorage.getItem("phonetab")) ? localStorage.getItem("phonetab") : "list";
+const phoneTab = () => ["list", "faces", "mix", "team", "day"].includes(localStorage.getItem("phonetab")) ? localStorage.getItem("phonetab") : "list";
 const PH_ICON = {
   more: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`,
   list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>`,
   faces: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>`,
   team: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>`,
+  mix: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="19" cy="12" r="2"/></svg>`,
   day: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>`,
   chev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
 };
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["day", "Day log"]];   // no Team chat on the phone (owner, 2026-11-08)
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team chat"], ["day", "Day log"]];   // Combined between Portraits and Team chat (owner, 2026-11-08)
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
 // a line of what an agent said last, as plain text
@@ -7048,11 +7054,25 @@ function phFacesHtml() {
     (off.length ? `<section><h2>Stopped</h2><div class="ph-grid bench">${off.map(a => `<button class="ph-tile${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
 }
-let phTeamAt = 0, phDayAt = 0;
+let phTeamAt = 0, phDayAt = 0, phMixAt = 0;
+// The Combined tab: every running agent's conversation as one, in time order. It takes the roles and lanes of the
+// desktop's first Combined pane, in this browser, if there is one; else every role, every lane.
+function phMixNode() {
+  const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "combined");
+  return {show: "combined", roles: Array.isArray(desk?.roles) && desk.roles.length ? desk.roles : roleList().map(r => r.role), clanes: desk ? clanesOf(desk) : CALL};
+}
 async function phLoad(tab) {
   // the Team chat and the Day log are read only while their tab is showing, as their panes are
   try {
     if (tab === "team" && Date.now() - phTeamAt > 3500) { phTeamAt = Date.now(); const d = await (await fetch("/api/team", {cache: "no-store"})).json(), t = JSON.stringify(d); if (t !== teamText) { teamLog = d; teamText = t; teamVer++; } phoneDraw(); }
+    if (tab === "mix" && Date.now() - phMixAt > 3500) {
+      phMixAt = Date.now();
+      await Promise.all(paneAgents(phMixNode()).map(async a => {
+        const d = await (await fetch("/api/agent/" + encodeURIComponent(a.name), {cache: "no-store"})).json(), t = JSON.stringify(d.feed);
+        if (t !== paneText[a.name]) { paneConv[a.name] = d.feed; paneText[a.name] = t; paneVer[a.name] = (paneVer[a.name] || 0) + 1; }
+      }));
+      phoneDraw();
+    }
     if (tab === "day" && Date.now() - phDayAt > 30000) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
   } catch (e) {}
 }
@@ -7070,6 +7090,8 @@ function phoneDraw() {
     ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     const body = ph.querySelector(".ph-body");
     body.addEventListener("click", e => {
+      const who = (body.dataset.tab === "mix" || body.dataset.tab === "team") && e.target.closest(".who, .cnames .name");
+      if (who) { const n = who.dataset.name || who.closest("[data-agent]")?.dataset.agent; if (n && S.agents.some(a => a.name === n && a.live)) return openDetail(n); }
       const o = e.target.closest("[data-open]"), m = e.target.closest("[data-menu-name]");
       if (Date.now() - phHeld < 600) return;   // the finger that held for the menu lifts with a click
       if (o) openDetail(o.dataset.open);
@@ -7097,9 +7119,20 @@ function phoneDraw() {
   ph.querySelectorAll(".ph-nav [data-tab]").forEach(b => { b.classList.toggle("on", b.dataset.tab === tab); b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"); });
   const body = ph.querySelector(".ph-body");
   body.dataset.tab = tab;
+  if (tab !== "team" && tab !== "mix") delete body.dataset.html;
   if (tab === "list") patch(body, phListHtml());
   else if (tab === "faces") patch(body, phFacesHtml());
-  else if (tab === "team") { patch(body, `<div class="ph-pane">${teamHtml("phone", true, new Set(), false)}</div>`); body.querySelectorAll(".maxbtn, .fbtn").forEach(b => b.remove()); phLoad(tab); }
+  else if (tab === "team" || tab === "mix") {
+    // a transcript is drawn again only when it changes, and stays at its newest turn unless scrolled up
+    const html = tab === "team" ? teamHtml("phone", true, new Set(), false) : combinedHtml("phone", phMixNode(), true, false);
+    if (body.dataset.html !== html) {
+      const f = body.querySelector(".feed"), end = !f || f.scrollHeight - f.scrollTop - f.clientHeight < 60, was = f?.scrollTop;
+      body.innerHTML = `<div class="ph-pane">${html}</div>`; body.dataset.html = html;
+      body.querySelectorAll(".maxbtn, .fbtn, .newest").forEach(b => b.remove());
+      const g = body.querySelector(".feed"); if (g) g.scrollTop = end ? g.scrollHeight : was;
+    }
+    phLoad(tab);
+  }
   else { patch(body, `<div class="ph-pane">${dayLogHtml()}</div>`); phLoad(tab); }
   if (tab === "list" || tab === "faces") markSeen([]);
 }
@@ -7553,6 +7586,7 @@ def self_test():
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
+        t("  its tabs are Agents, Portraits, Combined, Team chat and the Day log", 'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team chat"], ["day", "Day log"]]' in PAGE, True)
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
