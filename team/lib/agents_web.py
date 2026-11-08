@@ -2998,6 +2998,10 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .barplus svg{width:14px;height:14px}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
+/* While an agent waits the logo flashes as the footer's badge does, and a click opens the agent waiting longest: the logo
+   cannot be taken out of the bars, so the flag is on the screen even with the Agents item and every agent icon out. */
+.brand.waiting{cursor:pointer;border-radius:10px;animation:brandflash 1s ease-in-out infinite}
+@keyframes brandflash{0%,100%{background:transparent;box-shadow:none}50%{background:#ffc94d;box-shadow:0 0 0 3px #ffb020}}
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
 .stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 .stat .v{font:600 calc(13px*var(--fs,1)) var(--mono)}
@@ -4377,6 +4381,11 @@ function draw() {
     (waiting ? `<span class="wait" data-name="${esc(longest)}" title="Open ${esc(longest)}, waiting longest">${waiting} waiting</span>` : "") + `</span>`;
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
+  // the logo flags it too, and opens the same agent
+  const brand = $(".brand");
+  brand.classList.toggle("waiting", !!waiting);
+  brand.title = waiting ? `Open ${longest}, waiting longest (${waiting} waiting)` : "Claude agents";
+  brand.onclick = waiting ? () => openDetail(longest) : null;
   // The benched developers and testers, and the stopped standing agents, on one line in the header's free space, so the header never changes height;
   // those that do not fit are counted in a "+N" that names them. Its filter button, there only while a custom layout is
   // unlocked, shows them by name or as icons (their portrait, else their role's shadow, as a pane's Icon badge); until
@@ -7088,6 +7097,9 @@ def self_test():
         g["run"] = real_run
         _prs.update(at=0, busy=False, rows=None, failed=False)
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
+        t("the logo flashes while an agent waits, and a click opens the one waiting longest",
+          ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
+           ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
