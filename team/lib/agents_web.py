@@ -2476,7 +2476,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
         "disk": disk(),
         "tabs": tabs,
-        "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
+        "project": PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
@@ -3788,6 +3788,161 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   .say,#detail .say{font-size:16px}
   .say,#dsay{min-height:0 !important}   /* one line until typed into further: the keyboard leaves little room (owner, 2026-11-01) */
 }
+/* ── The phone (owner, 2026-11-08: "the real issue I have is on the phone"): at 700px or narrower the page is an app of
+   its own. A list of the team, waiting agents first, or their portraits; a tap opens the agent full screen (the agent
+   view); a menu for the team's controls. Header, panes and footer are the desktop's and are hidden. "Desktop layout"
+   in the menu turns it off in this browser, and a button brings it back. */
+#phone,#phoneback{display:none}
+html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}
+html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-size:15px}
+#phone button{font:inherit;color:inherit}
+#phone .ph-top{flex:none;display:flex;align-items:center;gap:10px;height:60px;padding:0 6px 0 14px;border-bottom:1px solid var(--line2);background:var(--card1)}
+#phone .ph-title{flex:1;min-width:0;display:flex;flex-direction:column}
+#phone .ph-title b{font-size:17px}
+#phone .ph-title span{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-week{flex:none;display:flex;align-items:center;gap:7px;height:44px;padding:0 11px;border:1px solid var(--line2);border-radius:22px;background:var(--card1);font:600 13px var(--mono)}
+#phone .ph-week i{display:block;width:30px;height:6px;border-radius:3px;background:var(--track);overflow:hidden}
+#phone .ph-week i{position:relative}
+#phone .ph-week i u{display:block;height:100%;border-radius:3px}
+#phone .ph-week i s{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--text);opacity:.6}
+#phone .ph-week{max-width:52%;min-width:0;overflow:hidden}
+#phone .ph-week .gl{font:600 11px var(--sans);color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+#phone .ph-week .gv{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#phone .ph-week .gv b{font-weight:600}
+#phone .ph-icon{flex:none;width:44px;height:44px;border:0;border-radius:22px;background:none;display:grid;place-items:center;cursor:pointer}
+#phone .ph-icon svg{width:22px;height:22px}
+#phone .ph-body{flex:1;min-height:0;overflow-y:auto;padding:12px 12px 20px;display:flex;flex-direction:column;gap:16px;-webkit-overflow-scrolling:touch}
+#phone h2{margin:0 4px 6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--mute);text-transform:uppercase}
+#phone .ph-list{display:flex;flex-direction:column;border-radius:14px;border:1px solid var(--line);background:var(--card1);overflow:hidden}
+#phone .ph-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
+#phone .ph-row:last-child{border-bottom:0}
+#phone .ph-row.big{min-height:68px}
+#phone .ph-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+#phone .ph-line1{display:flex;align-items:center;gap:8px;min-width:0}
+#phone .ph-name{font-weight:600;white-space:nowrap}
+#phone .ph-role{font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-tk{font:500 11px var(--mono);padding:2px 6px;border-radius:6px;background:var(--codebg);color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#phone .ph-right{margin-left:auto;flex:none;font:500 12px var(--mono);color:var(--mute);display:flex;align-items:center;gap:6px}
+#phone .ph-sub{font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-sub.live{color:var(--green);font-family:var(--mono);font-size:12px}
+/* a portrait: the agent's picture, else its role's shadow, framed in its colour, with its state as a dot */
+#phone .ph-por{position:relative;flex:none;width:44px;height:44px}
+#phone .ph-por.s{width:40px;height:40px}
+#phone .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border-radius:12px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
+#phone .ph-por img,#phone .ph-por svg{display:block;width:100%;height:100%;object-fit:cover}
+#phone .ph-por i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--card1);background:var(--faint)}
+#phone .busy i,#phone .compacting i{background:var(--green)}
+#phone .waiting i{background:var(--amber)}
+#phone .off .ph-por > .fr,#phone .bench > .fr{filter:grayscale(1);opacity:.55}
+#phone .ph-wait{display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 14px;border-radius:14px;border:1.5px solid var(--amber);background:color-mix(in srgb,var(--amber) 14%,var(--card1));text-align:left;cursor:pointer;width:100%}
+#phone .ph-wait small{display:block;font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--amber);text-transform:uppercase}
+#phone .ph-wait b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#phone .ph-chips{display:flex;flex-wrap:wrap;gap:8px}
+#phone .ph-chip{display:flex;align-items:center;gap:8px;height:44px;padding:0 14px 0 4px;border-radius:22px;border:1px dashed var(--faint);background:none;color:var(--mute);cursor:pointer}
+#phone .ph-chip .ph-por{width:36px;height:36px}
+#phone .ph-chip .ph-por > .fr{border-radius:18px;border-width:2px}
+#phone .unseen{position:static}
+/* the Portraits tab: the faces large, three across */
+#phone .ph-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+#phone .ph-grid.bench{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+#phone .ph-tile{display:flex;flex-direction:column;gap:6px;padding:0;border:0;background:none;text-align:left;cursor:pointer;-webkit-touch-callout:none;user-select:none}
+#phone .ph-tile .ph-por{width:100%;height:auto;aspect-ratio:1}
+#phone .ph-tile .ph-por > .fr{border-radius:16px;border-width:3px}
+#phone .ph-tile.waiting .ph-por > .fr{box-shadow:0 0 0 3px var(--bg),0 0 0 6px var(--amber)}
+#phone .ph-tile .ph-st{position:absolute;left:6px;bottom:6px;display:flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;background:var(--card1);font:600 11px var(--sans);color:var(--mute)}
+#phone .ph-tile .ph-st:before{content:"";width:7px;height:7px;border-radius:4px;background:currentColor}
+#phone .ph-tile.busy .ph-st,#phone .ph-tile.compacting .ph-st{color:var(--green)}
+#phone .ph-tile.waiting .ph-st{color:var(--amber)}
+#phone .ph-tile .ph-name{font-size:14px;padding:0 2px}
+#phone .ph-tile .ph-role{font-size:12px;padding:0 2px}
+#phone .ph-tile .ph-un{position:absolute;right:6px;top:6px}
+#phone .ph-grid.bench .ph-tile{align-items:center;font-size:12px;color:var(--mute)}
+#phone .ph-tile.off .ph-por > .fr,#phone .ph-grid.bench .ph-por > .fr{border-style:dashed;border-color:var(--faint)}
+#phone .ph-hint{font-size:12px;color:var(--mute);text-align:center}
+#phone .ph-empty{padding:30px 10px;text-align:center;color:var(--mute)}
+#phone .ph-pane{flex:1;min-height:0;display:flex;flex-direction:column}
+#phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px}
+#phone .ph-nav{flex:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));height:62px;border-top:1px solid var(--line2);background:var(--card1);padding-bottom:env(safe-area-inset-bottom)}
+#phone .ph-nav button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--mute);cursor:pointer;position:relative}
+#phone .ph-nav button.on{color:var(--text);font-weight:600}
+#phone .ph-nav svg{width:22px;height:22px}
+#phone .ph-nav .unseen{position:absolute;top:6px;left:calc(50% + 6px)}
+/* the team menu, a sheet from the bottom */
+#phsheet{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;justify-content:flex-end;background:#0007}
+#phsheet.on{display:flex}
+#phsheet .sh{display:flex;flex-direction:column;gap:16px;max-height:88vh;overflow-y:auto;padding:10px 16px calc(22px + env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--box);color:var(--text);font:15px var(--sans);box-shadow:0 -10px 30px #0004}
+#phsheet{transition:background .2s}
+#phsheet .sh{transition:transform .22s cubic-bezier(.2,.8,.2,1);overscroll-behavior:contain}
+#phsheet.closing{background:#0000;pointer-events:none}
+#phsheet .grab{align-self:center;width:40px;height:5px;border-radius:3px;background:var(--line2);box-sizing:content-box;padding:8px 40px 10px;margin:-8px 0 -10px;background-clip:content-box;cursor:grab;touch-action:none}
+#phsheet select{flex:none;max-width:55%;height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);font:500 14px var(--sans)}
+#phsheet h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--mute)}
+#phsheet .tstate{display:flex;align-items:center;gap:8px}
+#phsheet .tstate i{width:10px;height:10px;border-radius:5px;background:var(--faint)}
+#phsheet .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#phsheet .big{height:52px;border-radius:12px;border:1.5px solid var(--line2);background:var(--card1);display:flex;align-items:center;justify-content:center;gap:10px;font:600 15px var(--sans);color:var(--text);cursor:pointer}
+#phsheet .big svg{width:18px;height:18px}
+#phsheet .big.go{border-color:var(--green);color:var(--green)}
+#phsheet .big.warn{border-color:color-mix(in srgb,var(--red) 50%,transparent);color:var(--red);background:color-mix(in srgb,var(--red) 7%,var(--card1))}
+#phsheet .big.sure{background:var(--red);color:#fff;border-color:var(--red)}
+#phsheet .big[disabled]{opacity:.5;cursor:default}
+#phsheet .note{font-size:13px;color:var(--mute)}
+#phsheet .rows{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+#phsheet .r{display:flex;align-items:center;gap:12px;min-height:56px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--text);font:600 15px var(--sans);text-align:left;padding:0;cursor:pointer;width:100%}
+#phsheet .r:last-child{border-bottom:0}
+#phsheet .r > span{flex:1;display:flex;flex-direction:column}
+#phsheet .r small{font-weight:400;font-size:13px;color:var(--mute)}
+#phsheet .r em{font-style:normal;font-weight:400;color:var(--mute)}
+#phsheet .sw{flex:none;width:52px;height:32px;border-radius:16px;background:var(--line2);position:relative;transition:background .15s}
+#phsheet .sw:after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:13px;background:#fff;box-shadow:0 1px 3px #0003;transition:left .15s}
+#phsheet .sw.on{background:var(--green)}
+#phsheet .sw.on:after{left:23px}
+#phsheet .seg2{display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:12px;background:var(--track)}
+#phsheet .seg2 button{height:38px;padding:0 16px;border:0;border-radius:9px;background:none;font:500 14px var(--sans);color:var(--mute);cursor:pointer}
+#phsheet .seg2 button.on{background:var(--card1);color:var(--text);font-weight:600;box-shadow:0 1px 2px #0002}
+/* the agent view on the phone: a back arrow, its name and menus, one line of facts, the others' portraits to swipe
+   along, the conversation, a suggested prompt to tap, the box, and Stop on a row of its own, away from Send */
+html.phone #detail .head{flex-wrap:wrap;gap:0 4px;padding:4px 4px 0;border-top-width:3px}
+html.phone #detail .head .x{order:-1;margin:0;width:44px;height:44px;display:grid;place-items:center;color:var(--text)}
+html.phone #detail .head .x svg{width:22px;height:22px}
+html.phone #detail .head :is(.lanes,#dmore){width:44px;height:44px;display:grid;place-items:center;margin-left:0}
+html.phone #detail .head .lanes{margin-left:auto}
+html.phone #detail .head .ticket{min-width:0;overflow:hidden;text-overflow:ellipsis}
+html.phone #detail .head .role{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+html.phone #detail .head .facts{display:flex;order:10;flex:1 1 100%;height:32px;margin:4px -4px 0;padding:0 14px;align-items:center;gap:14px;flex-wrap:nowrap;overflow-x:auto;
+  background:var(--codebg);border-top:1px solid var(--line);scrollbar-width:none}
+html.phone #detail .head .facts > :last-child{display:none}
+html.phone #detail .box{grid-template-rows:auto auto minmax(0,1fr) !important}
+html.phone #detail .box .rail{display:flex !important;grid-column:1;grid-row:2 !important;gap:10px;padding:8px 12px;overflow-x:auto;overflow-y:hidden;border:0;border-bottom:1px solid var(--line);scrollbar-width:none}
+html.phone #detail .box .left{grid-row:3 !important}
+html.phone #drail .phf{position:relative;flex:none;width:48px;height:48px;padding:0;border:0;border-radius:14px;background:none;cursor:pointer}
+html.phone #drail .phf > span{display:block;width:100%;height:100%;box-sizing:border-box;border-radius:14px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
+html.phone #drail .phf img,html.phone #drail .phf svg{display:block;width:100%;height:100%;object-fit:cover}
+html.phone #drail .phf i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--box);background:var(--faint)}
+html.phone #drail .phf.busy i,html.phone #drail .phf.compacting i{background:var(--green)}
+html.phone #drail .phf.waiting i{background:var(--amber)}
+html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
+html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}
+#dsug{display:none}
+html.phone #dsug:not([hidden]){display:block;align-self:flex-start;max-width:calc(100% - 28px);margin:0 14px 8px;height:36px;padding:0 12px;border-radius:18px;border:1px solid var(--line2);
+  background:var(--soft);color:var(--text2);font:500 13px var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+html.phone #detail .sayrow{flex-wrap:nowrap;align-items:flex-end;margin:0 12px 12px !important;gap:8px}
+html.phone #detail .sayrow .add{width:44px;height:44px;border-radius:12px}
+html.phone #detail .sayrow .say{min-height:44px !important;padding:11px 46px 11px 14px;border-radius:22px}
+html.phone #detail .sayrow .send{width:44px;height:44px;margin:0 0 0 calc(-8px - 44px);align-self:flex-end}
+html.phone #dstop{flex:none;width:44px;height:44px;align-self:flex-end;border-radius:12px;
+  border-color:color-mix(in srgb,var(--red) 45%,transparent);background:color-mix(in srgb,var(--red) 7%,var(--box))}
+html.phone #dstop::before{width:13px;height:13px;border-radius:3px;background:var(--red)}
+html.phone #dstop[style*="none"]{display:none}
+html.phone #detail .pstat{display:none !important}   /* no status line under the box on the phone (owner, 2026-11-08) */
+html.phone #detail .pstattog{display:none !important}
+#pherr{position:fixed;left:10px;right:10px;top:10px;z-index:100;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:2px solid var(--red);background:var(--box);color:var(--text);font:13px var(--sans);box-shadow:0 8px 30px #0005}
+#pherr pre{margin:0;max-height:30vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font:11px/1.4 var(--mono);color:var(--mute)}
+#pherr div{display:flex;gap:8px}#pherr button{flex:1;height:44px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);font:600 14px var(--sans)}
+#phoneback{position:fixed;left:10px;bottom:10px;z-index:15;height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line2);background:var(--box);color:var(--text);font:600 13px var(--sans);box-shadow:0 4px 14px #0003}
+html.phoneoff #phoneback{display:block}
+#phone .ph-logo{flex:none;width:44px;height:44px;margin-left:-8px;display:grid;place-items:center}
+#phone .ph-logo svg{width:36px;height:36px}
 </style>
 </head>
 <body>
@@ -3805,12 +3960,13 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 </header>
 <main id="main"></main>
 <footer></footer>
+<div id="phone"></div><button id="phoneback">Phone layout</button>
 <div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button><b class="pstattog" id="dpstattog" hidden></b></div><div class="pstat" id="dpstat"></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button><b class="pstattog" id="dpstattog" hidden></b></div><div class="pstat" id="dpstat"></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -4033,7 +4189,7 @@ const askButtons = (it, agent) => {
 // would only choose the highlighted option; the prompt is answered with its own buttons.
 const openAsk = a => a?.status === "waiting" && (a.feed || []).find(it => it.kind === "ask" && (it.options || []).length);
 const ASK_SHUT = "A prompt is open in its pane: answer it with its buttons";
-const sayHint = a => a.name?.startsWith(MEET) ? "Message the meeting…" : openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it"
+let sayHint = a => a.name?.startsWith(MEET) ? "Message the meeting…" : openAsk(a) ? ASK_SHUT : a.status === "waiting" ? "A prompt is open in its pane: this answers it"
   : a.suggest && settings().suggest !== "off" ? `${a.suggest}   ⇥ Tab` : `Message ${shown(a.name)}…`;
 // a box is shut or opened again only when the prompt opens or closes, so a message on its way keeps its box disabled
 function shutBox(box, a) {
@@ -6809,6 +6965,295 @@ const liveAt = e => { const name = agentAt(e); return name && S?.agents.find(a =
 addEventListener("click", e => { const name = (e.ctrlKey || e.metaKey) && liveAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("auxclick", e => { const name = e.button === 1 && liveAt(e); if (name) { e.preventDefault(); e.stopPropagation(); inNewTab(name); } }, true);
 addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventDefault(); }, true);   // no autoscroll on a middle click
+// ── The phone ────────────────────────────────────────────────────────────────────────────────────────────────────
+// At 700px or narrower (owner, 2026-11-08) the page is drawn as a phone app in #phone: a header with the logo, the
+// team's state, the week and the team menu; then the team as a list, waiting agents first, or as portraits, or the
+// Team chat or Day log; and tabs along the bottom. An agent opens in the agent view, full screen. A tablet or a wide
+// window keeps the desktop page; "Desktop layout" in the team menu keeps it on a phone too, in this browser.
+const PHONE_MQ = matchMedia("(max-width:700px)");
+const phoneOn = () => PHONE_MQ.matches && !ONLY && localStorage.getItem("phone") !== "off";
+const phoneTab = () => ["list", "faces", "day"].includes(localStorage.getItem("phonetab")) ? localStorage.getItem("phonetab") : "list";
+const PH_ICON = {
+  more: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`,
+  list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>`,
+  faces: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>`,
+  team: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>`,
+  day: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>`,
+  chev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
+};
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["day", "Day log"]];   // no Team chat on the phone (owner, 2026-11-08)
+// an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
+const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
+// a line of what an agent said last, as plain text
+const phPlain = s => String(s || "").replace(/```[\s\S]*?```/g, " ").replace(/[`*_>#|]/g, "").replace(/\s+/g, " ").trim();
+function phLast(a) {
+  const live = (a.feed || []).find(it => it.kind === "live");
+  if (live) return {text: live.text, live: true};
+  const said = [...(a.feed || [])].reverse().find(it => it.kind === "said" || it.kind === "peer" && it.who);
+  return {text: said ? (said.kind === "peer" ? shown(said.who) + ": " : "") + phPlain(said.text) : ""};
+}
+// the team's state in a few words, as the team buttons read it
+function phTeamState() {
+  const team = S.agents.filter(a => a.role !== "pa"), busy = team.some(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting));
+  const state = S.starting.includes("team") ? ["Starting", "var(--amber)"] : S.halting.includes("team") ? ["Stopping", "var(--amber)"]
+    : S.teamUp && S.teamPaused && !busy || !team.some(a => a.live) ? ["Stopped", "var(--faint)"] : ["Running", "var(--green)"];
+  return {word: state[0], colour: state[1], up: S.agents.filter(a => a.live).length, off: S.bench.length + S.agents.filter(a => !a.live).length};
+}
+// How the Agents and Portraits tabs order the team: by status (waiting, working, idle, stopped) or by role.
+const phOrder = () => localStorage.getItem("phoneorder") === "role" ? "role" : "state";
+// [role, its agents] in the page's role order; within a role the roster's order, running agents and then stopped ones
+function phByRole() {
+  const all = [...S.agents, ...S.bench];
+  return roleList().map(r => [r, all.filter(a => a.role === r.role)]).filter(([, list]) => list.length);
+}
+function phListHtml() {
+  const live = S.agents.filter(a => a.live), wait = live.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
+  const work = live.filter(a => a.status !== "waiting" && (a.status === "busy" || a.compacting || a.status === "shell"));
+  const idle = live.filter(a => !wait.includes(a) && !work.includes(a));
+  const off = [...S.agents.filter(a => !a.live), ...S.bench];
+  const banner = a => { const ask = (a.feed || []).find(it => it.kind === "ask");
+    return `<button class="ph-wait waiting" data-open="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
+  const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
+    return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
+      (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : big ? "" : `<span class="ph-role">${esc(a.roleName || "")}</span>`) +
+      `<span class="ph-right">${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
+      (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
+  const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
+  if (phOrder() === "role") {
+    // by role (owner, 2026-11-08): each role's agents in the roster's order, running or not, a stopped one greyed
+    const rrow = a => { if (!a.live) return `<button class="ph-row off" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
+      const st = stOf(a), last = phLast(a), n = unseen(a), busy = st === "busy" || st === "compacting" || st === "waiting";
+      return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
+        (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : "") +
+        `<span class="ph-right">${n ? unseenBadge(n) : ""}<span style="color:${st === "waiting" ? "var(--amber)" : busy ? "var(--green)" : "var(--mute)"}">${STATE[st] || esc(st)}</span> ${ago(a.held)}</span></span>` +
+        (busy && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
+    return wait.map(banner).join("") + phByRole().map(([r, list]) => `<section><h2>${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
+      (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
+  }
+  return wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
+    (off.length ? `<section><h2>Stopped · ${off.length}</h2><div class="ph-chips">${off.map(a => `<button class="ph-chip${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
+    (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
+}
+function phFacesHtml() {
+  const live = S.agents.filter(a => a.live), rank = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
+  const up = [...live].sort((x, y) => rank(x) - rank(y)), off = [...S.agents.filter(a => !a.live), ...S.bench];
+  const tile = a => { const st = stOf(a), n = unseen(a);
+    return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
+      `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
+      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.ticket || a.roleName || "")}</span></button>`; };
+  const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">stopped</span></button>`;
+  if (phOrder() === "role") return phByRole().map(([r, list]) => `<section><h2>${esc(r.name)}</h2><div class="ph-grid">${list.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>`).join("") +
+    `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
+  return (up.length ? `<div class="ph-grid">${up.map(tile).join("")}</div>` : `<div class="ph-empty">No agent is running</div>`) +
+    (off.length ? `<section><h2>Stopped</h2><div class="ph-grid bench">${off.map(a => `<button class="ph-tile${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
+    `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
+}
+let phTeamAt = 0, phDayAt = 0;
+async function phLoad(tab) {
+  // the Team chat and the Day log are read only while their tab is showing, as their panes are
+  try {
+    if (tab === "team" && Date.now() - phTeamAt > 3500) { phTeamAt = Date.now(); const d = await (await fetch("/api/team", {cache: "no-store"})).json(), t = JSON.stringify(d); if (t !== teamText) { teamLog = d; teamText = t; teamVer++; } phoneDraw(); }
+    if (tab === "day" && Date.now() - phDayAt > 30000) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
+  } catch (e) {}
+}
+function phoneDraw() {
+  const on = phoneOn(), html = document.documentElement;
+  html.classList.toggle("phone", on); html.classList.toggle("phoneoff", PHONE_MQ.matches && !ONLY && !on);
+  if (!on || !S) return;
+  const tab = phoneTab(), ph = $("#phone");
+  if (!ph.firstChild) {
+    ph.innerHTML = `<div class="ph-top"><div class="brand ph-logo"></div><div class="ph-title"></div><button class="ph-week"></button><button class="ph-icon" id="phmore" aria-label="Team menu">${PH_ICON.more}</button></div><div class="ph-body"></div>` +
+      `<nav class="ph-nav" aria-label="Pages">${PH_TABS.map(([k, label]) => `<button data-tab="${k}">${PH_ICON[k]}<span>${label}</span></button>`).join("")}</nav>`;
+    ph.querySelector(".ph-logo").innerHTML = document.querySelector(".brand:not(.ph-logo)")?.innerHTML || "";   // the logo, wherever the bar has put it (header, footer or taken out)
+    ph.querySelector(".ph-nav").onclick = e => { const b = e.target.closest("[data-tab]"); if (!b) return; localStorage.setItem("phonetab", b.dataset.tab); ph.querySelector(".ph-body").scrollTop = 0; try { phoneDraw(); } catch (e) { phError(e); } };
+    $("#phmore").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
+    ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
+    const body = ph.querySelector(".ph-body");
+    body.addEventListener("click", e => {
+      const o = e.target.closest("[data-open]"), m = e.target.closest("[data-menu-name]");
+      if (Date.now() - phHeld < 600) return;   // the finger that held for the menu lifts with a click
+      if (o) openDetail(o.dataset.open);
+      else if (m) agentMenu(m, m.dataset.menuName, false, false);
+    });
+    // a press held on a portrait opens its details (its menu, with its second portrait) as a right-click does
+    body.addEventListener("contextmenu", e => { const m = e.target.closest("[data-menu-name]"); if (!m) return; e.preventDefault(); phHeld = Date.now(); agentMenu(m, m.dataset.menuName, false, false); });
+  }
+  // the logo flashes, and opens the agent waiting longest, as the header's does
+  const logo = ph.querySelector(".ph-logo"), waits = S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
+  logo.classList.toggle("waiting", !!waits.length); logo.title = waits.length ? `Open ${shown(waits[0].name)}, waiting longest (${waits.length} waiting)` : "Claude agents";
+  logo.onclick = waits.length ? () => openDetail(waits[0].name) : null;
+  const t = phTeamState();
+  patch(ph.querySelector(".ph-title"), `<b>${esc(S.project || document.title || "Team")}</b><span><span style="color:${t.colour}">●</span> ${t.word} · ${t.up} up${t.off ? ` · ${t.off} stopped` : ""}${S.nudgerPaused ? " · nudger paused" : ""}</span>`);
+  const g = phGauge(), gb = ph.querySelector(".ph-week");
+  if (g) {
+    const m = g.meter, val = (g.parts || [{text: g.value, colour: g.colour}]).filter(x => x.text !== "").map(x => `<b style="color:${plugColour(x.colour || (g.parts ? "" : g.colour))}">${esc(x.text)}</b>`).join("");
+    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : gauge(m.pct)}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
+    gb.setAttribute("aria-label", `${phGaugeName(g)}: ${g.value}${g.title ? ". " + g.title : ""}`); gb.title = g.title || "";
+  } else {
+    const wk = S.week;
+    patch(gb, wk == null ? "–" : `<span class="gl">Week</span><i><u style="width:${Math.min(100, wk)}%;background:${gauge(wk)}"></u></i><span class="gv">${Math.round(wk)}%</span>`);
+    gb.setAttribute("aria-label", wk == null ? "Week not read yet" : `Week used: ${Math.round(wk)}%`);
+  }
+  ph.querySelectorAll(".ph-nav [data-tab]").forEach(b => { b.classList.toggle("on", b.dataset.tab === tab); b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"); });
+  const body = ph.querySelector(".ph-body");
+  body.dataset.tab = tab;
+  if (tab === "list") patch(body, phListHtml());
+  else if (tab === "faces") patch(body, phFacesHtml());
+  else if (tab === "team") { patch(body, `<div class="ph-pane">${teamHtml("phone", true, new Set(), false)}</div>`); body.querySelectorAll(".maxbtn, .fbtn").forEach(b => b.remove()); phLoad(tab); }
+  else { patch(body, `<div class="ph-pane">${dayLogHtml()}</div>`); phLoad(tab); }
+  if (tab === "list" || tab === "faces") markSeen([]);
+}
+let phHeld = 0;
+// The header's gauge: one of the bar's plug-ins (the same reading the desktop bar shows), chosen in the team menu and
+// kept in this browser; until one is chosen, the day bar, else the week's (owner, 2026-11-08: "I want the day bar for now").
+const phGauges = () => plugs().filter(x => !x.hidden && (x.meter || x.value) && x.value !== "…");
+const phGaugeName = x => x.name || x.label || barName(x.key);
+function phGauge() {
+  const all = phGauges(), want = localStorage.getItem("phonegauge");
+  return all.find(x => x.key === want) || all.find(x => x.key === "daybar") || all.find(x => x.key === "weekbar") || all.find(x => x.key === "week") || null;
+}
+// The team menu: the team's state and its start and stop, the nudger, the theme, text size, and the desktop layout.
+let phStopAsk = null;
+function phoneMenu(again) {
+  let sh = $("#phsheet");
+  if (!sh) { sh = document.createElement("div"); sh.id = "phsheet"; document.body.append(sh); sh.onclick = e => { if (e.target === sh) phoneMenuOff(); }; }
+  const t = phTeamState(), lead = S.agents.find(a => a.role === "lead");
+  const starting = S.starting.includes("team"), stopping = S.halting.includes("team"), down = t.word === "Stopped";
+  const nudgeOn = nudgerTo != null ? !nudgerTo : !S.nudgerPaused;
+  const light = document.documentElement.classList.contains("light"), fs = settings().fs || 100;
+  sh.innerHTML = `<div class="sh" role="dialog" aria-label="Team menu"><span class="grab"></span>` +
+    `<h2>TEAM</h2><div class="tstate"><i style="background:${t.colour}"></i><b>${t.word}</b><span style="color:var(--mute)">· ${t.up} up, ${t.off} stopped</span></div>` +
+    `<div class="two">` +
+      (down || starting ? `<button class="big go" data-go="start"${starting ? " disabled" : ""}>${MENU_ICON.start}${starting ? "Starting…" : "Start team"}</button>`
+        : `<button class="big" data-go="open-lead"${lead?.live ? "" : " disabled"}>${MENU_ICON.open}Open ${esc(shown(lead?.name || "lead"))}</button>`) +
+      (down || starting ? `<button class="big" disabled>${MENU_ICON.stop}Stopped</button>`
+        : stopping ? `<button class="big warn" disabled>${MENU_ICON.stop}Stopping…</button>`
+        : `<button class="big ${phStopAsk ? "sure" : "warn"}" data-go="stop"${lead?.live ? "" : " disabled"}>${MENU_ICON.stop}${phStopAsk ? "Tap to confirm" : "Stop team…"}</button>`) +
+    `</div><div class="note">${down ? `Starts ${S.teamUp ? esc(S.teamUp.map(shown).join(", ")) : "everyone with a session on the roster"}.` : stopping ? "Waiting for everyone to reach a clean point." : `Stop asks ${esc(shown(lead?.name || "the lead"))} to wind everyone down at a clean point.`}</div>` +
+    `<div class="rows">` +
+      `<button class="r" data-go="nudge"><span>Nudge waiting agents<small>Reminds idle agents that have work waiting</small></span><i class="sw${nudgeOn ? " on" : ""}" role="switch" aria-checked="${nudgeOn}"></i></button>` +
+      (phGauges().length ? `<label class="r" style="cursor:default"><span>Header gauge</span><select class="gsel">${phGauges().map(x => `<option value="${esc(x.key)}"${x.key === phGauge()?.key ? " selected" : ""}>${esc(phGaugeName(x))}</option>`).join("")}</select></label>` : "") +
+      `<div class="r" style="cursor:default"><span>Order agents</span><div class="seg2" style="flex:none"><button data-go="by-state" class="${phOrder() === "state" ? "on" : ""}">Status</button><button data-go="by-role" class="${phOrder() === "role" ? "on" : ""}">Role</button></div></div>` +
+      `<div class="r" style="cursor:default"><span>Theme</span><div class="seg2" style="flex:none"><button data-go="light" class="${light ? "on" : ""}">Light</button><button data-go="dark" class="${light ? "" : "on"}">Dark</button></div></div>` +
+      `<button class="r" data-go="fs"><span>Text size</span><em>${fs}%</em></button>` +
+      `<button class="r" data-go="desk"><span>Desktop layout<small>The full page, as on a computer, in this browser</small></span>${PH_ICON.chev}</button>` +
+    `</div></div>`;
+  const panel = sh.querySelector(".sh");
+  if (!sh.classList.contains("on")) { sh.classList.add("on"); panel.style.transform = "translateY(100%)"; requestAnimationFrame(() => requestAnimationFrame(() => { panel.style.transform = ""; })); }
+  phSheetDrag(panel);
+  sh.querySelector(".gsel")?.addEventListener("change", e => { localStorage.setItem("phonegauge", e.target.value); phoneDraw(); });
+  sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const go = b.dataset.go;
+    if (go === "start") { post("/api/team/start"); phoneMenuOff(); }
+    else if (go === "open-lead") { phoneMenuOff(); openDetail(lead.name); }
+    else if (go === "stop") {
+      if (!phStopAsk) { phStopAsk = setTimeout(() => { phStopAsk = null; if ($("#phsheet")?.classList.contains("on")) phoneMenu(); }, 4000); return phoneMenu(); }
+      clearTimeout(phStopAsk); phStopAsk = null; post("/api/team/stop"); phoneMenuOff();
+    }
+    else if (go === "nudge") { const pause = nudgeOn; nudgerTo = pause; setTimeout(() => { nudgerTo = null; }, 10000); post(pause ? "/api/nudger/pause" : "/api/nudger/resume"); phoneMenu(); }
+    else if (go === "light" || go === "dark") { theme(go); phoneMenu(); }
+    else if (go === "by-state" || go === "by-role") { localStorage.setItem("phoneorder", go.slice(3)); phoneDraw(); phoneMenu(); }
+    else if (go === "fs") { const steps = [90, 100, 115, 130], next = steps[(steps.indexOf(fs) + 1) % steps.length] || 100; const s = settings(); s.fs = next; localStorage.setItem("settings", JSON.stringify(s)); applySettings(); phoneMenu(); }
+    else if (go === "desk") { localStorage.setItem("phone", "off"); phoneMenuOff(); phoneDraw(); draw(); }
+  });
+}
+function phoneMenuOff() {
+  clearTimeout(phStopAsk); phStopAsk = null;
+  const sh = $("#phsheet"), panel = sh?.querySelector(".sh");
+  if (!sh?.classList.contains("on")) return;
+  if (!panel) return sh.classList.remove("on");
+  panel.style.transform = "translateY(100%)"; sh.classList.add("closing");
+  setTimeout(() => { sh.classList.remove("on", "closing"); panel.style.transform = ""; }, 220);
+}
+// The sheet follows a finger pulling it down, from its handle or from anywhere once its list is scrolled to the top,
+// and closes if pulled far enough or flicked; otherwise it springs back (owner, 2026-11-08).
+function phSheetDrag(panel) {
+  let y0 = null, t0 = 0, dy = 0;
+  panel.ontouchstart = e => { if (e.touches.length !== 1 || panel.scrollTop > 0 && !e.target.closest(".grab")) { y0 = null; return; } y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; panel.style.transition = "none"; };
+  panel.ontouchmove = e => {
+    if (y0 == null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    if (dy > 0) { e.preventDefault(); panel.style.transform = `translateY(${dy}px)`; $("#phsheet").style.background = `rgba(0,0,0,${0.45 * Math.max(0, 1 - dy / panel.offsetHeight)})`; }
+  };
+  panel.ontouchend = panel.ontouchcancel = () => {
+    if (y0 == null) return;
+    y0 = null; panel.style.transition = ""; $("#phsheet").style.background = "";
+    const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
+    if (dy > Math.min(140, panel.offsetHeight / 3) || fast) phoneMenuOff(); else panel.style.transform = "";
+  };
+}
+$("#phoneback").onclick = () => { localStorage.removeItem("phone"); phoneDraw(); };
+PHONE_MQ.addEventListener("change", () => { phoneDraw(); draw(); });
+{
+  // On the phone the desktop page is hidden and not drawn: its panes measure nothing there, and a pane that redraws
+  // until its size settles would never settle. Should the phone's own drawing fail, the desktop page shows instead
+  // of a blank screen, and the console says why.
+  const _draw = draw;
+  draw = function () {
+    if (!phoneOn() || !S) _draw();
+    try { phoneDraw(); } catch (e) { phError(e); }
+  };
+}
+// Anything that goes wrong on the phone is shown on it, over the page, with what it was and where: a phone has no
+// console to read (owner, 2026-11-08: "white header, with ... that does nothing"). Desktop layout is a way out.
+function phError(e) {
+  console.error("agents-web phone layout failed", e);
+  if (!PHONE_MQ.matches || ONLY) return;
+  let box = $("#pherr");
+  if (!box) { box = document.createElement("div"); box.id = "pherr"; document.body.append(box); }
+  const what = (e && (e.stack || e.message)) || String(e), ua = navigator.userAgent;
+  box.innerHTML = `<b>The phone layout hit an error</b><pre>${esc(String(what).split("\n").slice(0, 8).join("\n"))}</pre><pre>${esc(ua)}</pre>` +
+    `<div><button data-go="desk">Use desktop layout</button><button data-go="x">Dismiss</button></div>`;
+  box.querySelector('[data-go="desk"]').onclick = () => { localStorage.setItem("phone", "off"); box.remove(); location.reload(); };
+  box.querySelector('[data-go="x"]').onclick = () => box.remove();
+}
+addEventListener("error", e => { if (document.documentElement.classList.contains("phone")) phError(e.error || e.message + " at " + e.filename + ":" + e.lineno + ":" + e.colno); });
+addEventListener("unhandledrejection", e => { if (document.documentElement.classList.contains("phone")) phError(e.reason); });
+// The agent view on the phone: a back arrow, the others as portraits, a suggestion to tap. Back on the phone (its
+// gesture or button) closes the view rather than leaving the page.
+function phRail() {
+  const order = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
+  const list = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
+  patch($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
+    return `<button class="phf ${stOf(a)}${a.name === open ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[stOf(a)] || ""}">` +
+      `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : ""}</button>`; }).join(""));
+  $("#drail").onclick = e => { const b = e.target.closest(".phf"); if (b && b.dataset.name !== open) openDetail(b.dataset.name); };
+  markSeen([open]);
+}
+function phDetail() {
+  if (!phoneOn() || !open || !S) { const g = $("#dsug"); if (g) g.hidden = true; return; }
+  const x = $("#dhead .x");
+  if (x && !x.querySelector("svg")) { x.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>`; x.title = "Back"; x.setAttribute("role", "button"); x.setAttribute("aria-label", "Back to the team"); x.onclick = phBack; }
+  const a = S.agents.find(y => y.name === open) || {}, g = $("#dsug"), box = $("#dsay");
+  const sug = a.live && a.status === "idle" && a.suggest && settings().suggest !== "off" && !box.value ? a.suggest : "";
+  g.hidden = !sug; if (sug && g.dataset.s !== sug) { g.dataset.s = sug; g.textContent = "Suggested: " + sug; }
+}
+$("#dsug").onclick = () => { const box = $("#dsay"), s = $("#dsug").dataset.s; if (!s) return; box.value = s; box.dispatchEvent(new Event("input", {bubbles: true})); grow(box); $("#dsug").hidden = true; box.focus(); };
+function phBack() { if (history.state?.ph) history.back(); else closeDetail(); }
+addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph) closeDetail(); });
+{
+  const _open = openDetail, _rail = rail, _facts = facts, _hint = sayHint;
+  openDetail = function (name) {
+    if (phoneOn() && !history.state?.ph) history.pushState({ph: 1}, "", "#" + encodeURIComponent(name));
+    const r = _open(name);
+    if (phoneOn() && history.state?.ph) history.replaceState({ph: 1}, "", "#" + encodeURIComponent(name));
+    phDetail(); return r;
+  };
+  rail = function () { if (phoneOn() && open && S) phRail(); else _rail(); };
+  facts = function () { _facts(); phDetail(); };
+  // on the phone the box's hint is short, and has no Tab: a suggestion is a button over it instead
+  sayHint = a => !phoneOn() ? _hint(a) : openAsk(a) ? "Answer the question above" : a.status === "waiting" ? "This answers the prompt in its pane" : a.name?.startsWith(MEET) ? _hint(a) : `Message ${shown(a.name)}…`;
+}
+{
+  // the phone has no docked view (a Tabs page docks it on the desktop): one open there is closed when the phone takes over
+  const _dock = dock, _close = closeDetail;
+  dock = function (a) {
+    if (!phoneOn()) return _dock(a);
+    const d = $("#detail");
+    if (d.classList.contains("docked")) { d.classList.remove("docked"); d.style.inset = ""; open = null; d.classList.remove("open"); }
+  };
+  closeDetail = function () { if (phoneOn() && history.state?.ph) history.back(); else _close(); };
+}
 setInterval(load, 4000); setInterval(() => refreshDetail(false), 2500);
 </script>
 </body>
@@ -7100,11 +7545,19 @@ def self_test():
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
+        t("at 700px or narrower the page is the phone layout, and Desktop layout turns it off in this browser",
+          ('const PHONE_MQ = matchMedia("(max-width:700px)")' in PAGE, 'localStorage.getItem("phone") !== "off"' in PAGE,
+           'html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}' in PAGE,
+           '<div id="phone"></div><button id="phoneback">Phone layout</button>' in PAGE), (True, True, True, True))
+        t("  its logo flashes and opens the agent waiting longest, as the header's does",
+          "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
+        t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
+          ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
