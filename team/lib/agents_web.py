@@ -3959,13 +3959,14 @@ html.phone #detail .box{grid-template-rows:auto auto minmax(0,1fr) !important}
 html.phone #detail .box .rail{display:flex !important;grid-column:1;grid-row:2 !important;gap:10px;padding:8px 12px;overflow-x:auto;overflow-y:hidden;border:0;border-bottom:1px solid var(--line);scrollbar-width:none}
 html.phone #detail .box .left{grid-row:3 !important}
 html.phone #drail .phf{position:relative;flex:none;width:48px;height:48px;padding:0;border:0;border-radius:14px;background:none;cursor:pointer}
-html.phone #drail .phf > span{display:block;width:100%;height:100%;box-sizing:border-box;border-radius:14px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
+html.phone #drail .phf > span:not(.unseen){display:block;width:100%;height:100%;box-sizing:border-box;border-radius:14px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
 html.phone #drail .phf img,html.phone #drail .phf svg{display:block;width:100%;height:100%;object-fit:cover}
 html.phone #drail .phf i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--box);background:var(--faint)}
 html.phone #drail .phf.busy i,html.phone #drail .phf.compacting i{background:var(--green)}
 html.phone #drail .phf.waiting i{background:var(--amber)}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
-html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}
+html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}   /* the frame's rule is the portrait span's alone: the badge, a span too, once took it and covered the face (owner, 2026-11-09) */
+html.phone #drail .phf .unseen[hidden]{display:none}
 #dsug{display:none}
 html.phone #dsug:not([hidden]){display:block;align-self:flex-start;max-width:calc(100% - 28px);margin:0 14px 8px;height:36px;padding:0 12px;border-radius:18px;border:1px solid var(--line2);
   background:var(--soft);color:var(--text2);font:500 13px var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
