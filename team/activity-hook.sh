@@ -5,6 +5,7 @@
 #   bash team/activity-hook.sh <Event>      # the hook's JSON on stdin
 #   bash team/activity-hook.sh --self-test
 #
+# A prompt the owner types drops the session's team/owner-wanted.sh flag ($AGENT_WANTED_DIR/<session id>).
 # Writes "<state> <epoch>" to $ACTIVITY_DIR/<session id> (default ~/.local/state/<HARNESS_PROJECT>/activity),
 # where <state> is working, waiting, idle or compacting: a tool call or a prompt is working, a permission prompt or a
 # question to the person is waiting, a stop is idle, a compaction is compacting until the SessionStart that follows
@@ -41,6 +42,14 @@ record() {
   [[ -z "$(jq -r '.agent_id // empty' <<<"$in" 2>/dev/null)" ]] || return 0
   tool="$(jq -r '.tool_name // empty' <<<"$in" 2>/dev/null)"
   st="$(state_of "$ev" "$tool")"
+  # A prompt the owner typed answers their owner-wanted flag (team/owner-wanted.sh). A peer's message or a mod's
+  # queued prompt starts with "<" or "[" and leaves it up.
+  if [[ "$ev" == UserPromptSubmit ]]; then
+    case "$(jq -r '.prompt // empty' <<<"$in" 2>/dev/null)" in
+      "<"*|"["*) ;;
+      *) rm -f "${WANTED_DIR:-$(dirname -- "$dir")/wanted}/$sid" ;;
+    esac
+  fi
   case "$st" in
     '') return 0 ;;
     gone) rm -f "$dir/$sid"; return 0 ;;
@@ -69,6 +78,12 @@ if selftest_is_flag "${1:-}"; then
   _t "a subagent's tool call after the stop leaves it idle" "idle 160" "$(cat "$d/s1")"
   record "$d" Notification '{"session_id":"s1"}' 200
   _t "an ignored event leaves it" "idle 160" "$(cat "$d/s1")"
+  w="$(mktemp -d)"; touch "$w/s1"
+  WANTED_DIR="$w" record "$d" UserPromptSubmit '{"session_id":"s1","prompt":"<cross-session-message>hi"}' 210
+  _t "a peer's message leaves the owner-wanted flag" 1 "$(ls "$w" | wc -l | tr -d ' ')"
+  WANTED_DIR="$w" record "$d" UserPromptSubmit '{"session_id":"s1","prompt":"go ahead"}' 220
+  _t "the owner's prompt drops it" 0 "$(ls "$w" | wc -l | tr -d ' ')"
+  rm -rf "$w"
   record "$d" SessionEnd '{"session_id":"s1"}' 300
   _t "the session's end removes it" 0 "$(ls "$d" | wc -l | tr -d ' ')"
   record "$d" Stop 'not json' 400; record "$d" Stop '{"session_id":"../x"}' 400
@@ -77,5 +92,6 @@ if selftest_is_flag "${1:-}"; then
   (( f == 0 )) && { echo "activity-hook: self-test ok"; exit 0; } || { echo "activity-hook: self-test FAILED" >&2; exit 1; }
 fi
 
-record "${ACTIVITY_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/activity}" "${1:-}" "$(cat)" "$(date +%s)"
+WANTED_DIR="${AGENT_WANTED_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/wanted}" \
+  record "${ACTIVITY_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/activity}" "${1:-}" "$(cat)" "$(date +%s)"
 exit 0
