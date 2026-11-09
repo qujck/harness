@@ -3734,14 +3734,17 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini .pdet{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}   /* with no sparkline, as much space below the name as above */
 /* A Gauges pane: the Performance pane's figures as tiles side by side, each a half-circle with its figure inside and
    its name below. */
-.others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start}
+.others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));grid-auto-rows:max-content;align-content:start}   /* a short pane scrolls its gauges, never squeezes them */
 .others.perfs.dials .mini.dial{min-height:0;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;text-align:center}
-.mini.dial svg.arc{width:100%;max-width:150px;height:auto;display:block}
+.mini.dial svg.arc{flex:none;width:100%;max-width:150px;height:auto;display:block}
 .mini.dial svg.arc path{fill:none;stroke-width:9;stroke-linecap:round}
 .mini.dial svg.arc path.track{stroke:var(--line2)}
 .mini.dial .dfig{margin-top:-30px;font:650 calc(var(--t-xl)*var(--fs,1)) var(--mono);line-height:22px}
+.mini.dial .dfig.rate{margin-top:-39px}   /* raised by its unit's line, so its name sits where every gauge's does */
+.mini.dial .dfig small{display:block;margin-top:-4px;font:400 calc(var(--t-xs)*var(--fs,1))/12px var(--mono)}
 .mini.dial .dname{margin-top:6px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text)}
-.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap}
+.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(var(--t-s)*var(--fs,1))/1.35 var(--mono);color:var(--mute);white-space:normal;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-height:2.7em}   /* two lines, kept for every gauge so a row's stand level */
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
@@ -5859,16 +5862,18 @@ function perfHtml(n) {
 }
 // A Gauges pane's figure, as a Performance pane would show it but as a gauge: a half-circle filled to its percentage
 // (the Heat figure's °C read against 100), or, for a rate with no percentage (the network, a disk's bytes), to its
-// latest reading against the highest in its sparkline's span; the figure in the middle, its name and detail under it.
+// latest reading against the highest in its sparkline's span; the figure in the middle in the arc's colour, a rate's
+// unit small under its number so the two fit inside the arc, and its name and detail under it.
 function dial(name, detail, pct, series, ceil, unit, colour, gunit, own) {
   const last = series ? series[series.length - 1] : null;
   const frac = pct != null ? pct / 100 : last != null && ceil ? last / ceil : null;
   const fill = frac == null ? 0 : Math.max(0, Math.min(1, frac)) * 100;
-  const figure = pct != null ? `${Math.round(pct)}${unit}` : last != null ? graphFmt(last, gunit) : "–";
+  const figure = pct != null ? `${Math.round(pct)}${unit}` : last != null ? graphFmt(last, gunit) : "–", stroke = pct != null ? colour : own;
   return `<svg class="arc" viewBox="0 0 100 56"><path class="track" d="M10 50 A40 40 0 0 1 90 50" pathLength="100"/>` +
-    (fill > 0 ? `<path d="M10 50 A40 40 0 0 1 90 50" pathLength="100" stroke="${pct != null ? colour : own}" stroke-dasharray="${fill.toFixed(1)} 100"/>` : "") + `</svg>` +
-    `<div class="dfig" style="color:${pct != null ? colour : "var(--text)"}">${esc(figure)}</div>` +
-    `<div class="dname"><span class="name">${esc(name)}</span></div><div class="pdet">${esc(detail)}</div>`;
+    (fill > 0 ? `<path d="M10 50 A40 40 0 0 1 90 50" pathLength="100" stroke="${stroke}" stroke-dasharray="${fill.toFixed(1)} 100"/>` : "") + `</svg>` +
+    `<div class="dfig${/ \S+$/.test(figure) ? " rate" : ""}" style="color:${figure === "–" ? "var(--faint)" : stroke}">${esc(figure.replace(/ \S+$/, ""))}` +
+    `${/ \S+$/.test(figure) ? `<small>${esc(figure.split(" ").pop())}</small>` : ""}</div>` +
+    `<div class="dname"><span class="name">${esc(name)}</span></div><div class="pdet">${esc(detail).replace(/(\d) (?=[A-Za-z°])/g, "$1\u00a0")}</div>`;   // a number kept on the line with its unit
 }
 // A Performance row's enlarged graph, over the page: its series over 2 minutes, 10, an hour or a day (the last chosen,
 // kept in this browser), read again every ten seconds while it is open, with gridlines, times along the bottom, its
