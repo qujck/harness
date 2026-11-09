@@ -2689,10 +2689,12 @@ class Handler(BaseHTTPRequestHandler):
         return host in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"} or \
             bool(PUBLIC_HOST) and host == PUBLIC_HOST and access_ok(self.headers.get("Cf-Access-Jwt-Assertion"))
 
-    def send(self, code, body, ctype, cache="no-store", save_as=None):
+    def send(self, code, body, ctype, cache="no-store", save_as=None, version=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", cache)
+        if version:   # a document's sha256, for a File pane's edit to say which version it began from
+            self.send_header("X-Doc-Version", version)
         if save_as:   # a download, not a page: the browser saves it under this name
             self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(save_as))
         self.send_header("Content-Length", str(len(body)))
@@ -2753,9 +2755,10 @@ class Handler(BaseHTTPRequestHandler):
                 or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
             return self.send(404, b"no such document\n", "text/plain")
         with open(real, "rb") as f:
-            # "save" (the viewer's Save as…) sends it as a file to keep, under its own name.
-            self.send(200, f.read(), "text/plain; charset=utf-8",
-                      save_as=os.path.basename(real) if query.get("save") else None)
+            data = f.read()
+        # "save" (the viewer's Save as…) sends it as a file to keep, under its own name.
+        self.send(200, data, "text/plain; charset=utf-8", version=hashlib.sha256(data).hexdigest(),
+                  save_as=os.path.basename(real) if query.get("save") else None)
 
     def listing(self):
         """What a folder under the home directory holds, for a File pane's path box to browse: its folders and the
@@ -2811,7 +2814,7 @@ class Handler(BaseHTTPRequestHandler):
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
-        if not m and not team and not nudger and not meet and self.path != "/api/paste":
+        if not m and not team and not nudger and not meet and self.path not in ("/api/paste", "/api/doc"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -2823,6 +2826,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.meeting(meet.group(1), meet.group(2))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
+        if self.path == "/api/doc":
+            return self.save_doc()
         if not m:
             return self.paste()
         if m.group(2) == "stop":
@@ -3008,6 +3013,51 @@ class Handler(BaseHTTPRequestHandler):
         compact_later([name])
         threading.Thread(target=halt_when_idle, args=(name,), daemon=True).start()
         self.send(202, json.dumps({"stopping": name}).encode(), "application/json")
+
+    def save_doc(self):
+        """A File pane's edit saved ({"p", "text", "version"}): only a document /doc shows (a Markdown, text, SQL or
+        log file under the home directory, already there, and UTF-8 text), and only while it is still the version
+        the edit started from, the sha256 /doc sent as X-Doc-Version; a document changed since is a 409, never
+        overwritten. The new text replaces the file in one step, keeping its permissions and its line endings."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 3_000_000:
+                return self.send(413, b"too long to save\n", "text/plain")
+            body = json.loads(self.rfile.read(n) or b"{}")
+            want, text, version = str(body["p"]), str(body["text"]), str(body["version"])
+        except (ValueError, KeyError, AttributeError, TypeError):
+            return self.send(400, b"bad request\n", "text/plain")
+        real = os.path.realpath(os.path.expanduser(want))
+        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not real.startswith(HOME + os.sep)
+                or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
+            return self.send(404, b"no such document\n", "text/plain")
+        with open(real, "rb") as f:
+            old = f.read()
+        if hashlib.sha256(old).hexdigest() != version:
+            return self.send(409, b"it has changed since you opened it\n", "text/plain")
+        try:
+            old.decode("utf-8")
+        except UnicodeDecodeError:
+            return self.send(415, b"not UTF-8 text, so it cannot be edited here\n", "text/plain")
+        text = text.replace("\r\n", "\n")
+        data = (text.replace("\n", "\r\n") if b"\r\n" in old else text).encode("utf-8")
+        if len(data) > 2_000_000:
+            return self.send(413, b"too long to save\n", "text/plain")
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(real), prefix="." + os.path.basename(real) + ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, os.stat(real).st_mode & 0o7777)
+            os.replace(tmp, real)
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            return self.send(500, b"could not save it\n", "text/plain")
+        self.send(200, json.dumps({"version": hashlib.sha256(data).hexdigest()}).encode(), "application/json")
 
     def paste(self):
         """Keeps an image pasted into the page, or any file picked, as a file in PASTED, for a message to attach;
@@ -3483,6 +3533,14 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:calc(var(--t-l)*var(--fs,1));font-weight:650}
 .teamlog .thead{position:relative;padding-right:34px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
+.filelog .ftools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;font:500 calc(var(--t-s)*var(--fs,1)) var(--sans)}
+.filelog .ftools b{cursor:pointer;padding:1px 8px;border:1px solid var(--line2);border-radius:6px;background:var(--soft);color:var(--text);font-weight:500}
+.filelog .ftools b:hover{border-color:var(--mute)}
+.filelog .ftools b.go{border-color:var(--green)}
+.filelog .ftools .fdirty{color:var(--amber)}
+.filelog .ftools .fmsg{color:var(--mute)}
+.filelog .ftools .fmsg.bad{color:var(--red)}
+.filelog textarea.fedit{flex:1;min-height:0;resize:none;margin:0;padding:12px 16px;border:0;border-top:1px solid var(--line2);outline:none;background:var(--soft);color:var(--text);font:calc(var(--t-s)*var(--fs,1))/1.5 var(--mono);tab-size:4}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(var(--t-s)*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
@@ -5580,12 +5638,14 @@ function customHtml(ceil, tabRow) {
       body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles" : "Choose one or more roles"}</div>`;
     } else if (n.show === "file") {
       // the document under a header as a Team pane's: its name, its full path, and the maximise button
-      const d = n.path && fileDocs[n.path];
-      const doc = !d ? `<div class="blank">Loading…</div>`
+      const d = n.path && fileDocs[n.path], ed = n.path && fileEdit[n.path];
+      // a textarea drops a first newline, so one is put before the text
+      const doc = ed ? `<textarea class="fedit" data-name="~edit:${esc(n.path)}" spellcheck="false">\n${esc(ed.text)}</textarea>`
+        : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
       body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
-        : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${maxButton(path === maxed)}</div>${doc}</div>`;
+        : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${fileTools(n.path)}${maxButton(path === maxed)}</div>${doc}</div>`;
     } else if (n.show === "perf" || n.show === "gauges") {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
@@ -5795,12 +5855,59 @@ const fileDocs = {};
 async function loadFiles() {
   const paths = [...new Set(leaves(layout().root).filter(([, n]) => n.show === "file" && n.path).map(([, n]) => n.path))];
   await Promise.all(paths.map(async p => {
+    const at = Date.now();   // a read begun before a save, ending after it, is older than what was saved
     try {
       const r = await fetch("/doc?p=" + encodeURIComponent(p), {cache: "no-store"});
-      fileDocs[p] = r.ok ? {text: await r.text()} : {status: r.status};
+      if ((fileDocs[p]?.at || 0) <= at) fileDocs[p] = r.ok ? {text: await r.text(), version: r.headers.get("X-Doc-Version"), at} : {status: r.status, at};
     } catch (e) {}
   }));
 }
+// A File pane's Edit button swaps the document for its raw text in a box, by path while it is open: {orig, text,
+// version, msg, bad}. Save (or Ctrl+S) writes it back through /api/doc, which refuses a document changed on disk since
+// the edit began (version, the sha256 /doc sent); Close (or Esc) goes back to the document, asking first when there
+// are unsaved changes, and Reload reads it again from disk.
+const fileEdit = {};
+function fileTools(p) {
+  const d = fileDocs[p], ed = fileEdit[p];
+  if (!ed) return d?.text == null ? "" : `<span class="ftools"><b data-fe="edit" title="Edit the raw text">Edit</b></span>`;
+  const moved = !ed.saving && d?.version && d.version !== ed.version;
+  const msg = moved && !ed.bad ? "Changed on disk since you began" : ed.msg;
+  return `<span class="ftools">${msg ? `<span class="fmsg${ed.bad || moved ? " bad" : ""}">${esc(msg)}</span>` : ""}${ed.bad || moved ? `<b data-fe="reload" title="Read it again from disk, losing your changes">Reload</b>` : ""}` +
+    `<span class="fdirty"${ed.text === ed.orig ? " hidden" : ""}>Unsaved</span><b class="go" data-fe="save" title="Save (Ctrl+S)">Save</b><b data-fe="close" title="Back to the document (Esc)">Close</b></span>`;
+}
+async function fileAct(what, p) {
+  const ed = fileEdit[p], dirty = ed && ed.text !== ed.orig;
+  if (!p) return;
+  if (what === "edit" || what === "reload") {
+    if (what === "reload" && dirty && !confirm("Read it again from disk and lose your changes?")) return;
+    try {
+      const r = await fetch("/doc?p=" + encodeURIComponent(p), {cache: "no-store"});
+      if (!r.ok) throw r.status;
+      const text = await r.text(), version = r.headers.get("X-Doc-Version");
+      fileEdit[p] = {orig: text, text, version}; fileDocs[p] = {text, version, at: Date.now()};
+    } catch (e) { if (ed) Object.assign(ed, {msg: "Could not read it", bad: true}); draw(); return; }
+    draw();
+    // a box already there keeps what was typed in it through a redraw, so it is given the text read
+    const t = $("#main").querySelector(`textarea.fedit[data-name="~edit:${CSS.escape(p)}"]`);
+    if (t) { t.value = fileEdit[p].text; t.focus(); t.setSelectionRange(0, 0); t.scrollTop = 0; }
+  } else if (what === "close") {
+    if (dirty && !confirm("Close without saving your changes?")) return;
+    delete fileEdit[p]; draw();
+  } else if (what === "save" && ed && !ed.saving) {
+    ed.saving = true; Object.assign(ed, {msg: "Saving…", bad: false}); draw();
+    const text = ed.text;
+    const r = await fetch("/api/doc", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+      body: JSON.stringify({p, text, version: ed.version})}).catch(() => null);
+    ed.saving = false;
+    if (r?.ok) {
+      const {version} = await r.json();
+      Object.assign(ed, {orig: text, version, msg: "Saved " + new Date().toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"}), bad: false});
+      fileDocs[p] = {text, version, at: Date.now()};
+    } else Object.assign(ed, {msg: r?.status === 409 ? "Changed on disk since you began: not saved" : r ? (await r.text()).trim() || "Could not save it" : "Could not reach the page's server", bad: true});
+    draw();
+  }
+}
+addEventListener("beforeunload", e => { if (Object.values(fileEdit).some(ed => ed.text !== ed.orig)) e.preventDefault(); });
 // The list under a File pane's path box: what the folder typed so far holds (/dir), its folders first and then the
 // documents the pane can show, narrowed to the names that start with what follows the last "/". Names starting with
 // a dot are left out until a dot is typed. A folder, or "..", opens in the box; a document is shown in the pane.
@@ -6255,6 +6362,15 @@ function customClicks() {
     else if (e.target === w || e.target.matches(".pzoom, .x")) paneBig = null;
     else return;
     draw();
+  });
+  main.querySelectorAll(".filelog [data-fe]").forEach(b => b.onclick = () => fileAct(b.dataset.fe, nodeAt(layout().root, b.closest(".pane").dataset.path)?.path));
+  main.querySelectorAll(".filelog textarea.fedit").forEach(t => {
+    const p = nodeAt(layout().root, t.closest(".pane").dataset.path)?.path;
+    t.oninput = () => { const ed = fileEdit[p]; if (!ed) return; ed.text = t.value; t.closest(".filelog").querySelector(".fdirty").hidden = ed.text === ed.orig; };
+    t.onkeydown = e => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); fileAct("save", p); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fileAct("close", p); }
+    };
   });
   main.querySelectorAll(".pane .maxbtn").forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -8345,6 +8461,16 @@ def self_test():
         t("  a file with neither a name nor an image type is refused",
           code("/api/paste", "POST", {"Content-Type": "application/octet-stream", "X-Team-Say": "1"}, b"x")[0], 400)
         t("  and a name cannot climb out of the folder", os.path.dirname(up({"Content-Type": "", "X-File-Name": "..%2F..%2Fevil.sh"}).get("path", "")), T + "/pasted")
+        with open(T + "/edit.md", "wb") as f:
+            f.write(b"one\r\ntwo\r\n")
+        v0 = hashlib.sha256(b"one\r\ntwo\r\n").hexdigest()
+        doc_save = lambda version: code("/api/doc", "POST", {"Content-Type": "application/json", "X-Team-Say": "1"},
+                                        json.dumps({"p": T + "/edit.md", "text": "one\nthree\n", "version": version}).encode())[0]
+        first, again = doc_save(v0), doc_save(v0)
+        with open(T + "/edit.md", "rb") as f:
+            saved = f.read()
+        t("a File pane's edit is saved over the version it began from, keeping the line endings; a stale version is refused",
+          (first, saved, again), (200, b"one\r\nthree\r\n", 409))
         os.makedirs(T + "/browse/sub")
         for f in ("a.md", ".hidden.md", "b.json"):
             open(T + "/browse/" + f, "w").close()
@@ -8384,6 +8510,7 @@ def self_test():
         t("a Custom theme beside Dark and Light, its editor colouring the page, each gauge, each role and each agent; the pill names the theme showing",
           ('const THEMES = ["dark", "light", "custom"]' in PAGE, "function themeMenu(redraw)" in PAGE, 'c.agents[a.name] || c.roles[a.role] || a.roleColour' in PAGE,
            '$("#theme").textContent = THEME_NAME[t]' in PAGE), (True, True, True, True))
+        t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
