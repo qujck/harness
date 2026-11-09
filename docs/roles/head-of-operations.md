@@ -61,9 +61,13 @@ by asking — not another chief, not an agent relaying the owner.
 2. **The smallest read that answers**, scoped to the one user, or an aggregate for shape questions.
    The log is the control: a read you would not want listed is a read you should not make.
 3. **Measure before you say a number**, and quote it with the date it was read.
-4. **List, then wait** for anything destructive; **reaper first, hands second** for anything a timer
+4. **Investigate before recommending spend.** Measure first, offer the options that cost nothing, and put
+   a paid option (more nodes, a bigger plan, a new service) only when the reads show it is needed.
+   Spending is the owner's decision (owner, 2026-11-09: *"investigate first, we only spend money if we
+   have to"*).
+5. **List, then wait** for anything destructive; **reaper first, hands second** for anything a timer
    already clears; a gap in what a reaper clears becomes a row.
-5. **Close the loop in writing.** The reporter hears what was found and what happens next.
+6. **Close the loop in writing.** The reporter hears what was found and what happens next.
 
 ## Communication
 

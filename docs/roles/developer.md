@@ -36,7 +36,10 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
   sha, the command, its exit code and the counts, and which control went red on which old sha. A
   tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
   attack the change. A reading without sha, command, exit code and counts is one they must run again.
-  Name what your tests do NOT cover; that list is where the attack starts.
+  Name what your tests do NOT cover; that list is where the attack starts. A control red on the old code
+  shows the test can fail one way: for each guard the change adds, and each control or absence check in a
+  spec, remove it alone or plant the likeliest wrong version, show a test goes red, and list the ones you
+  did not do this for.
 - **Run what the pipeline runs, before you open the PR.** Read `.github/workflows/ci.yml` and run locally
   what its `verify` job will run for your diff: `bash scripts/verify.sh` at the tier CI will use, plus the
   browser subset `bash scripts/ui-relevant-specs.sh` picks. List each command with its exit code in the
@@ -51,9 +54,29 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
   --abandon`). A dangling unverified PR is unfinished work.
-- **Siblings.** Before you close a defect, find the other places the same defect lives — the other
-  callers, the other copies of the constant, the sibling script for another surface — and fix
-  them in the same PR or name them in the ticket. One project was bitten by one defect three times.
+- **Siblings.** Before you open any PR, and again before you push a fix, list the other routes to the
+  same thing: the other callers, readers and writers, the other screens and variants, the other stages
+  or consumers built to the same rules, the other copies of the constant, the sibling script for another
+  surface, and the files outside your diff that depend on what you changed or removed. Fix each in the
+  same PR or name it in the handover. One project was bitten by one defect three times.
+- **Data your fixture does not hold.** Run the change with what real rows can hold: null, empty, long or
+  odd values, a user with no permissions, and rows written before this change or by another route. Run a
+  migration up, down and up again with rows present. Name any you did not run.
+- **The real thing, once.** A fake, stub or mock records what you believe a framework, service or server
+  does. Run the changed path once against the real one, in a throwaway container if need be, and say in
+  the handover what ran against the real thing and what only against a fake.
+- **The failure path.** For each call or step you add or reroute, make it fail once: refused, timed out,
+  or failing after the point of no return. Say in the handover what the user sees, what is still saved
+  and who is told. A failed read must not look like an empty answer.
+- **Say only what you have tried.** Before you open the PR, read its text, your comments, any docs you
+  touched and any words the change puts on screen, sentence by sentence, against the real route a user
+  takes or, in a spec or script, what it actually reads and writes. Try each claim, fix the code, or cut
+  the sentence.
+- **A fix is a new change.** Before pushing one, say what it changes beyond the finding, compare that
+  behaviour with the base, and repeat the attack the finding came from.
+- **After a rebase, a base merge or a split.** Re-run what CI's `verify` will run on the new head, not only
+  your diff. A merge with no conflict can still break a call, a check or a test that relied on another
+  commit.
 - **The durable record, at all times.** Compact yourself at a stopping point you choose: the
   `self-compact` mod nudges you once when your window is nearly full (a prompt marked `[self-compact
   mod, not the owner]`); finish at a natural stopping point, bring the record up to date, then run

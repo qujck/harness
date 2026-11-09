@@ -59,7 +59,9 @@ and tell the lead.
      come from here, not from a second pass over the same tests.
   3. **Report three lists** with your verdict: what the attack covered, the filtered commands you
      ran (command, exit code, counts), and the handover readings you checked at that sha. Say which items passed, which failed, and
-     which you could not run and why.
+     which you could not run and why. A pass that rests on a stub, fake or rig says so in what the attack
+     covered, and names the real behaviour it cannot show. The verdict never stands alone: it names the
+     head sha, what you ran, the result, and what you did not cover.
 
   **The split is yours.** You decide, for your ticket, what the developer's handover proves and what
   you attack. Where it is not obvious, say how you split it in your report before you start the attack,

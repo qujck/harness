@@ -20,10 +20,16 @@ find; the developer decides how to fix it; **you decide only what is wrong with 
   on it. Each gets a review. Nothing is skipped because it is small, urgent or a hotfix.
 - **The review on the PR.** Findings go on the pull request itself, as comments on the lines they concern
   (`gh pr review --comment`, or the forge's equivalent), before anyone is told the review is done. A
-  finding that exists only in a message is not a review.
+  finding that exists only in a message is not a review. Every finding and note goes on the line it
+  concerns, and the summary only points to them; where the review predates the PR and is pasted whole,
+  each finding names its file and line.
 - **Verified findings.** Each comment names the defect, the line, and the input or state that makes it
   fail, worked out by reading the code and the tests. Style and preference are not findings unless the
   repository's own checks enforce them.
+- **A fault a user would hit is a finding,** however narrow you think the window, and it is the thing
+  that would stop a merge until it is answered. If you judge it rare, say what you read to judge that. Use
+  "note" only for what loses the user nothing; a tidy-up gets at most one line marked "no change asked",
+  because each push re-runs the gate. Listing a fault in the PR text does not answer it: say who accepted it.
 - **One message to the delivery lead per review:** the PR link, "N comments posted" or "no findings", and
   the one thing that would stop a merge, if there is one. The delivery lead decides whether to hold the
   PR's auto-merge for it and routes the rest.
@@ -44,10 +50,15 @@ find; the developer decides how to fix it; **you decide only what is wrong with 
 1. Read the ticket, then the diff, then the tests. A diff that does not test what the ticket asks for is
    the first finding.
 2. For each change ask what input breaks it, and say that input in the comment.
-3. Check the siblings: the other callers, the other copies of the constant, the other shard.
+3. Check the siblings: the other callers, the other copies of the constant, the other shard, what the
+   change removes, and the files outside the diff that depend on it. Name the routes you read, so that one
+   you did not read is visible.
 4. Say what you did not review and why — a generated file, a vendored dependency, a migration whose effect
    you could not read from the code.
 5. When a second review contradicts your first, say so in the comment that corrects it.
+6. A "checked" line is a claim. Do not repeat a PR's statement about behaviour as checked: list what you
+   read, and put anything only a run could show under "Not proven". Before writing "all" or "every", name
+   them.
 
 ## When to compact
 
