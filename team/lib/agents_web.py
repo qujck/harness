@@ -2928,6 +2928,9 @@ PAGE = r"""<!doctype html>
      with no gap below it (owner, 2026-11-01) -->
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>Team</title>
+<!-- The phone layout from the first paint: the same test as phoneOn(), made before the body draws, so a phone never
+     shows the empty desktop page while the first state loads (owner, 2026-11-09). -->
+<script>try { if (matchMedia("(max-width:700px)").matches && !new URLSearchParams(location.search).has("only") && localStorage.getItem("phone") !== "off") document.documentElement.classList.add("phone"); } catch (e) {}</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
 <style>
@@ -3789,6 +3792,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #phone,#phoneback{display:none}
 html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}
 html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-size:15px}
+#phone > .ph-loading{margin:auto;color:var(--mute)}
 #phone button{font:inherit;color:inherit}
 #phone .ph-top{flex:none;display:flex;align-items:center;gap:10px;height:60px;padding:0 6px 0 14px;border-bottom:1px solid var(--line2);background:var(--card1)}
 #phone .ph-title{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -3989,7 +3993,7 @@ html.phoneoff #phoneback{display:block}
 </header>
 <main id="main"></main>
 <footer></footer>
-<div id="phone"></div><button id="phoneback">Phone layout</button>
+<div id="phone"><div class="ph-loading">Loading…</div></div><button id="phoneback">Phone layout</button>
 <div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
@@ -7202,8 +7206,11 @@ async function phLoad(tab) {
 function phoneDraw() {
   const on = phoneOn(), html = document.documentElement;
   html.classList.toggle("phone", on); html.classList.toggle("phoneoff", PHONE_MQ.matches && !ONLY && !on);
-  if (!on || !S) return;
-  const tab = phoneTab(), ph = $("#phone");
+  if (!on) return;
+  const ph = $("#phone");
+  if (!S) { if (!ph.firstChild) ph.innerHTML = `<div class="ph-loading">Loading…</div>`; return; }
+  if (ph.querySelector(":scope > .ph-loading")) ph.innerHTML = "";
+  const tab = phoneTab();
   if (!ph.firstChild) {
     ph.innerHTML = `<div class="ph-top"><div class="brand ph-logo"></div><div class="ph-title"></div><button class="ph-week"></button><button class="ph-icon" id="phmore" aria-label="Team menu">${PH_ICON.more}</button></div><div class="ph-body"></div>` +
       `<nav class="ph-nav" aria-label="Pages">${PH_TABS.map(([k, label]) => `<button data-tab="${k}">${PH_ICON[k]}<span>${label}</span></button>`).join("")}</nav>`;
@@ -7760,7 +7767,7 @@ def self_test():
         t("at 700px or narrower the page is the phone layout, and Desktop layout turns it off in this browser",
           ('const PHONE_MQ = matchMedia("(max-width:700px)")' in PAGE, 'localStorage.getItem("phone") !== "off"' in PAGE,
            'html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}' in PAGE,
-           '<div id="phone"></div><button id="phoneback">Phone layout</button>' in PAGE), (True, True, True, True))
+           '<div id="phone"><div class="ph-loading">Loading…</div></div><button id="phoneback">Phone layout</button>' in PAGE), (True, True, True, True))
         t("  its logo flashes and opens the agent waiting longest, as the header's does",
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
