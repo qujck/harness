@@ -540,7 +540,11 @@ def daylog_json():
         _prs["busy"] = True
         threading.Thread(target=refresh_prs, args=(repo, since), daemon=True).start()
     names = shown_names()
-    roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a title may have either
+    # The page's colours go by the roster's spelling; a title is signed with the short name, often spelled otherwise
+    # ("O’Brian" for OBrian), or with the shown one. So a signature matches on its letters alone, case aside.
+    letters = lambda s: re.sub(r"[\W_]", "", s).lower()
+    roster_name = {letters(k): k for k in names}
+    roster_name.update({letters(v): k for k, v in names.items()})
     rows = [{"at": at, "type": "day", "day": kind, "by": who,
              "quota": day_quota_at(at)} for at, kind, who in shown]
     prs = _prs["rows"] if repo and isinstance(_prs["rows"], list) else []
@@ -552,7 +556,7 @@ def daylog_json():
         if at >= since:
             words, by = title_name(short_title(p.get("title") or ""))
             rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "kind": title_kind(p.get("title") or ""),
-                         "by": roster_name.get(by, by), "title": spelled_screen(words, names)})
+                         "by": roster_name.get(letters(by), by), "title": spelled_screen(words, names)})
     rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
     state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
     return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
@@ -3110,7 +3114,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 8px}
-.daylog .wh{flex:none;width:calc(62px*var(--fs,1));display:flex;align-items:center;height:1.45em}
+.daylog .wh{flex:none;width:calc(var(--whw,62px)*var(--fs,1));display:flex;align-items:center;height:1.45em}
 .daylog .who{font-weight:650;font-size:calc(10.5px*var(--fs,1));line-height:1.4;padding:0 6px;border-radius:4px;letter-spacing:.02em;white-space:nowrap;background:var(--pc);color:var(--ownerfg)}
 .daylog .who.off{background:none;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line2)}
 .daylog .tx{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -5114,12 +5118,20 @@ const dayLogWho = by => {
   const c = colours[by];
   return `<span class="wh">${by ? `<span class="who${c ? "" : " off"}"${c ? ` style="--pc:${esc(c)}"` : ""}>${esc(shown(by))}</span>` : ""}</span>`;
 };
+// The badge column is as wide as the widest name it shows (full names run long), measured in the badge's own font, so
+// no badge runs into the time beside it and every row's time still starts in one column.
+let dayLogCanvas;
+const dayLogWhW = names => {
+  const c = dayLogCanvas ||= document.createElement("canvas").getContext("2d");
+  c.font = `650 10.5px ${getComputedStyle(document.body).fontFamily}`;
+  return Math.ceil(Math.max(50, ...names.map(n => c.measureText(n).width + n.length * 0.21))) + 14;
+};
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
   if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
   const days = dayLog.rows.filter(r => r.type === "day").length, prs = dayLog.rows.length - days;
-  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${days} day${days === 1 ? "" : "s"} started, ${prs} PR${prs === 1 ? "" : "s"} merged</span></div><div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
+  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${days} day${days === 1 ? "" : "s"} started, ${prs} PR${prs === 1 ? "" : "s"} merged</span></div><div class="daylog" style="--whw:${dayLogWhW(dayLog.rows.filter(r => r.by).map(r => shown(r.by)))}px">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
     ? `<div class="row day ${esc(r.day)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`}</span>${dayLogIcon(r.day, "d" + r.at)}</div>`
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span class="tx">${esc(r.title)}</span>${dayLogIcon(r.kind, "p" + r.number)}</div>`).join("")}</div></div>`;
 }
@@ -7711,6 +7723,10 @@ def self_test():
         refresh_prs("o/r", 0)
         r0 = json.loads(code("/api/daylog")[1])["rows"][0]
         t("  a name in the page's spelling comes back as the roster's, off the end of the words", (r0["by"], r0["title"]), (spell[0], "what it did"))
+        odd = f"{spell[0][0]}’{spell[0][1:].upper()}"    # signed as "O’Brian" for OBrian: other punctuation and case
+        g["run"] = lambda *c, **k: json.dumps([{"number": 7, "title": f"fix_a_b: what it did — {odd}", "mergedAt": stamp(60), "url": "u"}])
+        refresh_prs("o/r", 0)
+        t(f"  a name signed {odd!r} is the roster's {spell[0]!r} too", json.loads(code("/api/daylog")[1])["rows"][0]["by"], spell[0])
         g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
         refresh_prs("o/r", 0)
         t("  a day's row names who started it", [r["by"] for r in json.loads(code("/api/daylog")[1])["rows"] if r["type"] == "day"][0], "Ada")
