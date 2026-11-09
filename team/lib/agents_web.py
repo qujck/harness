@@ -3860,6 +3860,7 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 /* a portrait: the agent's picture, else its role's shadow, framed in its colour, with its state as a dot */
 #phone .ph-por{position:relative;flex:none;width:44px;height:44px}
 #phone .ph-por.s{width:40px;height:40px}
+#phone .ph-por.bench{display:block}   /* not the desktop bench's grid, whose gap narrowed a stopped agent's frame (owner, 2026-11-09) */
 #phone .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border-radius:12px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
 #phone .ph-por img,#phone .ph-por svg{display:block;width:100%;height:100%;object-fit:cover}
 #phone .ph-por i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--card1);background:var(--faint)}
@@ -3997,14 +3998,15 @@ html.phone #drail .phf .unseen[hidden]{display:none}
 #dsug{display:none}
 html.phone #dsug:not([hidden]){display:block;align-self:flex-start;max-width:calc(100% - 28px);margin:0 14px 8px;height:36px;padding:0 12px;border-radius:18px;border:1px solid var(--line2);
   background:var(--soft);color:var(--text2);font:500 13px var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
-html.phone #detail .sayrow{flex-wrap:nowrap;align-items:flex-end;margin:0 12px 12px !important;gap:8px}
+html.phone #detail .sayrow{flex-wrap:nowrap;align-items:flex-start;margin:0 12px 12px !important;gap:8px}
 html.phone #detail .sayrow .add{width:44px;height:44px;border-radius:12px}
 html.phone #detail .sayrow .say{min-height:44px !important;padding:11px 46px 11px 14px;border-radius:22px}
 html.phone #detail .sayrow .send{width:44px;height:44px;margin:0 0 0 calc(-8px - 44px);align-self:flex-end}
-html.phone #dstop{flex:none;width:44px;height:44px;align-self:flex-end;border-radius:12px;
+html.phone #dstop{flex:none;width:44px;height:44px;align-self:flex-start;border-radius:12px;
   border-color:color-mix(in srgb,var(--red) 45%,transparent);background:color-mix(in srgb,var(--red) 7%,var(--box))}
 html.phone #dstop::before{width:13px;height:13px;border-radius:3px;background:var(--red)}
 html.phone #dstop[style*="none"]{display:none}
+/* + and stop sit level with the box's top as it grows; send stays at its bottom right (owner, 2026-11-09) */
 html.phone #detail .pstat{display:none !important}   /* no status line under the box on the phone (owner, 2026-11-08) */
 html.phone #detail .pstattog{display:none !important}
 #pherr{position:fixed;left:10px;right:10px;top:10px;z-index:100;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:2px solid var(--red);background:var(--box);color:var(--text);font:13px var(--sans);box-shadow:0 8px 30px #0005}
@@ -7184,7 +7186,7 @@ function phFacesHtml() {
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
       `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.ticket || a.roleName || "")}</span></button>`; };
-  const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">stopped</span></button>`;
+  const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.roleName || "")}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
   // favourites first, as in the Agents tab, and not again under their role
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">${favs.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>` : "";
