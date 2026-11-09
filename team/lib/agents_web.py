@@ -3689,6 +3689,16 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini.perf{cursor:default}
 .mini.perf .name .dot{display:none}   /* an agent's state; a figure has none */
 .mini .pdet{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}   /* with no sparkline, as much space below the name as above */
+/* A Gauges pane: the Performance pane's figures as tiles side by side, each a half-circle with its figure inside and
+   its name below. */
+.others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start}
+.others.perfs.dials .mini.dial{min-height:0;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.mini.dial svg.arc{width:100%;max-width:150px;height:auto;display:block}
+.mini.dial svg.arc path{fill:none;stroke-width:9;stroke-linecap:round}
+.mini.dial svg.arc path.track{stroke:var(--line2)}
+.mini.dial .dfig{margin-top:-30px;font:600 calc(17px*var(--fs,1)) var(--mono);line-height:22px}
+.mini.dial .dname{margin-top:6px;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text)}
+.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(10.5px*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap}
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
@@ -4923,7 +4933,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance", daylog: "Day log"};
+const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance", gauges: "Gauges", daylog: "Day log"};
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5477,7 +5487,7 @@ function customHtml(ceil, tabRow) {
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
       body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
         : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${maxButton(path === maxed)}</div>${doc}</div>`;
-    } else if (n.show === "perf") {
+    } else if (n.show === "perf" || n.show === "gauges") {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
       body = dayLogHtml();
@@ -5504,12 +5514,12 @@ function customHtml(ceil, tabRow) {
     const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file", "perf", "daylog"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : ""}
-      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" ? perfBtn(path, n) : ""}
+      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" || n.show === "gauges" ? perfBtn(path, n) : ""}
       ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
       <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
     return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, pageLocked()) : ""}${body}</div></div>`;
@@ -5692,7 +5702,7 @@ async function loadFiles() {
     } catch (e) {}
   }));
 }
-// Performance panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
+// Performance and Gauges panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
 // one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
 // Network, GPU, Heat and Fans bars in the header or footer read the same figures, so the reading also keeps the sampling going for them.
@@ -5700,7 +5710,7 @@ let perfNow = null;
 const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"];
 async function loadPerf() {
   const b = barOf();
-  if (!leaves(layout().root).some(([, n]) => n.show === "perf") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
+  if (!leaves(layout().root).some(([, n]) => n.show === "perf" || n.show === "gauges") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
   try { perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); } catch (e) {}
 }
 const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"], ["fan", "Fans"]];
@@ -5716,14 +5726,15 @@ function perfHtml(n) {
   const d = perfNow, on = perfOn(n);
   if (!on.length) return `<div class="blank">Choose what to show</div>`;
   if (!d || d.warming) return `<div class="blank">Reading…</div>`;
-  const h = d.hist || {};
+  const h = d.hist || {}, dials = n.show === "gauges";
   // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C);
   // a row with a series (sk, its key in the history) opens it as the enlarged graph, its values read as gunit
   const row = (key, name, detail, pct, sk, ceil, tip = "", unit = "%", colour = gauge(pct), gunit = "%") =>
-    `<div class="mini perf" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    (dials ? dial(name, detail, pct, sk && h[sk], ceil, unit, colour, gunit, PERF_COLOUR[key]) :
     `<div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
     `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${colour}">${Math.round(pct)}${unit}</span>`}</div>` +
-    `${sk && h[sk] ? spark(h[sk], ceil, PERF_COLOUR[key]) : ""}</div>`;
+    `${sk && h[sk] ? spark(h[sk], ceil, PERF_COLOUR[key]) : ""}`) + `</div>`;
   const rows = {
     cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, "cpu", 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
     mem: () => { const m = d.mem;
@@ -5733,8 +5744,9 @@ function perfHtml(n) {
         d.disk.active == null ? Math.max(1, ...h.disk) : 100, d.disk.active == null ? "Read and written" : "Active time, the busiest disk",
         "%", gauge(d.disk.active), d.disk.active == null ? "B" : "%") : "") +
       d.spaces.map(sp => row("disk", sp.label, `${perfOf(sp.used, sp.total)} · ${perfSize(sp.total - sp.used)} free`, 100 * sp.used / sp.total, null, 0, sp.path)).join(""),
-    net: () => (d.net || []).map(x => row("net", x.name, `↓ ${perfSize(x.in * 8, "b")}/s · ↑ ${perfSize(x.out * 8, "b")}/s`, null,
-      "net:" + x.name, Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent", "%", undefined, "b")).join("") || row("net", "Network", "no interface", null),
+    // an interface is shown while it has carried something in its sparkline's span: a Mac lists several that never do
+    net: () => (d.net || []).filter(x => x.in + x.out > 0 || (h["net:" + x.name] || []).some(v => v > 0)).map(x => row("net", x.name, `↓ ${perfSize(x.in * 8, "b")}/s · ↑ ${perfSize(x.out * 8, "b")}/s`, null,
+      "net:" + x.name, Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent", "%", undefined, "b")).join("") || row("net", "Network", d.net?.length ? "no traffic" : "no interface", null),
     gpu: () => d.gpus.map(g => row("gpu", d.gpus.length > 1 ? `GPU ${g.id}` : "GPU", [g.name, g.mem_total ? perfOf(g.mem_used, g.mem_total) : g.mem_used ? perfSize(g.mem_used) : "",
       g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, "gpu:" + g.id, 100, g.pct == null ? "Its use is not reported just now" : "")).join("")
       || row("gpu", "GPU", d.gpu_source === "nvidia-smi" ? "reading…" : "no figures here: no nvidia-smi or AMD card", null),
@@ -5749,7 +5761,20 @@ function perfHtml(n) {
         f.rpm, "fan:" + f.name, Math.max(1, ...(h["fan:" + f.name] || [])), "Its speed in turns a minute", " rpm", "var(--text)", "rpm")).join("")
       || row("fan", "Fans", d.fans ? "no fan speeds here: the board's fan chip needs its driver (nct6775 or it87)" : "reading…", null),
   };
-  return `<div class="others perfs">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
+  return `<div class="others perfs${dials ? " dials" : ""}">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
+}
+// A Gauges pane's figure, as a Performance pane would show it but as a gauge: a half-circle filled to its percentage
+// (the Heat figure's °C read against 100), or, for a rate with no percentage (the network, a disk's bytes), to its
+// latest reading against the highest in its sparkline's span; the figure in the middle, its name and detail under it.
+function dial(name, detail, pct, series, ceil, unit, colour, gunit, own) {
+  const last = series ? series[series.length - 1] : null;
+  const frac = pct != null ? pct / 100 : last != null && ceil ? last / ceil : null;
+  const fill = frac == null ? 0 : Math.max(0, Math.min(1, frac)) * 100;
+  const figure = pct != null ? `${Math.round(pct)}${unit}` : last != null ? graphFmt(last, gunit) : "–";
+  return `<svg class="arc" viewBox="0 0 100 56"><path class="track" d="M10 50 A40 40 0 0 1 90 50" pathLength="100"/>` +
+    (fill > 0 ? `<path d="M10 50 A40 40 0 0 1 90 50" pathLength="100" stroke="${pct != null ? colour : own}" stroke-dasharray="${fill.toFixed(1)} 100"/>` : "") + `</svg>` +
+    `<div class="dfig" style="color:${pct != null ? colour : "var(--text)"}">${esc(figure)}</div>` +
+    `<div class="dname"><span class="name">${esc(name)}</span></div><div class="pdet">${esc(detail)}</div>`;
 }
 // A Performance row's enlarged graph, over the page: its series over 2 minutes, 10, an hour or a day (the last chosen,
 // kept in this browser), read again every ten seconds while it is open, with gridlines, times along the bottom, its
@@ -8136,6 +8161,8 @@ def self_test():
             g["run"] = was_run
         t("a transcript line that is not text (a crash's NULs, bytes that are not UTF-8) is skipped, not fatal",
           turns([b"\x00\x00\x00", b"\xff\xfe{", "not json"], 5), [])
+        t("a Gauges pane draws the Performance figures as half-circle gauges, and idle network interfaces are hidden",
+          ('gauges: "Gauges"' in PAGE, "function dial(name, detail, pct" in PAGE, 'd.net?.length ? "no traffic" : "no interface"' in PAGE), (True, True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
