@@ -106,6 +106,7 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$T/ledger.log"
 [ -e "$T/ledger.down" ] && { echo "ledger-db: cannot connect" >&2; exit 3; }
+[ -e "$T/ledger.warn" ] && cat "$T/ledger.warn" >&2
 case "\$1" in board) cat "$T/board" ;; session-entries) cat "$T/entries" ;; esac
 EOF
   chmod +x "$T/bin/tmux" "$T/bin/ledger-db.sh"
@@ -175,6 +176,16 @@ EOF
   out="$(run Ada)"; rc=$?;      _t "no session entry since the session started is refused" "$rc" 1
   _has "  and asks for one" "$out" "no session entry since its session started"
   _has "  asking the ledger from the record's start time" "$(cat "$T/ledger.log")" "session-entries --agent Ada --since $since --limit 1"
+  reset; echo "ledger-db: WARNING: this checkout is a DIFFERENT revision from main" > "$T/ledger.warn"
+  out="$(run Ada --dry-run)"; rc=$?; rm -f "$T/ledger.warn"
+  _t "a ledger warning on stderr does not spoil the session entries" "$rc" 0
+  reset; printf 'not json\n' > "$T/entries"; echo "ledger-db: something odd" > "$T/ledger.warn"
+  out="$(run Ada)"; rc=$?; rm -f "$T/ledger.warn"
+  _t "entries that are not a list are refused" "$rc" 1
+  _has "  saying what the ledger said" "$out" "not a JSON list (ledger-db.sh said: ledger-db: something odd)"
+  reset; printf '{"a":1}\n' > "$T/entries"
+  out="$(run Ada)"; rc=$?
+  _t "  as is a JSON object, which has a length too" "$rc" 1
 
   reset; out="$(run Ada --dry-run)"; rc=$?
   _t "a dry run of a finished agent passes" "$rc" 0
@@ -297,10 +308,14 @@ if [[ -z "$START_S" ]] && (( TMUX_UP )); then
 fi
 [[ "$START_S" =~ ^[0-9]+$ ]] || refuse "cannot tell when $NAME's session started, so cannot check for its session entry"
 SINCE="$(jq -nr --argjson s "$START_S" '$s | todate')"
-ENTRIES="$($LDB session-entries --agent "$NAME" --since "$SINCE" --limit 1 2>&1)" \
-  || refuse "cannot read $NAME's session entries (ledger-db.sh session-entries): $ENTRIES"
-N="$(jq -r 'length' <<<"$ENTRIES" 2>/dev/null)"
-[[ "$N" =~ ^[0-9]+$ ]] || refuse "cannot read $NAME's session entries: not a JSON list"
+# The list is read from stdout alone: ledger-db.sh warns on stderr (a checkout behind main gets "DIFFERENT
+# revision"), and a warning mixed in made the list unreadable with no reason given. What it said goes in a refusal.
+LDB_ERR="$(mktemp)" || refuse "cannot make a temporary file"
+ENTRIES="$($LDB session-entries --agent "$NAME" --since "$SINCE" --limit 1 2>"$LDB_ERR")"; LDB_RC=$?
+LDB_SAID="$(tr '\n' ' ' < "$LDB_ERR" | sed 's/ *$//')"; rm -f "$LDB_ERR"
+(( LDB_RC == 0 )) || refuse "cannot read $NAME's session entries (ledger-db.sh session-entries): ${LDB_SAID:-$ENTRIES}"
+N="$(jq -r 'if type == "array" then length else empty end' <<<"$ENTRIES" 2>/dev/null)"
+[[ "$N" =~ ^[0-9]+$ ]] || refuse "cannot read $NAME's session entries: not a JSON list${LDB_SAID:+ (ledger-db.sh said: $LDB_SAID)}"
 (( N > 0 )) || refuse "$NAME has written no session entry since its session started ($SINCE): it writes one (bash scripts/progress.sh new) before it is benched"
 
 # ── the bench ────────────────────────────────────────────────────────────────────────────────────────
