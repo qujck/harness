@@ -3899,6 +3899,11 @@ html.phone #menu .hd{padding:6px 10px 10px;font-size:13px}
 html.phone #menu .hd.sec{margin-top:8px}
 html.phone #menu kbd{display:none}
 html.phone #menu .mpor{width:96px;height:96px}
+/* a tap on the menu's portrait shows it over the sheet, not grown inside it: the sheet scrolls, so it clipped a portrait
+   grown up from a short sheet, a stopped agent's (owner, 2026-11-09: "Stopped agents don't expand their image correctly") */
+html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
+#phpor{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:#000b}
+#phpor img{width:min(84vw,420px);aspect-ratio:1;object-fit:cover;border-radius:16px;box-shadow:0 12px 40px #000a}
 @keyframes phup{from{transform:translateY(100%)}}
 #phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
 #phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
@@ -3949,7 +3954,9 @@ html.phone #detail .head{flex-wrap:wrap;gap:0 4px;padding:4px 4px 0;border-top-w
 html.phone #detail .head .x{order:-1;margin:0;width:44px;height:44px;display:grid;place-items:center;color:var(--text)}
 html.phone #detail .head .x svg{width:22px;height:22px}
 html.phone #detail .head :is(.lanes,#dmore){width:44px;height:44px;display:grid;place-items:center;margin-left:0}
-html.phone #detail .head .lanes{margin-left:auto}
+/* the filter and the ⋯ at the right (owner, 2026-11-09); the rule above, through :is(#dmore), outranked a plain .lanes rule */
+html.phone #detail #dhead .lanes.fbtn{margin-left:auto}
+html.phone #detail #dhead #dmore svg{width:22px;height:22px}   /* the ⋯ at the standard size, as the team menu's */
 html.phone #detail .head .ticket{min-width:0;overflow:hidden;text-overflow:ellipsis}
 html.phone #detail .head .role{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
 html.phone #detail .head .facts{display:flex;order:10;flex:1 1 100%;height:32px;margin:4px -4px 0;padding:0 14px;align-items:center;gap:14px;flex-wrap:nowrap;overflow-x:auto;
@@ -6680,10 +6687,19 @@ new ResizeObserver(() => {
 // edge when there is no room below it, rightwards from its left edge when there is none to its left.
 menu.addEventListener("mouseover", e => {
   const img = e.target.closest?.(".mpor img");
-  if (!img) return;
+  if (!img || phoneOn()) return;
   const r = img.parentElement.getBoundingClientRect(), big = r.width * 2.67;
   img.style.transformOrigin = `${r.right - big < 6 ? "left" : "right"} ${r.top + big > innerHeight - 6 ? "bottom" : "top"}`;
 });
+// On the phone a tap on it shows it large over the sheet, and a tap anywhere puts it away.
+menu.addEventListener("click", e => {
+  const img = phoneOn() && e.target.closest?.(".mpor img");
+  if (!img) return;
+  e.stopPropagation();
+  const o = document.createElement("div"); o.id = "phpor"; o.innerHTML = `<img src="${esc(img.getAttribute("src"))}" alt="">`;
+  o.onclick = ev => { ev.stopPropagation(); o.remove(); };
+  $("#phpor")?.remove(); document.body.append(o);
+}, true);
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
@@ -6847,6 +6863,7 @@ addEventListener("keydown", e => {
 }, true);
 addEventListener("mousedown", e => {
   if (typeof phHeld === "number" && Date.now() - phHeld < 800) return;   // a phone's held finger lifting under its new sheet
+  if (e.target.closest?.("#phpor")) return;   // the menu's portrait shown large: putting it away leaves the menu open
   if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
 }, true);
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
