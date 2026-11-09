@@ -7384,7 +7384,9 @@ function phRail() {
   const list = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
   patchByName($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
     return `<button class="phf ${stOf(a)}${a.name === open ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[stOf(a)] || ""}">` +
-      `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : ""}</button>`; }).join(""));
+      // the badge is always there, hidden at none: a badge coming or going would change the button's children, and the
+      // redraw would rebuild its image, blank on the phone until it loads again (owner, 2026-11-09: a green frame with no face)
+      `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : `<span class="unseen" hidden></span>`}</button>`; }).join(""));
   $("#drail").onclick = e => { const b = e.target.closest(".phf"); if (b && b.dataset.name !== open) openDetail(b.dataset.name); };
   markSeen([open]);
 }
