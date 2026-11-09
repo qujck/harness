@@ -3905,7 +3905,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .sayrow{margin:0 14px 14px}
 .mini .mtop .mstat{flex:0 1 auto;min-width:0;font:calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--mute);overflow:hidden;text-overflow:ellipsis}
 .mini.busy .mtop .mstat{color:var(--green)}
-.mini.waiting .mtop .mstat{color:var(--amber)}
+.mini.waiting .mtop .mstat,.mini.wanted .mtop .mstat{color:var(--amber)}
 #detail .box:not(.noterm) .sayrow{margin-right:calc(var(--thumb) + 40px)}
 .add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
 .add::before,.add::after{content:"";position:absolute;inset:0;margin:auto;width:12px;height:1.5px;border-radius:var(--r-xs);background:currentColor}
@@ -4731,7 +4731,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
     ${a.live ? sayRow(a) : ""}</div>`;
 }
 // A List row's status, after its name and ticket: its state in words, then the pane's footer ("in shell · 1 shell").
-const mstat = (a, st) => [STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
+const mstat = (a, st) => [st === "wanted" ? STATE.wanted : STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
 
 function cols(n, w, h) {
   // the column count whose cards come out closest to a 4:5 shape in this section
@@ -8869,6 +8869,8 @@ def self_test():
         finally:
             g["WANTED"] = was_w
             shutil.rmtree(wd, ignore_errors=True)
+        t("  a List row's status is amber for an agent that wants the owner, as for one waiting",
+          ".mini.waiting .mtop .mstat,.mini.wanted .mtop .mstat{color:var(--amber)}" in PAGE, True)
         t("  an agent not on a prompt that wants the owner pulses amber as one waiting, and counts in the badge and Alt+W",
           ('a.status !== "waiting" && a.wanted ? "wanted"' in PAGE, ".card.waiting,.card.wanted{" in PAGE,
            'focusAgent(needing()[0]?.name)' in PAGE), (True, True, True))
