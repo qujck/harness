@@ -526,8 +526,12 @@ def daylog_json():
         threading.Thread(target=refresh_day_log, args=(program,), daemon=True).start()
     data = _daylog["data"] or {"rows": []}
     names = shown_names()
-    roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a row may have either
-    rows = [{**r, "by": roster_name.get(r["by"], r["by"]), "text": spelled_screen(r["text"], names)} for r in data["rows"]]
+    # The page's colours go by the roster's spelling; a row is signed with the short name, often spelled otherwise
+    # ("O’Brian" for OBrian), or with the shown one. So a name matches on its letters alone, case aside.
+    letters = lambda s: re.sub(r"[\W_]", "", s).lower()
+    roster_name = {letters(k): k for k in names}
+    roster_name.update({letters(v): k for k, v in names.items()})
+    rows = [{**r, "by": roster_name.get(letters(r["by"]), r["by"]) if isinstance(r.get("by"), str) else r.get("by"), "text": spelled_screen(r["text"], names)} for r in data["rows"]]
     state = "failed" if _daylog["error"] else "reading" if _daylog["data"] is None else "ok"
     return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
 
@@ -3084,7 +3088,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 8px}
-.daylog .wh{flex:none;width:calc(62px*var(--fs,1));display:flex;align-items:center;height:1.45em}
+.daylog .wh{flex:none;width:calc(var(--whw,62px)*var(--fs,1));display:flex;align-items:center;height:1.45em}
 .daylog .who{font-weight:650;font-size:calc(10.5px*var(--fs,1));line-height:1.4;padding:0 6px;border-radius:4px;letter-spacing:.02em;white-space:nowrap;background:var(--pc);color:var(--ownerfg)}
 .daylog .who.off{background:none;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line2)}
 .daylog .tx{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -5094,6 +5098,14 @@ const dayLogWho = by => {
   return `<span class="wh">${by ? `<span class="who${c ? "" : " off"}"${c ? ` style="--pc:${esc(c)}"` : ""}>${esc(shown(by))}</span>` : ""}</span>`;
 };
 // The pane draws what the server's program printed (see "the day log" there); with no program it says what one must print.
+// The badge column is as wide as the widest name it shows (full names run long), measured in the badge's own font, so
+// no badge runs into the time beside it and every row's time still starts in one column.
+let dayLogCanvas;
+const dayLogWhW = names => {
+  const c = dayLogCanvas ||= document.createElement("canvas").getContext("2d");
+  c.font = `650 10.5px ${getComputedStyle(document.body).fontFamily}`;
+  return Math.ceil(Math.max(50, ...names.map(n => c.measureText(n).width + n.length * 0.21))) + 14;
+};
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   if (dayLog.state === "unset") return `<div class="blank">The Day log shows what a program prints, and there is none at ${esc(dayLog.program)}. Set AGENTS_DAY_LOG to a program that prints {"rows": [{"at", "type": "day" or "entry", "kind", "by", "text", "url", "label"}]} as JSON: see "the day log" in agents_web.py.</div>`;
@@ -5102,7 +5114,7 @@ function dayLogHtml() {
   if (!dayLog.rows.length) return dayLog.state === "ok" ? `<div class="blank">${esc(dayLog.empty || "Nothing in the log yet")}</div>` : `<div class="daylog">${notes}</div>`;
   const days = dayLog.rows.filter(r => r.type === "day").length, entries = dayLog.rows.length - days;
   const sum = dayLog.summary || `${days} day${days === 1 ? "" : "s"}, ${entries} entr${entries === 1 ? "y" : "ies"}`;
-  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${esc(sum)}</span></div><div class="daylog">${notes}${dayLog.rows.map((r, i) => r.type === "day"
+  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${esc(sum)}</span></div><div class="daylog" style="--whw:${dayLogWhW(dayLog.rows.filter(r => r.by).map(r => shown(r.by)))}px">${notes}${dayLog.rows.map((r, i) => r.type === "day"
     ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
@@ -7662,9 +7674,10 @@ def self_test():
             os.chmod(prog, 0o755)
             refresh_day_log(prog)
         g["DAY_LOG_PROGRAM"] = prog
+        odd = f"{spell[0][0]}’{spell[0][1:].upper()}"    # signed as "O’Brian" for OBrian: other punctuation and case
         out = {"summary": "1 day, 2 entries", "note": "a note", "empty": "nothing", "kinds": {"released": {"name": "Released", "about": "Out.", "x": 1}, "bad": 3},
                "rows": [{"at": 300, "type": "entry", "kind": "released", "by": spell[1], "text": f"by {spell[0]}", "url": "https://x/1", "label": "#1"},
-                        {"at": 200, "type": "entry", "kind": "fix<b>", "text": "a bad link", "url": "javascript:alert(1)"},
+                        {"at": 200, "type": "entry", "kind": "fix<b>", "by": odd, "text": "a bad link", "url": "javascript:alert(1)"},
                         {"at": 100, "type": "day", "kind": "development", "by": "Lea", "text": "x" * 400},
                         {"at": "soon", "type": "entry"}, {"at": True, "type": "day"}, {"at": 1, "type": "other"}, "not a row"]}
         day_prog("cat <<'EOF'\n" + json.dumps(out) + "\nEOF\n")
@@ -7672,6 +7685,7 @@ def self_test():
         t("day log: a program's rows, the bad ones left out", [(r["at"], r["type"]) for r in d["rows"]], [(300, "entry"), (200, "entry"), (100, "day")])
         t("  a name comes back as the roster's, and one in the words is spelled as the page spells it",
           (d["rows"][0]["by"], d["rows"][0]["text"]), (spell[0], f"by {spell[1]}"))
+        t(f"  a name signed {odd!r} is the roster's {spell[0]!r} too", d["rows"][1]["by"], spell[0])
         t("  only an http(s) link is kept, a kind is a plain word, and text is cut short",
           (d["rows"][0]["url"], d["rows"][1]["url"], d["rows"][1]["kind"], len(d["rows"][2]["text"])), ("https://x/1", "", "fixb", 300))
         t("  its words and kinds pass through", (d["state"], d["summary"], d["note"], d["empty"], d["kinds"]),
