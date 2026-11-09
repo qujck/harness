@@ -2239,7 +2239,7 @@ def with_ask(items, status, pane):
         return items   # a queue lasts only as long as the turn it waits behind
     if status == "waiting":
         ask = ask_of(pane["pane"])
-        return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "ts": None,
+        return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "cursor": ask.get("cursor"), "ts": None,
                           "lane": "owner"}] if ask else []) + pending
     now = working_of(pane["pane"])
     return items + ([{"kind": "live", "who": "working", "text": now, "ts": None, "lane": "owner"}] if now else []) + pending
@@ -3319,16 +3319,21 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.ask .who{align-self:flex-start;background:#ff7a1a;color:#000;text-transform:uppercase;letter-spacing:.06em}
 .it.ask .tx{font:calc(12px*var(--fs,1))/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
 .it.ask .ago{display:none}
-.it.ask .opts{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:6px}
+.it.ask .opts{position:relative;z-index:1;display:flex;flex-direction:column;align-items:flex-start;gap:4px;outline:none}
 .it.ask .opt{padding:3px 10px;border-radius:6px;border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:600 calc(12px*var(--fs,1)) var(--sans);cursor:pointer}
 .it.ask .opt:hover{background:#ff7a1a40}
+.it.ask .opt::before,.it.ask .typed::before{content:"\00a0\00a0";font-family:var(--mono)}
+.it.ask .typed::before{align-self:center;margin-right:4px}
+.it.ask .opt.at{background:#ff7a1a59;box-shadow:0 0 0 2px #ff7a1a}
+.it.ask .opt.at::before,.it.ask .typed.at::before{content:"❯\00a0";color:#ff7a1a}
 .it.ask .opt:disabled{opacity:.5;cursor:progress}
-.it.ask .typed{display:flex;flex:1 1 220px;min-width:0}
+.it.ask .typed{display:flex;align-self:stretch;max-width:520px;min-width:0}
 .it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:6px 0 0 6px;background:var(--box);color:var(--text);font:calc(12px*var(--fs,1)) var(--sans);outline:none}
 .it.ask .askin:focus{border-style:solid;box-shadow:0 0 0 2px #ff7a1a40}
 .it.ask .askin.failed{border-color:var(--red)}
 .it.ask .opt.go{border-radius:0 6px 6px 0;padding:3px 9px}
-.it.ask .reply{align-self:center;font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--text2)}
+.it.ask .opt.go::before{content:none}
+.it.ask .reply{font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--text2)}
 .it.pending{align-items:flex-start;opacity:.8}
 .it.pending .tx{flex:1}
 .it.pending .badge{flex:none;font:600 calc(10px*var(--fs,1)) var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:4px;padding:0 5px;margin-top:2px}
@@ -4280,9 +4285,10 @@ function item(it, compact, agent, tag) {
   const inline = !!heads && it.kind !== "live";
   return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
-// An open prompt's options in the order shown, each naming its option by number and label so that it answers only the
-// prompt it was drawn for: a button for each, chosen as its digit chooses it in the terminal, and for a Type something
-// option a box to write the answer in, sent with Enter or its ↵. The server's reply to the last answer shows beside them
+// An open prompt's options in the order shown, one under another, each naming its option by number and label so that it
+// answers only the prompt it was drawn for: a button for each, and for a Type something option a box to write the answer
+// in, sent with Enter or its ↵. As in the terminal, one option is highlighted (❯): ↑ and ↓ move it, Enter chooses it, and
+// a digit chooses its option at once. The server's reply to the last answer shows beside them
 // for a while.
 let askReply = {name: "", text: "", at: 0};
 // What is written in each Type something box, by agent and option, so that a redraw, which may replace the box, draws
@@ -4290,13 +4296,21 @@ let askReply = {name: "", text: "", at: 0};
 const askTyped = {};
 let askFocus = null;
 const askKey = (agent, n) => agent + "\n" + n;
+// The highlighted option of each agent's prompt, kept across redraws for as long as that prompt is the one open; a new
+// prompt starts where its pane's cursor is, else on its first option.
+const askSel = {};
+const askAt = (it, agent) => {
+  const id = it.text + "\n" + (it.options || []).map(o => o.label).join("\n");
+  if (askSel[agent]?.id !== id) askSel[agent] = {id, at: it.cursor || 1};
+  return askSel[agent].at;
+};
 const askButtons = (it, agent) => {
-  const opts = it.options || [], reply = askReply.name === agent && Date.now() - askReply.at < 15000 ? askReply.text : "";
+  const opts = it.options || [], at = askAt(it, agent), on = o => o.n === at ? " at" : "", reply = askReply.name === agent && Date.now() - askReply.at < 15000 ? askReply.text : "";
   const attrs = o => `data-name="${esc(agent)}" data-n="${o.n}" data-label="${esc(o.label)}"`;
-  return opts.length ? `<span class="opts">${opts.map(o => o.typed
-    ? `<span class="typed"><input class="askin" ${attrs(o)} placeholder="${o.n}. Type something" value="${esc(askTyped[askKey(agent, o.n)] || "")}" autocomplete="off" spellcheck="false">` +
+  return opts.length ? `<span class="opts" tabindex="-1" data-name="${esc(agent)}">${opts.map(o => o.typed
+    ? `<span class="typed${on(o)}" data-n="${o.n}"><input class="askin" ${attrs(o)} placeholder="${o.n}. Type something" value="${esc(askTyped[askKey(agent, o.n)] || "")}" autocomplete="off" spellcheck="false">` +
       `<button class="opt go" ${attrs(o)} data-typed="1" title="Answer with what is written here (Enter)">↵</button></span>`
-    : `<button class="opt" ${attrs(o)} title="Choose this, as its number does in the terminal">${o.n ? o.n + ". " : ""}${esc(o.label)}</button>`).join("")}` +
+    : `<button class="opt${on(o)}" ${attrs(o)} title="Choose this (or ↑ ↓ to it and Enter, or its number)">${o.n ? o.n + ". " : ""}${esc(o.label)}</button>`).join("")}` +
     `${reply ? `<span class="reply">${esc(reply)}</span>` : ""}</span>` : "";
 };
 // An agent's open prompt: while it is open its message box is shut, as a prompt ignores a paste and the Enter after it
@@ -4342,6 +4356,49 @@ document.addEventListener("keydown", e => {
   e.stopPropagation();
   if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); answerAsk(i.nextElementSibling); }
 }, true);
+// The prompt the keyboard answers: the one holding the focus, else the open view's, else the only one on the page. A view
+// open on an agent with no prompt answers none, so a key pressed there never chooses for an agent out of sight.
+function keyedAsk() {
+  const f = document.activeElement?.closest?.(".it.ask .opts");
+  if (f) return f;
+  const shown = [...document.querySelectorAll(".it.ask .opts")].filter(x => x.offsetParent);
+  if (open && $("#detail").classList.contains("open")) return shown.find(x => x.dataset.name === open && x.closest("#detail")) || null;
+  return new Set(shown.map(x => x.dataset.name)).size === 1 ? shown[0] : null;
+}
+// Highlights option n of an agent's prompt wherever it is drawn; in the prompt being keyed (o), a Type something option
+// takes the focus to be written in, and leaving one gives the focus back to the prompt.
+function askMove(name, n, o) {
+  if (askSel[name]) askSel[name].at = n;
+  document.querySelectorAll(".it.ask .opts").forEach(x => { if (x.dataset.name === name) x.querySelectorAll(".opt:not(.go), .typed").forEach(r => r.classList.toggle("at", +r.dataset.n === n)); });
+  const row = o?.querySelector(`.typed[data-n="${n}"]`);
+  if (row) row.querySelector(".askin").focus();
+  else if (o?.contains(document.activeElement)) o.focus();
+}
+// ↑, ↓, Enter and the digits answer the keyed prompt as they do in the terminal, unless something else has the keys: a
+// menu, a box being typed in (in a Type something box only ↑ and ↓ are the prompt's), or a key with Alt, Ctrl or Cmd.
+document.addEventListener("keydown", e => {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing || menu.classList.contains("on")) return;
+  const box = e.target.closest?.(".it.ask .askin");
+  if (box ? !plainArrow(e) : e.target.closest?.("textarea, input, select, [contenteditable]")) return;
+  const o = box ? box.closest(".opts") : keyedAsk();
+  if (!o) return;
+  const name = o.dataset.name, ns = [...o.querySelectorAll(".opt:not(.go), .typed")].map(r => +r.dataset.n);
+  const i = Math.max(0, ns.indexOf(askSel[name]?.at));
+  let n;
+  if (plainArrow(e)) n = ns[Math.min(ns.length - 1, Math.max(0, i + (e.key === "ArrowDown" ? 1 : -1)))];
+  else if (e.key === "Enter" && !e.shiftKey) n = ns[i];
+  else if (/^[1-9]$/.test(e.key) && ns.includes(+e.key)) n = +e.key;
+  else return;
+  e.preventDefault(); e.stopPropagation();
+  askMove(name, n, o);
+  const b = o.querySelector(`.opt:not(.go)[data-n="${n}"]`);
+  if (!plainArrow(e) && b && !b.disabled) answerAsk(b);
+}, true);
+// Clicking into a Type something box highlights its option.
+document.addEventListener("focusin", e => {
+  const i = e.target.closest?.(".it.ask .askin");
+  if (i && askSel[i.dataset.name]?.at !== +i.dataset.n) askMove(i.dataset.name, +i.dataset.n);
+});
 document.addEventListener("input", e => {
   const i = e.target.closest?.(".it.ask .askin");
   if (i) askTyped[askKey(i.dataset.name, i.dataset.n)] = i.value;
@@ -6787,6 +6844,7 @@ const SHORTCUTS = [
   ["Message box", [["Enter", "Send"], ["Ctrl+Enter", "New line"], ["Esc Esc", "Clear the box"], ["Ctrl+U", "Add images or files"]]],
   ["Anywhere", [["Esc", "Close what is open"], ["Ctrl+Click", "Open an agent in a new tab"], ["? or Alt+/", "These shortcuts"]]],
   ["Menus", [["↑ / ↓", "Move"], ["Enter / Space", "Pick, or tick"], ["Esc", "Close"]]],
+  ["Prompts", [["↑ / ↓", "Move to an option"], ["Enter", "Choose it"], ["1 … 9", "Choose that option"]]],
 ];
 function helpMenu(rested) {
   if (menuOn("help")) { if (!rested) menuOff(true); return; }
@@ -8057,6 +8115,8 @@ def self_test():
             ask = ask_of("%1")
         finally:
             g["run"] = was_run
+        t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
+          ('if (plainArrow(e)) n = ns[' in PAGE, '.it.ask .opt.at{' in PAGE, '["Prompts", [' in PAGE), (True, True, True))
         t("  an unnumbered prompt's options are its cursor row and the rows lined up with it, not a list above its rule",
           ([o["label"] for o in ask["options"]], ask.get("select"), ask.get("cursor")), (["No, exit", "Yes, I trust this folder"], True, 1))
         # the pane's footer under its input box, for a List row's status: its own words, less auto mode and the hint
