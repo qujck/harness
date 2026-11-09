@@ -37,7 +37,8 @@ export AGENTS_PR_REPO=qujck/strength
 export AGENT_COLOUR_PRODUCTION_SUPPORT=orange
 # The header's disk: the root volume, which holds Docker and the worktrees.
 export AGENT_DISK_WATCH=/
-# The phone: the public hostname and the Cloudflare Access team and audience tag live in a private file
+# The phone: the public hostname, the Cloudflare Access team and audience tag, and the title its layout shows
+# (AGENT_PROJECT_TITLE) live in a private file
 # outside this repo, which is public. Without it the page still runs on 127.0.0.1, with no phone access.
 P=/home/peter/.config/harness/team-web.env
 if [ -r "$P" ]; then set -a; . "$P"; set +a; else echo "team-web: no $P, so no phone access (127.0.0.1 only)" >&2; fi

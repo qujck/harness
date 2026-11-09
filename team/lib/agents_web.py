@@ -2476,7 +2476,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
         "disk": disk(),
         "tabs": tabs,
-        "project": PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
     }
@@ -3813,6 +3813,7 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-icon svg{width:22px;height:22px}
 #phone .ph-body{flex:1;min-height:0;overflow-y:auto;padding:12px 12px 20px;display:flex;flex-direction:column;gap:16px;-webkit-overflow-scrolling:touch}
 #phone h2{margin:0 4px 6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--mute);text-transform:uppercase}
+#phone .ph-favs h2 svg{width:13px;height:13px;margin:0 5px -1px 0;fill:var(--amber);stroke:var(--amber)}
 #phone .ph-list{display:flex;flex-direction:column;border-radius:14px;border:1px solid var(--line);background:var(--card1);overflow:hidden}
 #phone .ph-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;cursor:pointer;width:100%}
 #phone .ph-row:last-child{border-bottom:0}
@@ -3862,8 +3863,27 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-empty{padding:30px 10px;text-align:center;color:var(--mute)}
 #phone .ph-pane{flex:1;min-height:0;display:flex;flex-direction:column}
 #phone .ph-body[data-tab=mix]{padding:8px;overflow:hidden}
-#phone .ph-pane .thead .fbtn{height:32px;min-width:32px;padding:0 8px;margin-left:4px}
-#phone .ph-pane .thead .roles{margin-left:auto}
+#phone .ph-pane .teamlog .thead.phmix{padding-right:48px}
+#phone .ph-pane .thead .phmixmore{position:absolute;top:4px;right:4px;width:40px;height:40px;min-width:0;padding:0;border-radius:20px;color:var(--text)}
+#phone .ph-pane .thead .phmixmore svg{width:22px;height:22px}
+#phone .ph-pane .thead .phmixmore.some::after{content:"";position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:4px;background:var(--amber)}
+#phone .ph-pane .thead .phmixmore:active{background:var(--on)}
+#phone :is(.ph-row,.ph-wait),html.phone #drail .phf,#phone .teamlog .cnames .name{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+/* on the phone every menu (an agent's card, a filter's choices) is a sheet from the bottom, over a dimmed page; it
+   closes on a tap on the page or pulled down (owner, 2026-11-08) */
+#phmenuback{display:none}
+html.phone #phmenuback.on{display:block;position:fixed;inset:0;z-index:59;background:#0007}
+html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0;width:auto !important;min-width:0;max-height:85vh;overflow-y:auto;overscroll-behavior:contain;
+  box-sizing:border-box;padding:22px 12px calc(16px + env(safe-area-inset-bottom));border-width:1px 0 0;border-radius:20px 20px 0 0;box-shadow:0 -10px 30px #0004;
+  font-size:15px;animation:phup .22s cubic-bezier(.2,.8,.2,1)}
+html.phone #menu.on::before{content:"";position:absolute;top:8px;left:calc(50% - 20px);width:40px;height:5px;border-radius:3px;background:var(--line2)}
+html.phone #menu .mi{min-height:48px;padding:0 10px;font-size:15px;border-radius:10px}
+html.phone #menu .mi svg{width:18px;height:18px}
+html.phone #menu .hd{padding:6px 10px 10px;font-size:13px}
+html.phone #menu .hd.sec{margin-top:8px}
+html.phone #menu kbd{display:none}
+html.phone #menu .mpor{width:96px;height:96px}
+@keyframes phup{from{transform:translateY(100%)}}
 #phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
 #phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #phone .ph-pane .teamlog .thead{flex-wrap:wrap;row-gap:4px}
@@ -4259,6 +4279,7 @@ new MutationObserver(() => {
 const LANES = [["owner", ""], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
 // The menus' icons, drawn in the text colour.
 const MENU_ICON = Object.fromEntries(Object.entries({
+  star: '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/>',
   open: '<rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/>',
   tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
   window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
@@ -4508,8 +4529,28 @@ function patch(el, html) {
 }
 function patchKids(a, b) {
   const an = [...a.childNodes], bn = [...b.childNodes];
+  // on the phone, agents' rows and portraits move as their states change: they are matched by name (patchByName)
+  if (a.nodeType === 1 && a.closest("#phone, #drail") && bn.length && bn.every(x => x.nodeType === 1 && phKey(x))) return patchByName(a, b);
   if (an.length !== bn.length) { keepFeeds(a, b); a.replaceChildren(...b.childNodes); return; }
   an.forEach((x, i) => patchNode(x, bn[i]));
+}
+// patchByName: as patch, but children that carry a data-name are matched by it, not by place, so one that moves along
+// (a row reordered by state) is moved, not rebuilt: a rebuilt portrait is a new image, which a phone shows blank until
+// it has loaded again (owner, 2026-11-09: the phone's portrait strip "sometimes" a row of empty frames).
+const phKey = x => x.dataset.name || x.dataset.open || x.dataset.menuName;
+function patchByName(el, html) {
+  let src = html;
+  if (typeof html === "string") { const t = document.createElement("template"); t.innerHTML = html; src = t.content; }
+  const old = new Map([...el.children].filter(phKey).map(x => [x.nodeName + phKey(x), x]));
+  const kids = [...src.childNodes].map(b => { const a = b.nodeType === 1 && phKey(b) && old.get(b.nodeName + phKey(b)); if (!a) return b; old.delete(b.nodeName + phKey(b)); patchKeyed(a, b); return a; });
+  if (kids.length !== el.childNodes.length || kids.some((k, i) => el.childNodes[i] !== k)) el.replaceChildren(...kids);
+}
+// patchNode for two that are the same agent's: its own name is not compared again (a row's data-name may be absent)
+function patchKeyed(a, b) {
+  if (a.isEqualNode(b)) return;
+  for (const {name} of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
+  for (const {name, value} of [...b.attributes]) if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+  patchKids(a, b);
 }
 // A feed left empty to be kept takes the one on screen with its key, when what holds it is replaced.
 function keepFeeds(a, b) {
@@ -6788,6 +6829,7 @@ addEventListener("keydown", e => {
   e.preventDefault(); e.stopPropagation(); act();
 }, true);
 addEventListener("mousedown", e => {
+  if (typeof phHeld === "number" && Date.now() - phHeld < 800) return;   // a phone's held finger lifting under its new sheet
   if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
 }, true);
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
@@ -6833,7 +6875,8 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
-      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat</div>` : "") + `<div class="sep"></div>${compact}${power}`), beside, stay);
+      (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat</div>` : "") + `<div class="sep"></div>${compact}${power}`) +
+    (phoneOn() ? `<div class="sep"></div><div class="mi" data-go="fav">${MENU_ICON.star}${phFav(name) ? "Remove from favourites" : "Add to favourites"}</div>` : ""), beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
   menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
@@ -6841,6 +6884,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     if (go === "ask") return agentMenu(anchor, name, beside, false, true);
     menuOff(true);
     if (go === "chat") chatWith(chatIn, name);
+    else if (go === "fav") phFavToggle(name);
     else if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
     else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
     else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, Open shows the agent there
@@ -7009,36 +7053,48 @@ function phTeamState() {
 }
 // How the Agents and Portraits tabs order the team: by status (waiting, working, idle, stopped) or by role.
 const phOrder = () => localStorage.getItem("phoneorder") === "role" ? "role" : "state";
+// Favourites (owner, 2026-11-09: "favourites ... listed at the top"): agents starred from their menu, kept in this browser
+// in the order they were starred, shown first on the Agents tab in either order and not again below.
+const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+const phFav = name => phFavs().includes(name);
+function phFavToggle(name) {
+  const f = phFavs(), next = f.includes(name) ? f.filter(x => x !== name) : [...f, name];
+  try { localStorage.setItem("phonefavs", JSON.stringify(next)); } catch (e) {}
+  phoneDraw();
+}
 // [role, its agents] in the page's role order; within a role the roster's order, running agents and then stopped ones
 function phByRole() {
   const all = [...S.agents, ...S.bench];
   return roleList().map(r => [r, all.filter(a => a.role === r.role)]).filter(([, list]) => list.length);
 }
 function phListHtml() {
-  const live = S.agents.filter(a => a.live), wait = live.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
+  const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
+  const notFav = a => !favs.includes(a);
+  const live = S.agents.filter(a => a.live && notFav(a)), wait = live.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
   const work = live.filter(a => a.status !== "waiting" && (a.status === "busy" || a.compacting || a.status === "shell"));
   const idle = live.filter(a => !wait.includes(a) && !work.includes(a));
-  const off = [...S.agents.filter(a => !a.live), ...S.bench];
+  const off = [...S.agents.filter(a => !a.live), ...S.bench].filter(notFav);
   const banner = a => { const ask = (a.feed || []).find(it => it.kind === "ask");
-    return `<button class="ph-wait waiting" data-open="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
+    return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
   const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
-    return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
+    return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
       (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : big ? "" : `<span class="ph-role">${esc(a.roleName || "")}</span>`) +
       `<span class="ph-right">${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
       (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
-  if (phOrder() === "role") {
-    // by role (owner, 2026-11-08): each role's agents in the roster's order, running or not, a stopped one greyed
-    const rrow = a => { if (!a.live) return `<button class="ph-row off" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
+  // by role (owner, 2026-11-08): each role's agents in the roster's order, running or not, a stopped one greyed
+  const rrow = a => { if (!a.live) return `<button class="ph-row off" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
       const st = stOf(a), last = phLast(a), n = unseen(a), busy = st === "busy" || st === "compacting" || st === "waiting";
-      return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
+      return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
         (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : "") +
         `<span class="ph-right">${n ? unseenBadge(n) : ""}<span style="color:${st === "waiting" ? "var(--amber)" : busy ? "var(--green)" : "var(--mute)"}">${STATE[st] || esc(st)}</span> ${ago(a.held)}</span></span>` +
         (busy && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
-    return wait.map(banner).join("") + phByRole().map(([r, list]) => `<section><h2>${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
+  const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites · ${favs.length}</h2><div class="ph-list">${favs.map(rrow).join("")}</div></section>` : "";
+  if (phOrder() === "role") {
+    return fav + wait.map(banner).join("") + phByRole().map(([r, list]) => [r, list.filter(notFav)]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
       (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
   }
-  return wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
+  return fav + wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
     (off.length ? `<section><h2>Stopped · ${off.length}</h2><div class="ph-chips">${off.map(a => `<button class="ph-chip${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
 }
@@ -7072,14 +7128,32 @@ function phMixFlip(key, x) {
   localStorage.setItem("phonemix", JSON.stringify({roles: key === "roles" ? next : n.roles, clanes: key === "roles" ? n.clanes : next}));
   phMixAt = 0; phoneDraw();
 }
+// the Combined tab's filters: one ⋯ in its header, lit while something is left out, opening its Roles and its lanes
 function phMixFilters(body) {
-  const head = body.querySelector(".teamlog .thead"), lanesBtn = head?.querySelector(".clanes");
+  const head = body.querySelector(".teamlog .thead");
   if (!head) return;
-  const n = phMixNode(), all = roleList().map(r => r.role);
-  if (!head.querySelector(".roles")) (lanesBtn || head).insertAdjacentHTML(lanesBtn ? "beforebegin" : "beforeend", filterBtn("roles", "phroles", n.roles, all, roleItems(), "Roles"));
-  filterButton(head.querySelector(".roles"), roleItems(), () => phMixNode().roles, r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`, r => phMixFlip("roles", r), "Roles");
-  if (lanesBtn && !lanesBtn.querySelector("span")) lanesBtn.insertAdjacentHTML("beforeend", "<span>Lanes</span>");   // named, as Roles is
-  if (lanesBtn) filterButton(lanesBtn, CLANES, () => phMixNode().clanes, l => CLANE_TIP[l], l => phMixFlip("clanes", l));
+  head.querySelectorAll(".fbtn").forEach(b => b.remove()); head.classList.add("phmix");
+  const n = phMixNode(), some = n.roles.length < roleList().length || n.clanes.length < CALL.length;
+  head.insertAdjacentHTML("beforeend", `<b class="phmixmore fbtn${some ? " some" : ""}" data-menu="phmix" role="button" aria-label="Filter: roles and lanes" title="Roles and lanes">${PH_ICON.more}</b>`);
+  head.querySelector(".phmixmore").onclick = e => { e.stopPropagation(); phMixMenu(e.currentTarget); };
+}
+function phMixMenu(btn) {
+  if (menuOn("phmix")) return menuOff(true);
+  const tick = MENU_ICON.check.replace("<svg", '<svg class="tick"');
+  const row = (k, l, t, icon) => `<div class="mi" data-k="${k}" data-lane="${esc(l)}">${icon || ""}${esc(t)}${tick}</div>`;
+  menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>` + roleItems().map(([l, t, icon]) => row("roles", l, t, icon)).join("") +
+    `<div class="hd sec"><div>Lanes</div></div>` + CLANES.map(([l, t]) => row("clanes", l, t || S.owner, MENU_ICON[l])).join(""), false);
+  const ticks = () => { const n = phMixNode(); menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off", !n[mi.dataset.k].includes(mi.dataset.lane))); };
+  ticks();
+  menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.onclick = () => { phMixFlip(mi.dataset.k, mi.dataset.lane); ticks(); });
+}
+// The page under a menu on the phone is dimmed, and a tap there closes the menu and does nothing else; the menu
+// follows a finger pulling it down and closes if pulled far enough.
+{
+  const back = document.createElement("div"); back.id = "phmenuback"; document.body.append(back);
+  back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };   // not the lift of the finger that held for it
+  new MutationObserver(() => back.classList.toggle("on", phoneOn() && menu.classList.contains("on"))).observe(menu, {attributes: true, attributeFilter: ["class"]});
+  phSheetDrag(menu, () => menuOff(true), back, () => phoneOn());
 }
 async function phLoad(tab) {
   // the Team chat and the Day log are read only while their tab is showing, as their panes are
@@ -7116,8 +7190,10 @@ function phoneDraw() {
       if (o) openDetail(o.dataset.open);
       else if (m) agentMenu(m, m.dataset.menuName, false, false);
     });
-    // a press held on a portrait opens its details (its menu, with its second portrait) as a right-click does
-    body.addEventListener("contextmenu", e => { const m = e.target.closest("[data-menu-name]"); if (!m) return; e.preventDefault(); phHeld = Date.now(); agentMenu(m, m.dataset.menuName, false, false); });
+    // a press held on an agent (a row, a portrait) opens its menu as a sheet, as a right-click does. The hold is timed
+    // here from the touch, because a phone's browser may send no contextmenu for it (Safari on an iPhone never does);
+    // one that does is the same hold, and opens nothing twice.
+    phHoldWire();
   }
   // the logo flashes, and opens the agent waiting longest, as the header's does
   const logo = ph.querySelector(".ph-logo"), waits = S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
@@ -7157,6 +7233,24 @@ function phoneDraw() {
   if (tab === "list" || tab === "faces") markSeen([]);
 }
 let phHeld = 0;
+// A press held on an agent anywhere on the phone (a row, a portrait, the agent view's strip of portraits, a name in
+// Combined) opens its menu, as a sheet. Wired once, on the document.
+const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name]";
+function phHoldWire() {
+  if (phHoldWire.done) return; phHoldWire.done = true;
+  const who = t => { const m = phoneOn() && t.closest?.(PH_HOLD), n = m && (m.dataset.menuName || m.dataset.name); return n && [...S.agents, ...S.bench].some(a => a.name === n) ? [m, n] : null; };   // a benched or stopped agent has its menu too
+  const held = ([m, n]) => { if (Date.now() - phHeld < 800) return; phHeld = Date.now(); navigator.vibrate?.(10); agentMenu(m, n, false, false); };
+  let hold = 0, at = null;
+  document.addEventListener("touchstart", e => {
+    clearTimeout(hold); const w = e.touches.length === 1 && who(e.target); if (!w) return;
+    at = [e.touches[0].clientX, e.touches[0].clientY]; hold = setTimeout(() => held(w), 480);
+  }, {passive: true});
+  document.addEventListener("touchmove", e => { if (at && Math.hypot(e.touches[0].clientX - at[0], e.touches[0].clientY - at[1]) > 10) clearTimeout(hold); }, {passive: true});
+  document.addEventListener("touchend", e => { clearTimeout(hold); if (Date.now() - phHeld < 800 && e.cancelable) e.preventDefault(); });   // the lift after a hold clicks nothing
+  document.addEventListener("touchcancel", () => clearTimeout(hold));
+  document.addEventListener("contextmenu", e => { const w = who(e.target); if (!w) { if (phoneOn() && e.target.closest?.("#phone img, #drail img")) e.preventDefault(); return; } e.preventDefault(); e.stopPropagation(); clearTimeout(hold); held(w); }, true);
+  document.addEventListener("click", e => { if (Date.now() - phHeld < 800 && phoneOn() && !e.target.closest("#menu")) { e.preventDefault(); e.stopPropagation(); } }, true);
+}
 // The header's gauge: one of the bar's plug-ins (the same reading the desktop bar shows), chosen in the team menu and
 // kept in this browser; until one is chosen, the day bar, else the week's (owner, 2026-11-08: "I want the day bar for now").
 const phGauges = () => plugs().filter(x => !x.hidden && (x.meter || x.value) && x.value !== "…");
@@ -7220,19 +7314,20 @@ function phoneMenuOff() {
 }
 // The sheet follows a finger pulling it down, from its handle or from anywhere once its list is scrolled to the top,
 // and closes if pulled far enough or flicked; otherwise it springs back (owner, 2026-11-08).
-function phSheetDrag(panel) {
+function phSheetDrag(panel, close = phoneMenuOff, back = null, when = () => true) {
   let y0 = null, t0 = 0, dy = 0;
-  panel.ontouchstart = e => { if (e.touches.length !== 1 || panel.scrollTop > 0 && !e.target.closest(".grab")) { y0 = null; return; } y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; panel.style.transition = "none"; };
+  const dim = () => back || $("#phsheet");
+  panel.ontouchstart = e => { if (!when() || e.touches.length !== 1 || panel.scrollTop > 0 && !e.target.closest(".grab")) { y0 = null; return; } y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; panel.style.transition = "none"; };
   panel.ontouchmove = e => {
     if (y0 == null) return;
     dy = Math.max(0, e.touches[0].clientY - y0);
-    if (dy > 0) { e.preventDefault(); panel.style.transform = `translateY(${dy}px)`; $("#phsheet").style.background = `rgba(0,0,0,${0.45 * Math.max(0, 1 - dy / panel.offsetHeight)})`; }
+    if (dy > 0) { e.preventDefault(); panel.style.transform = `translateY(${dy}px)`; dim().style.background = `rgba(0,0,0,${0.45 * Math.max(0, 1 - dy / panel.offsetHeight)})`; }
   };
   panel.ontouchend = panel.ontouchcancel = () => {
     if (y0 == null) return;
-    y0 = null; panel.style.transition = ""; $("#phsheet").style.background = "";
+    y0 = null; panel.style.transition = ""; dim().style.background = "";
     const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
-    if (dy > Math.min(140, panel.offsetHeight / 3) || fast) phoneMenuOff(); else panel.style.transform = "";
+    if (dy > Math.min(140, panel.offsetHeight / 3) || fast) { close(); if (back) setTimeout(() => { panel.style.transform = ""; }, 50); } else panel.style.transform = "";
   };
 }
 $("#phoneback").onclick = () => { localStorage.removeItem("phone"); phoneDraw(); };
@@ -7261,13 +7356,17 @@ function phError(e) {
   box.querySelector('[data-go="x"]').onclick = () => box.remove();
 }
 addEventListener("error", e => { if (document.documentElement.classList.contains("phone")) phError(e.error || e.message + " at " + e.filename + ":" + e.lineno + ":" + e.colno); });
-addEventListener("unhandledrejection", e => { if (document.documentElement.classList.contains("phone")) phError(e.reason); });
+// A request the network dropped (the phone asleep, or between Wi-Fi and mobile) is not a layout fault, and the next poll
+// asks again (owner, 2026-11-09: "Failed to fetch at refreshDetail" over the page): Chrome says "Failed to fetch", Safari
+// "Load failed", Firefox "NetworkError…", and an aborted one is an AbortError.
+const netDrop = r => r && (r.name === "AbortError" || r.name === "TypeError" && /failed to fetch|load failed|networkerror|network connection was lost/i.test(r.message || ""));
+addEventListener("unhandledrejection", e => { if (document.documentElement.classList.contains("phone") && !netDrop(e.reason)) phError(e.reason); });
 // The agent view on the phone: a back arrow, the others as portraits, a suggestion to tap. Back on the phone (its
 // gesture or button) closes the view rather than leaving the page.
 function phRail() {
   const order = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
   const list = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
-  patch($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
+  patchByName($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
     return `<button class="phf ${stOf(a)}${a.name === open ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[stOf(a)] || ""}">` +
       `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : ""}</button>`; }).join(""));
   $("#drail").onclick = e => { const b = e.target.closest(".phf"); if (b && b.dataset.name !== open) openDetail(b.dataset.name); };
@@ -7607,8 +7706,10 @@ def self_test():
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
         t("  its tabs are Agents, Portraits, Combined and the Day log", 'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"]]' in PAGE, True)
-        t("  Combined has its own Roles and lanes filters, kept in this browser",
-          ('filterBtn("roles", "phroles", n.roles, all, roleItems(), "Roles")' in PAGE, 'localStorage.setItem("phonemix"' in PAGE, ".maxbtn, .newest\").forEach" in PAGE), (True, True, True))
+        t("  Combined has its own Roles and lanes, behind one ⋯ in its header, kept in this browser",
+          ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
+        t("  every menu is a sheet from the bottom over a dimmed page, which a tap closes",
+          ("html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0" in PAGE, 'back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };' in PAGE), (True, True))
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
