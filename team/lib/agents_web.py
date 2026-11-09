@@ -3666,8 +3666,16 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu[data-key="help"]{width:340px}
 .it .tx{zoom:var(--conv,1)}
 #menu .set{display:flex;align-items:center;gap:12px;padding:3px 8px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
+#menu[data-key=theme]{max-height:calc(100vh - 12px);overflow:auto}
+#menu .hd.sub{margin:6px 0 2px;padding-bottom:4px}
+#menu .set input[type=color]{margin-left:auto;width:34px;height:20px;padding:0 2px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);cursor:pointer}
+#menu .set .unset{width:12px;font-weight:400;color:var(--faint);cursor:pointer}
+#menu .set .unset.off{visibility:hidden}
+#menu .set .unset:hover{color:var(--red)}
+#menu .presets{margin-left:auto;display:flex;gap:4px}
+#menu .presets button{margin:0}
 #menu .set select{margin-left:auto;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:1px 4px}
-#menu button[data-reset]{margin:6px 8px 2px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 10px;cursor:pointer}
+#menu :is(button[data-reset],button[data-edit-theme],button[data-back],.presets button){margin:6px 8px 2px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 10px;cursor:pointer}
 #slash{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 8px 28px #0006}
 #slash .sl{display:flex;gap:10px;align-items:baseline;padding:4px 8px;border-radius:var(--r-s);cursor:pointer;font-size:calc(var(--t-m)*var(--fs,1)*var(--boxfs,1));min-width:0}
 #slash .sl b{flex:none;font:650 calc(var(--t-m)*var(--fs,1)*var(--boxfs,1)) var(--mono);color:var(--text)}
@@ -4130,7 +4138,7 @@ html.phoneoff #phoneback{display:block}
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="view"><span id="pagemode"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lock"><b class="fbtn" id="lock"></b></div>
-  <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="Light or dark"></span><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="The theme"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="settings"><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="help"><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b><i class="bx" title="Take this out of the bar">✕</i></div>
 </header>
@@ -4150,9 +4158,54 @@ if (ONLY) document.documentElement.classList.add("only");
 // Light or dark, remembered in this browser; dark unless chosen.
 // The favicon follows the page's theme too: the dark icon is in the page head, the light one here.
 const FAVICON = {dark: document.querySelector("link[rel=icon]").href, light: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='1.5' y='1.5' width='197' height='197' rx='39' fill='%23F4F4F0' stroke='%23D6D6CF' stroke-width='3'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%230D9488'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%230D9488'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%230D9488'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%230D9488'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%2312161C'/%3E%3C/svg%3E"};
-function theme(t) { document.documentElement.classList.toggle("light", t === "light"); document.querySelector("link[rel=icon]").href = FAVICON[t] || FAVICON.dark; localStorage.setItem("theme", t); $("#theme").textContent = t === "light" ? "☾ Dark" : "☀ Light"; }
+// The page's theme, kept in this browser: Dark, Light, or Custom (owner, 2026-11-05: "the 3rd theme option is just
+// 'custom' and then you set your colours"), the theme editor's: the page's colours, each gauge's and each agent's,
+// over a light or dark base, which sets the text on agents' colours, the logo and the browser's own controls.
+const THEMES = ["dark", "light", "custom"], THEME_NAME = {dark: "☾ Dark", light: "☀ Light", custom: "◐ Custom"};
+// The colours the editor sets; the page's other tokens follow from them (themeTokens).
+const PAGE_COLOURS = [["bg", "Page"], ["section", "Panels"], ["card", "Cards"], ["text", "Text"], ["mute", "Muted text"],
+  ["line", "Lines"], ["green", "Good"], ["amber", "Warning"], ["red", "Bad"], ["cyan", "Accent"]];
+// Where the editor starts from: the page's own two themes, and a warm light one, cream where Light is white.
+const THEME_PRESETS = {
+  dark: {base: "dark", page: {bg: "#07090d", section: "#0b0f15", card: "#161b22", text: "#e6edf3", mute: "#8b949e", line: "#262c35",
+    green: "#3fb950", amber: "#e3b341", red: "#f85149", cyan: "#39c5cf"}},
+  light: {base: "light", page: {bg: "#f3f5f8", section: "#fbfbfc", card: "#ffffff", text: "#1f2328", mute: "#59636e", line: "#e3e6ea",
+    green: "#1a7f37", amber: "#d29a00", red: "#cf222e", cyan: "#0969da"}},
+  warm: {base: "light", page: {bg: "#efe8dc", section: "#f6f0e6", card: "#fbf7f0", text: "#2b2620", mute: "#6f655a", line: "#e0d5c4",
+    green: "#3f7f3a", amber: "#b7791f", red: "#b5402f", cyan: "#2f7d86"}},
+};
+const themeNow = () => { const t = localStorage.getItem("theme"); return THEMES.includes(t) ? t : "dark"; };
+// The custom theme as saved, Warm light until it is first changed; a gauge, role or agent it does not name keeps its own
+// colour.
+function customTheme() {
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem("customTheme") || "null"); } catch (e) {}
+  const from = THEME_PRESETS[c?.base === "dark" ? "dark" : "warm"];
+  return {base: from.base, page: {...from.page, ...c?.page}, perf: {...c?.perf}, roles: {...c?.roles}, agents: {...c?.agents}};
+}
+const mixed = (a, b, pct) => `color-mix(in srgb, ${a} ${pct}%, ${b})`;
+const themeTokens = p => ({"--bg": p.bg, "--section": p.section, "--panel": p.section, "--chpanel": p.section,
+  "--card1": p.card, "--card2": mixed(p.card, p.bg, 92), "--box": p.card, "--soft": p.card, "--chtile": p.card,
+  "--text": p.text, "--text2": mixed(p.text, p.card, 85), "--mute": p.mute, "--chmute": p.mute, "--faint": mixed(p.mute, p.section, 60),
+  "--line": p.line, "--line2": mixed(p.line, p.text, 82), "--track": p.line, "--on": mixed(p.line, p.text, 75),
+  "--hover": mixed(p.text, "transparent", 30), "--codebg": mixed(p.text, "transparent", 7), "--thumb": mixed(p.text, "transparent", 14),
+  "--glow1": "transparent", "--glow2": "transparent", "--green": p.green, "--amber": p.amber, "--red": p.red, "--cyan": p.cyan, "--chhigh": p.amber});
+function theme(t) {
+  if (!THEMES.includes(t)) t = "dark";
+  const c = t === "custom" && customTheme(), base = c ? c.base : t, root = document.documentElement, tokens = c ? themeTokens(c.page) : {};
+  root.classList.toggle("light", base === "light");
+  for (const k of Object.keys(themeTokens(THEME_PRESETS.dark.page))) tokens[k] ? root.style.setProperty(k, tokens[k]) : root.style.removeProperty(k);
+  document.querySelector("link[rel=icon]").href = FAVICON[base] || FAVICON.dark;
+  localStorage.setItem("theme", t);
+  // the pill names the theme showing, and a rest on it the one a click moves to
+  $("#theme").textContent = THEME_NAME[t]; $("#theme").title = "Click for " + THEME_NAME[THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]].slice(2);
+}
 theme(new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme") || "dark");
-$("#theme").onclick = () => theme(document.documentElement.classList.contains("light") ? "dark" : "light");
+// a theme changed after the page has drawn: the agents' and gauges' colours are drawn into the page, so it is drawn again
+function retheme(t) { theme(t); if (S) { paintAgents(); draw(); } }
+$("#theme").onclick = () => retheme(THEMES[(THEMES.indexOf(themeNow()) + 1) % THEMES.length]);
+// a theme chosen, or the custom one edited, in another of this browser's tabs of the page is shown in this one too
+addEventListener("storage", e => { if (e.key === "theme" || e.key === "customTheme") retheme(themeNow()); });
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 // How the page writes an agent's name: the roster's spelling unless the server says otherwise. Attributes that name
 // an agent for the code (data-name, data-tab) keep the roster's, as everything sent back to the server must.
@@ -4221,7 +4274,7 @@ const stOf = a => !a.live ? "off" : a.compacting ? "compacting" : a.status !== "
 const heldOf = a => stOf(a) === "wanted" ? a.wantedHeld : a.held;
 // waiting on a prompt or wanting the owner: the agents the header's badge and Alt+W lead to, longest first
 const needing = () => S.agents.filter(a => ["waiting", "wanted"].includes(stOf(a))).sort((x, y) => (heldOf(y) || 0) - (heldOf(x) || 0));
-let S = null, colours = {}, open = null;
+let S = null, colours = {}, paintKey = "", open = null;
 
 function since(ts) { return ts ? ago(Math.max(0, Math.round(Date.now() / 1000 - Date.parse(ts) / 1000))) : ""; }
 
@@ -5507,7 +5560,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name)].join("|");
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -5655,7 +5708,7 @@ const teamItems = () => teamNames().map(x => [x, x, `<span class="dot" style="--
 function teamHtml(path, full, hide, big) {
   const names = teamNames();
   const kept = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? kept : kept.slice(-30);
-  const key = ["team", teamVer, noImage.size, full, [...hide].sort()].join("|");
+  const key = ["team", teamVer, noImage.size, full, [...hide].sort(), paintKey].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(shown(m.from))}</span>` +
     `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(shown(m.to))}</span><span class="tx">${md(m.text)}</span>` +
@@ -5689,7 +5742,7 @@ function combinedHtml(path, n, full, big) {
     .reduce(foldSent, []);
   const log = full ? items : items.slice(-30);
   seenUpTo(log);
-  const key = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, [...openRuns], noImage.size].join("|");
+  const key = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, [...openRuns], noImage.size, paintKey].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
   // the chat opened from an agent's menu in this pane: its badge and its message box, under the conversation
@@ -5812,6 +5865,8 @@ async function loadPerf() {
 }
 const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"], ["fan", "Fans"]];
 const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba", fan: "#ff9b72"};
+// a figure's colour: the custom theme's for it, while that is the theme, else its own
+const perfColour = k => (themeNow() === "custom" && customTheme().perf[k]) || PERF_COLOUR[k];
 const perfOn = n => Array.isArray(n.perf) ? n.perf : PERF_ITEMS.map(([k]) => k);
 const perfBtn = (path, n) => filterBtn("perfsel", "perf:" + path, perfOn(n), PERF_ITEMS.map(([k]) => k), PERF_ITEMS, "");
 // sizes in Task Manager's way: 1024 to a K, a GB and so on; a disk's rate in bytes and the network's in bits
@@ -5827,11 +5882,11 @@ function perfHtml(n) {
   // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C);
   // a row with a series (sk, its key in the history) opens it as the enlarged graph, its values read as gunit
   const row = (key, name, detail, pct, sk, ceil, tip = "", unit = "%", colour = gauge(pct), gunit = "%") =>
-    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${PERF_COLOUR[key]}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
-    (dials ? dial(name, detail, pct, sk && h[sk], ceil, unit, colour, gunit, PERF_COLOUR[key]) :
+    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${perfColour(key)}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    (dials ? dial(name, detail, pct, sk && h[sk], ceil, unit, colour, gunit, perfColour(key)) :
     `<div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
     `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${colour}">${Math.round(pct)}${unit}</span>`}</div>` +
-    `${sk && h[sk] ? spark(h[sk], ceil, PERF_COLOUR[key]) : ""}`) + `</div>`;
+    `${sk && h[sk] ? spark(h[sk], ceil, perfColour(key)) : ""}`) + `</div>`;
   const rows = {
     cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, "cpu", 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
     mem: () => { const m = d.mem;
@@ -5907,7 +5962,7 @@ addEventListener("click", async e => {
   if (!of) return;
   await loadPerf();   // the sampling behind the graph, and which network and GPU are the busiest
   const g = of();
-  if (g) openGraph(g[0], g[1], PERF_COLOUR[g[2]], g[3]);
+  if (g) openGraph(g[0], g[1], perfColour(g[2]), g[3]);
 });
 function closeGraph() { $("#graphbox").classList.remove("on"); clearInterval(graphTimer); graphOf = null; }
 $("#graphbox").onclick = e => { if (e.target.id === "graphbox" || e.target.id === "graphx") closeGraph(); };
@@ -6247,11 +6302,19 @@ function beat() {
   for (const a of document.getAnimations()) if (a instanceof CSSAnimation && a.startTime !== 0) a.startTime = 0;
 }
 
+// Each agent in its colour: while the theme is Custom, its own there, else its role's there; else its role's (the server's).
+function paintAgents() {
+  const c = themeNow() === "custom" ? customTheme() : {agents: {}, roles: {}};
+  for (const a of [...S.agents, ...S.bench]) a.colour = c.agents[a.name] || c.roles[a.role] || a.roleColour;
+  colours = Object.fromEntries([...S.agents, ...S.bench].map(a => [a.name, a.colour]));
+  paintKey = Object.values(colours).join();   // in the conversations' keys, so a feed kept as drawn is drawn again in new colours
+}
 async function load() {
   try {
     S = await (await fetch("/api/state", {cache: "no-store"})).json();
     await loadPaneConvs();
-    colours = Object.fromEntries([...S.agents, ...S.bench].map(a => [a.name, a.colour]));
+    for (const a of [...S.agents, ...S.bench]) a.roleColour = a.colour;
+    paintAgents();
     draw();
     if (menu.classList.contains("on")) menu.refresh?.();
   } catch (e) {
@@ -7040,6 +7103,8 @@ function settingsMenu(redraw) {
     `<label class="set"><span>Text size</span>${pick('data-set="fs"', set.fs, sizes)}</label>` +
     `<label class="set"><span>Conversation text</span>${pick('data-set="conv"', set.conv, sizes)}</label>` +
     `<label class="set"><span>Message box text</span>${pick('data-set="box"', set.box, sizes)}</label>` +
+    `<label class="set"><span>Theme</span>${pick("data-theme", themeNow(), [["dark", "Dark"], ["light", "Light"], ["custom", "Custom"]])}</label>` +
+    (themeNow() === "custom" ? `<button data-edit-theme>Edit the custom theme…</button>` : "") +
     `<label class="set"><span>Suggested prompts</span>${pick('data-set="suggest"', set.suggest, [["on", "shown"], ["off", "hidden"]])}</label>` +
     `<div class="hd"><div>Jump to an agent</div></div>` +
     `<label class="set"><span>Hold</span>${pick('data-set="mod"', set.mod, Object.entries(MODS))}</label>` +
@@ -7047,6 +7112,7 @@ function settingsMenu(redraw) {
     `<div class="hd"><div>Switch view</div></div>${vkeys}` +
     `<button data-reset>Reset to defaults</button>`, false, redraw);
   menu.querySelectorAll("select").forEach(sel => sel.onchange = () => {
+    if (sel.hasAttribute("data-theme")) { retheme(sel.value); settingsMenu(true); return; }
     const now = settings();
     if (sel.dataset.agent) {   // the keys as they stand, list order included, with this agent moved to its new key
       const keys = Object.fromEntries(Object.entries(jumpKeys()).filter(([d, n]) => n !== sel.dataset.agent && d !== sel.value));
@@ -7060,6 +7126,43 @@ function settingsMenu(redraw) {
     localStorage.setItem("settings", JSON.stringify(now)); applySettings(); settingsMenu(true); draw();
   });
   menu.querySelector("[data-reset]").onclick = () => { localStorage.removeItem("settings"); applySettings(); settingsMenu(true); };
+  const edit = menu.querySelector("[data-edit-theme]");
+  if (edit) edit.onclick = () => themeMenu();
+}
+// The theme editor, from Settings: where to start from (a preset), the base, then a colour for each of the page's
+// colours, each gauge, each role and each agent (an agent's own colour over its role's). Each change is saved and
+// shown at once; a gauge's, role's or agent's ✕ gives it back its own colour.
+const GAUGE_NAMES = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"]];
+function themeMenu(redraw) {
+  const c = customTheme(), people = [...S.agents, ...S.bench];
+  const roles = [...new Map(people.map(a => [a.role, a])).values()];   // each role once, by its first agent
+  const row = (attr, label, value, own) => `<label class="set"><span>${esc(label)}</span><input type="color" ${attr} value="${esc(value)}">` +
+    `<b class="unset${own ? "" : " off"}" ${attr} title="Back to its own colour">✕</b></label>`;
+  menuAt($("#settings"), "theme", `<div class="hd"><div>Custom theme, kept in this browser</div></div>` +
+    `<div class="set"><span>Start from</span><span class="presets">` +
+      [["dark", "Dark"], ["light", "Light"], ["warm", "Warm light"]].map(([k, l]) => `<button data-preset="${k}">${l}</button>`).join("") + `</span></div>` +
+    `<label class="set"><span>Based on</span><select data-base>` +
+      [["light", "Light"], ["dark", "Dark"]].map(([v, l]) => `<option value="${v}"${c.base === v ? " selected" : ""}>${l}</option>`).join("") + `</select></label>` +
+    `<div class="hd sub"><div>Page</div></div>` + PAGE_COLOURS.map(([k, l]) => row(`data-page="${k}"`, l, c.page[k], false)).join("") +
+    `<div class="hd sub"><div>Gauges</div></div>` + GAUGE_NAMES.map(([k, l]) => row(`data-perf="${k}"`, l, c.perf[k] || PERF_COLOUR[k], !!c.perf[k])).join("") +
+    `<div class="hd sub"><div>Roles</div></div>` + roles.map(a => row(`data-role="${esc(a.role)}"`, a.roleName, c.roles[a.role] || a.roleColour, !!c.roles[a.role])).join("") +
+    `<div class="hd sub"><div>Agents</div></div>` +
+      people.map(a => row(`data-agent="${esc(a.name)}"`, shown(a.name), c.agents[a.name] || c.roles[a.role] || a.roleColour, !!c.agents[a.name])).join("") +
+    `<button data-back>Back to Settings</button>`, false, redraw);
+  const save = (t, again) => { localStorage.setItem("customTheme", JSON.stringify(t)); retheme("custom"); if (again) themeMenu(true); };
+  const put = (t, d, v) => {
+    if (d.page) { t.page[d.page] = v; return; }
+    const [set, k] = d.perf ? [t.perf, d.perf] : d.role ? [t.roles, d.role] : [t.agents, d.agent];
+    v ? set[k] = v : delete set[k];
+  };
+  menu.querySelectorAll("input[type=color]").forEach(inp => {
+    // the page's colours follow the picker as it moves; a gauge or an agent, which needs the page drawn again, once chosen
+    inp[inp.dataset.page ? "oninput" : "onchange"] = () => { const t = customTheme(); put(t, inp.dataset, inp.value); save(t, !inp.dataset.page); };
+  });
+  menu.querySelectorAll(".unset").forEach(x => x.onclick = e => { e.preventDefault(); const t = customTheme(); put(t, x.dataset, ""); save(t, true); });
+  menu.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => { const t = customTheme(), p = THEME_PRESETS[b.dataset.preset]; save({...t, base: p.base, page: {...p.page}}, true); });
+  menu.querySelector("[data-base]").onchange = e => save({...customTheme(), base: e.target.value}, true);
+  menu.querySelector("[data-back]").onclick = () => settingsMenu();
 }
 $("#settings").onclick = e => { e.stopPropagation(); if (S) settingsMenu(); };
 // Key -> agent: the keys given an agent, or while none is, the first nine running agents in list order.
@@ -7611,7 +7714,7 @@ function phoneMenu(again) {
       clearTimeout(phStopAsk); phStopAsk = null; post("/api/team/stop"); phoneMenuOff();
     }
     else if (go === "nudge") { const pause = nudgeOn; nudgerTo = pause; setTimeout(() => { nudgerTo = null; }, 10000); post(pause ? "/api/nudger/pause" : "/api/nudger/resume"); phoneMenu(); }
-    else if (go === "light" || go === "dark") { theme(go); phoneMenu(); }
+    else if (go === "light" || go === "dark") { retheme(go); phoneMenu(); }
     else if (go === "by-state" || go === "by-role") { localStorage.setItem("phoneorder", go.slice(3)); phoneDraw(); phoneMenu(); }
     else if (go === "fs") { const steps = [90, 100, 115, 130], next = steps[(steps.indexOf(fs) + 1) % steps.length] || 100; const s = settings(); s.fs = next; localStorage.setItem("settings", JSON.stringify(s)); applySettings(); phoneMenu(); }
     else if (go === "desk") { localStorage.setItem("phone", "off"); phoneMenuOff(); phoneDraw(); draw(); }
@@ -8278,6 +8381,9 @@ def self_test():
           (True, True))
         t("  the header's stats one height with meters one thickness, its buttons one height, and bench portraits square",
           (".pspark{width:190px;height:14px;" in PAGE, "#lock{height:var(--ctl);" in PAGE, ".face::after{" in PAGE), (True, True, True))
+        t("a Custom theme beside Dark and Light, its editor colouring the page, each gauge, each role and each agent; the pill names the theme showing",
+          ('const THEMES = ["dark", "light", "custom"]' in PAGE, "function themeMenu(redraw)" in PAGE, 'c.agents[a.name] || c.roles[a.role] || a.roleColour' in PAGE,
+           '$("#theme").textContent = THEME_NAME[t]' in PAGE), (True, True, True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
