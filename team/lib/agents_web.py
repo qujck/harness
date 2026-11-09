@@ -7288,7 +7288,7 @@ function phoneMenu(again) {
     `<h2>TEAM</h2><div class="tstate"><i style="background:${t.colour}"></i><b>${t.word}</b><span style="color:var(--mute)">· ${t.up} up, ${t.off} stopped</span></div>` +
     `<div class="two">` +
       (down || starting ? `<button class="big go" data-go="start"${starting ? " disabled" : ""}>${MENU_ICON.start}${starting ? "Starting…" : "Start team"}</button>`
-        : `<button class="big" data-go="open-lead"${lead?.live ? "" : " disabled"}>${MENU_ICON.open}Open ${esc(shown(lead?.name || "lead"))}</button>`) +
+        : `<button class="big" data-go="open-lead"${lead?.live ? "" : " disabled"}>${MENU_ICON.open}Open lead</button>`) +   // whoever leads now (owner, 2026-11-09: "the button should just say open lead")
       (down || starting ? `<button class="big" disabled>${MENU_ICON.stop}Stopped</button>`
         : stopping ? `<button class="big warn" disabled>${MENU_ICON.stop}Stopping…</button>`
         : `<button class="big ${phStopAsk ? "sure" : "warn"}" data-go="stop"${lead?.live ? "" : " disabled"}>${MENU_ICON.stop}${phStopAsk ? "Tap to confirm" : "Stop team…"}</button>`) +
