@@ -87,6 +87,7 @@ def shown_file(real):
 ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 STATE_DIR = os.path.join(HOME, ".local/state", PROJECT)
+WANTED = os.environ.get("AGENT_WANTED_DIR") or os.path.join(STATE_DIR, "wanted")   # team/owner-wanted's flags, by session id
 PORT = int(os.environ.get("AGENT_WEB_PORT") or "8787")
 PUBLIC_HOST = os.environ.get("AGENT_WEB_PUBLIC_HOST") or ""
 ACCESS_TEAM = (os.environ.get("AGENT_WEB_ACCESS_TEAM") or "").removeprefix("https://").split(".")[0]
@@ -366,6 +367,17 @@ def proc_started(pid):
     except (OSError, ValueError, IndexError, StopIteration):
         return None
     return boot + ticks / os.sysconf("SC_CLK_TCK")
+
+
+def wanted(sid):
+    """The line owner-wanted left for this session, and the flag's age in seconds; (None, None) when it has none."""
+    path = os.path.join(WANTED, sid)
+    try:
+        with open(path) as f:
+            line = f.readline().strip()
+        return (line or "wants you"), max(0, int(time.time() - os.path.getmtime(path)))
+    except (OSError, ValueError):
+        return None, None
 
 
 def live_sessions():
@@ -2449,10 +2461,12 @@ def state():
         used, window = ctx.get("used"), ctx.get("window") or 0
         ser = series(burns.get(sid), now) if sid else []
         since = ((rec or {}).get("statusUpdatedAt") or 0) / 1000
+        want, want_held = wanted(sid) if sid else (None, None)
         agents.append({
             "name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]),
             "tab": tab, "live": bool(rec), "status": (rec or {}).get("status") or ("off" if not rec else "?"),
             "held": int(now - since) if since else None,
+            "wanted": want, "wantedHeld": want_held,
             "ctxUsed": used, "ctxWindow": window,
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""),
@@ -3053,7 +3067,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
-.face.waiting{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
+.face.waiting,.face.wanted{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 .bench > span:first-child:empty{display:none}   /* no "bench" word (owner, 2026-11-02): only its filter button, while unlocked */
 .bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
@@ -3159,7 +3173,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
   color:#000;font:600 calc(12.5px*var(--fs,1)) var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
-.tabbar button.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
+.tabbar button.waiting,.tabbar button.wanted{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
 .card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:11px;border:1px solid var(--line2);
   background:linear-gradient(180deg,var(--card1),var(--card2));overflow:hidden;cursor:pointer;transition:transform .15s,border-color .2s,box-shadow .2s}
@@ -3167,14 +3181,14 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--c);opacity:.9}
 .card.busy{box-shadow:0 0 0 1px #3fb95033,0 0 24px -8px #3fb95066}
 /* a waiting agent is loud: the card's border and glow pulse amber, and its open question flashes inside its own border */
-.card.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
+.card.waiting,.card.wanted{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .card.idle:not(.full) .feed{opacity:.8}
 .card.off{opacity:.45}
 /* an agent the page is stopping fades in and out until its pane closes; one it is starting pulses from grey to its
    colour until it is up */
 @keyframes switching{0%,100%{opacity:1}50%{opacity:.4}}
 .switching{animation:switching 2.4s ease-in-out infinite}
-.switching.waiting,.tabbar button.switching.waiting,.chr.switching.waiting,.face.switching.waiting{animation:alarm 1s ease-in-out infinite,switching 2.4s ease-in-out infinite}
+.switching.waiting,.tabbar button.switching.waiting,.chr.switching.waiting,.face.switching.waiting,.switching.wanted,.tabbar button.switching.wanted,.chr.switching.wanted,.face.switching.wanted{animation:alarm 1s ease-in-out infinite,switching 2.4s ease-in-out infinite}
 .icontabs .face.switching.busy:not(.sel),.iconrow .face.switching.busy{animation:breathe 2.4s ease-in-out infinite,switching 2.4s ease-in-out infinite}
 @keyframes waking{0%,100%{opacity:.45;filter:grayscale(1)}50%{opacity:1;filter:none}}
 .waking{animation:waking 2.4s ease-in-out infinite}
@@ -3193,8 +3207,9 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .state{display:flex;align-items:center;gap:6px;color:var(--text);font-family:var(--sans);font-weight:600}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .busy .dot{background:var(--green);animation:ping 1.4s infinite}
-.waiting .dot{background:var(--amber)}
-.waiting .state{color:var(--amber)}
+.waiting .dot,.wanted .dot{background:var(--amber)}
+.waiting .state,.wanted .state,.state.wanted{color:var(--amber)}
+.wantline{color:var(--amber);font-size:12px;margin:2px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* compacting: a cyan dot pulsing cyan */
 .compacting .dot{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .compacting .state{color:var(--cyan)}
@@ -3509,7 +3524,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   background:var(--chtile);color:var(--chmute);font:calc(10px*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
 .chr.off{opacity:.5}
-.chr.waiting{animation:alarm 1s ease-in-out infinite}
+.chr.waiting,.chr.wanted{animation:alarm 1s ease-in-out infinite}
 .chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
 .chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
@@ -3522,7 +3537,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
 .chr.busy .tl i{background:var(--green);animation:ping 1.4s infinite}
-.chr.waiting .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
+.chr.waiting .tl i,.chr.wanted .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
 .chr.compacting .tl i{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .chr .tr b{font:700 calc(11px*var(--fs,1))/1 var(--mono);color:var(--text)}
@@ -3594,9 +3609,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   cursor:pointer;overflow:hidden;transition:border-color .15s}
 .mini::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--c)}
 .mini:hover{border-color:var(--c)}
-.mini.waiting{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
+.mini.waiting,.mini.wanted{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .mini.off,.tabbar button.off{opacity:.45}
-.mini.cur:not(.waiting){border-color:var(--c)}
+.mini.cur:not(.waiting):not(.wanted){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
 .mini .mtop{display:flex;align-items:center;gap:6px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
 .unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 calc(10.5px*var(--fs,1))/18px var(--sans);text-align:center}
@@ -4081,9 +4096,14 @@ const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
-const STATE = {busy: "working", waiting: "waiting", idle: "idle", shell: "in shell", off: "not running", compacting: "compacting", bench: "on the bench"};
-// what an agent is doing, for its classes and words: not running, compacting, or its session's own status
-const stOf = a => !a.live ? "off" : a.compacting ? "compacting" : a.status;
+const STATE = {busy: "working", waiting: "waiting", wanted: "wants you", idle: "idle", shell: "in shell", off: "not running", compacting: "compacting", bench: "on the bench"};
+// what an agent is doing, for its classes and words: not running, compacting, its session's own status, or - when it
+// is not blocked on a prompt and has raised owner-wanted - wanting the owner
+const stOf = a => !a.live ? "off" : a.compacting ? "compacting" : a.status !== "waiting" && a.wanted ? "wanted" : a.status;
+// how long an agent has been in the state stOf gives it
+const heldOf = a => stOf(a) === "wanted" ? a.wantedHeld : a.held;
+// waiting on a prompt or wanting the owner: the agents the header's badge and Alt+W lead to, longest first
+const needing = () => S.agents.filter(a => ["waiting", "wanted"].includes(stOf(a))).sort((x, y) => (heldOf(y) || 0) - (heldOf(x) || 0));
 let S = null, colours = {}, open = null;
 
 function since(ts) { return ts ? ago(Math.max(0, Math.round(Date.now() / 1000 - Date.parse(ts) / 1000))) : ""; }
@@ -4423,7 +4443,8 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
-    <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(a.held)}</span>${ctx}</div>
+    <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
+    ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
     <div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
@@ -4578,9 +4599,9 @@ function draw() {
   if (!barDrag) placeBar();
   const n = st => S.agents.filter(a => a.status === st).length;
   // Working and idle as a dot and a number each, with a flashing badge on top when any agent is waiting.
-  const waiting = n("waiting");
-  // the badge opens the agent that has been waiting longest
-  const longest = S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name || "";
+  const waiting = needing().length;
+  // the badge opens the agent that has been waiting longest, on a prompt or on the owner
+  const longest = needing()[0]?.name || "";
   // the working dot pulses while any agent works; the counts are rewritten only when they change, so the pulse runs on
   const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
     `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
@@ -6042,7 +6063,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = stOf(a), n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-      <div class="mtop"><span class="name" title="${STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name" title="${st === "wanted" ? esc(a.wanted) : STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -6084,7 +6105,7 @@ function tiles(them) {
   return them.map(a => {
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
-    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}">` +
+    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
       (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>`) +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
@@ -6113,7 +6134,7 @@ function facts() {
   if (!a || !el) return;
   const st = stOf(a);
   const ctx = a.ctxUsed == null ? "" : `<span title="Context used of the window">${k(a.ctxUsed)} / ${k(a.ctxWindow)} <b style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</b></span>`;
-  patch(el, [`<span class="state ${st}"><span class="dot"></span>${STATE[st] || esc(st)} ${ago(a.held)}</span>`,
+  patch(el, [`<span class="state ${st}"${st === "wanted" ? ` title="${esc(a.wanted)}"` : ""}><span class="dot"></span>${STATE[st] || esc(st)} ${ago(heldOf(a))}</span>`,
     a.model ? `<span title="Model and effort">${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}</span>` : "",
     ctx, a.rate ? `<span title="Tokens a minute, lately">${k(a.rate)} tok/min</span>` : "",
     `<span title="Where it sits · the folder it works in">${esc(a.tab || "")} · ${esc(a.cwd || "")}</span>`].filter(Boolean).join(""));
@@ -6842,7 +6863,7 @@ addEventListener("keydown", e => {
   const names = S.agents.map(a => a.name), cur = here(), at = names.indexOf(cur);
   const step = d => names[at < 0 ? (d > 0 ? 0 : names.length - 1) : (at + d + names.length) % names.length];
   const act = e.code === "ArrowDown" || e.code === "ArrowUp" ? () => focusAgent(step(e.code === "ArrowDown" ? 1 : -1))
-    : e.code === "KeyW" ? () => focusAgent(S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0))[0]?.name)
+    : e.code === "KeyW" ? () => focusAgent(needing()[0]?.name)
     : e.code === "Enter" ? () => { if (!open) return openDetail(cur || names[0]); closeDetail(); if (!open) aim(shownBox(cur)); }
     : e.code === "KeyV" ? () => viewMenu([$("#pagemode .viewbtn"), $("#viewbar .vtmenu"), $("#viewbar")].find(b => b?.offsetParent) || $(".brand"), false)
     : e.code === "KeyL" ? () => ((cur && open === cur && $("#dhead .lanes")) || (cur && $(`#main .card[data-name="${CSS.escape(cur)}"] .lanes`)) || $("#pagelanes .fbtn")).click()
@@ -8321,6 +8342,19 @@ def self_test():
         finally:
             g["SCRATCH"] = was
             shutil.rmtree(sc, ignore_errors=True)
+        wd, was_w = tempfile.mkdtemp(), g["WANTED"]
+        g["WANTED"] = wd
+        try:
+            with open(wd + "/s1", "w") as f:
+                f.write("needs a decision\n")
+            t("owner-wanted: a session's flag gives its line, and one with none gives nothing",
+              (wanted("s1")[0], wanted("s2")), ("needs a decision", (None, None)))
+        finally:
+            g["WANTED"] = was_w
+            shutil.rmtree(wd, ignore_errors=True)
+        t("  an agent not on a prompt that wants the owner pulses amber as one waiting, and counts in the badge and Alt+W",
+          ('a.status !== "waiting" && a.wanted ? "wanted"' in PAGE, ".card.waiting,.card.wanted{" in PAGE,
+           'focusAgent(needing()[0]?.name)' in PAGE), (True, True, True))
         t("a plug-in's icon is kept, and one that is not a plain name is not",("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
           (True, False))
     finally:
