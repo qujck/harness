@@ -3059,7 +3059,7 @@ PAGE = r"""<!doctype html>
   /* the page's one scale for type, corner radius and control height: every size, weight and corner below is one of these
      (two weights, 400 and 650), so like things come out alike */
   --t-xs:10px; --t-s:11px; --t-m:12px; --t-l:13px; --t-xl:17px; --t-xxl:20px;
-  --r-xs:2px; --r-s:5px; --r-m:9px; --r-l:14px; --ctl:28px;
+  --r-xs:2px; --r-s:5px; --r-m:9px; --r-l:14px; --ctl:24px;
 }
 :root.light{
   --bg:#f3f5f8; --panel:#ffffffcc; --line:#0000000f; --line2:#0000001c; --on:#0000001c; --text:#1f2328; --mute:#59636e; --faint:#8c959f;
@@ -3121,19 +3121,21 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
 .stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 .stat .v{font:650 calc(var(--t-l)*var(--fs,1)) var(--mono)}
-.pspark{width:190px;height:22px;color:var(--ownerbg)}.pspark svg.spark{height:22px}
+/* under its label a stat's meter or sparkline fills one 14px band, so Week and Team stand as tall as each other */
+.pspark{width:190px;height:14px;color:var(--ownerbg)}.pspark svg.spark{height:14px}
+.stat > .meter{margin:4px 0}
 /* a slim plug-in is one low line: its label and value beside a shorter meter or sparkline */
 .stat.slim{flex-direction:row;align-items:center;gap:7px;min-width:0}
-.stat.slim .meter{width:110px;height:6px}.stat.slim .meter u{top:-3px;bottom:-3px}
+.stat.slim .meter{width:110px;margin:0}
 .stat.slim .pspark,.stat.slim .pspark svg.spark{width:110px;height:14px}
 /* one with an icon in place of its label is tighter still: the icon, the value and a short meter or sparkline */
 .stat.slim.ico{gap:4px}
 .stat.slim.ico .k{letter-spacing:0;text-transform:none;color:var(--text);display:flex;align-items:center;gap:4px}
 .stat.slim.ico .lab svg{width:14px;height:14px;color:var(--mute);display:block}
 .stat.slim.ico .meter,.stat.slim.ico .pspark,.stat.slim.ico .pspark svg.spark{width:48px}
-.meter{position:relative;height:8px;border-radius:var(--r-s);background:var(--track);overflow:visible;width:190px}
+.meter{position:relative;height:6px;border-radius:var(--r-s);background:var(--track);overflow:visible;width:190px}
 .meter i{position:absolute;inset:0 auto 0 0;border-radius:var(--r-s);transition:width .6s}
-.meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:var(--r-xs);box-shadow:0 0 6px #fff8}
+.meter u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text);border-radius:var(--r-xs);box-shadow:0 0 6px #fff8}
 .counts{flex:none;display:flex;gap:8px}
 .pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);background:var(--soft);color:var(--text)}
 .pill.btn{cursor:pointer;color:var(--mute);font-family:var(--sans)}
@@ -3152,7 +3154,8 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .bench .rrow.all{position:absolute;z-index:30;flex-wrap:wrap;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 10px 28px #0008}
 .bench em.more:hover{color:var(--text)}
 .bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:var(--r-s);border:2px solid var(--c);color:var(--mute)}
-.face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:var(--r-s);border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
+.face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:var(--r-s);background:var(--chtile)}   /* a Characters tile, smaller */
+.face::after{content:"";position:absolute;inset:auto 0 0;height:3px;background:var(--c)}   /* its role colour laid over the portrait's foot, so the portrait stays square */
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
@@ -3243,8 +3246,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #teamctl .fbtn svg{flex:none;width:16px;height:16px;stroke-width:1.7}
 /* the team's play, pause and stop: off an outline in the text colour, on filled in its colour, fading in and out
    while the page waits for the change it was asked for */
-#pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(var(--t-m)*var(--fs,1))}
-#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(var(--t-m)*var(--fs,1))}
+#pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:var(--ctl);padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(var(--t-m)*var(--fs,1))}
+#teamctl .fbtn{height:var(--ctl);padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(var(--t-m)*var(--fs,1))}
 #teamctl .fbtn:hover{background:var(--on)}
 #teamctl .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
 #teamctl .fbtn.going{animation:switching 1.4s ease-in-out infinite}
@@ -3257,7 +3260,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #viewbar .vtb.on{border-color:var(--line2);background:var(--soft);color:var(--text)}
 #viewbar .vtb svg{width:15px;height:15px}
 #viewbar .vtmenu{width:18px;height:22px;margin-left:-2px}
-#lock{color:var(--text)}
+#lock{height:var(--ctl);color:var(--text)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:var(--r-s);border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
   color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
@@ -3313,7 +3316,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button.off .dot,.mini.off .name .dot{border-radius:var(--r-xs);background:var(--ownerfg)}
 @keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}80%{box-shadow:0 0 0 5px var(--c)}100%{box-shadow:0 0 0 6px color-mix(in srgb,var(--c) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
-.ctx .meter{width:64px;height:6px}
+.ctx .meter{width:64px}
 .model{color:var(--faint);overflow:hidden;text-overflow:ellipsis;min-width:0}
 svg.spark{display:block;width:100%;height:26px;flex:none}
 .feed{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;padding:8px 12px 10px;border-top:1px solid var(--line);
@@ -8268,6 +8271,8 @@ def self_test():
         t("one scale for type, weight and corner radius: six sizes, two weights and four radii on :root",
           ("--t-xs:10px; --t-s:11px; --t-m:12px; --t-l:13px; --t-xl:17px; --t-xxl:20px;" in PAGE, "--r-xs:2px; --r-s:5px; --r-m:9px; --r-l:14px;" in PAGE),
           (True, True))
+        t("  the header's stats one height with meters one thickness, its buttons one height, and bench portraits square",
+          (".pspark{width:190px;height:14px;" in PAGE, "#lock{height:var(--ctl);" in PAGE, ".face::after{" in PAGE), (True, True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
