@@ -2730,6 +2730,8 @@ class Handler(BaseHTTPRequestHandler):
             self.image()
         elif path == "/doc":
             self.doc()
+        elif path == "/dir":
+            self.listing()
         elif m := re.fullmatch(r"/portraits/([a-z][a-z0-9_-]*)(\.png|\.webp|\.jpg)", path):
             f = os.path.join(PORTRAITS, m[1] + m[2])
             if not os.path.isfile(f):
@@ -2754,6 +2756,35 @@ class Handler(BaseHTTPRequestHandler):
             # "save" (the viewer's Save as…) sends it as a file to keep, under its own name.
             self.send(200, f.read(), "text/plain; charset=utf-8",
                       save_as=os.path.basename(real) if query.get("save") else None)
+
+    def listing(self):
+        """What a folder under the home directory holds, for a File pane's path box to browse: its folders and the
+        documents /doc shows, by name only (never their contents), on the same terms as /doc. "~/" names the folder
+        as the page gave it, so the page can build paths on it."""
+        if not self.here():
+            return self.send(403, b"only the team page\n", "text/plain")
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        real = os.path.realpath(os.path.expanduser(query.get("p", [""])[0] or "~"))
+        if not (real == HOME or real.startswith(HOME + os.sep)) or not os.path.isdir(real):
+            return self.send(404, b"no such folder\n", "text/plain")
+        out = []
+        try:
+            with os.scandir(real) as it:
+                for e in it:
+                    try:
+                        if e.is_dir():
+                            if not e.is_symlink() or os.path.realpath(e.path).startswith(HOME + os.sep):
+                                out.append({"name": e.name, "dir": True})
+                        elif os.path.splitext(e.name)[1].lower() in DOC_TYPES and e.is_file():
+                            out.append({"name": e.name, "dir": False})
+                    except OSError:
+                        pass
+                    if len(out) >= 2000:
+                        break
+        except OSError:
+            return self.send(404, b"no such folder\n", "text/plain")
+        out.sort(key=lambda e: (not e["dir"], e["name"].lower()))
+        self.send(200, json.dumps(out).encode(), "application/json")
 
     def image(self):
         """An image an agent names by its path, full or from its own folder, for the page to show: only from the page
@@ -3635,6 +3666,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #slash .sl b{flex:none;font:600 calc(12px*var(--fs,1)*var(--boxfs,1)) var(--mono);color:var(--text)}
 #slash .sl span{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #slash .sl.at{background:var(--soft)}
+#fpick{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 8px 28px #0006}
+#fpick .fp{display:flex;gap:8px;align-items:baseline;padding:3px 8px;border-radius:6px;cursor:pointer;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fpick .fp.dir{color:var(--accent,var(--text));font-weight:600}
+#fpick .fp.at{background:var(--soft)}
+#fpick .none{padding:3px 8px;color:var(--mute);font:calc(12px*var(--fs,1)) var(--sans)}
 #menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
 #menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap}
 #menu .hd:has(.spark){min-width:200px}
@@ -4933,7 +4969,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", others: "List", grid: "Grid", tabs: "Tabs", team: "Team", combined: "Combined", characters: "Characters", file: "File", meeting: "Meeting", perf: "Performance", gauges: "Gauges", daylog: "Day log"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team"};   // in the Show menu in this order
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5516,7 +5552,7 @@ function customHtml(ceil, tabRow) {
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
       ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
-      ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it">` : ""}
+      ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
       ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : ""}
       ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" || n.show === "gauges" ? perfBtn(path, n) : ""}
@@ -5702,6 +5738,57 @@ async function loadFiles() {
     } catch (e) {}
   }));
 }
+// The list under a File pane's path box: what the folder typed so far holds (/dir), its folders first and then the
+// documents the pane can show, narrowed to the names that start with what follows the last "/". Names starting with
+// a dot are left out until a dot is typed. A folder, or "..", opens in the box; a document is shown in the pane.
+// ↑/↓ choose, Enter or Tab takes the one chosen (Tab the first when none is), Esc closes.
+const pickEl = Object.assign(document.createElement("div"), {id: "fpick"});
+document.body.append(pickEl);
+let fpick = {box: null, at: -1, list: [], show: null};
+const pickDirs = {};   // folder -> [when read, its entries], read again after ten seconds
+let pickGen = 0;       // a read still in flight when the list is closed is not drawn
+async function pickShow(box, show) {
+  const gen = pickGen;
+  const v = box.value || "~/", cut = v.lastIndexOf("/") + 1, dir = cut ? v.slice(0, cut) : "~/", q = v.slice(cut).toLowerCase();
+  let got = pickDirs[dir];
+  if (!got || Date.now() - got[0] > 10000) {
+    try { const r = await fetch("/dir?p=" + encodeURIComponent(dir), {cache: "no-store"}); got = pickDirs[dir] = [Date.now(), r.ok ? await r.json() : null]; }
+    catch (e) { return pickOff(); }
+  }
+  if (gen !== pickGen || document.activeElement !== box || (box.value || "~/") !== v) return;   // typed on, or left, while it was read
+  const list = (got[1] || []).filter(e => e.name.toLowerCase().startsWith(q) && (q.startsWith(".") || !e.name.startsWith(".")))
+    .map(e => ({...e, path: dir + e.name + (e.dir ? "/" : "")}));
+  if (!q && got[1] && !/^(~|\/(home|Users)\/[^/]+)\/$/.test(dir)) list.unshift({name: "..", dir: true, path: dir.replace(/[^/]+\/$/, "")});
+  fpick = {box, at: fpick.box === box ? Math.min(fpick.at, list.length - 1) : -1, list, show};
+  pickDraw();
+}
+function pickDraw() {
+  const box = fpick.box, r = box.getBoundingClientRect();
+  pickEl.innerHTML = fpick.list.length ? fpick.list.map((e, i) => `<div class="fp${e.dir ? " dir" : ""}${i === fpick.at ? " at" : ""}" data-i="${i}" title="${esc(e.path)}">${esc(e.name)}${e.dir ? "/" : ""}</div>`).join("")
+    : `<div class="none">Nothing here the pane can show</div>`;
+  pickEl.style.cssText = `display:block;left:${r.left}px;width:${Math.max(r.width, 280)}px;top:${r.bottom + 4}px;max-height:${Math.max(120, innerHeight - r.bottom - 16)}px`;
+  pickEl.querySelector(".fp.at")?.scrollIntoView({block: "nearest"});
+  pickEl.querySelectorAll(".fp").forEach(el => el.onmousedown = e => { e.preventDefault(); fpick.at = +el.dataset.i; pickDone(); });
+}
+function pickOff() { pickGen++; fpick = {box: null, at: -1, list: [], show: null}; pickEl.style.display = "none"; }
+function pickDone(i = fpick.at) {
+  const {box, list, show} = fpick, e = list[i];
+  if (!e) return;
+  box.value = e.path;
+  if (e.dir) { fpick.at = -1; box.setSelectionRange(e.path.length, e.path.length); pickShow(box, show); }
+  else { pickOff(); show(); }
+}
+function pickKey(e, box) {
+  if (e.key === "Enter" && fpick.at < 0) return pickOff();
+  if (fpick.box !== box) return;
+  const n = fpick.list.length;
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && n) { e.preventDefault(); fpick.at = e.key === "ArrowDown" ? (fpick.at + 1) % n : (fpick.at <= 0 ? n : fpick.at) - 1; pickDraw(); }
+  else if (e.key === "Tab" && n) { e.preventDefault(); pickDone(fpick.at < 0 ? 0 : fpick.at); }
+  else if (e.key === "Enter" && fpick.at >= 0) { e.preventDefault(); pickDone(); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); pickOff(); }
+}
+document.addEventListener("focusout", e => { if (e.target === fpick.box) setTimeout(() => document.activeElement !== fpick.box && pickOff(), 100); });
+addEventListener("resize", () => fpick.box && pickDraw());
 // Performance and Gauges panes: the machine's CPU, memory, disks, network, GPUs, heat and fans, read again with every load (/api/perf),
 // one row each as the List pane has one per agent, with its last ten minutes under it; a click on one opens its graph. Which of them a pane shows
 // (n.perf) is chosen with its Show button while the layout is unlocked: all of them until chosen. The CPU, Memory,
@@ -5923,7 +6010,11 @@ function customClicks() {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
     if (act === "name" || act === "show" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
     if (act === "move") { el.onpointerdown = e => movePane(e, el, path, change); return; }
-    if (act === "path") { el.onchange = () => { change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); }; return; }
+    if (act === "path") {
+      const show = () => { change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); };
+      el.onchange = show; el.onfocus = el.oninput = () => pickShow(el, show); el.onkeydown = e => pickKey(e, el, show);
+      return;
+    }
     el.onclick = () => change(l => {
       const n = nodeAt(l.root, path);
       if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
@@ -8139,6 +8230,13 @@ def self_test():
         t("  a file with neither a name nor an image type is refused",
           code("/api/paste", "POST", {"Content-Type": "application/octet-stream", "X-Team-Say": "1"}, b"x")[0], 400)
         t("  and a name cannot climb out of the folder", os.path.dirname(up({"Content-Type": "", "X-File-Name": "..%2F..%2Fevil.sh"}).get("path", "")), T + "/pasted")
+        os.makedirs(T + "/browse/sub")
+        for f in ("a.md", ".hidden.md", "b.json"):
+            open(T + "/browse/" + f, "w").close()
+        got = code("/dir?p=" + urllib.parse.quote(T + "/browse"))
+        t("a File pane's path box lists a home folder's folders first, then the documents the pane shows; nothing outside home",
+          (json.loads(got[1] or b"[]"), code("/dir?p=/etc")[0]),
+          ([{"name": "sub", "dir": True}, {"name": ".hidden.md", "dir": False}, {"name": "a.md", "dir": False}], 404))
         server.shutdown()
         # a question with previews, as the pane draws it: the preview of the option under the cursor beside the options
         shot = ("─" * 60 + "\n ☐ Test\n\nWhich footer?\n\n❯ 1. Footer empty        ┌──────────────────┐\n"
