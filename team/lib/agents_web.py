@@ -2614,10 +2614,12 @@ class Handler(BaseHTTPRequestHandler):
         return host in {f"127.0.0.1:{PORT}", f"localhost:{PORT}"} or \
             bool(PUBLIC_HOST) and host == PUBLIC_HOST and access_ok(self.headers.get("Cf-Access-Jwt-Assertion"))
 
-    def send(self, code, body, ctype, cache="no-store"):
+    def send(self, code, body, ctype, cache="no-store", save_as=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", cache)
+        if save_as:   # a download, not a page: the browser saves it under this name
+            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(save_as))
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -2674,7 +2676,9 @@ class Handler(BaseHTTPRequestHandler):
                 or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
             return self.send(404, b"no such document\n", "text/plain")
         with open(real, "rb") as f:
-            self.send(200, f.read(), "text/plain; charset=utf-8")
+            # "save" (the viewer's Save as…) sends it as a file to keep, under its own name.
+            self.send(200, f.read(), "text/plain; charset=utf-8",
+                      save_as=os.path.basename(real) if query.get("save") else None)
 
     def image(self):
         """An image an agent names by its path, full or from its own folder, for the page to show: only from the page
@@ -3323,7 +3327,10 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #docbox .dochead b:hover,#docbox .x:hover{color:var(--text)}
 #docbox .dochead b.done{color:var(--green)}
 #docall[hidden]{display:none}
-#doctab{color:var(--cyan)}
+#docbox .dochead .di{display:inline-flex;cursor:pointer;color:var(--mute)}
+#docbox .dochead .di svg{width:calc(16px*var(--fs,1));height:calc(16px*var(--fs,1))}
+#docbox .dochead .di:hover{color:var(--text)}
+#docbox .dochead .di.done{color:var(--green)}
 #docbox .x{cursor:pointer;font-size:calc(18px*var(--fs,1));line-height:1}
 #docbody{overflow:auto;padding:14px 18px;color:var(--text);font-size:calc(13.5px*var(--fs,1));line-height:1.55;white-space:pre-wrap;word-break:break-word}
 :is(#docbody, .fdoc) b.h{margin:18px 0 8px;font-weight:600;line-height:1.25}
@@ -4013,7 +4020,7 @@ html.phoneoff #phoneback{display:block}
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
-<div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" title="Copy the path">Copy path</b><b id="docall" title="Copy the whole document" hidden>Copy all</b><a id="doctab" target="_blank" rel="noopener">Open as text</a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
+<div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button><b class="pstattog" id="dpstattog" hidden></b></div><div class="pstat" id="dpstat"></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
@@ -4133,6 +4140,7 @@ function showDoc(e, a) {
   e.preventDefault(); e.stopPropagation();
   const name = a.title;
   $("#docname").textContent = $("#docname").title = name; $("#doctab").href = a.href;
+  $("#docsave").href = a.href + "&save=1"; $("#docsave").download = name.split("/").pop();
   $("#docbody").textContent = "Loading…";
   $("#docall").hidden = true;
   $("#docbox").classList.add("on");
@@ -4149,12 +4157,13 @@ $("#docbox").onclick = e => { if (e.target.id === "docbox" || e.target.id === "d
 async function docCopy(b, text) {
   if (b.classList.contains("done")) return;
   await navigator.clipboard.writeText(text);
-  const was = b.textContent;
-  b.textContent = "Copied"; b.classList.add("done");
-  setTimeout(() => { b.textContent = was; b.classList.remove("done"); }, 1200);
+  const was = b.innerHTML, tip = b.title;   // an icon: a tick and "Copied" for a moment, then back
+  b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5 6.5 12 13 4.5"/></svg>';
+  b.title = "Copied"; b.classList.add("done");
+  setTimeout(() => { b.innerHTML = was; b.title = tip; b.classList.remove("done"); }, 1200);
 }
-$("#doccopy").onclick = e => docCopy(e.target, $("#docname").textContent);
-$("#docall").onclick = e => docCopy(e.target, docText);
+$("#doccopy").onclick = e => docCopy(e.currentTarget, $("#docname").textContent);
+$("#docall").onclick = e => docCopy(e.currentTarget, docText);
 function lbFitScale() {
   const img = $("#lbimg");
   return img.naturalWidth ? Math.min(1, (innerWidth - 80) / img.naturalWidth, (innerHeight - 130) / img.naturalHeight) : 1;
