@@ -7095,6 +7095,7 @@ function phFavToggle(name) {
   const f = phFavs(), next = f.includes(name) ? f.filter(x => x !== name) : [...f, name];
   try { localStorage.setItem("phonefavs", JSON.stringify(next)); } catch (e) {}
   phoneDraw();
+  if (open) phRail();   // the agent view's strip, favourites first, too
 }
 // [role, its agents] in the page's role order; within a role the roster's order, running agents and then stopped ones
 function phByRole() {
@@ -7399,7 +7400,9 @@ addEventListener("unhandledrejection", e => { if (document.documentElement.class
 // gesture or button) closes the view rather than leaving the page.
 function phRail() {
   const order = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
-  const list = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
+  const all = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
+  // favourites first, in the order they were starred (owner, 2026-11-09: "can this row put favourites first")
+  const favs = phFavs(), list = [...favs.map(n => all.find(a => a.name === n)).filter(Boolean), ...all.filter(a => !favs.includes(a.name))];
   patchByName($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
     return `<button class="phf ${stOf(a)}${a.name === open ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[stOf(a)] || ""}">` +
       // the badge is always there, hidden at none: a badge coming or going would change the button's children, and the
