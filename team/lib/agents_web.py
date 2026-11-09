@@ -25,7 +25,7 @@
   POST /api/agent/NAME/halt  the agent is asked to finish and stop; its pane closes once it has (not the lead's)
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
-  /api/daylog        the Day log pane: each development and verification day started, and each PR merged (see "the day log")
+  /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -456,106 +456,80 @@ def last_minute(ser, now):
 _board = {"at": 0, "busy": False}
 
 
-# ── the day log ───────────────────────────────────────────────────────────────
-# A rolling record: each development or verification day started, then each PR merged under it, newest first (the
-# owner, 2026-11-07). Nothing new is logged for it. The starts are dev-day.log's, the development day's share is
-# agents-day-budget.log's, and the PRs are AGENTS_PR_REPO's merged list on GitHub, read in the background every two
-# minutes so a slow GitHub never holds the page. A day counts from when its start was logged, so work done before
-# the start succeeded sits under the day before. The window opens at the last start at least DAY_LOG_DAYS old, so
-# its oldest PRs still sit under their day.
+# ── the day log ─────────────────────────────────────────────────────────────────────────────────────────────────
+# The Day log pane: days, and what happened in each, newest first. The page only draws it. Its rows come from a
+# program, AGENTS_DAY_LOG (else team/day-log.py, the harness's own), run in the background every DAY_LOG_EVERY seconds
+# so a slow source never holds the page. The program is given {"days": DAY_LOG_DAYS} on stdin, the window it is asked
+# to cover, and prints one JSON object:
+#   {"rows": [row, ...], "summary": the header's words, "note": a line above the rows, "empty": said when no rows,
+#    "kinds": {kind: {"name": "Released", "about": "A sentence."}} for a kind the page has no words for}
+# where a row is
+#   {"at": epoch seconds, "type": "day" (a day's heading) or "entry", "kind": a word for its icon and colour,
+#    "by": who (a roster name gets their badge's colour), "text": what happened,
+#    "url": an http(s) link, "label": the link's words}
+# Only "at" and "type" are needed. A row that breaks these rules is left out and the text is cut short. A program that
+# exits non-zero says why on stderr: the pane keeps what it last had and says the program failed.
 DAY_LOG_DAYS = 7
-DAY_LOG_PRS = 500
-_prs = {"at": 0, "busy": False, "rows": None, "failed": False}
+DAY_LOG_EVERY = 120
+DAY_LOG_ROWS = 1000
+DAY_LOG_PROGRAM = os.path.join(ROOT, "team", "day-log.py")
+_daylog = {"at": 0, "busy": False, "data": None, "error": ""}
 
 
-def iso_epoch(text):
-    return calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ"))
+def day_log_program():
+    return setting("AGENTS_DAY_LOG") or DAY_LOG_PROGRAM
 
 
-def day_starts():
-    """dev-day.log, oldest first, as (epoch, kind, who). A line that does not parse is left out."""
-    out = []
-    for line in read_text(os.path.join(STATE_DIR, "dev-day.log")).splitlines():
-        f = line.split("\t")
-        try:
-            if len(f) >= 4 and f[1] in ("development", "verification"):
-                out.append((iso_epoch(f[0]), f[1], f[3]))
-        except ValueError:
-            pass
-    return sorted(out, key=lambda r: r[0])
-
-
-def day_quota_at(at):
-    """The share of the week open at this epoch, from agents-day-budget.log, or None. dev-day.sh opens the budget just
-    before it logs the start, so a minute's grace either way of the clock."""
-    quota = None
-    for line in read_text(os.path.join(STATE_DIR, "agents-day-budget.log")).splitlines():
-        f = line.split()
-        if len(f) < 4 or not f[0].isdigit() or int(f[0]) > at + 60:
+def day_log_clean(data):
+    """A program's output kept to the shape above, each string bounded; raises ValueError when it is not that shape."""
+    if not isinstance(data, dict) or not isinstance(data.get("rows"), list):
+        raise ValueError("printed no rows")
+    text = lambda v, n=300: v.strip()[:n] if isinstance(v, str) else ""
+    rows = []
+    for r in data["rows"][:DAY_LOG_ROWS]:
+        if not isinstance(r, dict) or r.get("type") not in ("day", "entry") or isinstance(r.get("at"), bool) \
+                or not isinstance(r.get("at"), (int, float)):
             continue
-        if f[1] == "end":
-            quota = None
-        elif f[1] in ("start", "raise") and f[3].isdigit():
-            quota = int(f[3])
-    return quota
+        url = text(r.get("url"), 500)
+        rows.append({"at": r["at"], "type": r["type"], "kind": re.sub(r"[^\w-]", "", text(r.get("kind"), 40)),
+                     "by": text(r.get("by"), 60), "text": text(r.get("text")),
+                     "url": url if re.match(r"https?://", url) else "", "label": text(r.get("label"), 40)})
+    kinds = data.get("kinds") if isinstance(data.get("kinds"), dict) else {}
+    kinds = {re.sub(r"[^\w-]", "", k)[:40]: {"name": text(v.get("name"), 60), "about": text(v.get("about"))}
+             for k, v in list(kinds.items())[:50] if isinstance(v, dict)}
+    return {"rows": rows, "kinds": kinds, "summary": text(data.get("summary"), 120), "note": text(data.get("note")),
+            "empty": text(data.get("empty"), 120)}
 
 
-def refresh_prs(repo, since):
-    out = run("gh", "pr", "list", "--repo", repo, "--state", "merged", "--limit", str(DAY_LOG_PRS),
-              "--search", "merged:>=" + time.strftime("%Y-%m-%d", time.gmtime(since)),
-              "--json", "number,title,mergedAt,url", timeout=90)
+def refresh_day_log(program):
     try:
-        rows = json.loads(out)
-        _prs.update(rows=rows, failed=not isinstance(rows, list))
-    except ValueError:
-        _prs["failed"] = True
-    _prs.update(at=time.time(), busy=False)
-
-
-def short_title(title):
-    """A strength PR title opens with its ticket's name, `some_long_slug: what it did`: the log shows what it did."""
-    return re.sub(r"^[a-z0-9]+(?:_[a-z0-9]+)+:\s+(?=\S)", "", title)
-
-
-def title_kind(title):
-    """What a PR's ticket name says it is: the word before the first underscore, as `fix` in `fix_a_thing: what it did`."""
-    m = re.match(r"([a-z0-9]+)(?:_[a-z0-9]+)+:\s+\S", title)
-    return m.group(1) if m else ""
-
-
-def title_name(title):
-    """A strength PR title closes with who made it, `what it did — James`: the words, and the name."""
-    m = re.match(r"(.*\S)\s+—\s+(\S+)$", title, re.S)
-    return (m.group(1), m.group(2)) if m else (title, "")
+        p = subprocess.run([program], capture_output=True, text=True, timeout=90, cwd=os.path.dirname(program),
+                           input=json.dumps({"days": DAY_LOG_DAYS}))
+        if p.returncode:
+            raise ValueError((p.stderr.strip() or f"exit {p.returncode}").splitlines()[-1][:200])
+        try:
+            data = json.loads(p.stdout)
+        except ValueError:
+            raise ValueError("printed something that is not JSON")
+        _daylog.update(data=day_log_clean(data), error="")
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        _daylog["error"] = str(e) or "failed"
+    _daylog.update(at=time.time(), busy=False)
 
 
 def daylog_json():
-    now = time.time()
-    starts = day_starts()
-    old = [r for r in starts if r[0] <= now - DAY_LOG_DAYS * 86400]
-    shown = starts[len(old) - 1:] if old else starts
-    since = shown[0][0] if shown else now
-    repo = setting("AGENTS_PR_REPO")
-    if repo and shown and not _prs["busy"] and now - _prs["at"] > 120:
-        _prs["busy"] = True
-        threading.Thread(target=refresh_prs, args=(repo, since), daemon=True).start()
+    program = day_log_program()
+    if not os.access(program, os.X_OK):
+        return json.dumps({"state": "unset", "program": program, "rows": []}).encode()
+    if not _daylog["busy"] and time.time() - _daylog["at"] > DAY_LOG_EVERY:
+        _daylog["busy"] = True
+        threading.Thread(target=refresh_day_log, args=(program,), daemon=True).start()
+    data = _daylog["data"] or {"rows": []}
     names = shown_names()
-    roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a title may have either
-    rows = [{"at": at, "type": "day", "day": kind, "by": who,
-             "quota": day_quota_at(at)} for at, kind, who in shown]
-    prs = _prs["rows"] if repo and isinstance(_prs["rows"], list) else []
-    for p in prs:
-        try:
-            at = iso_epoch(p["mergedAt"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if at >= since:
-            words, by = title_name(short_title(p.get("title") or ""))
-            rows.append({"at": at, "type": "pr", "number": p.get("number"), "url": p.get("url"), "kind": title_kind(p.get("title") or ""),
-                         "by": roster_name.get(by, by), "title": spelled_screen(words, names)})
-    rows.sort(key=lambda r: (r["at"], r["type"] == "day"), reverse=True)
-    state = "unset" if not repo else "failed" if _prs["failed"] else "reading" if _prs["rows"] is None else "ok"
-    return json.dumps({"rows": rows, "prs": state, "cut": len(prs) >= DAY_LOG_PRS}).encode()
+    roster_name = {v: k for k, v in names.items()}    # the page's colours go by the roster's spelling; a row may have either
+    rows = [{**r, "by": roster_name.get(r["by"], r["by"]), "text": spelled_screen(r["text"], names)} for r in data["rows"]]
+    state = "failed" if _daylog["error"] else "reading" if _daylog["data"] is None else "ok"
+    return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
 
 
 def refresh_board():
@@ -5081,7 +5055,8 @@ async function loadDayLog() {
 }
 const dayLogAt = at => { const d = new Date(at * 1000);
   return `${d.toLocaleDateString("en-GB", {weekday: "short"})} ${d.getDate()}, ${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
-// A row's icon, by the day it starts or the word its PR's ticket name opens with. Hovering says it in words.
+// A row's icon, by its kind: the kind of day it starts, or the word an entry's program gives it (a PR's ticket name opens
+// with it in the harness's log). Hovering says it in words; a program's own "kinds" name the ones not here.
 const DAY_LOG_ICONS = {
   development: ["Development day", "The team builds until the day's share of the week is spent.", '<path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4"/>'],
   verification: ["Verification day", "The full suite runs on main, and is fixed until it is green.", '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14.5 14.5"/>'],
@@ -5094,12 +5069,16 @@ const DAY_LOG_ICONS = {
 // A click on an icon says what it means and a second click, or one elsewhere, closes it. dayLogTip is the open row's key,
 // so that a redraw of the pane draws it open again.
 let dayLogTip = "";
+const dayLogKind = kind => {
+  const own = DAY_LOG_ICONS[kind] || [], k = dayLog?.kinds?.[kind] || {};
+  return [k.name || own[0] || kind || "Other", k.about || own[1] || "", own[2] || '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
+};
 const dayLogDesc = kind => {
-  const [what, more] = DAY_LOG_ICONS[kind] || [kind || "Other", "A PR whose ticket name is not one of the usual kinds."];
+  const [what, more] = dayLogKind(kind);
   return `<span class="desc"><b>${esc(what)}</b> ${esc(more)}</span>`;
 };
 const dayLogIcon = (kind, key) => {
-  const [what, , d] = DAY_LOG_ICONS[kind] || [kind || "Other", "", '<path d="M8 3.5 12.5 8 8 12.5 3.5 8Z"/>'];
+  const [what, , d] = dayLogKind(kind);
   return `<span class="ico" role="button" title="${esc(what)}" data-kind="${esc(kind || "")}" data-key="${esc(key)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${dayLogTip === key ? dayLogDesc(kind) : ""}</span>`;
 };
 document.addEventListener("click", e => {
@@ -5114,14 +5093,18 @@ const dayLogWho = by => {
   const c = colours[by];
   return `<span class="wh">${by ? `<span class="who${c ? "" : " off"}"${c ? ` style="--pc:${esc(c)}"` : ""}>${esc(shown(by))}</span>` : ""}</span>`;
 };
+// The pane draws what the server's program printed (see "the day log" there); with no program it says what one must print.
 function dayLogHtml() {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
-  const note = {unset: "PRs are not shown: AGENTS_PR_REPO is not set.", failed: "GitHub could not be read just now, so the newest PRs may be missing.", reading: "Reading the merged PRs from GitHub…"}[dayLog.prs];
-  if (!dayLog.rows.length) return `<div class="blank">No development or verification day has been started</div>`;
-  const days = dayLog.rows.filter(r => r.type === "day").length, prs = dayLog.rows.length - days;
-  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${days} day${days === 1 ? "" : "s"} started, ${prs} PR${prs === 1 ? "" : "s"} merged</span></div><div class="daylog">${note ? `<div class="note">${esc(note)}</div>` : ""}${dayLog.cut ? `<div class="note">Showing the newest PRs only: there are more in this window than the page reads.</div>` : ""}${dayLog.rows.map(r => r.type === "day"
-    ? `<div class="row day ${esc(r.day)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">Started ${esc(r.day)} day${r.quota == null ? "" : `, ${r.quota}%`}</span>${dayLogIcon(r.day, "d" + r.at)}</div>`
-    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><a href="${esc(r.url)}" target="_blank" rel="noopener">#${esc(String(r.number))}</a><span class="tx">${esc(r.title)}</span>${dayLogIcon(r.kind, "p" + r.number)}</div>`).join("")}</div></div>`;
+  if (dayLog.state === "unset") return `<div class="blank">The Day log shows what a program prints, and there is none at ${esc(dayLog.program)}. Set AGENTS_DAY_LOG to a program that prints {"rows": [{"at", "type": "day" or "entry", "kind", "by", "text", "url", "label"}]} as JSON: see "the day log" in agents_web.py.</div>`;
+  const notes = [dayLog.state === "failed" && `The Day log's program failed (${dayLog.error}), so this is what it last printed.`,
+    dayLog.state === "reading" && "Reading the log…", dayLog.note].filter(Boolean).map(n => `<div class="note">${esc(n)}</div>`).join("");
+  if (!dayLog.rows.length) return dayLog.state === "ok" ? `<div class="blank">${esc(dayLog.empty || "Nothing in the log yet")}</div>` : `<div class="daylog">${notes}</div>`;
+  const days = dayLog.rows.filter(r => r.type === "day").length, entries = dayLog.rows.length - days;
+  const sum = dayLog.summary || `${days} day${days === 1 ? "" : "s"}, ${entries} entr${entries === 1 ? "y" : "ies"}`;
+  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${esc(sum)}</span></div><div class="daylog">${notes}${dayLog.rows.map((r, i) => r.type === "day"
+    ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
+    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -7666,73 +7649,97 @@ def self_test():
                 return e.code, b""
         status, page = code("/")
         t("the page is served", (status, page[:15]), (200, b"<!doctype html>"))
-        # the day log: the two logs and a stand-in gh, with the clock's window taken from now
-        stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
-        ep = lambda ago: int(time.time() - ago)
-        os.makedirs(STATE_DIR, exist_ok=True)
-        os.environ["AGENTS_PR_REPO"] = "o/r"
-        _prs.update(at=time.time(), busy=False, rows=None, failed=False)
-        t("day log: nothing started is no rows", json.loads(code("/api/daylog")[1])["rows"], [])
-        with open(STATE_DIR + "/dev-day.log", "w") as f:
-            f.write(f"{stamp(9 * 86400)}\tdevelopment\tgate=0\tOld\n{stamp(8 * 86400)}\tverification\tgate=0\tOld\n{stamp(3600)}\tverification\tgate=0\tAda\n"
-                    f"not a line\nbad\tdevelopment\tgate=0\tAda\n{stamp(1800)}\tdevelopment\tgate=0\tAda\n")
-        with open(STATE_DIR + "/agents-day-budget.log", "w") as f:
-            f.write(f"{ep(9 * 86400)} start 1 20\n{ep(8 * 86400)} end 5 0\n{ep(1800) + 2} start 23 15\n")
-        real_run = g["run"]
-        g["run"] = lambda *c, **k: json.dumps([
-            {"number": 1, "title": "Too old", "mergedAt": stamp(8.5 * 86400 + 86400), "url": "https://x/1"},
-            {"number": 2, "title": "Under verification, Ada", "mergedAt": stamp(2700), "url": "https://x/2"},
-            {"number": 3, "title": "Under development", "mergedAt": stamp(600), "url": "https://x/3"},
-            {"number": 4, "title": "no merge time", "url": "https://x/4"}])
-        refresh_prs("o/r", 0)
-        rows = json.loads(code("/api/daylog")[1])["rows"]
-        t("day log: newest first, each PR under the day it merged in, a bad line left out, the window opening at a start",
-          [(r.get("number") or r["day"]) for r in rows], [3, "development", 2, "verification", "verification"])
-        t("  the development day's share, and none on a verification day that opened no share", (rows[1]["quota"], rows[3]["quota"]), (15, None))
-        with open(STATE_DIR + "/agents-day-budget.log", "w") as f:
-            f.write(f"{ep(3600) - 1} end 20 0\n{ep(3600) - 1} start 20 5\n{ep(1800) + 2} start 23 15\n")
-        rows2 = json.loads(code("/api/daylog")[1])["rows"]
-        t("  a verification day that opened a share shows it", (rows2[1]["quota"], rows2[3]["quota"]), (15, 5))
-        t("  a PR's number and link", (rows[0]["number"], rows[0]["url"]), (3, "https://x/3"))
+        # the day log: the page runs a program and keeps what it prints to the documented shape
+        g["DAY_LOG_PROGRAM"] = T + "/bin/no-day-log"
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: no program says so, and where it looked", (d["state"], d["program"], d["rows"]), ("unset", T + "/bin/no-day-log", []))
         with open(SHOWN_NAMES, encoding="utf-8") as f:
             spell = next(iter(json.load(f).items()))
-        g["run"] = lambda *c, **k: json.dumps([{"number": 5, "title": f"PR by {spell[0]}", "mergedAt": stamp(60), "url": "u"}])
-        refresh_prs("o/r", 0)
-        t("  a name in a title is spelled as the page spells it", json.loads(code("/api/daylog")[1])["rows"][0]["title"], f"PR by {spell[1]}")
+        prog = T + "/bin/day-log"
+        def day_prog(body):
+            with open(prog, "w") as f:
+                f.write("#!/bin/sh\n" + body)
+            os.chmod(prog, 0o755)
+            refresh_day_log(prog)
+        g["DAY_LOG_PROGRAM"] = prog
+        out = {"summary": "1 day, 2 entries", "note": "a note", "empty": "nothing", "kinds": {"released": {"name": "Released", "about": "Out.", "x": 1}, "bad": 3},
+               "rows": [{"at": 300, "type": "entry", "kind": "released", "by": spell[1], "text": f"by {spell[0]}", "url": "https://x/1", "label": "#1"},
+                        {"at": 200, "type": "entry", "kind": "fix<b>", "text": "a bad link", "url": "javascript:alert(1)"},
+                        {"at": 100, "type": "day", "kind": "development", "by": "Lea", "text": "x" * 400},
+                        {"at": "soon", "type": "entry"}, {"at": True, "type": "day"}, {"at": 1, "type": "other"}, "not a row"]}
+        day_prog("cat <<'EOF'\n" + json.dumps(out) + "\nEOF\n")
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: a program's rows, the bad ones left out", [(r["at"], r["type"]) for r in d["rows"]], [(300, "entry"), (200, "entry"), (100, "day")])
+        t("  a name comes back as the roster's, and one in the words is spelled as the page spells it",
+          (d["rows"][0]["by"], d["rows"][0]["text"]), (spell[0], f"by {spell[1]}"))
+        t("  only an http(s) link is kept, a kind is a plain word, and text is cut short",
+          (d["rows"][0]["url"], d["rows"][1]["url"], d["rows"][1]["kind"], len(d["rows"][2]["text"])), ("https://x/1", "", "fixb", 300))
+        t("  its words and kinds pass through", (d["state"], d["summary"], d["note"], d["empty"], d["kinds"]),
+          ("ok", "1 day, 2 entries", "a note", "nothing", {"released": {"name": "Released", "about": "Out."}}))
+        day_prog("echo 'GitHub could not be read just now' >&2; exit 1\n")
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: a failed program says why, and the log it last printed stays", (d["state"], d["error"], len(d["rows"])),
+          ("failed", "GitHub could not be read just now", 3))
+        day_prog("echo not json\n")
+        t("  as does one that prints no JSON", json.loads(code("/api/daylog")[1])["error"], "printed something that is not JSON")
+        day_prog("echo '{\"rows\": []}'\n")
+        t("  and the next good one clears it", [json.loads(code("/api/daylog")[1])[k] for k in ("state", "error", "rows")], ["ok", "", []])
+        g["DAY_LOG_PROGRAM"] = os.path.join(ROOT, "team", "day-log.py")
+        _daylog.update(at=0, busy=False, data=None, error="")
+        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
+        # the harness's own program: its two logs and a stand-in gh, with the clock's window taken from now
+        stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
+        ep = lambda ago: int(time.time() - ago)
+        ds = T + "/daystate"
+        os.makedirs(ds)
+        os.makedirs(T + "/ghbin")
+        with open(T + "/ghbin/gh", "w") as f:
+            f.write(f"#!/bin/sh\ncat {T}/gh.json\n")
+        os.chmod(T + "/ghbin/gh", 0o755)
+        def harness_log(prs, repo="o/r"):
+            with open(T + "/gh.json", "w") as f:
+                f.write(prs if isinstance(prs, str) else json.dumps(prs))
+            env = {**os.environ, "DAY_LOG_STATE_DIR": ds, "PATH": T + "/ghbin:" + os.environ["PATH"], "AGENTS_PR_REPO": repo}
+            p = subprocess.run([os.path.join(ROOT, "team", "day-log.py")], input='{"days": 7}', capture_output=True, text=True, env=env, timeout=30)
+            return p.returncode, (json.loads(p.stdout) if p.returncode == 0 else p.stderr.strip())
+        t("harness day log: nothing started is no rows", harness_log([])[1]["rows"], [])
+        with open(ds + "/dev-day.log", "w") as f:
+            f.write(f"{stamp(9 * 86400)}\tdevelopment\tgate=0\tOld\n{stamp(8 * 86400)}\tverification\tgate=0\tOld\n{stamp(3600)}\tverification\tgate=0\tAda\n"
+                    f"not a line\nbad\tdevelopment\tgate=0\tAda\n{stamp(1800)}\tdevelopment\tgate=0\tAda\n")
+        with open(ds + "/agents-day-budget.log", "w") as f:
+            f.write(f"{ep(9 * 86400)} start 1 20\n{ep(8 * 86400)} end 5 0\n{ep(1800) + 2} start 23 15\n")
+        prs = [{"number": 1, "title": "Too old", "mergedAt": stamp(8.5 * 86400 + 86400), "url": "https://x/1"},
+               {"number": 2, "title": "Under verification — Ada", "mergedAt": stamp(2700), "url": "https://x/2"},
+               {"number": 3, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(600), "url": "https://x/3"},
+               {"number": 4, "title": "no merge time", "url": "https://x/4"}]
+        rc, d = harness_log(prs)
+        rows = d["rows"]
+        t("harness day log: newest first, each PR under the day it merged in, a bad line left out, the window opening at a start",
+          [r["label"] if r["type"] == "entry" else r["kind"] for r in rows], ["#3", "development", "#2", "verification", "verification"])
+        t("  the development day's share, and none on a verification day that opened no share",
+          (rows[1]["text"], rows[3]["text"]), ("Started development day, 15%", "Started verification day"))
+        t("  a PR's link, its words without its ticket's name, and its kind", (rows[0]["url"], rows[0]["text"], rows[0]["kind"]), ("https://x/3", "what it did", "fix"))
+        t("  a PR's maker off the end of its title, and who started a day", (rows[2]["by"], rows[2]["text"], rows[1]["by"]), ("Ada", "Under verification", "Ada"))
+        t("  its header's words", d["summary"], "3 days started, 2 PRs merged")
+        with open(ds + "/agents-day-budget.log", "w") as f:
+            f.write(f"{ep(3600) - 1} end 20 0\n{ep(3600) - 1} start 20 5\n{ep(1800) + 2} start 23 15\n")
+        t("  a verification day that opened a share shows it", harness_log(prs)[1]["rows"][3]["text"], "Started verification day, 5%")
+        t("harness day log: GitHub unread fails, saying why", harness_log(""), (1, "GitHub could not be read just now"))
+        rc, d = harness_log([{"number": n, "title": "t", "mergedAt": stamp(60), "url": "u"} for n in range(500)])
+        t("harness day log: a full read says it may be cut", d["note"], "Showing the newest PRs only: there are more in this window than the page reads.")
+        rc, d = harness_log(prs, repo="")
+        t("harness day log: no repository set still shows the days, and says so", (d["note"], [r["type"] for r in d["rows"]]),
+          ("PRs are not shown: AGENTS_PR_REPO is not set.", ["day"] * 3))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("day_log", os.path.join(ROOT, "team", "day-log.py"))
+        dl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dl)
         for whole, shown in [("fix_a_long_ticket_name: what it did (pt3) — James", "what it did (pt3) — James"), ("ci: a colon but no ticket", "ci: a colon but no ticket"),
                              ("fix_only_a_ticket_name", "fix_only_a_ticket_name"), ("fix_a_name: ", "fix_a_name: "), ("Why: fix_a_name: stays", "Why: fix_a_name: stays")]:
-            t(f"  a title without its ticket's name: {whole!r}", short_title(whole), shown)
-        g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
-        refresh_prs("o/r", 0)
-        t("  and the log shows it so", json.loads(code("/api/daylog")[1])["rows"][0]["title"], "what it did")
+            t(f"  a title without its ticket's name: {whole!r}", dl.short_title(whole), shown)
         for whole, parts in [("what it did — James", ("what it did", "James")), ("no name here", ("no name here", "")), ("a — b and more", ("a — b and more", "")), ("two — dashes — Ada", ("two — dashes", "Ada"))]:
-            t(f"  a title's name: {whole!r}", title_name(whole), parts)
-        g["run"] = lambda *c, **k: json.dumps([{"number": 7, "title": f"fix_a_b: what it did — {spell[1]}", "mergedAt": stamp(60), "url": "u"}])
-        refresh_prs("o/r", 0)
-        r0 = json.loads(code("/api/daylog")[1])["rows"][0]
-        t("  a name in the page's spelling comes back as the roster's, off the end of the words", (r0["by"], r0["title"]), (spell[0], "what it did"))
-        g["run"] = lambda *c, **k: json.dumps([{"number": 6, "title": "fix_a_long_ticket_name: what it did", "mergedAt": stamp(60), "url": "u"}])
-        refresh_prs("o/r", 0)
-        t("  a day's row names who started it", [r["by"] for r in json.loads(code("/api/daylog")[1])["rows"] if r["type"] == "day"][0], "Ada")
-        t("  and says what the ticket name called it", json.loads(code("/api/daylog")[1])["rows"][0]["kind"], "fix")
-        t("  a title with no ticket name has no kind", [title_kind(x) for x in ("ci: a colon", "fix_only_a_name", "fix_a_name: ", "feat_a_b: c")], ["", "", "", "feat"])
-        g["run"] = lambda *c, **k: json.dumps([
-            {"number": 2, "title": "b", "mergedAt": stamp(2700), "url": "u"}, {"number": 3, "title": "c", "mergedAt": stamp(600), "url": "u"}])
-        refresh_prs("o/r", 0)
-        g["run"] = lambda *c, **k: ""
-        refresh_prs("o/r", 0)
-        d = json.loads(code("/api/daylog")[1])
-        t("day log: a failed read says so and keeps the PRs it has", (d["prs"], len(d["rows"])), ("failed", 5))
-        g["run"] = lambda *c, **k: json.dumps([{"number": n, "title": "t", "mergedAt": stamp(60), "url": "u"} for n in range(DAY_LOG_PRS)])
-        refresh_prs("o/r", 0)
-        d = json.loads(code("/api/daylog")[1])
-        t("day log: a full read says it may be cut", (d["prs"], d["cut"]), ("ok", True))
-        del os.environ["AGENTS_PR_REPO"]
-        d = json.loads(code("/api/daylog")[1])
-        t("day log: no repository set still shows the days, and says so", (d["prs"], [r["type"] for r in d["rows"]]), ("unset", ["day"] * 3))
-        g["run"] = real_run
-        _prs.update(at=0, busy=False, rows=None, failed=False)
-        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
+            t(f"  a title's name: {whole!r}", dl.title_name(whole), parts)
+        t("  a title with no ticket name has no kind", [dl.title_kind(x) for x in ("ci: a colon", "fix_only_a_name", "fix_a_name: ", "feat_a_b: c")], ["", "", "", "feat"])
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
@@ -7749,7 +7756,7 @@ def self_test():
           ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
         t("  every menu is a sheet from the bottom over a dimmed page, which a tap closes",
           ("html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0" in PAGE, 'back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };' in PAGE), (True, True))
-        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.day, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "p" + r.number)}</div>' in PAGE), (True, True, True))
+        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.kind, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>' in PAGE), (True, True, True))
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
