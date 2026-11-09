@@ -464,7 +464,7 @@ _board = {"at": 0, "busy": False}
 #   {"rows": [row, ...], "summary": the header's words, "note": a line above the rows, "empty": said when no rows,
 #    "kinds": {kind: {"name": "Released", "about": "A sentence."}} for a kind the page has no words for}
 # where a row is
-#   {"at": epoch seconds, "type": "day" (a day's heading) or "entry", "kind": a word for its icon and colour,
+#   {"at": epoch seconds, "type": "day" (a day's heading) or "entry", "kind": a word for its icon and colour (a day with none shows its text alone),
 #    "by": who (a roster name gets their badge's colour), "text": what happened,
 #    "url": an http(s) link, "label": the link's words}
 # Only "at" and "type" are needed. A row that breaks these rules is left out and the text is cut short. A program that
@@ -472,8 +472,9 @@ _board = {"at": 0, "busy": False}
 DAY_LOG_DAYS = 7
 DAY_LOG_EVERY = 120
 DAY_LOG_ROWS = 1000
+DAY_LOG_FIRST_WAIT = 5   # seconds the first request waits for the first reading before saying it is still reading
 DAY_LOG_PROGRAM = os.path.join(ROOT, "team", "day-log.py")
-_daylog = {"at": 0, "busy": False, "data": None, "error": ""}
+_daylog = {"at": 0, "busy": False, "data": None, "error": "", "thread": None}
 
 
 def day_log_program():
@@ -523,7 +524,11 @@ def daylog_json():
         return json.dumps({"state": "unset", "program": program, "rows": []}).encode()
     if not _daylog["busy"] and time.time() - _daylog["at"] > DAY_LOG_EVERY:
         _daylog["busy"] = True
-        threading.Thread(target=refresh_day_log, args=(program,), daemon=True).start()
+        _daylog["thread"] = threading.Thread(target=refresh_day_log, args=(program,), daemon=True)
+        _daylog["thread"].start()
+    first = _daylog["thread"]
+    if _daylog["data"] is None and first:
+        first.join(DAY_LOG_FIRST_WAIT)   # the first reading: a quick program is answered at once
     data = _daylog["data"] or {"rows": []}
     names = shown_names()
     # The page's colours go by the roster's spelling; a row is signed with the short name, often spelled otherwise
@@ -3202,6 +3207,9 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it .who{flex:none;font-weight:650;font-size:calc(10.5px*var(--fs,1));padding:1px 6px;border-radius:4px;height:fit-content;margin-top:1px;letter-spacing:.02em}
 .it .tx{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;white-space:pre-line;color:var(--text2)}
 .it.said .tx{color:var(--text)}
+.it .tx > .heads{float:left;height:1lh;margin-right:7px;white-space:nowrap}   /* one line's height, so the next line runs beneath */
+.it .tx > .heads .who{display:inline-block;vertical-align:top;line-height:1.1;margin-top:.5px}   /* inside the line it opens, so a one-line message never cuts it off */
+.it .tx > .heads .who + .who{margin-left:4px}
 .it.owner .who{background:var(--ownerbg);color:var(--ownerfg)}
 .it.l-auto,.it.l-team{border-left:2px solid var(--lanec);padding-left:7px}
 .it.l-owner{padding-left:9px}
@@ -3733,6 +3741,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .stop::before{width:12px;height:12px}
 #detail .conv .it{font-size:calc(13px*var(--fs,1))}
 #detail .conv .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap}
+/* text shown whole flows as a block, so a message's badges open its first line and its later lines run beneath them */
+.card.full .it .tx,.teamlog:not(.summary) .it .tx,#detail .conv .it .tx,.it.ask .tx{display:block}
 #detail .conv .it.tools .tx{white-space:normal}
 /* the pane as a live thumbnail at the top right, in a terminal window of its own shape; a click expands it over
    the whole window over a dimmed page, as large as fits, as an image does */
@@ -3947,6 +3957,11 @@ html.phone #detail .head .facts > :last-child{display:none}
 html.phone #detail .box{grid-template-rows:auto auto minmax(0,1fr) !important}
 html.phone #detail .box .rail{display:flex !important;grid-column:1;grid-row:2 !important;gap:10px;padding:8px 12px;overflow-x:auto;overflow-y:hidden;border:0;border-bottom:1px solid var(--line);scrollbar-width:none}
 html.phone #detail .box .left{grid-row:3 !important}
+html.phone :is(#drail, #detail .head .facts){cursor:grab}
+html.phone .sheetdrag{cursor:grab}   /* a sheet drags down to close under a mouse too */
+html.phone .sheetdrag :is(button, a, select, label, [data-go], [data-act], [data-open], .mi){cursor:pointer}
+html.phone .sheetdrag.grabbing, html.phone .sheetdrag.grabbing *{cursor:grabbing;user-select:none}
+html.phone :is(#drail, #detail .head .facts).grabbing{cursor:grabbing;user-select:none}
 html.phone #drail .phf{position:relative;flex:none;width:48px;height:48px;padding:0;border:0;border-radius:14px;background:none;cursor:pointer}
 html.phone #drail .phf > span:not(.unseen){display:block;width:100%;height:100%;box-sizing:border-box;border-radius:14px;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
 html.phone #drail .phf img,html.phone #drail .phf svg{display:block;width:100%;height:100%;object-fit:cover}
@@ -4197,7 +4212,9 @@ function item(it, compact, agent, tag) {
   const c = colours[it.kind === "said" ? agent : it.with || it.who], pc = c ? ` style="--pc:${c}"` : "";
   const pics = thumbs(it.text, it.images, agent), own = who ? `<span class="who">${esc(shown(who))}</span>` : "";
   const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
-  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${heads}<span class="tx">${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  // the badges open the text's first line, and its later lines run the full width beneath them (not a live line's)
+  const inline = !!heads && it.kind !== "live";
+  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
 // An open prompt's options in the order shown, each naming its option by number and label so that it answers only the
 // prompt it was drawn for: a button for each, chosen as its digit chooses it in the terminal, and for a Type something
@@ -5119,7 +5136,8 @@ function dayLogHtml() {
   const days = dayLog.rows.filter(r => r.type === "day").length, entries = dayLog.rows.length - days;
   const sum = dayLog.summary || `${days} day${days === 1 ? "" : "s"}, ${entries} entr${entries === 1 ? "y" : "ies"}`;
   return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${esc(sum)}</span></div><div class="daylog" style="--whw:${dayLogWhW(dayLog.rows.filter(r => r.by).map(r => shown(r.by)))}px">${notes}${dayLog.rows.map((r, i) => r.type === "day"
-    ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
+    ? (r.kind ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
+      : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
 let meetNow = {}, meetRecords = "";
@@ -6920,7 +6938,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     else if (go === "fav") phFavToggle(name);
     else if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
     else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
-    else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, Open shows the agent there
+    else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open || phoneOn() ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, or on the phone (no panes), Open shows the agent's view
   });
 }
 // A meeting attendee's menu. The face stands for the agent's meeting session, not the agent, so it has none of the
@@ -6964,11 +6982,13 @@ function chatWith(path, name) {
   saveLayout(l); draw();
   if (name) aim($(`#main .pane[data-path="${path}"] .chat .say`));
 }
-// Whether the last press was a finger. A tap sends mouseenter too, and a rest's menu must not open on it.
+// Whether the last press was a finger. A tap sends mouseenter too, and a rest's menu must not open on it. Nor does one
+// open on the phone layout, where a menu is a sheet whose backdrop covers what was rested on: it would close and open
+// again for as long as the pointer stayed.
 let touched = false;
 document.addEventListener("pointerdown", e => { touched = e.pointerType === "touch"; }, true);
 function menuSoon(el, wait) {
-  if (wait > 0 && touched) return;
+  if (wait > 0 && (touched || phoneOn())) return;
   clearTimeout(menuShow); clearTimeout(menuHide);
   // A redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner.
   menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, wait > 0), wait);
@@ -7029,7 +7049,7 @@ function filterButton(btn, list, on, tip, flip, head = "Show") {
 function menuButton(btn, open) {
   btn.onclick = e => { e.stopPropagation(); clearTimeout(menuShow); open(false); };
   btn.onmouseenter = () => {
-    clearTimeout(menuHide); if (menuOn(btn.dataset.menu)) return;
+    clearTimeout(menuHide); if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;   // see menuSoon
     clearTimeout(menuShow); menuShow = setTimeout(() => btn.isConnected && open(true), 350);   // as menuSoon
   };
   btn.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
@@ -7085,10 +7105,10 @@ function phTeamState() {
   return {word: state[0], colour: state[1], up: S.agents.filter(a => a.live).length, off: S.bench.length + S.agents.filter(a => !a.live).length};
 }
 // How the Agents and Portraits tabs order the team: by status (waiting, working, idle, stopped) or by role.
-const phOrder = () => localStorage.getItem("phoneorder") === "role" ? "role" : "state";
+const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" : "role";   // by role unless Status is chosen (owner, 2026-11-09: "portraits should be grouped by role")
 // Favourites (owner, 2026-11-09: "favourites ... listed at the top"): agents starred from their menu, kept in this browser
-// in the order they were starred, shown first on the Agents tab in either order and not again below.
-const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+// and listed by name, shown first on the Agents and Portraits tabs in either order and not again below.
+const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v.filter(n => typeof n === "string").sort((x, y) => x.localeCompare(y, undefined, {sensitivity: "base"})) : []; } catch (e) { return []; } };
 const phFav = name => phFavs().includes(name);
 function phFavToggle(name) {
   const f = phFavs(), next = f.includes(name) ? f.filter(x => x !== name) : [...f, name];
@@ -7096,10 +7116,10 @@ function phFavToggle(name) {
   phoneDraw();
   if (open) phRail();   // the agent view's strip, favourites first, too
 }
-// [role, its agents] in the page's role order; within a role the roster's order, running agents and then stopped ones
+// [role, its agents] in the page's role order; within a role by name, running and stopped together
 function phByRole() {
   const all = [...S.agents, ...S.bench];
-  return roleList().map(r => [r, all.filter(a => a.role === r.role)]).filter(([, list]) => list.length);
+  return roleList().map(r => [r, all.filter(a => a.role === r.role).sort(byName)]).filter(([, list]) => list.length);
 }
 function phListHtml() {
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
@@ -7134,15 +7154,20 @@ function phListHtml() {
 }
 function phFacesHtml() {
   const live = S.agents.filter(a => a.live), rank = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
-  const up = [...live].sort((x, y) => rank(x) - rank(y)), off = [...S.agents.filter(a => !a.live), ...S.bench];
+  let up = [...live].sort((x, y) => rank(x) - rank(y)), off = [...S.agents.filter(a => !a.live), ...S.bench];
   const tile = a => { const st = stOf(a), n = unseen(a);
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
       `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.ticket || a.roleName || "")}</span></button>`; };
   const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">stopped</span></button>`;
-  if (phOrder() === "role") return phByRole().map(([r, list]) => `<section><h2>${esc(r.name)}</h2><div class="ph-grid">${list.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>`).join("") +
+  // favourites first, as in the Agents tab, and not again under their role
+  const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
+  const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">${favs.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>` : "";
+  if (phOrder() === "role") return fav + phByRole().map(([r, list]) => [r, list.filter(a => !favs.includes(a))]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${esc(r.name)}</h2><div class="ph-grid">${list.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>`).join("") +
     `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
-  return (up.length ? `<div class="ph-grid">${up.map(tile).join("")}</div>` : `<div class="ph-empty">No agent is running</div>`) +
+  const notFav = a => !favs.includes(a);
+  up = up.filter(notFav); off = off.filter(notFav);
+  return fav + (up.length ? `<div class="ph-grid">${up.map(tile).join("")}</div>` : !live.length ? `<div class="ph-empty">No agent is running</div>` : "") +
     (off.length ? `<section><h2>Stopped</h2><div class="ph-grid bench">${off.map(a => `<button class="ph-tile${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
 }
@@ -7200,7 +7225,7 @@ async function phLoad(tab) {
       }));
       phoneDraw();
     }
-    if (tab === "day" && Date.now() - phDayAt > 30000) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
+    if (tab === "day" && Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
   } catch (e) {}
 }
 function phoneDraw() {
@@ -7270,7 +7295,7 @@ function phoneDraw() {
   if (tab === "list" || tab === "faces") markSeen([]);
 }
 let phHeld = 0;
-// A press held on an agent anywhere on the phone (a row, a portrait, the agent view's strip of portraits, a name in
+// A press held on an agent anywhere on the phone, by a finger or a mouse button (a row, a portrait, the agent view's strip of portraits, a name in
 // Combined) opens its menu, as a sheet. Wired once, on the document.
 const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name]";
 function phHoldWire() {
@@ -7285,8 +7310,16 @@ function phHoldWire() {
   document.addEventListener("touchmove", e => { if (at && Math.hypot(e.touches[0].clientX - at[0], e.touches[0].clientY - at[1]) > 10) clearTimeout(hold); }, {passive: true});
   document.addEventListener("touchend", e => { clearTimeout(hold); if (Date.now() - phHeld < 800 && e.cancelable) e.preventDefault(); });   // the lift after a hold clicks nothing
   document.addEventListener("touchcancel", () => clearTimeout(hold));
+  document.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "mouse" || e.button) return;
+    clearTimeout(hold); const w = who(e.target); if (!w) return;
+    at = [e.clientX, e.clientY]; hold = setTimeout(() => held(w), 480);
+  });
+  document.addEventListener("pointermove", e => { if (e.pointerType === "mouse" && at && Math.hypot(e.clientX - at[0], e.clientY - at[1]) > 10) clearTimeout(hold); });
+  document.addEventListener("pointerup", e => { if (e.pointerType === "mouse") clearTimeout(hold); });
   document.addEventListener("contextmenu", e => { const w = who(e.target); if (!w) { if (phoneOn() && e.target.closest?.("#phone img, #drail img")) e.preventDefault(); return; } e.preventDefault(); e.stopPropagation(); clearTimeout(hold); held(w); }, true);
-  document.addEventListener("click", e => { if (Date.now() - phHeld < 800 && phoneOn() && !e.target.closest("#menu")) { e.preventDefault(); e.stopPropagation(); } }, true);
+  // the click that ends a held mouse button goes nowhere: caught on the window, before the page's own handlers see it
+  addEventListener("click", e => { if (Date.now() - phHeld < 800 && phoneOn() && !e.target.closest("#menu")) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 }
 // The header's gauge: one of the bar's plug-ins (the same reading the desktop bar shows), chosen in the team menu and
 // kept in this browser; until one is chosen, the day bar, else the week's (owner, 2026-11-08: "I want the day bar for now").
@@ -7352,20 +7385,64 @@ function phoneMenuOff() {
 // The sheet follows a finger pulling it down, from its handle or from anywhere once its list is scrolled to the top,
 // and closes if pulled far enough or flicked; otherwise it springs back (owner, 2026-11-08).
 function phSheetDrag(panel, close = phoneMenuOff, back = null, when = () => true) {
-  let y0 = null, t0 = 0, dy = 0;
+  let y0 = null, t0 = 0, dy = 0, dragged = false;
   const dim = () => back || $("#phsheet");
-  panel.ontouchstart = e => { if (!when() || e.touches.length !== 1 || panel.scrollTop > 0 && !e.target.closest(".grab")) { y0 = null; return; } y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; panel.style.transition = "none"; };
-  panel.ontouchmove = e => {
-    if (y0 == null) return;
-    dy = Math.max(0, e.touches[0].clientY - y0);
-    if (dy > 0) { e.preventDefault(); panel.style.transform = `translateY(${dy}px)`; dim().style.background = `rgba(0,0,0,${0.45 * Math.max(0, 1 - dy / panel.offsetHeight)})`; }
+  const start = (y, target) => { if (!when() || panel.scrollTop > 0 && !target.closest(".grab")) { y0 = null; return false; } y0 = y; t0 = Date.now(); dy = 0; dragged = false; panel.style.transition = "none"; return true; };
+  const move = y => {
+    if (y0 == null) return false;
+    dy = Math.max(0, y - y0);
+    if (dy > 0) { dragged = true; panel.style.transform = `translateY(${dy}px)`; dim().style.background = `rgba(0,0,0,${0.45 * Math.max(0, 1 - dy / panel.offsetHeight)})`; }
+    return dy > 0;
   };
-  panel.ontouchend = panel.ontouchcancel = () => {
+  const end = () => {
     if (y0 == null) return;
     y0 = null; panel.style.transition = ""; dim().style.background = "";
     const fast = dy > 30 && dy / Math.max(1, Date.now() - t0) > 0.5;
     if (dy > Math.min(140, panel.offsetHeight / 3) || fast) { close(); if (back) setTimeout(() => { panel.style.transform = ""; }, 50); } else panel.style.transform = "";
   };
+  panel.ontouchstart = e => { if (e.touches.length !== 1) { y0 = null; return; } start(e.touches[0].clientY, e.target); };
+  panel.ontouchmove = e => { if (move(e.touches[0].clientY)) e.preventDefault(); };
+  panel.ontouchend = panel.ontouchcancel = end;
+  let mouse = null;
+  panel.classList.add("sheetdrag");
+  panel.onpointerdown = e => { dragged = false; if (e.pointerType === "mouse" && !e.button && start(e.clientY, e.target)) mouse = e.pointerId; };
+  panel.onpointermove = e => {
+    if (e.pointerId !== mouse) return;
+    if (!dragged && e.clientY - y0 < 6) return;
+    if (!panel.hasPointerCapture(mouse)) panel.setPointerCapture(mouse);
+    if (move(e.clientY)) panel.classList.add("grabbing");
+  };
+  panel.onpointerup = panel.onpointercancel = e => { if (e.pointerId !== mouse) return; mouse = null; panel.classList.remove("grabbing"); end(); setTimeout(() => { dragged = false; }); };   // after the click it ends with
+  panel.addEventListener("click", e => { if (dragged) { dragged = false; e.preventDefault(); e.stopPropagation(); } }, true);
+}
+// A strip that scrolls sideways under a finger scrolls under a mouse too: dragged with its button held, or with the
+// wheel. A drag clicks nothing it ends on.
+const PH_STRIPS = "html.phone #drail, html.phone #detail .head .facts";
+{
+  let strip = null, x0 = 0, s0 = 0, dragged = false;
+  document.addEventListener("pointerdown", e => {
+    dragged = false;
+    const el = e.pointerType === "mouse" && !e.button && e.target.closest?.(PH_STRIPS);
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    strip = el; x0 = e.clientX; s0 = el.scrollLeft; dragged = false;
+  });
+  document.addEventListener("pointermove", e => {
+    if (!strip) return;
+    const dx = e.clientX - x0;
+    if (!dragged && Math.abs(dx) < 6) return;
+    if (!dragged) { dragged = true; strip.classList.add("grabbing"); }
+    strip.scrollLeft = s0 - dx;
+  });
+  const done = () => { strip?.classList.remove("grabbing"); strip = null; setTimeout(() => { dragged = false; }); };   // after the click it ends with
+  document.addEventListener("pointerup", done);
+  document.addEventListener("pointercancel", done);
+  document.addEventListener("dragstart", e => { if (e.target.closest?.(PH_STRIPS)) e.preventDefault(); });   // a portrait's image is not dragged out
+  document.addEventListener("click", e => { if (dragged) { dragged = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener("wheel", e => {
+    const el = e.target.closest?.(PH_STRIPS);
+    if (!el || el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    e.preventDefault(); el.scrollLeft += e.deltaY;
+  }, {passive: false});
 }
 $("#phoneback").onclick = () => { localStorage.removeItem("phone"); phoneDraw(); };
 PHONE_MQ.addEventListener("change", () => { phoneDraw(); draw(); });
@@ -7403,7 +7480,7 @@ addEventListener("unhandledrejection", e => { if (document.documentElement.class
 function phRail() {
   const order = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
   const all = phOrder() === "role" ? phByRole().flatMap(([, l]) => l).filter(a => a.live) : [...S.agents.filter(a => a.live)].sort((x, y) => order(x) - order(y));
-  // favourites first, in the order they were starred (owner, 2026-11-09: "can this row put favourites first")
+  // favourites first (owner, 2026-11-09: "can this row put favourites first")
   const favs = phFavs(), list = [...favs.map(n => all.find(a => a.name === n)).filter(Boolean), ...all.filter(a => !favs.includes(a.name))];
   patchByName($("#drail"), list.map(a => { const n = a.name === open ? 0 : unseen(a);
     return `<button class="phf ${stOf(a)}${a.name === open ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[stOf(a)] || ""}">` +
@@ -7705,8 +7782,17 @@ def self_test():
         t("  as does one that prints no JSON", json.loads(code("/api/daylog")[1])["error"], "printed something that is not JSON")
         day_prog("echo '{\"rows\": []}'\n")
         t("  and the next good one clears it", [json.loads(code("/api/daylog")[1])[k] for k in ("state", "error", "rows")], ["ok", "", []])
+        with open(prog, "w") as f:
+            f.write("#!/bin/sh\nsleep 0.3; echo '{\"rows\": [{\"at\": 5, \"type\": \"day\", \"text\": \"Monday\"}]}'\n")
+        _daylog.update(at=0, busy=False, data=None, error="", thread=None)
+        d = json.loads(code("/api/daylog")[1])
+        t("day log: the first request waits for the first reading, so a quick program is shown at once", (d["state"], len(d["rows"])), ("ok", 1))
+        t("  and a day with no kind is drawn as its name alone",
+          ': `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)' in PAGE, True)
+        t("  the phone's Day log asks again soon while the first reading is still coming",
+          'Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)' in PAGE, True)
         g["DAY_LOG_PROGRAM"] = os.path.join(ROOT, "team", "day-log.py")
-        _daylog.update(at=0, busy=False, data=None, error="")
+        _daylog.update(at=0, busy=False, data=None, error="", thread=None)
         t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
         # the harness's own program: its two logs and a stand-in gh, with the clock's window taken from now
         stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
@@ -7775,6 +7861,21 @@ def self_test():
         t("  its tabs are Agents, Portraits, Combined and the Day log", 'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"]]' in PAGE, True)
         t("  Combined has its own Roles and lanes, behind one ⋯ in its header, kept in this browser",
           ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
+        t("  its agents are by role unless Status is chosen, favourites first on Agents and Portraits, each group by name",
+          ('const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" : "role";' in PAGE,
+           'const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">' in PAGE,
+           'all.filter(a => a.role === r.role).sort(byName)' in PAGE, '.sort((x, y) => x.localeCompare(y, undefined, {sensitivity: "base"}))' in PAGE),
+          (True, True, True, True))
+        t("  a mouse drags a sheet down, drags and wheels a strip sideways, and a held button opens an agent's menu",
+          ('panel.classList.add("sheetdrag");' in PAGE, 'const PH_STRIPS = "html.phone #drail, html.phone #detail .head .facts";' in PAGE,
+           'e.preventDefault(); el.scrollLeft += e.deltaY;' in PAGE, 'if (e.pointerType !== "mouse" || e.button) return;' in PAGE,
+           "html.phone .sheetdrag{cursor:grab}" in PAGE), (True, True, True, True, True))
+        t("  resting the mouse opens no menu there, and Open in an agent's menu opens its view",
+          ("if (wait > 0 && (touched || phoneOn())) return;" in PAGE, "if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;" in PAGE,
+           "(open || phoneOn() ? openDetail : x => menuGo(x, anchor))" in PAGE), (True, True, True))
+        t("a message's badges open its first line and its later lines run the full width beneath them",
+          ('const inline = !!heads && it.kind !== "live";' in PAGE, '${inline ? `<span class="heads">${heads}</span>` : ""}' in PAGE,
+           ".it .tx > .heads{float:left;height:1lh;" in PAGE), (True, True, True))
         t("  every menu is a sheet from the bottom over a dimmed page, which a tap closes",
           ("html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0" in PAGE, 'back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };' in PAGE), (True, True))
         t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.kind, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>' in PAGE), (True, True, True))
