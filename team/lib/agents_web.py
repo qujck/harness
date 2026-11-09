@@ -57,6 +57,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import threading
 import tempfile
@@ -68,6 +69,21 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOME = os.path.expanduser("~")
+# Claude Code's scratchpads (/tmp/claude-<uid>/…/scratchpad), where agents are told to keep their working files.
+SCRATCH = os.environ.get("AGENT_SCRATCH_ROOT") or f"/tmp/claude-{os.getuid()}"
+
+
+def shown_file(real):
+    """May the page show this file (a resolved path)? Under the home directory, or under the scratchpad root when that
+    root is a real directory of this user's that nobody else can enter (so another user cannot plant one there)."""
+    if real.startswith(HOME + os.sep):
+        return True
+    try:
+        st = os.lstat(SCRATCH)
+    except OSError:
+        return False
+    return (real.startswith(SCRATCH + os.sep) and stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
+            and not st.st_mode & 0o077)
 ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 STATE_DIR = os.path.join(HOME, ".local/state", PROJECT)
@@ -2667,12 +2683,12 @@ class Handler(BaseHTTPRequestHandler):
     def doc(self):
         """A document an agent names by its full path ("~/…" or "/home/…"), as text for the page to show: only from the
         page itself (the Host check keeps other sites out), only Markdown, plain text, SQL or a log (never a settings
-        or key file), and only from under the home directory."""
+        or key file), and only from under the home directory or a scratchpad (shown_file)."""
         if not self.here():
             return self.send(403, b"only the team page\n", "text/plain")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         real = os.path.realpath(os.path.expanduser(query.get("p", [""])[0]))
-        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not real.startswith(HOME + os.sep)
+        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not shown_file(real)
                 or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
             return self.send(404, b"no such document\n", "text/plain")
         with open(real, "rb") as f:
@@ -2682,7 +2698,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def image(self):
         """An image an agent names by its path, full or from its own folder, for the page to show: only from the page
-        itself (the Host check keeps other sites out), only an image file, and only from under the home directory."""
+        itself (the Host check keeps other sites out), only an image file, and only from under the home directory or a scratchpad (shown_file)."""
         if not self.here():
             return self.send(403, b"only the team page\n", "text/plain")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -2695,7 +2711,7 @@ class Handler(BaseHTTPRequestHandler):
             want = os.path.join((live_sessions().get(query.get("a", [""])[0]) or {}).get("cwd") or "/nowhere", want)
         real = os.path.realpath(want)
         kind = IMAGE_TYPES.get(os.path.splitext(real)[1].lower())
-        if not kind or not real.startswith(HOME + os.sep) or not os.path.isfile(real) or os.path.getsize(real) > 25_000_000:
+        if not kind or not shown_file(real) or not os.path.isfile(real) or os.path.getsize(real) > 25_000_000:
             return self.send(404, b"no such image\n", "text/plain")
         with open(real, "rb") as f:
             self.send(200, f.read(), kind, "private, max-age=300")
@@ -4038,7 +4054,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 const shown = name => S?.shownNames?.[name] || name;
 // The little Markdown agents write: ``` fenced blocks, tables, # headings, - bullets, `code` and **bold**; web
 // addresses become links, and so do full paths to documents the page can show (DOC_TYPES on the server).
-const DOC = /(^|[\s(>])((?:~|\/home)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
+const DOC = /(^|[\s(>])((?:~|\/home|\/tmp\/claude-\d+)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
 // A name in an agent's words reads as the page spells it, on the page only: the words stored and sent are untouched,
 // and so is anything meant literally, which is `code`, a web address or a path.
 const spelled = html => Object.entries(S?.shownNames || {}).reduce((out, [name, as]) =>
@@ -8330,7 +8346,22 @@ def self_test():
             meeting_checks()
         finally:
             g.update(keep)
-        t("a plug-in's icon is kept, and one that is not a plain name is not", ("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
+        sc, was = tempfile.mkdtemp(), g["SCRATCH"]   # outside the test's home, so only the scratchpad rule can pass it
+        os.makedirs(sc + "/s/scratchpad")
+        g["SCRATCH"] = sc
+        try:
+            pad = sc + "/s/scratchpad/a.md"
+            os.chmod(sc, 0o700)
+            mine = shown_file(pad)
+            os.chmod(sc, 0o755)
+            shared = shown_file(pad)
+            t("a file in a private scratchpad is shown, one in a scratchpad others can enter is not, nor one outside both",
+              (shown_file(T + "/x.md"), mine, shared, shown_file("/tmp/other/a.md"), shown_file(sc + "-evil/a.md")),
+              (True, True, False, False, False))
+        finally:
+            g["SCRATCH"] = was
+            shutil.rmtree(sc, ignore_errors=True)
+        t("a plug-in's icon is kept, and one that is not a plain name is not",("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
           (True, False))
     finally:
         for k in kids:
