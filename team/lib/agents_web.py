@@ -3056,6 +3056,10 @@ PAGE = r"""<!doctype html>
   --green:#3fb950; --amber:#e3b341; --red:#f85149; --cyan:#39c5cf;
   --chpanel:#0c0e13; --chtile:#171b24; --chmute:#9aa3b2; --chhigh:#e3b341;
   --sans:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif; --mono:"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
+  /* the page's one scale for type, corner radius and control height: every size, weight and corner below is one of these
+     (two weights, 400 and 650), so like things come out alike */
+  --t-xs:10px; --t-s:11px; --t-m:12px; --t-l:13px; --t-xl:17px; --t-xxl:20px;
+  --r-xs:2px; --r-s:5px; --r-m:9px; --r-l:14px; --ctl:28px;
 }
 :root.light{
   --bg:#f3f5f8; --panel:#ffffffcc; --line:#0000000f; --line2:#0000001c; --on:#0000001c; --text:#1f2328; --mute:#59636e; --faint:#8c959f;
@@ -3069,7 +3073,7 @@ PAGE = r"""<!doctype html>
 :root.light .meter u{box-shadow:none}
 *{box-sizing:border-box;margin:0}
 html,body{height:100%;overflow:hidden}
-body{font:calc(13px*var(--fs,1))/1.45 var(--sans);color:var(--text);background:var(--bg);display:flex;flex-direction:column;
+body{font:calc(var(--t-l)*var(--fs,1))/1.45 var(--sans);color:var(--text);background:var(--bg);display:flex;flex-direction:column;
   background-image:radial-gradient(1200px 600px at 10% -10%,var(--glow1),transparent 60%),radial-gradient(900px 500px at 110% 110%,var(--glow2),transparent 60%)}
 header,footer{display:flex;align-items:center;gap:22px;padding:12px 18px;flex:none}
 header{border-bottom:1px solid var(--line)}footer{border-top:1px solid var(--line)}
@@ -3079,7 +3083,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi[data-item=bench]{flex:1 1 auto}   /* its chips' whole width first, then a share of what is left; it shrinks, and overlaps, only past that (owner, 2026-11-02) */
 /* a spacer takes the room left, so what comes after it keeps to the right; it shows only while the layout is unlocked */
 .bi.gap{flex:1;min-width:0}
-.editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
+.editing > .bi.gap{min-width:60px;height:18px;justify-content:center;color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
 .editing > .bi.gap::before{content:"Spacer"}
 .bi.div{flex:none;align-self:stretch;width:1px;margin:4px 0;background:var(--line2)}
 .editing > .bi.div{width:15px;padding:0 6px;background:var(--faint);background-clip:content-box}   /* wider while unlocked, to grab: a 3px line, the padding either side is grip */
@@ -3088,7 +3092,7 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi > .bx{display:none}
 :not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar],[data-item=fanbar]){cursor:pointer}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
-.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:4px;cursor:grab;touch-action:none}
+.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:var(--r-s);cursor:grab;touch-action:none}
 .editing > .bi.tight + .bi.tight{margin-left:0}
 .editing > .bi.dragging{opacity:.4}
 .editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
@@ -3096,17 +3100,17 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 html:not(.barsplaced) :is(header,footer){display:none}   /* nothing until the bars are where this browser keeps them, never the markup's order */
-header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
-footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(12px*var(--fs,1))}
+header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
+footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
 /* a bar the dragged item cannot go in: boxed and crossed through in red, saying where it can go */
 :is(header,footer).refuse{position:relative;outline:2px solid var(--red);outline-offset:-2px}
 :is(header,footer).refuse::after{content:attr(data-refuse);position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(to top right,transparent calc(50% - 1px),color-mix(in srgb, var(--red) 55%, transparent) 50%,transparent calc(50% + 1px)),
     linear-gradient(to bottom right,transparent calc(50% - 1px),color-mix(in srgb, var(--red) 55%, transparent) 50%,transparent calc(50% + 1px)),
     color-mix(in srgb, var(--bg) 82%, transparent);
-  color:var(--red);font-weight:600;font-size:calc(12px*var(--fs,1));text-shadow:0 0 4px var(--bg),0 0 4px var(--bg);pointer-events:none}
+  color:var(--red);font-weight:650;font-size:calc(var(--t-m)*var(--fs,1));text-shadow:0 0 4px var(--bg),0 0 4px var(--bg);pointer-events:none}
 .barplus{margin-left:auto;flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:1px solid var(--line2);
-  border-radius:6px;background:var(--soft);color:var(--mute);cursor:pointer}
+  border-radius:var(--r-s);background:var(--soft);color:var(--mute);cursor:pointer}
 .barplus svg{width:14px;height:14px}
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
@@ -3115,8 +3119,8 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .brand.waiting{cursor:pointer;border-radius:10px;animation:brandflash 1s ease-in-out infinite}
 @keyframes brandflash{0%,100%{background:transparent;box-shadow:none}50%{background:#ffc94d;box-shadow:0 0 0 3px #ffb020}}
 .stat{display:flex;flex-direction:column;gap:4px;min-width:150px}
-.stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
-.stat .v{font:600 calc(13px*var(--fs,1)) var(--mono)}
+.stat .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.stat .v{font:650 calc(var(--t-l)*var(--fs,1)) var(--mono)}
 .pspark{width:190px;height:22px;color:var(--ownerbg)}.pspark svg.spark{height:22px}
 /* a slim plug-in is one low line: its label and value beside a shorter meter or sparkline */
 .stat.slim{flex-direction:row;align-items:center;gap:7px;min-width:0}
@@ -3127,28 +3131,28 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .stat.slim.ico .k{letter-spacing:0;text-transform:none;color:var(--text);display:flex;align-items:center;gap:4px}
 .stat.slim.ico .lab svg{width:14px;height:14px;color:var(--mute);display:block}
 .stat.slim.ico .meter,.stat.slim.ico .pspark,.stat.slim.ico .pspark svg.spark{width:48px}
-.meter{position:relative;height:8px;border-radius:5px;background:var(--track);overflow:visible;width:190px}
-.meter i{position:absolute;inset:0 auto 0 0;border-radius:5px;transition:width .6s}
-.meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:2px;box-shadow:0 0 6px #fff8}
+.meter{position:relative;height:8px;border-radius:var(--r-s);background:var(--track);overflow:visible;width:190px}
+.meter i{position:absolute;inset:0 auto 0 0;border-radius:var(--r-s);transition:width .6s}
+.meter u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text);border-radius:var(--r-xs);box-shadow:0 0 6px #fff8}
 .counts{flex:none;display:flex;gap:8px}
-.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;font:600 calc(12px*var(--fs,1)) var(--mono);background:var(--soft);color:var(--text)}
+.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);background:var(--soft);color:var(--text)}
 .pill.btn{cursor:pointer;color:var(--mute);font-family:var(--sans)}
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
-.pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:700 calc(12.5px*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
-.bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(11px*var(--fs,1))}
+.pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+.bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden;padding:1px}   /* one row, overlapped to fit: fitBench; room for a stacked card's rim */
 .bench .rrow > *{position:relative}
 .bench .rrow.stack > [data-name]{box-shadow:0 0 0 1px var(--bg)}   /* a fine rim in the page's background colour parts each card of the stack */
 .bench em.more{cursor:pointer}
 /* every row open, over the page rather than pushing it down, from where the folded rows sat */
 .bench{position:relative}
-.bench .rrow.all{position:absolute;z-index:30;flex-wrap:wrap;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 10px 28px #0008}
+.bench .rrow.all{position:absolute;z-index:30;flex-wrap:wrap;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 10px 28px #0008}
 .bench em.more:hover{color:var(--text)}
-.bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:5px;border:2px solid var(--c);color:var(--mute)}
-.face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:7px;border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
+.bench em{flex:none;font-style:normal;padding:1px 7px;border-radius:var(--r-s);border:2px solid var(--c);color:var(--mute)}
+.face{position:relative;flex:none;width:34px;height:34px;overflow:hidden;border-radius:var(--r-s);border-bottom:3px solid var(--c);background:var(--chtile)}   /* a Characters tile, smaller */
 .face img,.face svg{display:block;width:100%;height:100%;object-fit:cover}
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
@@ -3158,7 +3162,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
 main{position:relative;flex:1;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:14px;padding:14px}
 .colgrip{position:absolute;top:14px;bottom:14px;width:14px;cursor:col-resize;z-index:3}
-.colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:2px;background:transparent;transition:background .15s}
+.colgrip::after{content:"";position:absolute;inset:0 5px;border-radius:var(--r-xs);background:transparent;transition:background .15s}
 .colgrip:hover::after,.colgrip.drag::after{background:var(--line2)}
 body.resizing{cursor:col-resize;user-select:none}
 /* Custom: the page split into panes, each an agent's card, every agent as a list, or a grid or tabs of roles */
@@ -3170,26 +3174,26 @@ body.resizing{cursor:col-resize;user-select:none}
 .lay.col > .divider{width:auto;height:14px}
 .divider.drag{cursor:col-resize}
 .lay.col > .divider.drag{cursor:row-resize}
-.divider.drag::after{content:"";position:absolute;inset:0 5px;border-radius:2px;transition:background .15s}
+.divider.drag::after{content:"";position:absolute;inset:0 5px;border-radius:var(--r-xs);transition:background .15s}
 .lay.col > .divider.drag::after{inset:5px 0}
 .divider.drag:hover::after,.divider.moving::after{background:var(--line2)}
 body.resizing-row{cursor:row-resize;user-select:none}
-.pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
-.pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:calc(11px*var(--fs,1));color:var(--mute)}
-.pbar select{font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
+.pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
+.pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:calc(var(--t-s)*var(--fs,1));color:var(--mute)}
+.pbar select{font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:1px 4px}
 /* the browser draws a select's open list and an input's own parts in the page's theme, not its default light one */
 .pbar :is(select, input){color-scheme:dark}
 html.light .pbar :is(select, input){color-scheme:light}
 .pbar option{background:var(--box);color:var(--text)}
-.pbar input{flex:1 1 240px;min-width:0;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 6px}
+.pbar input{flex:1 1 240px;min-width:0;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 6px}
 .pbar input::placeholder{color:var(--faint)}
 /* a File pane: one document, as the document viewer shows it */
-.fdoc{flex:1;min-height:0;overflow:auto;padding:12px 16px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.fdoc{flex:1;min-height:0;overflow:auto;padding:12px 16px;color:var(--text);font-size:calc(var(--t-l)*var(--fs,1));line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .pbar .pacts{display:flex;gap:2px;margin-left:auto}
-.pbar .pacts b{padding:1px 6px;border-radius:5px;font-size:calc(13px*var(--fs,1));font-weight:400;cursor:pointer}
+.pbar .pacts b{padding:1px 6px;border-radius:var(--r-s);font-size:calc(var(--t-l)*var(--fs,1));font-weight:400;cursor:pointer}
 .pbar .pacts b:hover{background:var(--on);color:var(--text)}
 /* a pane's grip drags it onto another pane, and the two swap places */
-.pbar b.pmove{margin-left:-4px;padding:1px 4px;border-radius:5px;font-size:calc(13px*var(--fs,1));font-weight:400;cursor:grab;touch-action:none}
+.pbar b.pmove{margin-left:-4px;padding:1px 4px;border-radius:var(--r-s);font-size:calc(var(--t-l)*var(--fs,1));font-weight:400;cursor:grab;touch-action:none}
 .pbar b.pmove:hover{background:var(--on);color:var(--text)}
 body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .pane.lifted{opacity:.55}
@@ -3197,12 +3201,12 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .pbody{flex:1;min-height:0;display:flex;flex-direction:column}
 /* an agent picked in a Combined pane, a little inside it, over the Combined view greyed out behind */
 .pbody:has(> .paneover){position:relative}
-.paneover{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:18px;border-radius:0 0 14px 14px;
+.paneover{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:18px;border-radius:0 0 var(--r-l) var(--r-l);
   background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
 .paneover > .cards{flex:1;min-height:0;padding:0;cursor:default}
 .teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
-.pbody .blank{margin:auto;color:var(--faint);font-size:calc(12px*var(--fs,1))}
+.pbody .blank{margin:auto;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 8px}
@@ -3224,23 +3228,23 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .daylog a:hover{text-decoration:underline}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
-section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--section);backdrop-filter:blur(8px)}
-section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(11px*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:600;border-bottom:1px solid var(--line)}
-.seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden;letter-spacing:0;text-transform:none}
-.seg b{padding:2px 9px;font-weight:500;font-size:calc(11px*var(--fs,1));cursor:pointer;color:var(--mute)}
+section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
+section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:650;border-bottom:1px solid var(--line)}
+.seg{display:flex;border:1px solid var(--line2);border-radius:var(--r-s);overflow:hidden;letter-spacing:0;text-transform:none}
+.seg b{padding:2px 9px;font-weight:400;font-size:calc(var(--t-s)*var(--fs,1));cursor:pointer;color:var(--mute)}
 .seg b.on{background:var(--on);color:var(--text)}
 #pagemode,#pagelanes{display:flex}
-#help,#settings{width:30px;padding:0;font:700 calc(13px*var(--fs,1)) var(--sans)}
+#help,#settings{width:30px;padding:0;font:650 calc(var(--t-l)*var(--fs,1)) var(--sans)}
 #settings{display:inline-flex;align-items:center;justify-content:center}
-#settings svg{flex:none;width:calc(17px*var(--fs,1));height:calc(17px*var(--fs,1))}
+#settings svg{flex:none;width:calc(var(--t-xl)*var(--fs,1));height:calc(var(--t-xl)*var(--fs,1))}
 #teamctl{display:flex}
 #teamctl{gap:6px}
 #teamctl .fbtn{gap:6px}
 #teamctl .fbtn svg{flex:none;width:16px;height:16px;stroke-width:1.7}
 /* the team's play, pause and stop: off an outline in the text colour, on filled in its colour, fading in and out
    while the page waits for the change it was asked for */
-#pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(12px*var(--fs,1))}
-#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(12px*var(--fs,1))}
+#pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:auto;padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(var(--t-m)*var(--fs,1))}
+#teamctl .fbtn{height:auto;padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(var(--t-m)*var(--fs,1))}
 #teamctl .fbtn:hover{background:var(--on)}
 #teamctl .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
 #teamctl .fbtn.going{animation:switching 1.4s ease-in-out infinite}
@@ -3248,19 +3252,19 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #teamctl .fbtn.idle{cursor:default}
 #pagemode .fbtn{color:var(--text)}
 #viewbar{display:flex;gap:4px}
-#viewbar .vtb{width:26px;height:22px;border:1px solid transparent;border-radius:6px}
+#viewbar .vtb{width:26px;height:22px;border:1px solid transparent;border-radius:var(--r-s)}
 #viewbar .vtb:hover{background:var(--on);color:var(--text)}
 #viewbar .vtb.on{border-color:var(--line2);background:var(--soft);color:var(--text)}
 #viewbar .vtb svg{width:15px;height:15px}
 #viewbar .vtmenu{width:18px;height:22px;margin-left:-2px}
 #lock{color:var(--text)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
-.tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:7px;border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
-  color:#000;font:600 calc(12.5px*var(--fs,1)) var(--sans);cursor:pointer}
+.tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:var(--r-s);border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
+  color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
 .tabbar button:hover{filter:brightness(1.15)}
 .tabbar button.waiting,.tabbar button.wanted{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
-.card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:11px;border:1px solid var(--line2);
+.card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:var(--r-m);border:1px solid var(--line2);
   background:linear-gradient(180deg,var(--card1),var(--card2));overflow:hidden;cursor:pointer;transition:transform .15s,border-color .2s,box-shadow .2s}
 .card:hover{transform:translateY(-1px);border-color:var(--hover)}
 .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--c);opacity:.9}
@@ -3283,18 +3287,18 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 @keyframes ask{0%,100%{border-color:#c2410c;box-shadow:0 0 0 0 #ff7a1a00}50%{border-color:#ff9a3c;box-shadow:0 0 0 4px #ff7a1a99,0 0 22px 2px #ff7a1aaa}}
 .top{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
 /* a badge's text sits a pixel high of centre, as the font's descender space otherwise shows it low */
-.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:5px;font-size:calc(13.5px*var(--fs,1))}
+.name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:var(--r-s);font-size:calc(var(--t-l)*var(--fs,1))}
 /* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
 .name,.tabbar button,#dbottom,.card .newest{color:var(--ownerfg)}
-.role{color:var(--mute);font-size:calc(11.5px*var(--fs,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.ticket{white-space:nowrap;flex:none;margin-left:auto;font:600 calc(11.5px*var(--fs,1)) var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:5px}
-.row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
-.state{display:flex;align-items:center;gap:6px;color:var(--text);font-family:var(--sans);font-weight:600}
+.role{color:var(--mute);font-size:calc(var(--t-m)*var(--fs,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ticket{white-space:nowrap;flex:none;margin-left:auto;font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:var(--r-s)}
+.row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--mute)}
+.state{display:flex;align-items:center;gap:6px;color:var(--text);font-family:var(--sans);font-weight:650}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .busy .dot{background:var(--green);animation:ping 1.4s infinite}
 .waiting .dot,.wanted .dot{background:var(--amber)}
 .waiting .state,.wanted .state,.state.wanted{color:var(--amber)}
-.wantline{color:var(--amber);font-size:12px;margin:2px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wantline{color:var(--amber);font-size:calc(var(--t-m)*var(--fs,1));margin:2px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* compacting: a cyan dot pulsing cyan */
 .compacting .dot{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .compacting .state{color:var(--cyan)}
@@ -3306,7 +3310,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 /* an agent in its shell: on its name box, a dot in the name's colour pulsing the same */
 .tabbar button.shell .dot,.mini.shell .name .dot{background:var(--ownerfg);animation:pingfg 1.4s infinite}
 /* an agent that is not running: on its name box, a square in the name's colour */
-.tabbar button.off .dot,.mini.off .name .dot{border-radius:1px;background:var(--ownerfg)}
+.tabbar button.off .dot,.mini.off .name .dot{border-radius:var(--r-xs);background:var(--ownerfg)}
 @keyframes pingfg{0%{box-shadow:0 0 0 0 var(--ownerfg)}80%{box-shadow:0 0 0 5px var(--c)}100%{box-shadow:0 0 0 6px color-mix(in srgb,var(--c) 0%,transparent)}}
 .ctx{display:flex;align-items:center;gap:6px;margin-left:auto}
 .ctx .meter{width:64px;height:6px}
@@ -3314,8 +3318,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 svg.spark{display:block;width:100%;height:26px;flex:none}
 .feed{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:5px;padding:8px 12px 10px;border-top:1px solid var(--line);
   mask-image:linear-gradient(180deg,transparent,#000 28px)}
-.it{display:flex;gap:7px;font-size:calc(12px*var(--fs,1));line-height:1.4;min-width:0}
-.it .who{flex:none;font-weight:650;font-size:calc(10.5px*var(--fs,1));padding:1px 6px;border-radius:4px;height:fit-content;margin-top:1px;letter-spacing:.02em}
+.it{display:flex;gap:7px;font-size:calc(var(--t-m)*var(--fs,1));line-height:1.4;min-width:0}
+.it .who{flex:none;font-weight:650;font-size:calc(var(--t-s)*var(--fs,1));padding:1px 6px;border-radius:var(--r-s);height:fit-content;margin-top:1px;letter-spacing:.02em}
 .it .tx{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;white-space:pre-line;color:var(--text2)}
 .it.said .tx{color:var(--text)}
 .it .tx > .heads{float:left;height:1lh;margin-right:7px;white-space:nowrap}   /* one line's height, so the next line runs beneath */
@@ -3327,7 +3331,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.l-auto{--lanec:var(--ownerbg)}
 .it.l-team{--lanec:var(--pc,var(--line2))}
 .it.l-auto{opacity:.55}
-.it.l-owner.owner .tx{color:var(--text);font-weight:550}
+.it.l-owner.owner .tx{color:var(--text);font-weight:650}
 .it.folded .tx{font-style:italic;color:var(--mute);-webkit-line-clamp:1}
 .it.folded .tx .n{font-style:normal;color:var(--faint)}
 #detail .conv .it.folded{cursor:pointer}
@@ -3336,14 +3340,14 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top:has(> .maxbtn){padding-right:34px}   /* the maximise button, 10px in, and 2px before it */
 .card > .top > .maxbtn{position:absolute;top:10px;right:10px}
 .card > .top > .lanes{align-self:flex-start}
-.card > .top > .foldbtn{flex:none;align-self:flex-start;display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:5px;color:var(--mute);cursor:pointer}
+.card > .top > .foldbtn{flex:none;align-self:flex-start;display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .card > .top > .foldbtn:hover{background:var(--on);color:var(--text)}
 .card > .top > .foldbtn + .lanes{margin-left:0}
 .card.folded > .row2,.card.folded > svg.spark{display:none}   /* folded: the name line alone, on every screen */
 .card .top{flex-wrap:wrap;row-gap:4px}
-.termseg b,.railseg b{padding:1px 5px;font-size:calc(10px*var(--fs,1))}
+.termseg b,.railseg b{padding:1px 5px;font-size:calc(var(--t-xs)*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
-.fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer;font-weight:500}
+.fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:var(--r-s);color:var(--mute);cursor:pointer;font-weight:400}
 .fbtn svg{width:13px;height:13px;stroke-width:1.5}
 .fbtn:has(span){padding:0 6px}
 .fbtn:hover{background:var(--on);color:var(--text)}
@@ -3353,13 +3357,13 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.event .tx{color:var(--mute);font-style:italic}
 .it.event .who,.it.shell .who{color:var(--mute);border:1px solid var(--line2)}
 .it.shell .tx{color:var(--mute)}
-.it.ask{position:relative;z-index:1;flex-direction:column;gap:4px;padding:8px 10px;border:2px solid #ff7a1a;border-radius:8px;background:#ff7a1a1f;animation:ask 1s ease-in-out infinite}
-.it.ask::after{content:"";position:absolute;inset:0;border-radius:6px;background:#ff7a1a;pointer-events:none;animation:wash 1s ease-in-out infinite}
+.it.ask{position:relative;z-index:1;flex-direction:column;gap:4px;padding:8px 10px;border:2px solid #ff7a1a;border-radius:var(--r-m);background:#ff7a1a1f;animation:ask 1s ease-in-out infinite}
+.it.ask::after{content:"";position:absolute;inset:0;border-radius:var(--r-s);background:#ff7a1a;pointer-events:none;animation:wash 1s ease-in-out infinite}
 .it.ask .who{align-self:flex-start;background:#ff7a1a;color:#000;text-transform:uppercase;letter-spacing:.06em}
-.it.ask .tx{font:calc(12px*var(--fs,1))/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
+.it.ask .tx{font:calc(var(--t-m)*var(--fs,1))/1.35 var(--mono);white-space:pre-wrap;-webkit-line-clamp:unset;color:var(--text)}
 .it.ask .ago{display:none}
 .it.ask .opts{position:relative;z-index:1;display:flex;flex-direction:column;align-items:flex-start;gap:4px;outline:none}
-.it.ask .opt{padding:3px 10px;border-radius:6px;border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:600 calc(12px*var(--fs,1)) var(--sans);cursor:pointer}
+.it.ask .opt{padding:3px 10px;border-radius:var(--r-s);border:1px solid #ff7a1a;background:var(--box);color:var(--text);font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
 .it.ask .opt:hover{background:#ff7a1a40}
 .it.ask .opt::before,.it.ask .typed::before{content:"\00a0\00a0";font-family:var(--mono)}
 .it.ask .typed::before{align-self:center;margin-right:4px}
@@ -3367,75 +3371,75 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.ask .opt.at::before,.it.ask .typed.at::before{content:"❯\00a0";color:#ff7a1a}
 .it.ask .opt:disabled{opacity:.5;cursor:progress}
 .it.ask .typed{display:flex;align-self:stretch;max-width:520px;min-width:0}
-.it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:6px 0 0 6px;background:var(--box);color:var(--text);font:calc(12px*var(--fs,1)) var(--sans);outline:none}
+.it.ask .askin{flex:1;min-width:0;padding:3px 8px;border:1px dashed #ff7a1a;border-right:0;border-radius:var(--r-s) 0 0 var(--r-s);background:var(--box);color:var(--text);font:calc(var(--t-m)*var(--fs,1)) var(--sans);outline:none}
 .it.ask .askin:focus{border-style:solid;box-shadow:0 0 0 2px #ff7a1a40}
 .it.ask .askin.failed{border-color:var(--red)}
-.it.ask .opt.go{border-radius:0 6px 6px 0;padding:3px 9px}
+.it.ask .opt.go{border-radius:0 var(--r-s) var(--r-s) 0;padding:3px 9px}
 .it.ask .opt.go::before{content:none}
-.it.ask .reply{font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--text2)}
+.it.ask .reply{font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text2)}
 .it.pending{align-items:flex-start;opacity:.8}
 .it.pending .tx{flex:1}
-.it.pending .badge{flex:none;font:600 calc(10px*var(--fs,1)) var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:4px;padding:0 5px;margin-top:2px}
+.it.pending .badge{flex:none;font:650 calc(var(--t-xs)*var(--fs,1)) var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:var(--r-s);padding:0 5px;margin-top:2px}
 .it.live{align-items:center}
 .it.live .who{color:var(--c,var(--green));border:1px solid var(--c,var(--green));animation:livepulse 1.4s ease-in-out infinite}
-.it.live .tx{font:calc(11.5px*var(--fs,1)) var(--mono);color:var(--c,var(--green));-webkit-line-clamp:1}
+.it.live .tx{font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--c,var(--green));-webkit-line-clamp:1}
 .it.live .ago{display:none}
 @keyframes livepulse{0%,100%{opacity:.45;box-shadow:none}50%{opacity:1;box-shadow:0 0 10px 1px var(--c,var(--green))}}
-.it.tools .tx{font:calc(11px*var(--fs,1)) var(--mono);color:var(--faint);-webkit-line-clamp:1}
-.it.tools .tx b{color:var(--mute);font-weight:600}
+.it.tools .tx{font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--faint);-webkit-line-clamp:1}
+.it.tools .tx b{color:var(--mute);font-weight:650}
 .it.tools .call{display:block}
 .it.tools .call + .call{padding-left:1.35em}
 .it.tools .call + .call{margin-top:2px}
-.it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(10.5px*var(--fs,1)) var(--mono);padding-left:4px;min-width:calc(3ch + 4px);text-align:right}   /* 9s to 10s does not move the line */
-code{font:calc(11.5px*var(--fs,1)) var(--mono);background:var(--codebg);padding:0 4px;border-radius:4px;color:var(--text)}
+.it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(var(--t-s)*var(--fs,1)) var(--mono);padding-left:4px;min-width:calc(3ch + 4px);text-align:right}   /* 9s to 10s does not move the line */
+code{font:calc(var(--t-m)*var(--fs,1)) var(--mono);background:var(--codebg);padding:0 4px;border-radius:var(--r-s);color:var(--text)}
 code.flat{padding:0;background:none;color:var(--mute)}
 .it.pics{flex-wrap:wrap}
 .it .thumbs{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 2px 2px}
-.it .thumbs img{display:block;height:56px;max-width:120px;object-fit:cover;border-radius:5px;border:1px solid var(--line2)}
+.it .thumbs img{display:block;height:56px;max-width:120px;object-fit:cover;border-radius:var(--r-s);border:1px solid var(--line2)}
 .it .thumbs a:hover img{border-color:var(--c,var(--hover))}
 #detail .conv .it .thumbs img{height:auto;max-height:220px;max-width:360px;object-fit:contain}
-#pop{position:fixed;z-index:20;display:none;max-width:560px;max-height:60vh;overflow:auto;padding:10px 13px;border-radius:9px;
-  border:1px solid var(--line2);background:var(--box);color:var(--text);font-size:calc(12.5px*var(--fs,1));line-height:1.45;white-space:pre-line;box-shadow:0 14px 40px #0009}
+#pop{position:fixed;z-index:20;display:none;max-width:560px;max-height:60vh;overflow:auto;padding:10px 13px;border-radius:var(--r-m);
+  border:1px solid var(--line2);background:var(--box);color:var(--text);font-size:calc(var(--t-m)*var(--fs,1));line-height:1.45;white-space:pre-line;box-shadow:0 14px 40px #0009}
 #pop.on{display:block;cursor:pointer}
 #lightbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #lightbox.on{display:flex}
 #lightbox figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:100%;max-height:100%}
-#lbwrap{max-width:calc(100vw - 80px);max-height:calc(100vh - 130px);overflow:hidden;border-radius:8px;box-shadow:0 20px 60px #000a}
+#lbwrap{max-width:calc(100vw - 80px);max-height:calc(100vh - 130px);overflow:hidden;border-radius:var(--r-m);box-shadow:0 20px 60px #000a}
 #lbwrap.zoomed{overflow:auto;cursor:grab}
 #lbwrap.grab{cursor:grabbing}
 #lightbox img{display:block;max-width:calc(100vw - 80px);max-height:calc(100vh - 130px);object-fit:contain;background:#fff;user-select:none}
 #lbwrap.zoomed img{max-width:none;max-height:none}
 #lightbox .zoom{display:flex;align-items:center;gap:4px}
-#lightbox .zoom b{min-width:26px;padding:2px 8px;text-align:center;border:1px solid #fff4;border-radius:6px;color:#eee;cursor:pointer;font-weight:600}
+#lightbox .zoom b{min-width:26px;padding:2px 8px;text-align:center;border:1px solid #fff4;border-radius:var(--r-s);color:#eee;cursor:pointer;font-weight:650}
 #lightbox .zoom b:hover{background:#fff2}
 #lbpct{min-width:44px;text-align:right;color:#aaa}
-#lightbox figcaption{display:flex;gap:16px;font:calc(12px*var(--fs,1)) var(--mono);color:#ccc}
+#lightbox figcaption{display:flex;gap:16px;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:#ccc}
 #lightbox figcaption a{color:#9cf}
-#lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
+#lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(var(--t-xxl)*var(--fs,1));line-height:1}
 #lightbox .x:hover{color:#fff}
 #graphbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #graphbox.on{display:flex}
-#graphbox .doc{display:flex;flex-direction:column;width:min(1100px,100%);border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 14px 40px #0009}
-#graphbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
-#graphname{font-weight:600;color:var(--text)}
+#graphbox .doc{display:flex;flex-direction:column;width:min(1100px,100%);border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 14px 40px #0009}
+#graphbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--mute)}
+#graphname{font-weight:650;color:var(--text)}
 #graphsum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#graphbox .x{cursor:pointer;font-size:calc(18px*var(--fs,1));line-height:1}
+#graphbox .x{cursor:pointer;font-size:calc(var(--t-xl)*var(--fs,1));line-height:1}
 #graphbox .x:hover{color:var(--text)}
 #graphbody{position:relative;height:min(360px,60vh);padding:14px 16px 10px}
 #graphbody svg{display:block;width:100%;height:100%;overflow:visible}
-#graphbody text{font:calc(10.5px*var(--fs,1)) var(--mono);fill:var(--mute)}
+#graphbody text{font:calc(var(--t-s)*var(--fs,1)) var(--mono);fill:var(--mute)}
 #graphbody .grid{stroke:var(--line);stroke-width:1}
 #graphbody .cursor{stroke:var(--mute);stroke-dasharray:3 3}
-#graphtip{position:absolute;top:8px;padding:3px 7px;border-radius:5px;border:1px solid var(--line2);background:var(--box);font:calc(11px*var(--fs,1)) var(--mono);color:var(--text);pointer-events:none;white-space:nowrap}
+#graphtip{position:absolute;top:8px;padding:3px 7px;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--text);pointer-events:none;white-space:nowrap}
 #graphbody .blank{display:grid;place-items:center;height:100%;color:var(--mute)}
 .mini.perf[data-series]{cursor:pointer}
 @media (max-width:600px){#graphbox{padding:12px}}
 #docbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #docbox.on{display:flex}
-#docbox .doc{display:flex;flex-direction:column;width:min(920px,100%);max-height:100%;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 14px 40px #0009}
-#docbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(12px*var(--fs,1)) var(--mono);color:var(--mute)}
+#docbox .doc{display:flex;flex-direction:column;width:min(920px,100%);max-height:100%;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 14px 40px #0009}
+#docbox .dochead{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line);font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--mute)}
 #docname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
-#docbox .dochead b{cursor:pointer;font-weight:600}
+#docbox .dochead b{cursor:pointer;font-weight:650}
 #docbox .dochead b:hover,#docbox .x:hover{color:var(--text)}
 #docbox .dochead b.done{color:var(--green)}
 #docall[hidden]{display:none}
@@ -3443,40 +3447,40 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #docbox .dochead .di svg{width:calc(16px*var(--fs,1));height:calc(16px*var(--fs,1))}
 #docbox .dochead .di:hover{color:var(--text)}
 #docbox .dochead .di.done{color:var(--green)}
-#docbox .x{cursor:pointer;font-size:calc(18px*var(--fs,1));line-height:1}
-#docbody{overflow:auto;padding:14px 18px;color:var(--text);font-size:calc(13.5px*var(--fs,1));line-height:1.55;white-space:pre-wrap;word-break:break-word}
-:is(#docbody, .fdoc) b.h{margin:18px 0 8px;font-weight:600;line-height:1.25}
+#docbox .x{cursor:pointer;font-size:calc(var(--t-xl)*var(--fs,1));line-height:1}
+#docbody{overflow:auto;padding:14px 18px;color:var(--text);font-size:calc(var(--t-l)*var(--fs,1));line-height:1.55;white-space:pre-wrap;word-break:break-word}
+:is(#docbody, .fdoc) b.h{margin:18px 0 8px;font-weight:650;line-height:1.25}
 :is(#docbody, .fdoc) b.h:first-child{margin-top:0}
 :is(#docbody, .fdoc) b.h1{padding-bottom:.3em;border-bottom:1px solid var(--line2);font-size:2em}
 :is(#docbody, .fdoc) b.h2{padding-bottom:.3em;border-bottom:1px solid var(--line2);font-size:1.5em}
 :is(#docbody, .fdoc) b.h3{font-size:1.25em}
 :is(#docbody, .fdoc) b.h4{font-size:1.05em}
 @media (max-width:600px){#docbox{padding:12px}}
-pre.code{display:block;margin:5px 0;padding:7px 10px;font:calc(11.5px*var(--fs,1))/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:7px;color:var(--text)}
-#detail pre.code{font-size:calc(12.5px*var(--fs,1));margin:6px 0}
+pre.code{display:block;margin:5px 0;padding:7px 10px;font:calc(var(--t-m)*var(--fs,1))/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:var(--r-s);color:var(--text)}
+#detail pre.code{font-size:calc(var(--t-m)*var(--fs,1));margin:6px 0}
 pre.code{position:relative}
-pre.code .copy{position:absolute;top:5px;right:5px;display:none;place-items:center;width:26px;height:24px;padding:0;border-radius:5px;border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
+pre.code .copy{position:absolute;top:5px;right:5px;display:none;place-items:center;width:26px;height:24px;padding:0;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
 pre.code:hover .copy{display:grid}
 pre.code .copy:hover{color:var(--text);border-color:var(--hover)}
 pre.code .copy.done{color:var(--green);border-color:var(--green)}
-#copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:6px;background:var(--green);color:#000;font:600 calc(11px*var(--fs,1)) var(--sans);opacity:0;transition:opacity .25s}
+#copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:var(--r-s);background:var(--green);color:#000;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);opacity:0;transition:opacity .25s}
 #copied.on{opacity:1}
 a.link{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
 .mdtable{max-width:100%;overflow-x:auto;margin:4px 0}   /* a table wider than its turn scrolls sideways */
 table.md{border-collapse:collapse;white-space:normal}
 table.md th,table.md td{border:1px solid var(--line2);padding:2px 8px;text-align:left;vertical-align:top;min-width:8em}
-table.md th{background:var(--line);font-weight:600}
+table.md th{background:var(--line);font-weight:650}
 .feed .it .tx{max-height:9em}
 /* an agent pane's card: its longer conversation, every turn in full, scrolled */
 .card.full .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 .card.full .feed > :first-child{margin-top:auto}
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
-.teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--box);overflow:hidden}
-.teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:calc(13.5px*var(--fs,1));font-weight:650}
+.teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:var(--r-l);background:var(--box);overflow:hidden}
+.teamlog .thead{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:10px 12px 6px;font-size:calc(var(--t-l)*var(--fs,1));font-weight:650}
 .teamlog .thead{position:relative;padding-right:34px}
 .teamlog .thead .maxbtn{position:absolute;top:10px;right:10px}
-.teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(11px*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
+.teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(var(--t-s)*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
    (edges() sets --ft and --fb), keeping a feed's line beneath its head */
@@ -3491,8 +3495,8 @@ table.md th{background:var(--line);font-weight:600}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
 .teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
-.teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:600 calc(12px*var(--fs,1)) var(--sans)}
-.teamlog .thead .name{font-size:calc(12px*var(--fs,1));line-height:13px;padding:0 6px 2px;cursor:pointer}
+.teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans)}
+.teamlog .thead .name{font-size:calc(var(--t-m)*var(--fs,1));line-height:13px;padding:0 6px 2px;cursor:pointer}
 /* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
 .tabbar.chrtabs{gap:8px}
 .chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
@@ -3505,7 +3509,7 @@ table.md th{background:var(--line);font-weight:600}
 .icontabs .ftab{position:relative;display:flex}
 .tabbar .away{opacity:.45;filter:grayscale(1)}   /* a meeting attendee whose meeting session is not running */
 .tabbar button.away{cursor:default}   /* an icon with its unseen count on its corner, clear of its clipping */
-.icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:10px;line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
+.icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:calc(var(--t-xs)*var(--fs,1));line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
 .teamlog .thead > .cnames.iconrow{gap:10px}   /* clear of each other's outlines, which stand 4px out */
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
@@ -3516,7 +3520,7 @@ table.md th{background:var(--line);font-weight:600}
 /* A full card in a grid pane is measured on its own, not by the pane */
 .cards > .cell{container-type:inline-size;min-height:0;display:flex;flex-direction:column}
 .cards > .cell > .card{flex:1}
-.maxbtn,.backbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:5px;color:var(--mute);cursor:pointer}
+.maxbtn,.backbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .maxbtn:hover,.backbtn:hover{background:var(--on);color:var(--text)}
 .card > .top > .lead{display:flex;align-items:center;gap:6px}   /* the back button before the name, in a Combined pane showing one agent */
 /* a maximised pane's card has its terminal at the top right of its conversation, as the agent's own view does */
@@ -3569,25 +3573,25 @@ table.md th{background:var(--line);font-weight:600}
 /* folded: no facts or graph, so the conversation takes the second row and the rest follow, the message box in its own */
 .pbody .card.folded,.card.full.folded,.cell > .card.full.folded{grid-template-rows:auto minmax(0,1fr) auto auto}
 .card.full.folded > .termwrap{grid-row:2}
-b.h{display:block;margin-top:2px;font-weight:700}
-.empty{color:var(--faint);font-style:italic;font-size:calc(12px*var(--fs,1))}
+b.h{display:block;margin-top:2px;font-weight:650}
+.empty{color:var(--faint);font-style:italic;font-size:calc(var(--t-m)*var(--fs,1))}
 /* detail */
 #detail{position:fixed;inset:0;display:none;background:#000a;backdrop-filter:blur(6px);z-index:9;padding:6vh 8vw}
 #detail.open{display:flex}
 #detail.docked{background:none;backdrop-filter:none;padding:14px;z-index:2}
-#detail.docked .box{box-shadow:none;border-radius:14px}
+#detail.docked .box{box-shadow:none;border-radius:var(--r-l)}
 #detail.docked .head .x{display:none}
 html.only header,html.only footer,html.only #main,html.only #detail #drail,html.only #dhead :is(.railseg, .x){display:none}
 html.only #detail{background:none;backdrop-filter:none;padding:0}
 html.only #detail .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);border:0;border-radius:0;box-shadow:none}
 html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .mini:not(.cur)::before,.others .mini::before{display:none}
-#detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:16px;background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
+#detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:var(--r-l);background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
 #detail .head{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
 #detail .head .lanes + .x{margin-left:14px}
-#emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:9px;background:var(--box);box-shadow:0 12px 30px #0008;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text2)}
-#emo div{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
-#emo div span{font-size:calc(16px*var(--fs,1));width:20px;text-align:center}
+#emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 12px 30px #0008;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text2)}
+#emo div{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap}
+#emo div span{font-size:calc(var(--t-xl)*var(--fs,1));width:20px;text-align:center}
 #emo div.on,#emo div:hover{background:var(--on);color:var(--text)}
 #detail .head #dmore + .x{margin-left:10px}
 #detail .head .termseg{margin-left:auto;flex:none}
@@ -3597,10 +3601,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* the header keeps its name, role and switches whole; the facts take the room left and drop whole, from the end,
    when there is not room for them all */
 #detail .head > *{flex:none;white-space:nowrap}
-#detail .head .facts{flex:1 1 0;display:flex;flex-wrap:wrap;align-items:center;gap:40px 14px;height:18px;margin-left:10px;min-width:0;overflow:hidden;white-space:nowrap;font:calc(12px*var(--fs,1))/18px var(--mono);color:var(--mute)}
+#detail .head .facts{flex:1 1 0;display:flex;flex-wrap:wrap;align-items:center;gap:40px 14px;height:18px;margin-left:10px;min-width:0;overflow:hidden;white-space:nowrap;font:calc(var(--t-m)*var(--fs,1))/18px var(--mono);color:var(--mute)}
 #detail .head .facts > *{flex:none}
 #detail .head .facts .state{display:flex;align-items:center;gap:6px;color:var(--text)}
-#detail .head .x{margin-left:auto;color:var(--mute);cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
+#detail .head .x{margin-left:auto;color:var(--mute);cursor:pointer;font-size:calc(var(--t-xxl)*var(--fs,1));line-height:1}
 /* every other agent in a column on the right, compressed to its status; a click moves to it. The header's edge
    button moves the column to the bottom, the left or the top, where the cards wrap in rows across the view. */
 #detail .rail{grid-column:2;grid-row:2;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--line)}
@@ -3608,21 +3612,21 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
 /* Characters: every agent as a portrait tile, in a custom pane */
 /* the tiles' panel follows the pane's rounded corners: the bottom two under the pane bar, all four when locked */
-.chrs{border-radius:0 0 13px 13px;flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
-.pane > .pbody:first-child > .chrs{border-radius:13px}
-.chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:10px;border:1px solid var(--line2);border-bottom:3px solid var(--c);
-  background:var(--chtile);color:var(--chmute);font:calc(10px*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
+.chrs{border-radius:0 0 var(--r-l) var(--r-l);flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+.pane > .pbody:first-child > .chrs{border-radius:var(--r-l)}
+.chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:var(--r-m);border:1px solid var(--line2);border-bottom:3px solid var(--c);
+  background:var(--chtile);color:var(--chmute);font:calc(var(--t-xs)*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
 .chr.off{opacity:.5}
 .chr.bench{opacity:.4;filter:grayscale(.7)}
 .chr.bench:hover{opacity:.7}
 .chr.waiting,.chr.wanted{animation:alarm 1s ease-in-out infinite}
 .chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
-.chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
+.chr .por img{width:100%;height:100%;object-fit:cover;border-radius:var(--r-l);display:block}
 .chr .por svg{width:100%;height:100%;display:block;overflow:visible}
 /* the agent's name, on the chest of its portrait or shadow */
 .chr .nm{position:absolute;left:50%;top:68px;transform:translateX(-50%);max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  padding:1px 5px;border-radius:5px;border:1px solid var(--c);font:700 calc(10px*var(--fs,1))/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
+  padding:1px 5px;border-radius:var(--r-s);border:1px solid var(--c);font:650 calc(var(--t-xs)*var(--fs,1))/1.3 var(--sans);color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}
 /* clear of a clipboard on the right */
 .chr .nm.left{left:41px;max-width:50px}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
@@ -3632,17 +3636,17 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .chr.waiting .tl i,.chr.wanted .tl i{--pulse:var(--amber);background:var(--amber);animation:ping 1.4s infinite}
 .chr.compacting .tl i{--pulse:var(--cyan);background:var(--cyan);animation:ping 1.4s infinite}
 .chr .tr{position:absolute;top:5px;right:6px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
-.chr .tr b{font:700 calc(11px*var(--fs,1))/1 var(--mono);color:var(--text)}
+.chr .tr b{font:650 calc(var(--t-s)*var(--fs,1))/1 var(--mono);color:var(--text)}
 .chr .tr b.hi{color:var(--chhigh)}
-.chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:700 calc(9.5px*var(--fs,1))/16px var(--sans);background:var(--c);color:var(--ownerfg)}
+.chr .tr .unseen{min-width:16px;height:16px;padding:0 4px;font:650 calc(var(--t-xs)*var(--fs,1))/16px var(--sans);background:var(--c);color:var(--ownerfg)}
 /* the activity line runs the width of the tile; the ticket, whole, sits over its left end */
-.chr .tk{position:absolute;z-index:1;left:5px;bottom:6px;max-width:calc(100% - 10px);white-space:nowrap;padding:2px 3px;border-radius:4px;
-  font-size:calc(9px*var(--fs,1));color:var(--chmute);background:color-mix(in srgb,var(--chtile) 65%,transparent)}
+.chr .tk{position:absolute;z-index:1;left:5px;bottom:6px;max-width:calc(100% - 10px);white-space:nowrap;padding:2px 3px;border-radius:var(--r-s);
+  font-size:calc(var(--t-xs)*var(--fs,1));color:var(--chmute);background:color-mix(in srgb,var(--chtile) 65%,transparent)}
 .chr .sp{position:absolute;left:5px;right:5px;bottom:5px;height:16px}
 .chr .sp svg.spark{height:16px}
 /* the page's menu: a Characters tile's (the agent, then ways to open it) or a filter button's (the lanes, ticked when shown) */
-#menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:10px;background:var(--box);
-  box-shadow:0 12px 32px #0007;font:calc(12.5px*var(--fs,1)) var(--sans);color:var(--text);display:none}
+#menu{position:fixed;z-index:60;min-width:150px;padding:5px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);
+  box-shadow:0 12px 32px #0007;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);display:none}
 #menu.on{display:block}
 #menu[data-key^="agent:"]{width:236px}
 #menu .sep{margin:4px 0;border-top:1px solid var(--line)}
@@ -3650,29 +3654,29 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi.off:hover{background:none}
 #menu .mi.warn{color:var(--red)}
 #menu .mi.warn svg{color:var(--red)}
-#menu .ask{padding:6px 8px 4px;font-size:calc(11.5px*var(--fs,1));line-height:1.45;color:var(--mute);white-space:normal}
+#menu .ask{padding:6px 8px 4px;font-size:calc(var(--t-m)*var(--fs,1));line-height:1.45;color:var(--mute);white-space:normal}
 #menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
-#menu .hd div{font-size:calc(11.5px*var(--fs,1));color:var(--mute);line-height:1.45}
-#menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+#menu .hd div{font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute);line-height:1.45}
+#menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap}
 #menu .mi:hover,#menu .mi.at{background:var(--on)}
 #menu[data-key="help"]{width:340px}
 .it .tx{zoom:var(--conv,1)}
-#menu .set{display:flex;align-items:center;gap:12px;padding:3px 8px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
-#menu .set select{margin-left:auto;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:1px 4px}
-#menu button[data-reset]{margin:6px 8px 2px;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 10px;cursor:pointer}
-#slash{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 8px 28px #0006}
-#slash .sl{display:flex;gap:10px;align-items:baseline;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:calc(12px*var(--fs,1)*var(--boxfs,1));min-width:0}
-#slash .sl b{flex:none;font:600 calc(12px*var(--fs,1)*var(--boxfs,1)) var(--mono);color:var(--text)}
+#menu .set{display:flex;align-items:center;gap:12px;padding:3px 8px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
+#menu .set select{margin-left:auto;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:1px 4px}
+#menu button[data-reset]{margin:6px 8px 2px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 10px;cursor:pointer}
+#slash{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 8px 28px #0006}
+#slash .sl{display:flex;gap:10px;align-items:baseline;padding:4px 8px;border-radius:var(--r-s);cursor:pointer;font-size:calc(var(--t-m)*var(--fs,1)*var(--boxfs,1));min-width:0}
+#slash .sl b{flex:none;font:650 calc(var(--t-m)*var(--fs,1)*var(--boxfs,1)) var(--mono);color:var(--text)}
 #slash .sl span{color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #slash .sl.at{background:var(--soft)}
-#fpick{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:10px;background:var(--box);box-shadow:0 8px 28px #0006}
-#fpick .fp{display:flex;gap:8px;align-items:baseline;padding:3px 8px;border-radius:6px;cursor:pointer;font:calc(12px*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#fpick .fp.dir{color:var(--accent,var(--text));font-weight:600}
+#fpick{display:none;position:fixed;z-index:70;max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 8px 28px #0006}
+#fpick .fp{display:flex;gap:8px;align-items:baseline;padding:3px 8px;border-radius:var(--r-s);cursor:pointer;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fpick .fp.dir{color:var(--accent,var(--text));font-weight:650}
 #fpick .fp.at{background:var(--soft)}
-#fpick .none{padding:3px 8px;color:var(--mute);font:calc(12px*var(--fs,1)) var(--sans)}
-#menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
-#menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:5px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap}
+#fpick .none{padding:3px 8px;color:var(--mute);font:calc(var(--t-m)*var(--fs,1)) var(--sans)}
+#menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
+#menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:var(--r-s);font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap}
 #menu .hd:has(.spark){min-width:200px}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
@@ -3680,7 +3684,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
 #menu .hd .htxt .name{white-space:normal}   /* a name too long for its room wraps, not under the portrait */
 #menu .mpor{flex:none;width:96px;height:96px}
-#menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:8px;position:relative;transform-origin:top right;transition:transform .15s ease}
+#menu .mpor img{display:block;width:100%;height:100%;object-fit:cover;border-radius:var(--r-m);position:relative;transform-origin:top right;transition:transform .15s ease}
 #menu .mpor:hover img{z-index:2;transform:scale(2.67);box-shadow:0 12px 32px #0009}   /* the mouse over it shows it at full size, in place */
 #menu .hd:last-child{margin-bottom:0;border-bottom:0}
 #menu .hd ~ .hd{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
@@ -3688,7 +3692,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi svg.off{visibility:hidden}
 #menu .mi svg.tick{margin-left:auto}
 #menu .mi .dot{flex:none;width:10px;height:10px;margin:0 2px;border-radius:50%;background:var(--c)}
-#menu .mi kbd{margin-left:auto;font:calc(10.5px*var(--fs,1)) var(--mono);color:var(--mute)}
+#menu .mi kbd{margin-left:auto;font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}
 #detail .box.rail-left .rail{grid-column:1;border-left:0;border-right:1px solid var(--line)}
 #detail .box.rail-left .left{grid-column:2}
 #detail .box.rail-top,#detail .box.rail-bottom{grid-template-columns:minmax(0,1fr)}
@@ -3702,7 +3706,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail:not(.docked) :is(#drail, #drailgrip, #dhead .railseg){display:none}
 #detail:not(.docked) .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
 #detail:not(.docked) .box .left{grid-column:1;grid-row:2}
-.mini{--c:#888;position:relative;flex:none;padding:8px 10px 4px;border-radius:9px;border:1px solid var(--line2);background:linear-gradient(180deg,var(--card1),var(--card2));
+.mini{--c:#888;position:relative;flex:none;padding:8px 10px 4px;border-radius:var(--r-m);border:1px solid var(--line2);background:linear-gradient(180deg,var(--card1),var(--card2));
   cursor:pointer;overflow:hidden;transition:border-color .15s}
 .mini::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--c)}
 .mini:hover{border-color:var(--c)}
@@ -3710,14 +3714,14 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini.off,.tabbar button.off{opacity:.45}
 .mini.cur:not(.waiting):not(.wanted){border-color:var(--c)}
 .mini.cur{box-shadow:inset 3px 0 0 var(--c);cursor:default}
-.mini .mtop{display:flex;align-items:center;gap:6px;font:calc(11px*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
-.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--c);color:var(--ownerfg);font:700 calc(10.5px*var(--fs,1))/18px var(--sans);text-align:center}
+.mini .mtop{display:flex;align-items:center;gap:6px;font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap;min-width:0}
+.unseen{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-m);background:var(--c);color:var(--ownerfg);font:650 calc(var(--t-s)*var(--fs,1))/18px var(--sans);text-align:center}
 .tabbar .unseen{margin-left:6px;background:var(--ownerfg);color:var(--c)}   /* the tab text's colour, so it follows the theme */
 /* One line: name (with its state dot and unseen count, as a tab), ticket, how long, context; the ticket gives way. */
-.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:calc(12px*var(--fs,1));line-height:13px;padding:2px 6px 2px;min-height:19px}   /* as tall with an unseen count as without, as a tab is */
+.mini .name{flex:none;display:flex;align-items:center;gap:5px;font-family:var(--sans);font-size:calc(var(--t-m)*var(--fs,1));line-height:13px;padding:2px 6px 2px;min-height:19px}   /* as tall with an unseen count as without, as a tab is */
 .mini .name .dot{flex:none}
-.mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:calc(10px*var(--fs,1));line-height:15px;background:var(--ownerfg);color:var(--c)}
-.mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:calc(10.5px*var(--fs,1));padding:0 5px}
+.mini .name .unseen{min-width:15px;height:15px;padding:0 4px;font-size:calc(var(--t-xs)*var(--fs,1));line-height:15px;background:var(--ownerfg);color:var(--c)}
+.mini .ticket{flex:0 1 auto;min-width:0;margin-left:0;overflow:hidden;text-overflow:ellipsis;font-size:calc(var(--t-s)*var(--fs,1));padding:0 5px}
 .mini .mtop .ago,.mini .mtop .pct{flex:none}
 .mini .mtop .pct{margin-left:auto}
 .mini svg.spark{height:16px;margin-top:3px}
@@ -3732,30 +3736,30 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini.dial svg.arc{width:100%;max-width:150px;height:auto;display:block}
 .mini.dial svg.arc path{fill:none;stroke-width:9;stroke-linecap:round}
 .mini.dial svg.arc path.track{stroke:var(--line2)}
-.mini.dial .dfig{margin-top:-30px;font:600 calc(17px*var(--fs,1)) var(--mono);line-height:22px}
-.mini.dial .dname{margin-top:6px;font:calc(12px*var(--fs,1)) var(--sans);color:var(--text)}
-.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(10.5px*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap}
+.mini.dial .dfig{margin-top:-30px;font:650 calc(var(--t-xl)*var(--fs,1)) var(--mono);line-height:22px}
+.mini.dial .dname{margin-top:6px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text)}
+.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute);white-space:nowrap}
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
 .others .mini,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini{flex:0 1 auto;min-height:32px;display:flex;flex-direction:column}
 .others .mini svg.spark,#detail .box:not(.rail-top):not(.rail-bottom) .rail .mini svg.spark{flex:0 1 16px;min-height:0;height:auto}
 #detail .left{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0}
-#dbottom,.card .newest,.teamlog .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:16px;
-  border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:600 calc(12px*var(--fs,1)) var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
+#dbottom,.card .newest,.teamlog .newest{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:3;display:none;padding:5px 14px;border-radius:var(--r-l);
+  border:1px solid var(--c,var(--line2));background:var(--c,var(--line2));color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer;box-shadow:0 6px 18px #0007}
 #dbottom.on,.card .newest.on,.teamlog .newest.on{display:block}
 #dbottom:hover,.card .newest:hover,.teamlog .newest:hover{filter:brightness(1.15)}
 .teamlog .chat{flex:none;border-top:1px solid var(--line);padding-top:8px}
 .teamlog .chead{display:flex;align-items:center;gap:6px;margin:0 10px 6px}
-.teamlog .chead .face{width:26px;height:26px;border-radius:6px;border-bottom-width:2px}
-.teamlog .chead .name{font-size:calc(12px*var(--fs,1));line-height:13px;padding:0 6px 2px}
+.teamlog .chead .face{width:26px;height:26px;border-radius:var(--r-s);border-bottom-width:2px}
+.teamlog .chead .name{font-size:calc(var(--t-m)*var(--fs,1));line-height:13px;padding:0 6px 2px}
 .teamlog .chead .pick{cursor:pointer}
 .pbody > .ctabs{flex:none;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;margin:6px 12px 6px;border-bottom:1px solid var(--line)}
 .ctabs .ctab{display:flex;align-items:center;gap:6px;padding:4px 10px 5px;margin-bottom:-1px;border:1px solid transparent;border-bottom:none;
-  border-radius:7px 7px 0 0;font:600 calc(12px*var(--fs,1)) var(--sans);color:var(--mute);cursor:pointer;user-select:none}
+  border-radius:var(--r-s) var(--r-s) 0 0;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--mute);cursor:pointer;user-select:none}
 .ctabs .ctab:hover{color:var(--text)}
 /* the custom views beside the View button: a row of small tabs with + at its end */
 #menu .vmi .vname{flex:1}
-.meetbar{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:calc(12px*var(--fs,1));color:var(--mute)}
+.meetbar{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
 .meetbar span{margin-right:auto}
 .meetbar.on b{color:var(--text)}
 .meetbar.on{border-bottom:1px solid var(--line)}
@@ -3767,7 +3771,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .meetbar .mbtn svg{width:12px;height:12px}
 /* the meeting's topic before it starts, how many are in it (amber above three, red above five), and the agents' faces:
    one on the way greyed, one whose meeting session is working pulsing */
-.meetbar .mtopic{flex:1;min-width:0;margin-right:auto;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:6px;padding:2px 8px}
+.meetbar .mtopic{flex:1;min-width:0;margin-right:auto;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 8px}
 .meetbar .mcount{margin-right:0;min-width:18px;padding:0 6px;border-radius:999px;text-align:center;font-weight:650;color:var(--text);background:var(--soft);border:1px solid var(--line2)}
 .meetbar .mcount.amber{color:#000;background:var(--amber);border-color:var(--amber)}
 .meetbar .mcount.red{color:#fff;background:var(--red);border-color:var(--red)}
@@ -3777,18 +3781,18 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .teamlog.meeting .it.mevent .tx{font-style:italic;color:var(--faint)}
 /* at the meeting's end, each agent's suggestion for its own session, to send as written or edited, or skip */
 .teamlog.meeting .hands{display:flex;flex-direction:column;gap:8px;padding:8px 13px;border-top:1px solid var(--line)}
-.teamlog.meeting .hand{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:calc(12px*var(--fs,1))}
-.teamlog.meeting .hand .htext{flex:1 1 100%;min-height:3.5em;resize:vertical;font:calc(12.5px*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:8px;padding:6px 8px}
+.teamlog.meeting .hand{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:calc(var(--t-m)*var(--fs,1))}
+.teamlog.meeting .hand .htext{flex:1 1 100%;min-height:3.5em;resize:vertical;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-m);padding:6px 8px}
 .teamlog.meeting .hand .hbtns{display:flex;gap:6px;margin-left:auto}
 .teamlog.meeting .hand .mbtn{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border:1px solid var(--line2);border-radius:999px;color:var(--text);cursor:pointer}
 .teamlog.meeting .hand .mbtn:hover{background:var(--on)}
 .teamlog.meeting .hand .mbtn svg{width:12px;height:12px}
 #menu .mi .dot.hollow{background:none;border:2px solid var(--c);width:8px;height:8px}
-#menu .vmi .vico{display:inline-flex;align-items:center;border-radius:4px}
+#menu .vmi .vico{display:inline-flex;align-items:center;border-radius:var(--r-s)}
 #menu .vmi .vico.pick{padding:2px;margin:-3px;border:1px solid var(--line2);cursor:pointer}
 #menu .vmi .vico.pick::after{content:"";margin-left:2px;border:3px solid transparent;border-top-color:var(--mute);transform:translateY(2px)}
 #menu .vicons{display:grid;grid-template-columns:repeat(7,22px);gap:2px;padding:4px 8px 6px 28px}
-#menu .vicons i{display:flex;align-items:center;justify-content:center;height:22px;border-radius:5px;cursor:pointer}
+#menu .vicons i{display:flex;align-items:center;justify-content:center;height:22px;border-radius:var(--r-s);cursor:pointer}
 #menu .vicons i:hover{background:var(--on)}
 #menu .vicons i.on{outline:1px solid var(--line2)}
 #menu .vicons svg{width:14px;height:14px;color:var(--text)}
@@ -3803,24 +3807,24 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .ctabs .ctab.dragging{opacity:.4}
 .ctabs .ctab.before{box-shadow:inset 2px 0 0 var(--text)}
 .ctabs .ctab.after{box-shadow:inset -2px 0 0 var(--text)}
-.ctabs .ctname{width:9em;padding:0 4px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:4px;outline:none}
-#menu .mi .face{width:20px;height:20px;border-radius:4px;border-bottom-width:2px}
+.ctabs .ctname{width:9em;padding:0 4px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-s);outline:none}
+#menu .mi .face{width:20px;height:20px;border-radius:var(--r-s);border-bottom-width:2px}
 .teamlog.combined{container:sayroom/size}
-.teamlog .chead .x{margin-left:auto;display:flex;padding:3px;border-radius:5px;color:var(--mute);cursor:pointer}
+.teamlog .chead .x{margin-left:auto;display:flex;padding:3px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .teamlog .chead .x:hover{color:var(--text);background:var(--line2)}
 .teamlog .chead .x svg{width:14px;height:14px}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 10px 10px}
-.say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);
-  color:var(--text);font:calc(12.5px*var(--fs,1)*var(--boxfs,1))/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
+.say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);
+  color:var(--text);font:calc(var(--t-m)*var(--fs,1)*var(--boxfs,1))/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
 .say::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
 .say:focus{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 25%,transparent)}
 .say.sent{border-color:var(--green)}
 .say.failed{border-color:var(--red)}
 .say.dropping{border-color:var(--cyan);box-shadow:0 0 0 3px color-mix(in srgb,var(--cyan) 25%,transparent)}
 .say{padding-right:34px}
-.send{flex:none;align-self:flex-start;position:relative;z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);padding:0;border:0;border-radius:6px;
+.send{flex:none;align-self:flex-start;position:relative;z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);padding:0;border:0;border-radius:var(--r-s);
   background:none;color:var(--mute);cursor:pointer}   /* inside the box: the row's gap and its own width pulled back over the box's end */
 .send::before{content:"";position:absolute;inset:0;margin:auto;width:60%;height:60%;transform:translateX(-3px) rotate(45deg);background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}   /* a paper plane (owner, 2026-11-01) */
 .send:hover{color:var(--text)}
@@ -3831,33 +3835,33 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini.busy .mtop .mstat{color:var(--green)}
 .mini.waiting .mtop .mstat{color:var(--amber)}
 #detail .box:not(.noterm) .sayrow{margin-right:calc(var(--thumb) + 40px)}
-.add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:8px;border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
-.add::before,.add::after{content:"";position:absolute;inset:0;margin:auto;width:12px;height:1.5px;border-radius:1px;background:currentColor}
+.add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
+.add::before,.add::after{content:"";position:absolute;inset:0;margin:auto;width:12px;height:1.5px;border-radius:var(--r-xs);background:currentColor}
 .add::after{width:1.5px;height:12px}
 .add:hover{color:var(--text);border-color:var(--hover)}
 .att{display:flex;flex-wrap:wrap;gap:8px;margin:0 10px 6px}
 .att:empty{display:none}
 #detail .att{margin:0 14px 8px}
 .att span{position:relative;flex:none}
-.att img{display:block;height:48px;max-width:120px;object-fit:cover;border-radius:6px;border:1px solid var(--line2)}
-.att b{position:absolute;top:3px;right:3px;width:18px;height:18px;display:grid;place-items:center;border-radius:4px;background:#000a;color:#fff;font-size:calc(11px*var(--fs,1));font-weight:400;cursor:pointer}
+.att img{display:block;height:48px;max-width:120px;object-fit:cover;border-radius:var(--r-s);border:1px solid var(--line2)}
+.att b{position:absolute;top:3px;right:3px;width:18px;height:18px;display:grid;place-items:center;border-radius:var(--r-s);background:#000a;color:#fff;font-size:calc(var(--t-s)*var(--fs,1));font-weight:400;cursor:pointer}
 .att b:hover{background:#000d}
-.att .file{height:48px;display:inline-block;max-width:220px;padding:0 30px 0 10px;border-radius:6px;border:1px solid var(--line2);
-  font:calc(12px*var(--fs,1))/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
+.att .file{height:48px;display:inline-block;max-width:220px;padding:0 30px 0 10px;border-radius:var(--r-s);border:1px solid var(--line2);
+  font:calc(var(--t-m)*var(--fs,1))/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
 .att .file b{line-height:normal}
-#detail .say{padding:9px 12px;font-size:calc(13.5px*var(--fs,1)*var(--boxfs,1));max-height:35vh}
+#detail .say{padding:9px 12px;font-size:calc(var(--t-l)*var(--fs,1)*var(--boxfs,1));max-height:35vh}
 /* where a card or the agent's own view is tall enough, its box starts three lines tall */
 .card,#detail .left{container:sayroom/size}
 @container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
 .stop.going{cursor:default;animation:stopping .9s ease-in-out infinite}
 @keyframes stopping{50%{opacity:.3}}
-.stop{flex:none;position:relative;width:31px;height:31px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);cursor:pointer}
-.stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:2px;background:var(--text)}
+.stop{flex:none;position:relative;width:31px;height:31px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);cursor:pointer}
+.stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:var(--r-xs);background:var(--text)}
 .stop:hover{border-color:var(--red)}
 .stop:hover::before{background:var(--red)}
 #detail .stop,#detail .add{width:39px;height:39px}
 #detail .stop::before{width:12px;height:12px}
-#detail .conv .it{font-size:calc(13px*var(--fs,1))}
+#detail .conv .it{font-size:calc(var(--t-l)*var(--fs,1))}
 #detail .conv .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap}
 /* text shown whole flows as a block, so a message's badges open its first line and its later lines run beneath them */
 .card.full .it .tx,.teamlog:not(.summary) .it .tx,#detail .conv .it .tx,.it.ask .tx{display:block}
@@ -3868,19 +3872,19 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 :is(#detail,.card.full) .termwrap:hover .term{border-color:var(--c)}
 :is(#detail,.card.full) .termwrap.big{position:fixed;inset:0;z-index:40;display:flex;justify-content:center;align-items:center;padding:40px;cursor:default;
   background:#000c;backdrop-filter:blur(3px)}
-:is(#detail,.card.full) .termwrap .x{display:none;position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(20px*var(--fs,1));line-height:1}
+:is(#detail,.card.full) .termwrap .x{display:none;position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(var(--t-xxl)*var(--fs,1));line-height:1}
 :is(#detail,.card.full) .termwrap.big .x{display:block}
 :is(#detail,.card.full) .termwrap .x:hover{color:#fff}
-:is(#detail,.card.full) .term{display:flex;flex-direction:column;border-radius:10px;overflow:hidden;background:#06080b;border:1px solid #ffffff1f;box-shadow:0 18px 50px #0008;transition:border-color .15s}
-:is(#detail,.card.full) .bar{flex:none;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#161b22;border-bottom:1px solid #ffffff14;font:calc(12px*var(--fs,1)) var(--sans);color:#8b949e}
+:is(#detail,.card.full) .term{display:flex;flex-direction:column;border-radius:var(--r-m);overflow:hidden;background:#06080b;border:1px solid #ffffff1f;box-shadow:0 18px 50px #0008;transition:border-color .15s}
+:is(#detail,.card.full) .bar{flex:none;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#161b22;border-bottom:1px solid #ffffff14;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:#8b949e}
 :is(#detail,.card.full) .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
 :is(#detail,.card.full) .bar i:nth-child(2){background:#febc2e}:is(#detail,.card.full) .bar i:nth-child(3){background:#28c840;margin-right:8px}
 :is(#detail,.card.full) .bar span{flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#detail,.card.full) .bar b{cursor:pointer;font-weight:400;font-size:calc(14px*var(--fs,1));padding:0 2px;color:#8b949e}
+:is(#detail,.card.full) .bar b{cursor:pointer;font-weight:400;font-size:calc(var(--t-l)*var(--fs,1));padding:0 2px;color:#8b949e}
 :is(#detail,.card.full) .bar b:hover{color:#e6edf3}
 :is(#detail,.card.full) .screen{overflow:hidden;padding:10px}
 #dscreen,.card.full .termwrap pre{margin:0;font-family:var(--mono);line-height:1.25;color:#d1d7e0;white-space:pre;overflow:hidden}
-::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:9px}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:var(--r-m)}
 /* On a phone (owner, 2026-11-01: "move to the mobile experience"): the bars wrap; Grid's sections stand one under
    another, two cards across, and the page scrolls; an agent's view fills the screen, the others one row along its
    top to swipe, and no terminal; a custom view's panes stand one under another. A box's text is 16px, under which
@@ -8261,6 +8265,9 @@ def self_test():
           turns([b"\x00\x00\x00", b"\xff\xfe{", "not json"], 5), [])
         t("a Gauges pane draws the Performance figures as half-circle gauges, and idle network interfaces are hidden",
           ('gauges: "Gauges"' in PAGE, "function dial(name, detail, pct" in PAGE, 'd.net?.length ? "no traffic" : "no interface"' in PAGE), (True, True, True))
+        t("one scale for type, weight and corner radius: six sizes, two weights and four radii on :root",
+          ("--t-xs:10px; --t-s:11px; --t-m:12px; --t-l:13px; --t-xl:17px; --t-xxl:20px;" in PAGE, "--r-xs:2px; --r-s:5px; --r-m:9px; --r-l:14px;" in PAGE),
+          (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
