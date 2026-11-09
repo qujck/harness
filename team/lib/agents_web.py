@@ -466,7 +466,7 @@ def burn():
     try:
         with open(BURN) as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
 
 
@@ -1861,7 +1861,7 @@ def last_compact(sid):
                     continue
                 try:
                     e = json.loads(line)
-                except json.JSONDecodeError:
+                except ValueError:   # malformed, or bytes that are not text: a crash can leave a line of NULs
                     continue
                 if e.get("subtype") == "compact_boundary":
                     m = e.get("compactMetadata") or {}
@@ -2009,7 +2009,7 @@ def turns(lines, limit):
             continue
         try:
             e = json.loads(raw)
-        except json.JSONDecodeError:
+        except ValueError:   # malformed, or bytes that are not text: a crash can leave a line of NULs
             continue
         if e.get("type") == "queue-operation":
             queued(queue, e)
@@ -2320,7 +2320,7 @@ def commands():
         try:
             with open(pj) as f:
                 plugin = json.load(f).get("name") or os.path.basename(root).split("~")[0]
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
         for f in sorted(glob.glob(os.path.join(root, "skills", "*", "SKILL.md"))):
             add(f"{plugin}:{frontmatter(f).get('name') or os.path.basename(os.path.dirname(f))}", f, plugin)
@@ -2571,15 +2571,23 @@ def portraits(name):
 
 
 _state = {"at": 0, "body": b""}
+_state_build = threading.Lock()
 
 
 def state_json():
+    """The state, built at most once every two seconds. One request builds it at a time and those arriving meanwhile
+    wait for its answer: each building its own would multiply the work while the page's polls kept coming, until no
+    request finished."""
     with _lock:
         if time.time() - _state["at"] < 2:
             return _state["body"]
-    body = json.dumps(state()).encode()
-    with _lock:
-        _state.update(at=time.time(), body=body)
+    with _state_build:
+        with _lock:
+            if time.time() - _state["at"] < 2:
+                return _state["body"]
+        body = json.dumps(state()).encode()
+        with _lock:
+            _state.update(at=time.time(), body=body)
     return body
 
 
@@ -3575,6 +3583,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   background:var(--chtile);color:var(--chmute);font:calc(10px*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
 .chr:hover{filter:brightness(1.08)}
 .chr.off{opacity:.5}
+.chr.bench{opacity:.4;filter:grayscale(.7)}
+.chr.bench:hover{opacity:.7}
 .chr.waiting,.chr.wanted{animation:alarm 1s ease-in-out infinite}
 .chr .por{position:absolute;left:18px;top:12px;width:76px;height:76px}
 .chr .por img{width:100%;height:100%;object-fit:cover;border-radius:14px;display:block}
@@ -5328,8 +5338,9 @@ async function meetPost(id, what, body = {}) {
   await loadMeetings(); draw();
   return d;
 }
-// A Characters pane's agents: those in its roles, the same way, or every agent until roles are chosen for it.
-const chrAgents = n => Array.isArray(n.roles) ? paneAgents(n) : S.agents;
+// A Characters pane's agents: the whole team, benched ones too, role by role in its roles' order (every role until
+// roles are chosen for it) and A to Z within a role.
+const chrAgents = n => rolesOn(n).flatMap(r => [...S.agents, ...S.bench].filter(a => a.role === r).sort(byName));
 // How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default), as the bench's small tiles
 // ("icon"), or as their Characters tiles ("card").
 const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
@@ -5428,10 +5439,10 @@ function renameView(el, i, after) {
 function customHtml(ceil, tabRow) {
   const l = layout();
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
-  // or a Team or Combined pane.
+  // or a Team, Combined, Meeting or File pane.
   let maxed = localStorage.getItem("custom:max");
   const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
-  const maxName = maxNode && (["team", "combined", "meeting"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
+  const maxName = maxNode && (["team", "combined", "meeting", "file"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
@@ -5457,13 +5468,15 @@ function customHtml(ceil, tabRow) {
       body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "characters") {
       const them = chrAgents(n);
-      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
+      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles" : "Choose one or more roles"}</div>`;
     } else if (n.show === "file") {
+      // the document under a header as a Team pane's: its name, its full path, and the maximise button
       const d = n.path && fileDocs[n.path];
-      body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
-        : !d ? `<div class="blank">Loading…</div>`
+      const doc = !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
+      body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
+        : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${maxButton(path === maxed)}</div>${doc}</div>`;
     } else if (n.show === "perf") {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
@@ -5508,7 +5521,7 @@ function customHtml(ceil, tabRow) {
     const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider drag" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
-  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
+  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
 // A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
@@ -5532,7 +5545,7 @@ function tileRows(n, path, count) {
   if (!w) tileGuess = true;
   return Math.max(n.tiles || 1, cols ? Math.ceil(count / cols) : 0);
 }
-// An agent's card or a Team pane can fill the whole layout for a while, from the button at the end of its header or Shift+F11
+// An agent's card, or a Team, Combined, Meeting or File pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
@@ -6206,6 +6219,10 @@ const face = (a, attrs, cls = "") => `<span class="face${cls}${"live" in a ? " "
 function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
+    // a benched agent: its portrait or shadow, greyed, and "on the bench"; its menu has its details (and a standing one's Start)
+    if (!a.feed) return `<div class="chr off bench" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, on the bench">` +
+      `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
+      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>`) + `<span class="tk">on the bench</span></div>`;
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
@@ -7622,7 +7639,9 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
   };
   closeDetail = function () { if (phoneOn() && history.state?.ph) history.back(); else _close(); };
 }
-setInterval(load, 4000); setInterval(() => refreshDetail(false), 2500);
+// A poll is skipped while the last one is still out, so a slow server is not sent more work than it can answer.
+const once = f => { let out = false; return () => { if (out) return; out = true; Promise.resolve(f()).catch(() => {}).finally(() => { out = false; }); }; };
+setInterval(once(load), 4000); setInterval(once(() => refreshDetail(false)), 2500);
 </script>
 </body>
 </html>
@@ -8115,6 +8134,13 @@ def self_test():
             ask = ask_of("%1")
         finally:
             g["run"] = was_run
+        t("a transcript line that is not text (a crash's NULs, bytes that are not UTF-8) is skipped, not fatal",
+          turns([b"\x00\x00\x00", b"\xff\xfe{", "not json"], 5), [])
+        t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
+          ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
+           '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+        t("  a poll is not sent while the last one is out, and one state build runs at a time",
+          ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
           ('if (plainArrow(e)) n = ns[' in PAGE, '.it.ask .opt.at{' in PAGE, '["Prompts", [' in PAGE), (True, True, True))
         t("  an unnumbered prompt's options are its cursor row and the rows lined up with it, not a list above its rule",
