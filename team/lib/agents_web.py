@@ -1349,24 +1349,25 @@ def keep_stopped(name, stopped):
         f.write("".join(n + "\n" for n in sorted(names)))
 
 
-def lead_role():
-    """The role leading the team today: the head of testing on a verification day (dev-day.json's kind, as strength's
-    scripts/dev-day.sh writes it: the head of testing runs that day), when one is on the roster; the delivery lead
-    otherwise (owner, 2026-11-09: "locally we have a verification day, which makes Sarah the lead")."""
-    try:
-        kind = json.loads(read_text(os.path.join(STATE_DIR, "dev-day.json")) or "{}").get("kind")
-    except (ValueError, AttributeError):
-        kind = None
-    if kind == "verification" and any(role_of(r["role"])[0] == "hot" for r in roster()):
-        return "hot"
-    return "lead"
+LEAD_ORDER = ["lead", "hot", "ops", "support", "pa"]   # who leads, the first of them running (owner, 2026-11-09)
+
+
+def lead_name(live=None):
+    """The agent leading the team now: the first running of the delivery lead, the head of testing, the head of
+    operations and the assistant (owner, 2026-11-09: "if delivery lead is running, otherwise if head of testing is
+    running, otherwise if head of operations is running, otherwise it's the assistant"). With none of them running,
+    the delivery lead, whom a team start brings up; None with no delivery lead on the roster either."""
+    live = live_sessions() if live is None else live
+    people = [(LEAD_ORDER.index(k), r["name"]) for r in roster() if (k := role_of(r["role"])[0]) in LEAD_ORDER]
+    up = sorted(x for x in people if x[1] in live)
+    return up[0][1] if up else next((n for k, n in sorted(people) if k == 0), None)
 
 
 def team_up():
     """Who the next start brings back, the lead always among them: those running when the page last stopped the team
     who are still on the roster. With no such record, the roster except the agents stopped one by one; None if that is
     the whole team."""
-    lead = lambda r, k=lead_role(): role_of(r["role"])[0] == k
+    lead = lambda r: role_of(r["role"])[0] == "lead"
     names = names_in(TEAM_UP)
     if names is not None:
         return [r["name"] for r in team_roster() if r["name"] in names or lead(r)]
@@ -2492,7 +2493,7 @@ def state():
         "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
-        "leadRole": lead_role(),
+        "lead": lead_name({a["name"] for a in agents if a["live"]}),
     }
     return {**st, "plugins": plugins(bar_facts(st))}
 
@@ -2841,8 +2842,8 @@ class Handler(BaseHTTPRequestHandler):
         """Starts the team (team/team-start.sh for those in TEAM_UP, else the whole team, then the lead is told to start
         the day once it is up), or asks the lead to wind it down, as the owner asks before a shutdown: the lead stops
         everyone and marks the team paused, and who was running is kept in TEAM_UP for the next start."""
-        k = lead_role()
-        lead = next((r["name"] for r in roster() if role_of(r["role"])[0] == k), None)
+        # the stop asks whoever leads now; the start brings the delivery lead up and tells them to start the day
+        lead = lead_name() if what == "stop" else next((r["name"] for r in roster() if role_of(r["role"])[0] == "lead"), None)
         if not lead:
             return self.send(409, b"no lead on the roster\n", "text/plain")
         if what == "stop":
@@ -6962,7 +6963,7 @@ function menuSoon(el, wait) {
 // confirm. The button clicked fades in and out in its colour until the page sees the change.
 let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is waiting to see
 function teamButton() {
-  const lead = S.agents.find(a => a.role === (S.leadRole || "lead")), starting = S.starting.includes("team");   // the head of testing on a verification day
+  const lead = S.agents.find(a => a.name === S.lead), starting = S.starting.includes("team");   // the first running of delivery lead, head of testing, head of operations, assistant
   const team = S.agents.filter(a => a.role !== "pa");   // an assistant is not on the team: it neither holds a wind-down nor makes a team running
   const working = team.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
@@ -7279,7 +7280,7 @@ let phStopAsk = null;
 function phoneMenu(again) {
   let sh = $("#phsheet");
   if (!sh) { sh = document.createElement("div"); sh.id = "phsheet"; document.body.append(sh); sh.onclick = e => { if (e.target === sh) phoneMenuOff(); }; }
-  const t = phTeamState(), lead = S.agents.find(a => a.role === (S.leadRole || "lead"));   // the head of testing on a verification day
+  const t = phTeamState(), lead = S.agents.find(a => a.name === S.lead);   // the first running of delivery lead, head of testing, head of operations, assistant
   const starting = S.starting.includes("team"), stopping = S.halting.includes("team"), down = t.word === "Stopped";
   const nudgeOn = nudgerTo != null ? !nudgerTo : !S.nudgerPaused;
   const light = document.documentElement.classList.contains("light"), fs = settings().fs || 100;
@@ -7729,7 +7730,7 @@ def self_test():
         t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "leadRole", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -7784,21 +7785,16 @@ def self_test():
         t("  and an assistant stopped on its own does not make the start a partial one", team_up(), None)
         os.remove(STOPPED)
         os.rename(T + "/state/team-up.keep", T + "/state/team-up")
-        t("with no day recorded the delivery lead leads", lead_role(), "lead")
-        with open(T + "/state/dev-day.json", "w") as f:
-            f.write('{"kind":"verification"}')
-        t("  and on a verification day with no head of testing on the roster, still the delivery lead", lead_role(), "lead")
+        t("with nobody running the delivery lead leads, whom a start brings up", lead_name(set()), "Lea")
         g, keep_roster = globals(), roster
-        g["roster"] = lambda: keep_roster() + [{"name": "Vi", "role": "head-of-testing", "status": "active"}]
-        t("  and with one, the head of testing leads the verification day", lead_role(), "hot")
-        with open(T + "/state/dev-day.json", "w") as f:
-            f.write('{"kind":"development"}')
-        t("  and the delivery lead leads a development day", lead_role(), "lead")
-        with open(T + "/state/dev-day.json", "w") as f:
-            f.write("not json")
-        t("  and an unreadable day record leaves the delivery lead", lead_role(), "lead")
+        g["roster"] = lambda: keep_roster() + [{"name": "Vi", "role": "head-of-testing", "status": "active"},
+                                               {"name": "Ops", "role": "head-of-operations", "status": "active"}]
+        t("  and while running, the delivery lead before everyone", lead_name({"Lea", "Vi", "Ops", "Max"}), "Lea")
+        t("  then the head of testing", lead_name({"Vi", "Ops", "Max", "Ada"}), "Vi")
+        t("  then the head of operations", lead_name({"Ops", "Max", "Ada"}), "Ops")
+        t("  then the assistant", lead_name({"Max", "Ada"}), "Max")
+        t("  and a developer never leads", lead_name({"Ada"}), "Lea")
         g["roster"] = keep_roster
-        os.remove(T + "/state/dev-day.json")
         t("a team start without the page's header is refused", code("/api/team/start", "POST", {}, b"")[0], 403)
         t("a team start is taken", code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
