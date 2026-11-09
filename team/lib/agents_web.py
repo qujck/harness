@@ -2168,32 +2168,23 @@ def working_of(pane):
 
 
 OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")   # a terminal's own sequence, such as a link round /rc
-LEADING = re.compile(r"(?:\s|\x1b\[[0-9;:?]*[A-Za-z])*")
 BOX_RULE = re.compile(r"^\s*[╌─━]{10,}")   # the input box's edges; the top one can carry the session's name
 FOOTER = re.compile(r"^(?:⏵⏵|⏸|\?\s+for shortcuts)|esc to interrupt")
 
 
-def pane_status(pane):
-    """What the pane shows under its input box, as byobu shows it: the mods' lines, the status line and Claude Code's
-    own footer ("⏵⏵ auto mode on · 1 shell"). {"lines": [{"html", "right"}], "footer": the footer's own words, its
-    shift+tab hint, auto mode and anything right-aligned beside it left out ("1 shell")}; "right" marks a line drawn against the pane's right
-    edge. None while there is no input box on screen, as when a prompt is open."""
-    raw = [OSC.sub("", l).rstrip() for l in run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()]
-    plain = [ESCAPES.sub("", l) for l in raw]
+def pane_footer(pane):
+    """The words of Claude Code's footer under the pane's input box ("⏵⏵ auto mode on · 1 shell"), less its shift+tab
+    hint, auto mode and anything right-aligned beside it ("1 shell"); "" when it says nothing else, None while there
+    is no input box on screen, as when a prompt is open."""
+    plain = [ESCAPES.sub("", OSC.sub("", l)).rstrip() for l in run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()]
     rules = [i for i, l in enumerate(plain) if BOX_RULE.match(l)]
     if len(rules) < 2 or not any(plain[i].lstrip().startswith("❯") for i in range(rules[-2] + 1, rules[-1])):
         return None
-    lines, footer = [], ""
-    for r, p in zip(raw[rules[-1] + 1:], plain[rules[-1] + 1:]):
-        if not p.strip():
-            continue
-        lead = LEADING.match(r)
-        right = len(p) - len(p.lstrip()) >= 10
-        lines.append({"html": ansi_html("".join(ESCAPES.findall(lead[0])) + r[lead.end():]), "right": right})
-        if not footer and not right and FOOTER.search(p.strip()):
+    for p in plain[rules[-1] + 1:]:
+        if p.strip() and len(p) - len(p.lstrip()) < 10 and FOOTER.search(p.strip()):
             footer = re.sub(r"\s*\(shift\+tab to cycle\)", "", re.split(r"\s{3,}", p.strip())[0])
-            footer = " · ".join(x for x in footer.split(" · ") if x != "⏵⏵ auto mode on")   # the team's usual mode
-    return {"lines": lines[:8], "footer": footer}
+            return " · ".join(x for x in footer.split(" · ") if x != "⏵⏵ auto mode on")   # the team's usual mode
+    return ""
 
 
 def with_ask(items, status, pane):
@@ -2471,7 +2462,7 @@ def state():
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
             "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
-            "pstat": pane_status(where[name]["pane"]) if rec and name in where else None,
+            "pfoot": pane_footer(where[name]["pane"]) if rec and name in where else None,
         })
     # the team has stopped once team/team-paused.sh says so and no running agent on it is busy or waiting; a lead that has
     # not marked it paused ten minutes after being asked is taken not to be stopping it
@@ -3248,7 +3239,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top > .foldbtn{flex:none;align-self:flex-start;display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:5px;color:var(--mute);cursor:pointer}
 .card > .top > .foldbtn:hover{background:var(--on);color:var(--text)}
 .card > .top > .foldbtn + .lanes{margin-left:0}
-.card.folded > .row2,.card.folded > svg.spark,.card.folded > .pstat{display:none}   /* folded: the name line alone, on every screen */
+.card.folded > .row2,.card.folded > svg.spark{display:none}   /* folded: the name line alone, on every screen */
 .card .top{flex-wrap:wrap;row-gap:4px}
 .termseg b,.railseg b{padding:1px 5px;font-size:calc(10px*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
@@ -3714,13 +3705,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .say{padding-right:42px}
 #detail .send{width:31px;height:31px;margin:6px 4px 0 calc(-6px - 35px)}
 #detail .sayrow{margin:0 14px 14px}
-.pstat{flex:none;margin:-4px 10px 10px;padding:4px 8px;border-radius:6px;background:var(--codebg);font:calc(var(--t-s)*var(--fs,1))/1.45 var(--mono);color:var(--mute);overflow:hidden}
-.pstat > div{white-space:pre;overflow:hidden;text-overflow:ellipsis}
-.pstat > div.r{text-align:right}
-#detail .pstat{margin:-8px 14px 14px}
-#detail .box:not(.noterm) .pstat{margin-right:calc(var(--thumb) + 40px)}
-#dpstat:empty{display:none}
-.sayrow{position:relative}
 .mini .mtop .mstat{flex:0 1 auto;min-width:0;font:calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--mute);overflow:hidden;text-overflow:ellipsis}
 .mini.busy .mtop .mstat{color:var(--green)}
 .mini.waiting .mtop .mstat{color:var(--amber)}
@@ -3743,17 +3727,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* where a card or the agent's own view is tall enough, its box starts three lines tall */
 .card,#detail .left{container:sayroom/size}
 @container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
-/* a box the size of the + beneath it shows or hides the status, only where the message box starts three lines tall */
-.pstattog{display:none;position:absolute;left:0;top:35px;width:31px;height:31px;box-sizing:border-box;place-items:center;border-radius:8px;border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
-.pstattog:hover{color:var(--text);border-color:var(--hover)}
-#detail .pstattog{top:43px;width:39px;height:39px}
-@media (min-width:700.01px){@container sayroom (min-height:360px){
-  .pstattog:not([hidden]){display:grid}
-  .card.folded .pstattog{display:none}
-  .pstat.off{display:none}
-  .sayrow:has(> .pstattog:not([hidden])) .say{min-height:max(calc(4.2em + 14px),66px)}
-  #detail .sayrow:has(> .pstattog:not([hidden])) #dsay{min-height:max(calc(4.2em + 20px),82px)}
-}}
 .stop.going{cursor:default;animation:stopping .9s ease-in-out infinite}
 @keyframes stopping{50%{opacity:.3}}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:8px;border:1px solid var(--line2);background:var(--soft);cursor:pointer}
@@ -4007,8 +3980,6 @@ html.phone #dstop{flex:none;width:44px;height:44px;align-self:flex-start;border-
 html.phone #dstop::before{width:13px;height:13px;border-radius:3px;background:var(--red)}
 html.phone #dstop[style*="none"]{display:none}
 /* + and stop sit level with the box's top as it grows; send stays at its bottom right (owner, 2026-11-09) */
-html.phone #detail .pstat{display:none !important}   /* no status line under the box on the phone (owner, 2026-11-08) */
-html.phone #detail .pstattog{display:none !important}
 #pherr{position:fixed;left:10px;right:10px;top:10px;z-index:100;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:2px solid var(--red);background:var(--box);color:var(--text);font:13px var(--sans);box-shadow:0 8px 30px #0005}
 #pherr pre{margin:0;max-height:30vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font:11px/1.4 var(--mono);color:var(--mute)}
 #pherr div{display:flex;gap:8px}#pherr button{flex:1;height:44px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);font:600 14px var(--sans)}
@@ -4039,7 +4010,7 @@ html.phoneoff #phoneback{display:block}
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button><b class="pstattog" id="dpstattog" hidden></b></div><div class="pstat" id="dpstat"></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -4427,7 +4398,7 @@ document.addEventListener("click", e => {
   box.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
   box.focus();
 }, true);
-const sayRow = (a, status = "") => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${SEND}${a.status === "busy" ? stopButton(a.name) : ""}${status}</div>`;
+const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div class="sayrow">${addButton(a.name)}<textarea class="say" rows="1" data-name="${esc(a.name)}" placeholder="${esc(sayHint(a))}" autocomplete="off"></textarea>${SEND}${a.status === "busy" ? stopButton(a.name) : ""}</div>`;
 // A card given its conversation's key (an agent pane's) marks its feed with it; with keep, the feed is left empty,
 // for the redraw to keep the one on screen.
 // A narrow card's state, model and activity rows fold away under its ^ and come back with its v, for room on a phone
@@ -4443,7 +4414,7 @@ document.addEventListener("click", e => {
   try { localStorage.setItem("folded", JSON.stringify(f.includes(name) ? f.filter(x => x !== name) : [...f, name])); } catch (e) {}
   draw();
 }, true);
-function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, lead = "", statusOff = pstatOff()} = {}) {
+function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, lead = ""} = {}) {
   const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
@@ -4456,29 +4427,10 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
     <div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
-    ${a.live ? sayRow(a, pstatToggle(a, statusOff)) : ""}${a.live ? pstatHtml(a, statusOff) : ""}</div>`;
+    ${a.live ? sayRow(a) : ""}</div>`;
 }
-// What the agent's pane shows under its input box (pane_status), line for line, under its message box.
-const pstatLines = a => (a.pstat?.lines || []).map(l => `<div${l.right ? ' class="r"' : ""}>${l.html}</div>`).join("");
-// The box under the message box's + hides the block for every agent in its panel, a setting of that panel in the layout. The
-// open view and the built-in pages share one setting in this browser. Where that box has no room the block always shows.
-const pstatOff = () => localStorage.getItem("pstatoff") === "1";
-const pstatIcon = up => `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${up ? "M2.5 7.5 6 4l3.5 3.5" : "M2.5 4.5 6 8l3.5-3.5"}"/></svg>`;
-const pstatTitle = off => off ? "Show its status" : "Hide its status";
-const pstatToggle = (a, off) => a.pstat?.lines?.length ? `<b class="pstattog${off ? " off" : ""}" title="${pstatTitle(off)}">${pstatIcon(!off)}</b>` : "";
-const pstatHtml = (a, off) => a.pstat?.lines?.length ? `<div class="pstat${off ? " off" : ""}">${pstatLines(a)}</div>` : "";
-document.addEventListener("click", e => {
-  const b = e.target.closest?.(".pstattog");
-  if (!b) return;
-  e.stopPropagation();
-  const path = b.closest("#main .pane")?.dataset.path;
-  if (path) { const l = layout(), n = nodeAt(l.root, path); n.statusOff = !n.statusOff; saveLayout(l); }
-  else localStorage.setItem("pstatoff", pstatOff() ? "0" : "1");
-  draw();
-  if (b.closest("#detail")) facts();
-}, true);
 // A List row's status, after its name and ticket: its state in words, then the pane's footer ("in shell · 1 shell").
-const mstat = (a, st) => [STATE[st] || st, a.live && a.pstat?.footer].filter(Boolean).join(" · ");
+const mstat = (a, st) => [STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
 
 function cols(n, w, h) {
   // the column count whose cards come out closest to a 4:5 shape in this section
@@ -5362,14 +5314,13 @@ function customHtml(ceil, tabRow) {
   // layout is being changed); a maximised one always does. Every card has the maximise button docked at the end of its head.
   const paneCard = (n, a, path, lead = "") => {
     const big = path === maxed;
-    const statusOff = !!n.statusOff;
-    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead, statusOff});
+    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
     const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name)].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
-      t ? paneTermHtml(a.name, t) : "", {key, keep, lead, statusOff});
+      t ? paneTermHtml(a.name, t) : "", {key, keep, lead});
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
@@ -6166,11 +6117,6 @@ function facts() {
     a.model ? `<span title="Model and effort">${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}</span>` : "",
     ctx, a.rate ? `<span title="Tokens a minute, lately">${k(a.rate)} tok/min</span>` : "",
     `<span title="Where it sits · the folder it works in">${esc(a.tab || "")} · ${esc(a.cwd || "")}</span>`].filter(Boolean).join(""));
-  const off = pstatOff(), lines = a.live && a.pstat?.lines?.length;
-  patch($("#dpstat"), lines ? pstatLines(a) : ""); $("#dpstat").classList.toggle("off", off);
-  const tog = $("#dpstattog");
-  if (!tog.firstChild || tog.classList.contains("off") !== off) tog.innerHTML = pstatIcon(!off);
-  tog.hidden = !lines; tog.title = pstatTitle(off); tog.classList.toggle("off", off);
 }
 
 // An open agent's terminal, beside its conversation, is shown or hidden from its header; the choice is remembered.
@@ -8036,6 +7982,18 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # the pane's footer under its input box, for a List row's status: its own words, less auto mode and the hint
+        box = "─" * 60 + "\n❯ \n" + "─" * 60 + "\n"
+        foot = lambda screen: (g.__setitem__("run", lambda *cmd, **kw: screen if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)), pane_footer("%1"))[1]
+        try:
+            feet = (foot(box + "  ⏵⏵ auto mode on · 1 shell (shift+tab to cycle)                       ◉ high\n"), foot(box + "  ? for shortcuts\n"),
+                    foot("no box here\n"))
+        finally:
+            g["run"] = was_run
+        t("a pane's footer is its own words, less auto mode, the hint and what sits at its right; none without an input box",
+          feet, ("1 shell", "? for shortcuts", None))
+        t("  the status block under the message box is gone from cards and the open view: the List row keeps the footer",
+          (bool(re.search(r"\bpstat", PAGE)), "pstattog" in PAGE, "statusOff" in PAGE, "a.live && a.pfoot" in PAGE), (False, False, False, True))
         # the bar's plug-ins: a script's line, a script's JSON, a failing script, and a file that is not executable
         bd = os.path.join(T, ".config", "agents-web", "bar")
         os.makedirs(bd)
