@@ -2106,6 +2106,7 @@ def feed(sid, limit):
 SEPARATOR = re.compile(r"^\s*[╌─━]{10,}\s*$")
 TOP_RULE = re.compile(r"^\s*[─━]{10,}\s*$")
 OPTION = re.compile(r"^\s*(?:❯\s*)?(\d+)\.\s+(.*\S)")
+CURSOR_ROW = re.compile(r"^(\s*❯\s+)(\S.*)$")   # an unnumbered choice's cursor row ("❯ No, exit"); its label starts where the text does
 SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that ends a multi-select question
 PREVIEW = re.compile(r"\s{2,}[┌│└].*$")   # a question with previews draws the cursor's option's preview to the right of the options
 CHECKBOX = re.compile(r"^\[[ ✔]\]\s?")   # a multi-select option's tick box
@@ -2121,12 +2122,19 @@ def ask_of(pane):
     label; "Type something." is a field the owner's own words go into ("typed"). A multi-select question's options
     keep their tick boxes in their labels, its field is the one just above its Submit row, and Submit is an option
     numbered 0. A question with previews ("preview") draws the one for the option under the cursor beside the
-    options; it is cut from their labels, which would otherwise change as the cursor moves. None when no numbered
-    options are on screen."""
+    options; it is cut from their labels, which would otherwise change as the cursor moves.
+
+    A prompt on screen ends in a footer naming Esc ("Esc to cancel"), and only options inside it - below the solid rule
+    above that footer - are its own: a numbered list higher up, in the conversation or a prompt already answered, is
+    not. Some prompts (trusting a folder, confirming a tool's action) list their options unnumbered, the cursor's row
+    marked ❯ and the others lined up with its text; those are numbered here in order and answered by moving the cursor
+    ("select", with "cursor" the option it is on). None when no prompt's options are on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
-    opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l)]
+    foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
+    top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1) if TOP_RULE.match(lines[i])), 0)
+    opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
     if not opts:
-        return None
+        return select_of(lines, top, foot) if foot is not None else None
     first = opts[-1]
     above = range(first - 1, max(-1, first - 80), -1)
     start = next((i + 1 for i in above if TOP_RULE.match(lines[i])),
@@ -2154,6 +2162,29 @@ def ask_of(pane):
                      or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
             options.append({"n": n, "label": label, "typed": typed})
     return {"text": text, "options": options, **({"preview": True} if preview else {})}
+
+
+def select_of(lines, top, foot):
+    """An unnumbered prompt between its rule (top) and its footer (foot): the cursor's row and the rows whose text lines
+    up with its label, as options numbered in order; None when the prompt has no cursor row."""
+    rows = [(i, ESCAPES.sub("", l)) for i, l in enumerate(lines[top:foot], top)]
+    at = next((k for k, (_, l) in enumerate(rows) if CURSOR_ROW.match(l)), None)
+    if at is None:
+        return None
+    col = len(CURSOR_ROW.match(rows[at][1]).group(1))
+    lined = lambda l: bool(CURSOR_ROW.match(l)) or (len(l) - len(l.lstrip()) == col and bool(l.strip()))
+    lo = at
+    while lo > 0 and lined(rows[lo - 1][1]):
+        lo -= 1
+    hi = at
+    while hi + 1 < len(rows) and lined(rows[hi + 1][1]):
+        hi += 1
+    options = [{"n": k + 1, "label": (CURSOR_ROW.match(l).group(2) if CURSOR_ROW.match(l) else l.strip()), "typed": False}
+               for k, (_, l) in enumerate(rows[lo:hi + 1])]
+    block = [l for _, l in rows[:lo] if l.strip() and not SEPARATOR.match(l)] + [lines[foot]]
+    pad = min((len(l) - len(l.lstrip()) for l in block), default=0)
+    text = "\n".join([l[pad:] for l in block[:-1]] + [r[1].strip() for r in rows[lo:hi + 1]] + [block[-1].strip()])
+    return {"text": text, "options": options, "select": True, "cursor": at - lo + 1}
 
 
 def by_lane(items, n):
@@ -2374,6 +2405,21 @@ def answer(name, n, label, text):
         return cursor() == m
 
     try:
+        if ask.get("select"):
+            # unnumbered options: the cursor is taken to the option a row at a time, then Enter chooses it
+            for _ in range(2 * len(order)):
+                at = (open_ask(name, pane) or {}).get("cursor")
+                if at == n or at not in order:
+                    break
+                key("Up" if n < at else "Down")
+                wait_for(lambda: (open_ask(name, pane) or {}).get("cursor") != at, 1, 0.1)
+            now = open_ask(name, pane) or {}
+            if now.get("cursor") != n or now.get("options") != ask["options"]:
+                return 500, f"the cursor did not reach option {n}: nothing was chosen"
+            closed = gone()
+            if not key("Enter") or not wait_for(closed, 3, 0.2):
+                return 500, f"option {n} was not taken"
+            return 200, "chosen"
         if multi and not opt["typed"]:
             closed = gone()
             if not move_to(n) or not key("Enter" if n == 0 else str(n)) or not wait_for(closed, 3, 0.2):
@@ -8003,6 +8049,16 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # an unnumbered prompt under a numbered list from the conversation: only the prompt's own options are read
+        shot = ("  1. Apple\n  2. Pear\n\n" + "─" * 60 + "\n Accessing workspace:\n\n /tmp/probe\n\n"
+                " ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n")
+        g["run"] = lambda *cmd, **kw: shot if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            ask = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("  an unnumbered prompt's options are its cursor row and the rows lined up with it, not a list above its rule",
+          ([o["label"] for o in ask["options"]], ask.get("select"), ask.get("cursor")), (["No, exit", "Yes, I trust this folder"], True, 1))
         # the pane's footer under its input box, for a List row's status: its own words, less auto mode and the hint
         box = "─" * 60 + "\n❯ \n" + "─" * 60 + "\n"
         foot = lambda screen: (g.__setitem__("run", lambda *cmd, **kw: screen if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)), pane_footer("%1"))[1]
