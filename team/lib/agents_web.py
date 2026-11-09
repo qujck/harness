@@ -7725,10 +7725,12 @@ function phoneDraw() {
   logo.onclick = waits.length ? () => openDetail(waits[0].name) : null;
   const t = phTeamState();
   patch(ph.querySelector(".ph-title"), `<b>${esc(S.project || document.title || "Team")}</b><span><span style="color:${t.colour}">●</span> ${t.word} · ${t.up} up${t.off ? ` · ${t.off} stopped` : ""}${S.nudgerPaused ? " · nudger paused" : ""}</span>`);
+  // an uncoloured meter is green, as on the desktop bar: the plug-in owns its colour (it leaves green blank), so the
+  // phone must not re-colour it by its own fill thresholds (owner, 2026-11-09: "amber on the phone but green on the desktop")
   const g = phGauge(), gb = ph.querySelector(".ph-week");
   if (g) {
     const m = g.meter, val = (g.parts || [{text: g.value, colour: g.colour}]).filter(x => x.text !== "").map(x => `<b style="color:${plugColour(x.colour || (g.parts ? "" : g.colour))}">${esc(x.text)}</b>`).join("");
-    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : gauge(m.pct)}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
+    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
     gb.setAttribute("aria-label", `${phGaugeName(g)}: ${g.value}${g.title ? ". " + g.title : ""}`); gb.title = g.title || "";
   } else {
     const wk = S.week;
