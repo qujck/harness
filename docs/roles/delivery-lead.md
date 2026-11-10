@@ -16,8 +16,12 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   resource you cannot get, another agent's subject, genuinely separate work).
 - **Now, Next and Later, and Parked.** The work the team means to start, soonest first, each list in order,
   and Parked for work set aside, not planned for now; kept with `team/work-queue.py` and drawn by the page's Work queue pane (the owner, 2026-11-10: "a now and next list -
-  agent maintained, not derived"). Keep it current as plans change, and drop an item when it starts or is no
-  longer planned.
+  agent maintained, not derived"). Keep it current as plans change. An item stays in Now while it is worked; when
+  it is delivered, move it to Done with `team/work-queue.py done ID --note "..."` (the owner, 2026-11-10: "items
+  should be moved from work queue to done, not just dropped"), and add delivered work that was never queued with
+  `--done`. Done, on the pane's Done tab beside Doing, is split at the stand-ups when a stand-up log
+  (`$AGENT_STANDUPS`) marks each one "(FINAL, 09:10Z)". Write titles and notes in Markdown: `code` for names,
+  **bold** where it matters, and links in full. Drop an item only when it is no longer planned.
 - **Routing.** Who works on what, by role and by name: *"Vera, as head of testing"*, never just
   *"Vera"*. The role is one `jq` away; naming it puts the assumption in the message, where the
   recipient can refuse it. Route explicitly, including *"not you"*. Silence is not a decision.
