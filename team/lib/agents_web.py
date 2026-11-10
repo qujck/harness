@@ -3375,8 +3375,11 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .row.none{color:var(--mute)}
 .workq .row > .wh{justify-content:flex-end}
 .workq .row > .at{width:auto;min-width:3.2em;text-align:right}
+#phone .workq .tx{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+#phone .workq .tx code{white-space:normal;overflow-wrap:anywhere}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
+@media (max-width:600px){.workq .row > :is(.wh,.at){margin-left:auto}.workq .row > .wh{width:auto}.workq .row > .wh + .at{margin-left:0}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
 section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:650;border-bottom:1px solid var(--line)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:var(--r-s);overflow:hidden;letter-spacing:0;text-transform:none}
