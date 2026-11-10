@@ -576,7 +576,7 @@ def daylog_json():
 # nothing here fills it. It is $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it
 # changes.
 WORK_QUEUE = os.environ.get("AGENT_WORK_QUEUE") or os.path.join(STATE_DIR, "work-queue.json")
-WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")   # as team/work-queue.py takes an id
+WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,254}$")   # as team/work-queue.py takes an id
 _workqueue = {"key": None, "data": None}
 # The Done tab splits by stand-up: the times the stand-ups were read, from a stand-up log's day headings
 # ("# Stand-up, Tuesday 10 November 2026 (FINAL, 09:10Z)"; a FINAL with no time counts as 09:15Z). The log is
@@ -633,7 +633,7 @@ def workqueue_json():
                                 "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
                                 "url": u if re.match(r"https?://", u) else "", "done": stamp(i.get("done"))}
                                for i in items[:100] if isinstance(i, dict)
-                               for k, u in [(text(i.get("key"), 100), text(i.get("url"), 500))] if WORK_ID.match(k)]
+                               for k, u in [(text(i.get("key"), 255), text(i.get("url"), 500))] if WORK_ID.match(k)]
             data = {"state": "ok", "file": path, **lists, "by": text(q.get("by"), 60),
                     "at": stamp(q.get("at"))}
         except (OSError, ValueError):
@@ -8741,6 +8741,10 @@ def self_test():
           ({"key": "feat_one", "title": "One", "who": "Lea", "note": "", "url": ""}, "https://x/3", "Lead"))
         t("  an item already there is refused", wq("add", "AB-2", "again").returncode, 1)
         t("  an id with a space or a leading dash is refused", (wq("add", "not an id", "x").returncode, wq("add", "-x", "x").returncode), (1, 1))
+        # A ledger's ids run past 100 characters (strength's, 2026-11-10: three live ones), so up to 255 is an id; past it, not.
+        long_id = "fix_" + "a_long_ledger_slug_" * 10   # 194 characters
+        t("  a 194-character ledger id is taken; a 256-character one is refused",
+          [wq("add", long_id, "Long").returncode, wq("add", "x" * 256, "Too long").returncode, wq("drop", long_id).returncode], [0, 1, 0])
         wq("up", "AB-3")
         t("  up moves an item one place within its list", wq_keys(), (["feat_one"], ["AB-3", "AB-2"], []))
         wq("up", "AB-3")
@@ -8806,6 +8810,9 @@ def self_test():
             d = json.loads(code("/api/workqueue")[1])
             t("  Done is served with when each got there", ([i["key"] for i in d["done"]], d["done"][0]["done"] > 0, d["now"][0]["done"]), (["AB-10"], True, 0))
             wq("drop", "AB-10")
+            wq("add", long_id, "Long")
+            t("  a 194-character ledger id is served whole", [i["key"] for i in json.loads(code("/api/workqueue")[1])["next"]].count(long_id), 1)
+            wq("drop", long_id)
             wq("edit", "AB-2", "--url", "https://x/2")
             d = json.loads(code("/api/workqueue")[1])
             wq("move", "CD-0", "later")
