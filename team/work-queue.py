@@ -36,7 +36,7 @@ HOME = os.path.expanduser("~")
 ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 QUEUE = os.path.expanduser(os.environ.get("AGENT_WORK_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "work-queue.json"))
-KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")
+KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,254}$")
 LISTS = ("now", "next", "later", "parked", "done")
 DONE_DAYS = 14
 
