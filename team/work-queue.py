@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""The work queue's Now, Next and Later: the work the team means to start, soonest first, each list in order, and
-Parked: work set aside, not planned for now. The delivery lead keeps it with this command and the page's Work queue
-pane draws it. Nothing fills it from the ledger: it holds what the lead has put in it.
+"""The work queue's Now, Next and Later: the work the team means to start, soonest first, each list in order;
+Parked: work set aside, not planned for now; and Done: work delivered, each stamped with when, kept DONE_DAYS days.
+Work stays in Now while it is worked and moves to Done when it is delivered. The delivery lead keeps it with this
+command and the page's Work queue pane draws it, on two tabs: Doing (Now to Parked) and Done. Nothing fills it from
+the ledger: it holds what the lead has put in it.
 
-  team/work-queue.py add ID "title" [--now | --next | --later | --parked] [--who NAME] [--note "words"] [--url URL]   (Next unless said)
+  team/work-queue.py add ID "title" [--now | --next | --later | --parked | --done] [--who NAME] [--note "words"] [--url URL]   (Next unless said)
   team/work-queue.py edit ID [--title "title"] [--who NAME] [--note "words"] [--url URL]   (an empty value clears it)
-  team/work-queue.py move ID now|next|later|parked                                         (to the end of that list)
+  team/work-queue.py move ID now|next|later|parked|done                                    (to the end of that list)
+  team/work-queue.py done ID [--note "words"]                                 (delivered: to Done, stamped with when)
   team/work-queue.py up ID | down ID                                                       (one place, in its list)
-  team/work-queue.py drop ID                                                (it started, or is no longer planned)
+  team/work-queue.py drop ID                                                                (no longer planned)
   team/work-queue.py list
 
 ID is the work's id, as the ledger names it (a ticket's slug, or a key such as ABC-123). The queue is
 $AGENT_WORK_QUEUE, else ~/.local/state/<project>/work-queue.json:
-  {"now": [item, ...], "next": [item, ...], "later": [item, ...], "parked": [item, ...], "at": epoch seconds of the last change, "by": who made it}
-where an item is {"key": ID, "title": "...", "who": "Name" or "", "note": "..." or "", "url": an http(s) link or ""}.
+  {"now": [item, ...], "next": [item, ...], "later": [item, ...], "parked": [item, ...], "done": [item, ...],
+   "at": epoch seconds of the last change, "by": who made it}
+where an item is {"key": ID, "title": "...", "who": "Name" or "", "note": "..." or "", "url": an http(s) link or ""},
+the title and note in Markdown (`code`, **bold**, web addresses; the page draws them so), and one in Done also has
+"done": epoch seconds of when it got there.
 A change is made under a lock and written whole, so two agents changing it at once both land. Who made it is
 AGENT_NAME, else the name of the Claude session running the command, else the user."""
 import fcntl
@@ -31,7 +37,8 @@ ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 QUEUE = os.path.expanduser(os.environ.get("AGENT_WORK_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "work-queue.json"))
 KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")
-LISTS = ("now", "next", "later", "parked")
+LISTS = ("now", "next", "later", "parked", "done")
+DONE_DAYS = 14
 
 
 def die(words):
@@ -68,7 +75,9 @@ def session_name():
 
 
 def write(q):
-    q.update(at=int(time.time()), by=os.environ.get("AGENT_NAME") or session_name() or getpass.getuser())
+    now = int(time.time())
+    q.update(at=now, by=os.environ.get("AGENT_NAME") or session_name() or getpass.getuser(),
+             done=[i for i in q["done"] if not isinstance(i.get("done"), int) or now - i["done"] < DONE_DAYS * 86400])
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(QUEUE), prefix=".work-queue.")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(q, f, indent=1, ensure_ascii=False)
@@ -84,12 +93,19 @@ def find(q, key):
     die(f"{key} is not in the queue")
 
 
+def stamped(item, to):
+    """The item as it goes into list `to`: Done stamps when it got there; any other list takes the stamp off."""
+    item = {k: v for k, v in item.items() if k != "done"}
+    return {**item, "done": int(time.time())} if to == "done" else item
+
+
 def options(args, allowed):
-    """--name value pairs (and the bare --now/--next), checked against what the command takes."""
+    """--name value pairs (and a bare list: --now, --next, --later, --parked, --done), checked against what the command
+    takes."""
     out, i = {}, 0
     while i < len(args):
         a = args[i]
-        if a in ("--now", "--next", "--later", "--parked") and "list" in allowed:
+        if a[2:] in LISTS and a.startswith("--") and "list" in allowed:
             out["list"] = a[2:]
             i += 1
         elif a.startswith("--") and a[2:] in allowed and i + 1 < len(args):
@@ -131,16 +147,19 @@ def main(argv):
             if any(item.get("key") == key for name in LISTS for item in q[name]):
                 die(f"{key} is already in the queue; use edit or move")
             o = options(args[2:], ("list", "who", "note", "url"))
-            q[o.get("list", "next")].append({"key": key, "title": args[1].strip(), "who": o.get("who", ""), "note": o.get("note", ""),
-                                             "url": o.get("url", "")})
+            q[o.get("list", "next")].append(stamped({"key": key, "title": args[1].strip(), "who": o.get("who", ""), "note": o.get("note", ""),
+                                                     "url": o.get("url", "")}, o.get("list", "next")))
         elif cmd == "edit":
             name, i = find(q, key)
             q[name][i].update(options(args[1:], ("title", "who", "note", "url")))
         elif cmd == "move":
             if len(args) != 2 or args[1] not in LISTS:
-                die("move needs now, next, later or parked: work-queue.py move ID now")
+                die("move needs now, next, later, parked or done: work-queue.py move ID now")
             name, i = find(q, key)
-            q[args[1]].append(q[name].pop(i))
+            q[args[1]].append(stamped(q[name].pop(i), args[1]))
+        elif cmd == "done":
+            name, i = find(q, key)
+            q["done"].append(stamped({**q[name].pop(i), **options(args[1:], ("note",))}, "done"))
         elif cmd in ("up", "down"):
             name, i = find(q, key)
             j = i - 1 if cmd == "up" else i + 1

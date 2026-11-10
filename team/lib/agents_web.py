@@ -26,7 +26,7 @@
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
-  /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it
+  /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, Parked, and Done, as the delivery lead keeps it
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -571,12 +571,39 @@ def daylog_json():
 
 
 # ── the work queue ──────────────────────────────────────────────────────────────────────────────────────────────
-# The Work queue pane: the work the team means to start, Now, Next and Later, and what is Parked, as the delivery
-# lead keeps it with team/work-queue.py (see that command for the file's shape). The page draws the file; nothing
-# here fills it. It is $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it changes.
+# The Work queue pane: the work the team means to start, Now, Next and Later, what is Parked, and what is Done, as
+# the delivery lead keeps it with team/work-queue.py (see that command for the file's shape). The page draws the file;
+# nothing here fills it. It is $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it
+# changes.
 WORK_QUEUE = os.environ.get("AGENT_WORK_QUEUE") or os.path.join(STATE_DIR, "work-queue.json")
 WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")   # as team/work-queue.py takes an id
 _workqueue = {"key": None, "data": None}
+# The Done tab splits by stand-up: the times the stand-ups were read, from a stand-up log's day headings
+# ("# Stand-up, Tuesday 10 November 2026 (FINAL, 09:10Z)"; a FINAL with no time counts as 09:15Z). The log is
+# $AGENT_STANDUPS, else standups.md in the state directory, read again only when it changes; with none, Done is one list.
+STANDUPS = os.environ.get("AGENT_STANDUPS") or os.path.join(STATE_DIR, "standups.md")
+STANDUP_LINE = re.compile(r"^# Stand-up, \w+ (\d{1,2} \w+ \d{4}) \(FINAL(?:, (\d{2}:\d{2})Z)?\)", re.M)
+_standups = {"key": None, "times": []}
+
+
+def standup_times():
+    path = STANDUPS
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        if key != _standups["key"]:
+            with open(path, encoding="utf-8") as f:
+                log = f.read()
+            times = set()
+            for day, hhmm in STANDUP_LINE.findall(log):
+                try:
+                    times.add(calendar.timegm(time.strptime(f"{day} {hhmm or '09:15'}", "%d %B %Y %H:%M")))
+                except ValueError:
+                    continue
+            _standups.update(key=key, times=sorted(times, reverse=True))
+    except OSError:
+        return []
+    return _standups["times"]
 
 
 def workqueue_json():
@@ -585,7 +612,8 @@ def workqueue_json():
         st = os.stat(path)
         key = (path, st.st_mtime_ns, st.st_size)
     except OSError:
-        return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": [], "parked": []}).encode()
+        return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": [], "parked": [], "done": [],
+                           "standups": standup_times()[:10]}).encode()
     if key != _workqueue["key"]:
         try:
             with open(path, encoding="utf-8") as f:
@@ -598,19 +626,20 @@ def workqueue_json():
             roster_name = {letters(k): k for k in names}
             roster_name.update({letters(v): k for k, v in names.items()})
             lists = {}
-            for name in ("now", "next", "later", "parked"):
+            stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+            for name in ("now", "next", "later", "parked", "done"):
                 items = q.get(name) if isinstance(q.get(name), list) else []
                 lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")),
                                 "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
-                                "url": u if re.match(r"https?://", u) else ""}
+                                "url": u if re.match(r"https?://", u) else "", "done": stamp(i.get("done"))}
                                for i in items[:100] if isinstance(i, dict)
                                for k, u in [(text(i.get("key"), 100), text(i.get("url"), 500))] if WORK_ID.match(k)]
             data = {"state": "ok", "file": path, **lists, "by": text(q.get("by"), 60),
-                    "at": q.get("at") if isinstance(q.get("at"), (int, float)) and not isinstance(q.get("at"), bool) else 0}
+                    "at": stamp(q.get("at"))}
         except (OSError, ValueError):
-            data = {"state": "bad", "file": path, "now": [], "next": [], "later": [], "parked": []}
+            data = {"state": "bad", "file": path, "now": [], "next": [], "later": [], "parked": [], "done": []}
         _workqueue.update(key=key, data=data)
-    return json.dumps(_workqueue["data"]).encode()
+    return json.dumps({**_workqueue["data"], "standups": standup_times()[:10]}).encode()
 
 
 def refresh_board():
@@ -3336,6 +3365,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .day .n{margin-left:6px;font-weight:400}
 .workq .row.none{color:var(--mute)}
 .workq .row > .wh{justify-content:flex-end}
+.workq .row > .at{width:auto;min-width:3.2em;text-align:right}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
@@ -5478,9 +5508,28 @@ function dayLogHtml() {
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
 // The Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it with
-// team/work-queue.py
-// (see "the work queue" on the server). Read with every load while a Work queue pane is on the page.
+// team/work-queue.py (see "the work queue" on the server), on a Doing tab, and what is Done on a second tab, split by
+// stand-up. Titles and notes are Markdown, as an agent's words are: `code`, **bold**, web addresses and document
+// paths. Read with every load while a Work queue pane is on the page. Which tab shows is the browser's, for every
+// Work queue pane.
 let workQueue = null;
+const wqTab = () => localStorage.getItem("workqueue:tab") === "done" ? "done" : "work";
+document.addEventListener("click", e => {
+  const b = e.target.closest(".wqtabs b[data-tab]");
+  if (!b || b.dataset.tab === wqTab()) return;
+  localStorage.setItem("workqueue:tab", b.dataset.tab);
+  draw();
+});
+// Done split by stand-up, newest first: what is done since the last stand-up, then what each of the two stand-ups
+// before it covered (the owner, 2026-11-10: "it needs to be split by stand up, not calendar day"). The stand-up times
+// are the server's, from the stand-up log; with none, Done is one list.
+function doneByStandup(items, standups) {
+  const newest = [...items].sort((x, y) => (y.done || 0) - (x.done || 0)), [s0, s1, s2] = standups || [];
+  if (!s0) return [["Done", newest]];
+  const day = t => new Date(t * 1000).toLocaleDateString("en-GB", {weekday: "long"}) + "'s stand-up";
+  const between = (from, to) => newest.filter(i => (i.done || 0) >= (from || 0) && (to == null || (i.done || 0) < to));
+  return [["Since " + day(s0), between(s0)], ...(s1 ? [[day(s0), between(s1, s0)]] : []), ...(s1 && s2 ? [[day(s1), between(s2, s1)]] : [])];
+}
 async function loadWorkQueue() {
   if (!leaves(layout().root).some(([, n]) => n.show === "workqueue")) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
@@ -5491,21 +5540,27 @@ const workQueueKeyW = keys => {
   c.font = `${13 * (parseFloat(getComputedStyle(document.body).getPropertyValue("--fs")) || 1)}px ${getComputedStyle(document.body).fontFamily}`;
   return Math.ceil(Math.max(60, ...keys.map(k => c.measureText(k).width))) + 2;
 };
-function workQueueHtml() {
+function workQueueHtml(big) {
   const q = workQueue;
   if (!q) return `<div class="blank">Loading…</div>`;
-  if (q.state === "bad") return `<div class="blank">The work queue at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/work-queue.py.</div>`;
-  q.parked ||= [];
-  if (!q.now.length && !q.next.length && !q.later.length && !q.parked.length) return `<div class="blank">Nothing in the work queue. The delivery lead keeps it with team/work-queue.py.</div>`;
-  const when = q.at ? (new Date(q.at * 1000).toDateString() === new Date().toDateString()
-    ? new Date(q.at * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"}) : dayLogAt(q.at)) : "";
+  const done = wqTab() === "done", tabs = `<span class="seg wqtabs">${[["work", "Doing"], ["done", "Done"]].map(([v, label]) =>
+    `<b data-tab="${v}" class="${(v === "done") === done ? "on" : ""}">${label}</b>`).join("")}</span>`;
+  const pane = (head, body) => `<div class="teamlog" data-name="~workqueue"><div class="thead">${tabs}<span>${esc(head)}</span>${maxButton(big)}</div>${body}</div>`;
+  if (q.state === "bad") return pane("", `<div class="blank">The work queue at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/work-queue.py.</div>`);
+  q.later ||= []; q.parked ||= []; q.done ||= [];
+  const hhmm = t => new Date(t * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+  const isToday = t => new Date(t * 1000).toDateString() === new Date().toDateString();
+  const when = q.at ? (isToday(q.at) ? hhmm(q.at) : dayLogAt(q.at)) : "";
   const head = when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "";
+  const shownLists = done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]];
+  if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
-    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${esc(i.title)}${i.note ? `<span class="note">${esc(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}</div>`;
+    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}` +
+    (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>`;
   const list = (name, items) => `<div class="day">${name}<span class="n">${items.length}</span></div>` +
     (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`);
-  return `<div class="teamlog"><div class="thead"><span>Work queue</span><span>${esc(head)}</span></div>` +
-    `<div class="daylog workq" style="--whw:${dayLogWhW([...q.now, ...q.next, ...q.later, ...q.parked].filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW([...q.now, ...q.next, ...q.later, ...q.parked].map(i => i.key))}px">${list("Now", q.now)}${list("Next", q.next)}${list("Later", q.later)}${list("Parked", q.parked)}</div></div>`;
+  const all = shownLists.flatMap(([, items]) => items);
+  return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(i => i.key))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -5693,10 +5748,10 @@ function renameView(el, i, after) {
 function customHtml(ceil, tabRow) {
   const l = layout();
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
-  // or a Team, Combined, Meeting or File pane.
+  // or a Team, Combined, Meeting, File or Work queue pane.
   let maxed = localStorage.getItem("custom:max");
   const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
-  const maxName = maxNode && (["team", "combined", "meeting", "file"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
+  const maxName = maxNode && (["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
@@ -5738,7 +5793,7 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "daylog") {
       body = dayLogHtml();
     } else if (n.show === "workqueue") {
-      body = workQueueHtml();
+      body = workQueueHtml(path === maxed);
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -5779,7 +5834,7 @@ function customHtml(ceil, tabRow) {
     const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider drag" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
-  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
+  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
 // A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
@@ -5803,7 +5858,7 @@ function tileRows(n, path, count) {
   if (!w) tileGuess = true;
   return Math.max(n.tiles || 1, cols ? Math.ceil(count / cols) : 0);
 }
-// An agent's card, or a Team, Combined, Meeting or File pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
+// An agent's card, or a Team, Combined, Meeting, File or Work queue pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
@@ -8450,12 +8505,43 @@ def self_test():
             t("  with no AGENT_NAME, who changed it is the Claude session's name", json.load(f)["by"], "Lead2")
         t("  drop takes it out", (wq("drop", "AB-3").returncode, wq("drop", "AB-4").returncode, wq_keys()), (0, 0, (["feat_one", "AB-2"], [], [])))
         t("  an id not in the queue says so", wq("drop", "AB-9").stderr.strip(), "work-queue: AB-9 is not in the queue")
+        wq("add", "AB-7", "Seven", "--parked")
+        wq("done", "AB-7", "--note", "live")
+        with open(wqf) as f:
+            q = json.load(f)
+        t("  done moves an item to Done, with its note and when", ([i["key"] for i in q["parked"]], q["done"][0]["note"], isinstance(q["done"][0].get("done"), int)),
+          ([], "live", True))
+        wq("move", "AB-7", "later")
+        with open(wqf) as f:
+            t("  and moving it out of Done takes the stamp off", "done" in json.load(f)["later"][-1], False)
+        wq("drop", "AB-7")
+        wq("add", "AB-8", "Eight", "--done")
+        with open(wqf) as f:
+            q = json.load(f)
+        t("  --done adds straight to Done, stamped", [(i["key"], "done" in i) for i in q["done"]], [("AB-8", True)])
+        q["done"][0]["done"] -= 15 * 86400
+        with open(wqf, "w") as f:
+            json.dump(q, f)
+        wq("add", "AB-9", "Nine", "--done")
+        with open(wqf) as f:
+            t("  Done keeps fourteen days: an older one goes at the next change", [i["key"] for i in json.load(f)["done"]], ["AB-9"])
+        wq("drop", "AB-9")
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(lambda n: wq("add", f"CD-{n}", f"t{n}"), range(16)))
         t("  sixteen agents adding at once all land", sorted(wq_keys()[1]), sorted(f"CD-{n}" for n in range(16)))
-        keep_wq = g["WORK_QUEUE"]
-        g["WORK_QUEUE"] = wqf
+        keep_wq, keep_su = g["WORK_QUEUE"], g["STANDUPS"]
+        g["WORK_QUEUE"], g["STANDUPS"] = wqf, T + "/wq/standups.md"
         try:
+            t("work queue pane: with no stand-up log there are no stand-ups, and Done is one list", g["standup_times"](), [])
+            with open(T + "/wq/standups.md", "w") as f:
+                f.write("# Stand-ups\n\n# Stand-up, Wednesday 11 November 2026 (DRAFT)\n\n# Stand-up, Tuesday 10 November 2026 (FINAL, 09:10Z)\n"
+                        "\n# Stand-up, Monday 9 November 2026 (FINAL)\n\n# Stand-up, Friday 6 November 2026\n")
+            t("  the stand-ups are the log's FINAL days, newest first, 09:15Z where no time is given",
+              json.loads(code("/api/workqueue")[1])["standups"], [1794301800, 1794215700])
+            wq("add", "AB-10", "Ten", "--done")
+            d = json.loads(code("/api/workqueue")[1])
+            t("  Done is served with when each got there", ([i["key"] for i in d["done"]], d["done"][0]["done"] > 0, d["now"][0]["done"]), (["AB-10"], True, 0))
+            wq("drop", "AB-10")
             wq("edit", "AB-2", "--url", "https://x/2")
             d = json.loads(code("/api/workqueue")[1])
             wq("move", "CD-0", "later")
@@ -8475,10 +8561,13 @@ def self_test():
             os.remove(wqf)
             t("  no file is an empty queue", json.loads(code("/api/workqueue")[1])["state"], "empty")
         finally:
-            g["WORK_QUEUE"] = keep_wq
-        t("  the pane is offered, Now, Next, Later and Parked, one line an item, with no phone tab",
-          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml()" in PAGE and '${list("Later", q.later)}${list("Parked", q.parked)}' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
+            g["WORK_QUEUE"], g["STANDUPS"] = keep_wq, keep_su
+        t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, with no phone tab",
+          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml(path === maxed)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
+           and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue"' in PAGE), (True, True, True, False))
+        t("  it can be maximised, and draws titles and notes as Markdown",
+          ('"file", "workqueue"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(i.title)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
@@ -8681,7 +8770,7 @@ def self_test():
         t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
-           '["team", "combined", "meeting", "file"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+           '["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
           ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
