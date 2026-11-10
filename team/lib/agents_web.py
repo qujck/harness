@@ -3312,6 +3312,8 @@ body.resizing{cursor:col-resize;user-select:none}
 .lay.col > .divider.drag::after{inset:5px 0}
 .divider.drag:hover::after,.divider.moving::after{background:var(--line2)}
 body.resizing-row{cursor:row-resize;user-select:none}
+.snapguide{position:fixed;z-index:60;pointer-events:none;display:none;border:0 dashed var(--mute)}
+.snapguide.on{display:block}
 .pane{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
 .pbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 10px;border-bottom:1px solid var(--line);font-size:calc(var(--t-s)*var(--fs,1));color:var(--mute)}
 .pbar select{font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:1px 4px}
@@ -5927,6 +5929,7 @@ const fullView = n => n.view !== "summary";
 // snaps between them, and more while its tiles would otherwise need scrolling. One above or below another is a whole
 // number of rows high in the same way (one unless set).
 const tileSide = n => !!n.split && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
+const SNAP = 12;   // px within which a dragged divider snaps to a line (see the divider drag)
 const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
 // the pane's border, its bar (none when locked), the grid's padding and the rows of 112px tiles 8px apart
 const tilesHeight = (r, path) => 18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (pageLocked() ? 0 : 38)) + 120 * (r ?? 1);
@@ -6619,6 +6622,13 @@ function customClicks() {
     document.body.classList.add(row ? "resizing" : "resizing-row"); resizing = true;
     const side = tileSide(nodeAt(layout().root, d.dataset.path));
     let at = null, tiles = null;
+    // Free dividers snap, within SNAP px, to the middle of the page and into line with the other dividers that run the
+    // same way (two columns each split top and bottom line up their rows). The lines are read once: a drag moves only
+    // what is inside this split.
+    const m = $("#main").getBoundingClientRect(), mid = rc => row ? rc.left + rc.width / 2 : rc.top + rc.height / 2;
+    const lines = side ? [] : [mid(m), ...[...main.querySelectorAll(`.lay.${row ? "row" : "col"} > .divider`)]
+      .filter(x => !lay.contains(x)).map(x => mid(x.getBoundingClientRect()))];
+    const guide = $(".snapguide") || document.body.appendChild(Object.assign(document.createElement("div"), {className: "snapguide"}));
     d.onpointermove = mv => {
       if (side && row) {
         const w = side === "a" ? mv.clientX - r.left : r.right - mv.clientX;
@@ -6632,11 +6642,16 @@ function customClicks() {
         (side === "a" ? h1 : h2).style.flexBasis = tilesHeight(tiles, d.dataset.path + side) + "px";
         return;
       }
-      at = Math.max(0.1, Math.min(0.9, row ? (mv.clientX - r.left) / r.width : (mv.clientY - r.top) / r.height));
+      const pos = row ? mv.clientX : mv.clientY, near = lines.filter(x => Math.abs(x - pos) <= SNAP).sort((x, y) => Math.abs(x - pos) - Math.abs(y - pos))[0];
+      const dw = row ? d.offsetWidth : d.offsetHeight, start = row ? r.left : r.top, span = (row ? r.width : r.height) - dw;
+      at = Math.max(0.1, Math.min(0.9, ((near ?? pos) - dw / 2 - start) / span));
       h1.style.flexGrow = at; h2.style.flexGrow = 1 - at;
+      guide.classList.toggle("on", near != null);
+      if (near != null) Object.assign(guide.style, row ? {left: near + "px", top: m.top + "px", width: 0, height: m.height + "px", borderLeftWidth: "1px", borderTopWidth: 0}
+        : {left: m.left + "px", top: near + "px", width: m.width + "px", height: 0, borderTopWidth: "1px", borderLeftWidth: 0});
     };
     d.onpointerup = () => {
-      d.onpointermove = null; d.classList.remove("moving"); document.body.classList.remove("resizing", "resizing-row"); resizing = false;
+      d.onpointermove = null; d.classList.remove("moving"); $(".snapguide")?.classList.remove("on"); document.body.classList.remove("resizing", "resizing-row"); resizing = false;
       if (tiles != null) change(l => { nodeAt(l.root, d.dataset.path).tiles = tiles; });
       else if (at != null) change(l => { nodeAt(l.root, d.dataset.path).at = +at.toFixed(3); });
     };
