@@ -3367,6 +3367,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workq .note{margin-left:10px;color:var(--mute)}
 .workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.workq .day:not(:first-child){margin-top:10px;padding-top:8px;border-top:1px solid var(--line2)}
 .workq .day:first-child{margin-top:0}
 .workq .day .n{margin-left:6px;font-weight:400}
 .workq .row.none{color:var(--mute)}
