@@ -4353,6 +4353,8 @@ html.phone #dstop[style*="none"]{display:none}
 #pherr div{display:flex;gap:8px}#pherr button{flex:1;height:44px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);font:600 14px var(--sans)}
 #phoneback{position:fixed;left:10px;bottom:10px;z-index:15;height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line2);background:var(--box);color:var(--text);font:600 13px var(--sans);box-shadow:0 4px 14px #0003}
 html.phoneoff #phoneback{display:block}
+#phoneback{touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
+#phoneback.moving{cursor:grabbing;opacity:.85}
 #phone .ph-logo{flex:none;width:44px;height:44px;margin-left:-8px;display:grid;place-items:center}
 #phone .ph-logo svg{width:36px;height:36px}
 </style>
@@ -8341,7 +8343,47 @@ const PH_STRIPS = "html.phone #drail, html.phone #detail .head .facts";
     e.preventDefault(); el.scrollLeft += e.deltaY;
   }, {passive: false});
 }
-$("#phoneback").onclick = () => { localStorage.removeItem("phone"); phoneDraw(); };
+// Phone layout, on a phone showing the desktop: a tap goes back; a drag moves it out of the way, and it stays where it
+// was put in this browser (the owner, 2026-11-10: "It needs to be draggable, it's in my way and I can't move it").
+{
+  const pb = $("#phoneback"), KEY = "phoneback:at";
+  let drag = null, moved = false;
+  const place = (x, y) => {
+    const w = pb.offsetWidth || 120, h = pb.offsetHeight || 40;
+    x = Math.max(4, Math.min(innerWidth - w - 4, x)); y = Math.max(4, Math.min(innerHeight - h - 4, y));
+    Object.assign(pb.style, {left: x + "px", top: y + "px", bottom: "auto"});
+    return [x, y];
+  };
+  const restore = () => {
+    let at = null;
+    try { at = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+    if (Array.isArray(at) && at.length === 2 && pb.offsetWidth) place(at[0], at[1]);
+  };
+  pb.addEventListener("pointerdown", e => {
+    const r = pb.getBoundingClientRect();
+    drag = {id: e.pointerId, sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top}; moved = false;
+    pb.setPointerCapture(e.pointerId);
+  });
+  pb.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 8) return;
+    moved = true; pb.classList.add("moving");
+    place(e.clientX - drag.dx, e.clientY - drag.dy);
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null; pb.classList.remove("moving");
+    if (moved) { const r = pb.getBoundingClientRect(); try { localStorage.setItem(KEY, JSON.stringify([Math.round(r.left), Math.round(r.top)])); } catch (e) {} }
+  };
+  pb.addEventListener("pointerup", end); pb.addEventListener("pointercancel", end);
+  pb.onclick = e => {
+    if (moved) { moved = false; e.preventDefault(); return; }   // the end of a drag is not a tap
+    localStorage.removeItem("phone"); phoneDraw();
+  };
+  new MutationObserver(restore).observe(document.documentElement, {attributes: true, attributeFilter: ["class"]});
+  addEventListener("resize", restore);
+  restore();
+}
 PHONE_MQ.addEventListener("change", () => { phoneDraw(); draw(); });
 {
   // On the phone the desktop page is hidden and not drawn: its panes measure nothing there, and a pane that redraws
