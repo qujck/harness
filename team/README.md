@@ -8,7 +8,8 @@ status-line row `statusline-publish.sh` publishes; the row's contract is `docs/c
 stop, so a session blocked on a prompt or busy in a long tool call is not taken for idle; a compaction marks the
 session compacting, which the page shows, until the session starts again. An agent that needs the owner but is
 not blocked on a prompt runs `owner-wanted.sh "<one line>"`, and the page pulses it amber with that line until the
-owner next types in its session. `install-claude-code.sh`
+owner next types in its session. The delivery lead keeps the work the team means to start, as Now, Next and
+Later, with `work-queue.py`, and the page's Work queue pane draws it. `install-claude-code.sh`
 wires all three into `~/.claude/settings.json` once per box, asking first. The page's team button starts the team
 through `team-start.sh` and, after a wind-down, waits on `team-paused.sh`: both are placeholders to wire up on the
 workstation that runs the team.
