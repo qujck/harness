@@ -2204,7 +2204,14 @@ def ask_of(pane):
     ("select", with "cursor" the option it is on). None when no prompt's options are on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
-    top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1) if TOP_RULE.match(lines[i])), 0)
+    # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
+    # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10).
+    def splits_options(i):
+        below = next((l for l in lines[i + 1:foot] if l.strip()), "")
+        m = OPTION.match(below)
+        return bool(m) and int(m.group(1)) > 1
+    top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1)
+                                       if TOP_RULE.match(lines[i]) and not splits_options(i)), 0)
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
     if not opts:
         return select_of(lines, top, foot) if foot is not None else None
@@ -9047,6 +9054,17 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # a question whose last option sits below a rule of its own, as Claude Code draws "Chat about this"
+        shot = (" ☐ Migration\n\n│ Who applies it?\n\n❯ 1. You apply it (Recommended)\n     It stays with you.\n  2. Deacon applies it\n"
+                "  3. Type something.\n" + "─" * 60 + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n" + "─" * 60 + "\n")
+        g["run"] = lambda *cmd, **kw: shot if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            ask = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("a rule above \"Chat about this\" splits the options and does not hide the question: all four are read, and its text",
+          (ask and [o["label"] for o in ask["options"]], ask and "Who applies it?" in ask["text"]),
+          (["You apply it (Recommended)", "Deacon applies it", "Type something.", "Chat about this"], True))
         # an unnumbered prompt under a numbered list from the conversation: only the prompt's own options are read
         shot = ("  1. Apple\n  2. Pear\n\n" + "─" * 60 + "\n Accessing workspace:\n\n /tmp/probe\n\n"
                 " ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n")
