@@ -3274,6 +3274,12 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .bench .rrow > *{position:relative}
 .bench .rrow.stack > [data-name]{box-shadow:0 0 0 1px var(--bg)}   /* a fine rim in the page's background colour parts each card of the stack */
 .bench em.more{cursor:pointer}
+.bench.favs{flex:none}   /* only as wide as its favourites, leaving the bench the room */
+.favs > span:first-child{display:inline-flex;color:var(--amber)}
+.favs > span:first-child svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
+.favs .rrow [data-fav]{cursor:pointer}
+.favs .rrow em.off{opacity:.55}
+.favs .none{color:var(--faint)}
 /* every row open, over the page rather than pushing it down, from where the folded rows sat */
 .bench{position:relative}
 .bench .rrow.all{position:absolute;z-index:30;flex-wrap:wrap;padding:6px;margin:-7px 0 0 -7px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 10px 28px #0008}
@@ -4188,6 +4194,70 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .ph-nav button{border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--mute);cursor:pointer;position:relative}
 #phone .ph-nav button.on{color:var(--text);font-weight:600}
 #phone .ph-nav svg{width:22px;height:22px}
+#phone .ph-dash{padding:12px}
+#phone .ph-dash .dhead{display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px}
+#phone .ph-dash .dbtn,#phone .ph-dash .dedit button,#phone .ph-dash .dadd button{height:32px;padding:0 12px;border:1px solid var(--line2);border-radius:16px;background:none;color:var(--text);font:inherit;cursor:pointer}
+#phone .ph-dash .dgrip{display:inline-grid;place-items:center;width:26px;height:26px;margin:-6px 4px -6px -8px;vertical-align:middle;color:var(--mute);cursor:grab;touch-action:none}
+#phone .ph-dash .dtile.moving{border-color:var(--text);box-shadow:0 6px 18px #0006;position:relative;z-index:1}
+#phone .ph-dash .dtile.moving .dgrip{cursor:grabbing}
+#phone.dashedit .ph-top,#phone.dashedit .ph-nav{display:none}
+#phone .ph-dash .dtune.dclose{position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:5;width:40px;height:40px}
+#phone .ph-dash .dtally{display:flex;align-items:center;gap:6px}
+#phone .ph-dash .dtally i{width:9px;height:9px;border-radius:50%;background:var(--faint)}
+#phone .ph-dash .dtally b + i{margin-left:6px}
+#phone .ph-dash .dtally span{margin-left:8px;font-size:.8em}
+#phone .ph-dash .dfaces{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#phone .ph-dash .dface{display:flex;flex-direction:column;align-items:center;gap:3px;width:52px;padding:0;border:0;background:none;color:var(--text);cursor:pointer}
+#phone .ph-dash .dface .ph-por{width:44px;height:44px}
+#phone .ph-dash .dface small{max-width:100%;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-dash .dtune{display:grid;place-items:center;width:38px;padding:0;border:0}
+#phone .ph-dash .dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#phone .ph-dash .dtile{min-width:0;padding:10px 12px;border:1px solid var(--line2);border-radius:12px;background:var(--card1)}
+#phone .ph-dash .dtile.wide{grid-column:span 2}
+#phone .ph-dash .dlab{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-dash .dval{margin-top:4px;font-size:1.25em;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-dash .dval > * + *{margin-left:6px}
+#phone .ph-dash .dmeter{position:relative;height:6px;margin-top:8px;border-radius:3px;background:var(--track);overflow:hidden}
+#phone .ph-dash .dmeter i{position:absolute;inset:0 auto 0 0;border-radius:3px}
+#phone .ph-dash .dmeter u{position:absolute;top:0;bottom:0;width:2px;background:var(--text)}
+#phone .ph-dash .dspark{margin-top:6px;height:26px;color:var(--ownerbg)}
+#phone .ph-dash .dspark svg{width:100%;height:26px}
+#phone .ph-dash .dedit{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#phone .ph-dash .dedit button{height:30px;padding:0 10px}
+#phone .ph-dash .dedit .dx{display:grid;place-items:center;width:30px;padding:0;margin-left:auto}
+#phone .ph-dash .dedit .dx svg{width:14px;height:14px}
+#phone .ph-dash .dedit button:disabled{opacity:.35;cursor:default}
+#phone .ph-dash .dadd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
+#phone .ph-dash .dadd span{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;margin-right:2px}
+#phsheet .tbhead{display:flex;align-items:center;gap:6px}
+#phsheet .tbhead h2{margin:0}
+#phsheet .tbback{display:grid;place-items:center;width:34px;height:34px;margin-left:-8px;border:0;background:none;color:var(--text);cursor:pointer}
+#phsheet .tbback svg{transform:scaleX(-1)}
+#phsheet .tblist{display:flex;flex-direction:column;gap:8px}
+#phsheet .tbrow{display:flex;align-items:center;gap:10px;height:48px;padding:0 6px 0 4px;border:1px solid var(--line2);border-radius:12px;background:var(--box)}
+#phsheet .tbrow.moving{border-color:var(--text);box-shadow:0 6px 18px #0006;position:relative;z-index:1}
+#phsheet .tbrow > svg{width:20px;height:20px;flex:none}
+#phsheet .tbrow .tbname{flex:1;font-weight:600}
+#phsheet .tbrow .tbnum{width:12px;color:var(--mute);font-size:.85em;text-align:center;font-variant-numeric:tabular-nums}
+#phsheet .tbsheet h3{margin:4px 2px -8px;color:var(--mute);font-size:11px;font-weight:650;letter-spacing:.08em}
+#phsheet .tbprev{display:grid;padding:8px 4px;border:1px solid var(--line2);border-radius:14px;background:var(--card1)}
+#phsheet .tbprev span{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--mute);min-width:0}
+#phsheet .tbprev span.on{color:var(--text)}
+#phsheet .tbprev svg{width:20px;height:20px}
+#phsheet .tbprev small{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#phsheet .tbgrip{display:grid;place-items:center;width:36px;height:44px;color:var(--mute);cursor:grab;touch-action:none}
+#phsheet .tbrow.moving .tbgrip{cursor:grabbing}
+#phsheet .tbrow button{display:grid;place-items:center;width:36px;height:34px;padding:0;border:0;background:none;color:var(--mute);cursor:pointer}
+#phsheet .tbrow button:disabled{opacity:.3;cursor:default}
+#phsheet .tbrow button svg{width:14px;height:14px}
+#phsheet .tbopts{display:flex;flex-wrap:wrap;gap:8px}
+#phsheet .tbopts button{display:flex;align-items:center;gap:6px;height:36px;padding:0 14px 0 10px;border:1px dashed var(--faint);border-radius:18px;background:none;color:var(--mute);font:inherit;cursor:pointer}
+#phsheet .tbopts button:disabled{opacity:.4;cursor:default}
+#phsheet .tbopts svg{width:16px;height:16px}
+@keyframes phslidein{from{transform:translateX(100%);opacity:.4}to{transform:none;opacity:1}}
+@keyframes phslideback{from{transform:translateX(-30%);opacity:.4}to{transform:none;opacity:1}}
+#phsheet .sh.slidein{animation:phslidein .24s cubic-bezier(.2,.8,.2,1)}
+#phsheet .sh.slideback{animation:phslideback .24s cubic-bezier(.2,.8,.2,1)}
 #phone .ph-nav .unseen{position:absolute;top:6px;left:calc(50% + 6px)}
 /* the team menu, a sheet from the bottom */
 #phsheet{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;justify-content:flex-end;background:#0007}
@@ -4279,6 +4349,7 @@ html.phoneoff #phoneback{display:block}
   <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="none" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="none" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="favs"><div class="bench favs" id="favs"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="view"><span id="pagemode"></span><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -4994,6 +5065,18 @@ function draw() {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
+  // The favourites (owner, 2026-11-10: "a bit like the bench, a favourites bar", "just the local favourites"): the agents
+  // starred from their menu in this browser, by name A to Z, drawn as the bench is; a click opens a running one.
+  const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
+  const favHtml = `<span title="Favourites: star an agent from its menu">${MENU_ICON.star}</span><span class="rrow">${favs.map(a => {
+    const tip = `data-name="${esc(a.name)}" data-fav="${esc(a.name)}"`;
+    return style === "icon" ? face(a, tip) : `<em class="${a.live ? "" : "off"}" style="--c:${a.colour}" ${tip}>${esc(shown(a.name))}</em>`; }).join("") || `<span class="none">none yet</span>`}</span>`;
+  if ($("#favs").dataset.html !== favHtml) { $("#favs").innerHTML = favHtml; $("#favs").dataset.html = favHtml; }
+  document.querySelectorAll("#favs .rrow [data-name]").forEach(m => {
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+    m.onclick = () => { if (S.agents.some(a => a.name === m.dataset.fav && a.live)) openDetail(m.dataset.fav); };
+  });
   if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "icon" ? "icon" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
@@ -5209,7 +5292,7 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
-const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench",
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench", favs: "Favourites",
   controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
@@ -5270,6 +5353,8 @@ Object.assign(ADD_ICON, {week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON
 const addIcon = k => ADD_ICON[k] || BAR_ICON[plugs().find(x => x.key === k)?.icon] || MENU_ICON.chart;
 const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
 const plugColour = c => PLUG_COLOUR[c] || c || "";
+// A plug-in's meter fill, the same in the bar, the phone's header gauge and its Dashboard: the colour the plug-in gives, else green
+const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)";
 function drawPlugs() {
   const keys = plugs().map(x => x.key);
   document.querySelectorAll(".bi.plug").forEach(e => keys.includes(e.dataset.item) || e.remove());
@@ -5294,7 +5379,7 @@ function drawPlugs() {
     const mt = e.querySelector(".meter");
     mt.style.display = m ? "" : "none";
     if (m) {
-      mt.querySelector("i").style.cssText = `width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"}`;
+      mt.querySelector("i").style.cssText = `width:${m.pct}%;background:${meterFill(m)}`;
       mt.querySelector("u").style.cssText = m.mark == null ? "display:none" : `left:calc(${m.mark}% - 1px)`;
     }
     const sp = e.querySelector(".pspark"), was = sp.dataset.s, now = x.spark ? x.spark.join() : "";
@@ -5518,7 +5603,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest(".wqtabs b[data-tab]");
   if (!b || b.dataset.tab === wqTab()) return;
   localStorage.setItem("workqueue:tab", b.dataset.tab);
-  draw();
+  phoneOn() ? phoneDraw() : draw();
 });
 // Done split by stand-up, newest first: what is done since the last stand-up, then what each of the two stand-ups
 // before it covered (the owner, 2026-11-10: "it needs to be split by stand up, not calendar day"). The stand-up times
@@ -7533,7 +7618,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
       (chatIn ? `<div class="mi" data-go="chat">${MENU_ICON.said}Chat</div>` : "") + `<div class="sep"></div>${compact}${power}`) +
-    (phoneOn() ? `<div class="sep"></div><div class="mi" data-go="fav">${MENU_ICON.star}${phFav(name) ? "Remove from favourites" : "Add to favourites"}</div>` : ""), beside, stay);
+    `<div class="sep"></div><div class="mi" data-go="fav">${MENU_ICON.star}${phFav(name) ? "Remove from favourites" : "Add to favourites"}</div>`, beside, stay);
   if (rested && !stay) menu.dataset.rested = "1";
   menu.refresh = () => agentMenu(anchor, name, beside, false, confirm, true);
   menu.querySelectorAll(".mi[data-go]").forEach(mi => mi.onclick = () => {
@@ -7682,7 +7767,68 @@ addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventD
 // window keeps the desktop page; "Desktop layout" in the team menu keeps it on a phone too, in this browser.
 const PHONE_MQ = matchMedia("(max-width:700px)");
 const phoneOn = () => PHONE_MQ.matches && !ONLY && localStorage.getItem("phone") !== "off";
-const phoneTab = () => ["list", "faces", "mix", "day"].includes(localStorage.getItem("phonetab")) ? localStorage.getItem("phonetab") : "list";
+// The toolbar: up to PH_MAX of the panels, chosen and put in order in the team menu and kept in this browser; until
+// chosen, the first four (owner, 2026-11-10: "let me choose up to 5 for my toolbar", then "can the toolbar items be
+// reorderable"). The tab showing is one of them.
+const PH_MAX = 5;
+function phToolbar() {
+  let mine; try { mine = JSON.parse(localStorage.getItem("phonetabs")); } catch (e) {}
+  const keys = PH_TABS.map(([k]) => k), on = Array.isArray(mine) ? [...new Set(mine)].filter(k => keys.includes(k)).slice(0, PH_MAX) : [];
+  return on.length ? on : keys.slice(0, 4);
+}
+const phTabName = k => PH_TABS.find(([x]) => x === k)[1];
+// The team menu's Toolbar slides in a second panel of the toolbar alone: its panels left to right, each dragged by its
+// grip to reorder or taken out, then the others to add while there is room (owner, 2026-11-10: "the toolbar should
+// have a > which slides in a second panel with just the toolbar options - they should be draggable to reorder").
+let phMenuAt = "team";
+const PH_GRIP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="4" r="1.2"/><circle cx="10.5" cy="4" r="1.2"/><circle cx="5.5" cy="8" r="1.2"/><circle cx="10.5" cy="8" r="1.2"/><circle cx="5.5" cy="12" r="1.2"/><circle cx="10.5" cy="12" r="1.2"/></svg>`;
+const phToolbarSave = next => { if (next.length && next.length <= PH_MAX) { localStorage.setItem("phonetabs", JSON.stringify(next)); phoneDraw(); } };
+function phToolbarMenu(slide) {
+  const sh = $("#phsheet"), bar = phToolbar(), spare = PH_TABS.filter(([k]) => !bar.includes(k));
+  sh.innerHTML = `<div class="sh tbsheet" role="dialog" aria-label="Toolbar"><span class="grab"></span>` +
+    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the team menu">${PH_ICON.chev}</button><h2>TOOLBAR</h2></div>` +
+    `<h3>PREVIEW</h3><div class="tbprev" style="grid-template-columns:repeat(${bar.length},minmax(0,1fr))">${bar.map((k, i) => `<span class="${i ? "" : "on"}">${PH_ICON[k]}<small>${phTabName(k)}</small></span>`).join("")}</div>` +
+    `<h3>SLOTS · DRAG TO REORDER</h3>` +
+    `<div class="tblist">${bar.map((k, i) => `<div class="tbrow" data-k="${k}"><span class="tbgrip" aria-label="Drag ${phTabName(k)} to reorder">${PH_GRIP}</span><span class="tbnum">${i + 1}</span>${PH_ICON[k]}<span class="tbname">${phTabName(k)}</span>` +
+      `<button data-go="out:${k}"${bar.length > 1 ? "" : " disabled"} aria-label="Take ${phTabName(k)} out">${MENU_ICON.close}</button></div>`).join("")}</div>` +
+    (spare.length ? `<h3>${bar.length >= PH_MAX ? `NOT IN THE TOOLBAR · TAKE ONE OUT TO ADD` : "ADD"}</h3><div class="tbopts">${spare.map(([k, l]) => `<button data-go="add:${k}"${bar.length >= PH_MAX ? " disabled" : ""}>${PH_ICON[k]}+ ${l}</button>`).join("")}</div>` : "") +
+    `<div class="note">Up to ${PH_MAX}, left to right. Changes save as you go.</div></div>`;
+  const panel = sh.querySelector(".sh"), list = panel.querySelector(".tblist");
+  if (!sh.classList.contains("on")) sh.classList.add("on");
+  if (slide) panel.classList.add(slide);
+  phSheetDrag(panel);
+  panel.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const [go, k] = b.dataset.go.split(":");
+    if (go === "back") { phMenuAt = "team"; phoneMenu(false, "slideback"); return; }
+    phToolbarSave(go === "out" ? bar.filter(x => x !== k) : [...bar, k]);
+    phToolbarMenu();
+  });
+  // a row follows the finger or mouse on its grip: a row it passes the middle of moves to its other side. The row held
+  // is never moved itself, as a browser lets go of a pointer whose element leaves the page, even for a moment.
+  list.querySelectorAll(".tbgrip").forEach(g => {
+    g.addEventListener("touchstart", e => e.stopPropagation(), {passive: true});
+    g.onpointerdown = e => {
+      e.preventDefault(); e.stopPropagation();
+      const row = g.closest(".tbrow"); g.setPointerCapture(e.pointerId); row.classList.add("moving");
+      g.onpointermove = ev => {
+        const rows = [...list.children], at = rows.indexOf(row);
+        rows.forEach((r, i) => {
+          if (r === row) return;
+          const b = r.getBoundingClientRect(), mid = b.top + b.height / 2;
+          if (i > at && ev.clientY > mid) list.insertBefore(r, row);
+          else if (i < at && ev.clientY < mid) list.insertBefore(r, row.nextSibling);
+        });
+        [...list.children].forEach((r, i) => { r.querySelector(".tbnum").textContent = i + 1; });
+      };
+      g.onpointerup = g.onpointercancel = g.onlostpointercapture = () => {
+        g.onpointermove = g.onpointerup = g.onpointercancel = g.onlostpointercapture = null; row.classList.remove("moving");
+        const next = [...list.children].map(r => r.dataset.k);
+        if (next.join() !== bar.join()) { phToolbarSave(next); phToolbarMenu(); }
+      };
+    };
+  });
+}
+const phoneTab = () => { const on = phToolbar(), t = localStorage.getItem("phonetab"); return on.includes(t) ? t : on[0]; };
 const PH_ICON = {
   more: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`,
   list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>`,
@@ -7691,8 +7837,98 @@ const PH_ICON = {
   mix: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="19" cy="12" r="2"/></svg>`,
   day: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>`,
   chev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
+  queue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11"/><circle cx="5" cy="18" r="1.2"/></svg>`,
+  perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>`,
+  dash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="14" y="13" width="7" height="8" rx="2"/></svg>`
 };
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"]];   // no Team chat on the phone (owner, 2026-11-08: "lose the team chat")
+// The Dashboard, the phone's own panel: any of the bar's readings (its plug-ins: Week, Session, Team, Disk and the
+// rest) as live tiles on two columns, each half or full width, in the order chosen (owner, 2026-11-10: "a panel I can
+// add header and footer items to in any arrangement ... a mobile only panel"). Kept in this browser as phonedash,
+// [{k: key, w: 1 or 2}]; until arranged, the header's readings in its order, each half width. Edit moves, widens,
+// takes out and adds tiles.
+let phDashEdit = false;
+// Done, while arranging: a cross
+const PH_CROSS = `<svg viewBox="0 0 16 16" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>`;
+// the filter icon's sliders, upright: three lines, each with its knob (owner, 2026-11-10: "the 3 lines filter icon - but vertical")
+const PH_TUNE = `<svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3.5 1.5v3M3.5 8.5v6M8 1.5v8M8 13.5v1M12.5 1.5v1M12.5 6.5v8"/><circle cx="3.5" cy="6.5" r="2"/><circle cx="8" cy="11.5" r="2"/><circle cx="12.5" cy="4.5" r="2"/></svg>`;
+// The bar's own items that show the team, offered beside the readings: the Agents count, the Bench and the Favourites
+// (owner, 2026-11-10: "Bench is a header and footer item and I asked for a favourites too"). The bar's buttons
+// (Start and stop, Lanes, Views, Lock, Theme, Settings, Help) are the phone's ⋯ menu's.
+const PH_DASH_OWN = ["tally", "bench", "favs"];
+const phDashItems = () => [...PH_DASH_OWN.map(k => ({key: k, own: true, name: BAR_ITEMS[k]})), ...plugs().filter(x => !x.hidden)];
+// an own item's tile body: the count as the header's tally reads it; the bench and the favourites as portraits, a tap
+// opening a running one and a hold its menu
+function phDashOwn(k) {
+  if (k === "tally") {
+    const n = st => S.agents.filter(a => a.live && stOf(a) === st).length, waiting = S.agents.filter(a => a.status === "waiting").length;
+    return `<div class="dval dtally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}"><i style="background:var(--green)"></i><b>${n("busy")}</b><i></i><b style="color:var(--mute)">${n("idle")}</b>${waiting ? `<span style="color:var(--amber)">${waiting} waiting</span>` : ""}</div>`;
+  }
+  const who = k === "bench" ? S.bench : phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
+  return who.length ? `<div class="dfaces">${who.map(a => `<button class="dface" ${a.live ? `data-open="${esc(a.name)}" ` : ""}data-menu-name="${esc(a.name)}">${phPor(a.live ? a : {...a, live: undefined}, a.live ? "" : " bench")}<small>${esc(shown(a.name))}</small></button>`).join("")}</div>`
+    : `<div class="dval" style="color:var(--mute);font-weight:400;font-size:1em">${k === "bench" ? "No one on the bench" : "No favourites yet: star an agent from its menu"}</div>`;
+}
+function phDash() {
+  let mine; try { mine = JSON.parse(localStorage.getItem("phonedash")); } catch (e) {}
+  const have = phDashItems().map(x => x.key);
+  if (Array.isArray(mine)) return mine.filter(t => t && have.includes(t.k)).map(t => ({k: t.k, w: t.w === 2 ? 2 : 1}));
+  return barOf().head.filter(k => have.includes(k)).map(k => ({k, w: 1}));
+}
+const phDashSave = d => localStorage.setItem("phonedash", JSON.stringify(d));
+function phDashHtml() {
+  const d = phDash(), by = Object.fromEntries(phDashItems().map(x => [x.key, x]));
+  const tile = (t, i) => {
+    const x = by[t.k], m = !x.own && x.meter, parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
+    const val = parts.map(p => `<${p.bold ? "b" : "span"} style="color:${plugColour(p.colour || (x.parts ? "" : x.colour))}">${esc(p.text)}</${p.bold ? "b" : "span"}>`).join("");
+    return `<div class="dtile${t.w === 2 ? " wide" : ""}" data-k="${esc(t.k)}" title="${esc(x.title || "")}"><div class="dlab">${phDashEdit ? `<span class="dgrip" aria-label="Drag ${esc(phGaugeName(x))} to move it">${PH_GRIP}</span>` : ""}${esc(phGaugeName(x))}</div>${x.own ? phDashOwn(t.k) : `<div class="dval">${val || "–"}</div>`}` +
+      (m ? `<div class="dmeter"><i style="width:${m.pct}%;background:${meterFill(m)}"></i>${m.mark == null ? "" : `<u style="left:calc(${m.mark}% - 1px)"></u>`}</div>` : "") +
+      (!x.own && x.spark?.length ? `<div class="dspark">${spark(x.spark, Math.max(1, ...x.spark), "currentColor")}</div>` : "") +
+      (phDashEdit ? `<div class="dedit">` +
+        `<button data-dash="wide:${i}">${t.w === 2 ? "Half" : "Wide"}</button><button class="dx" data-dash="out:${i}" aria-label="Take out" title="Take out">${MENU_ICON.close}</button></div>` : "") + `</div>`;
+  };
+  const spare = phDashItems().filter(x => !d.some(t => t.k === x.key));
+  return `<div class="ph-dash"><div class="dhead"><b>Dashboard</b>${phDashEdit ? `<button class="dbtn dtune dclose" data-dash="edit" aria-label="Done arranging" title="Done">${PH_CROSS}</button>`
+    : `<button class="dbtn dtune" data-dash="edit" aria-label="Arrange the dashboard" title="Arrange the dashboard">${PH_TUNE}</button>`}</div>` +
+    (d.length ? `<div class="dgrid">${d.map(tile).join("")}</div>` : `<div class="blank">Nothing on the dashboard. Tap Edit to add readings.</div>`) +
+    (phDashEdit && spare.length ? `<div class="dadd"><span>Add</span>${spare.map(x => `<button data-dash="add:${esc(x.key)}">+ ${esc(phGaugeName(x))}</button>`).join("")}</div>` : "") + `</div>`;
+}
+// In Edit, a tile follows the finger or mouse on its grip, taking the place of the tile it is over; the tiles between
+// shift along. The tile held is never moved itself (a browser lets go of a pointer whose element leaves the page), and
+// the dashboard is not redrawn under the finger until it lifts.
+let phDashDrag = false;
+function phDashWire(body) {
+  const grid = body.querySelector(".dgrid");
+  grid?.querySelectorAll(".dgrip").forEach(g => {
+    if (g.onpointerdown) return;
+    g.addEventListener("touchstart", e => e.stopPropagation(), {passive: true});
+    g.onpointerdown = e => {
+      e.preventDefault(); e.stopPropagation();
+      const tile = g.closest(".dtile"); g.setPointerCapture(e.pointerId); tile.classList.add("moving"); phDashDrag = true;
+      g.onpointermove = ev => {
+        const tiles = [...grid.children], at = tiles.indexOf(tile);
+        const j = tiles.findIndex(t => { const b = t.getBoundingClientRect(); return t !== tile && ev.clientX > b.left && ev.clientX < b.right && ev.clientY > b.top && ev.clientY < b.bottom; });
+        if (j < 0) return;
+        if (j > at) for (let k = at + 1; k <= j; k++) grid.insertBefore(tiles[k], tile);
+        else for (let k = at - 1; k >= j; k--) grid.insertBefore(tiles[k], tile.nextSibling);
+      };
+      g.onpointerup = g.onpointercancel = g.onlostpointercapture = () => {
+        g.onpointermove = g.onpointerup = g.onpointercancel = g.onlostpointercapture = null; tile.classList.remove("moving"); phDashDrag = false;
+        const w = Object.fromEntries(phDash().map(t => [t.k, t.w]));
+        phDashSave([...grid.children].map(t => ({k: t.dataset.k, w: w[t.dataset.k] || 1})));
+        phoneDraw();
+      };
+    };
+  });
+}
+function phDashAct(go) {
+  const [what, arg] = go.split(/:(.*)/s), d = phDash(), i = +arg;
+  if (what === "edit") phDashEdit = !phDashEdit;
+  else if (what === "wide") d[i].w = d[i].w === 2 ? 1 : 2;
+  else if (what === "out") d.splice(i, 1);
+  else if (what === "add") d.push({k: arg, w: 1});
+  if (what !== "edit") phDashSave(d);
+  phoneDraw();
+}
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["dash", "Dashboard"]];   // no Team chat on the phone (owner, 2026-11-08: "lose the team chat")
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
 // a line of what an agent said last, as plain text
@@ -7713,13 +7949,14 @@ function phTeamState() {
 // How the Agents and Portraits tabs order the team: by status (waiting, working, idle, stopped) or by role.
 const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" : "role";   // by role unless Status is chosen (owner, 2026-11-09: "portraits should be grouped by role")
 // Favourites (owner, 2026-11-09: "favourites ... listed at the top"): agents starred from their menu, kept in this browser
-// and listed by name, shown first on the Agents and Portraits tabs in either order and not again below.
+// and listed by name, shown first on the Agents and Portraits tabs in either order and not again below, and in the
+// bar's Favourites item.
 const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v.filter(n => typeof n === "string").sort((x, y) => x.localeCompare(y, undefined, {sensitivity: "base"})) : []; } catch (e) { return []; } };
 const phFav = name => phFavs().includes(name);
 function phFavToggle(name) {
   const f = phFavs(), next = f.includes(name) ? f.filter(x => x !== name) : [...f, name];
   try { localStorage.setItem("phonefavs", JSON.stringify(next)); } catch (e) {}
-  phoneDraw();
+  phoneOn() ? phoneDraw() : draw();
   if (open) phRail();   // the agent view's strip, favourites first, too
 }
 // [role, its agents] in the page's role order; within a role by name, running and stopped together
@@ -7820,6 +8057,7 @@ function phMixMenu(btn) {
   new MutationObserver(() => back.classList.toggle("on", phoneOn() && menu.classList.contains("on"))).observe(menu, {attributes: true, attributeFilter: ["class"]});
   phSheetDrag(menu, () => menuOff(true), back, () => phoneOn());
 }
+let phQueueAt = 0, phPerfAt = 0;
 async function phLoad(tab) {
   // the Team chat and the Day log are read only while their tab is showing, as their panes are
   try {
@@ -7832,6 +8070,9 @@ async function phLoad(tab) {
       phoneDraw();
     }
     if (tab === "day" && Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
+    // the Work queue and Performance are read while their tab shows, as often as their panes are
+    if (tab === "queue" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now(); workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); phoneDraw(); }
+    if (tab === "perf" && Date.now() - phPerfAt > 1500) { phPerfAt = Date.now(); perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); phoneDraw(); }
   } catch (e) {}
 }
 function phoneDraw() {
@@ -7844,13 +8085,15 @@ function phoneDraw() {
   const tab = phoneTab();
   if (!ph.firstChild) {
     ph.innerHTML = `<div class="ph-top"><div class="brand ph-logo"></div><div class="ph-title"></div><button class="ph-week"></button><button class="ph-icon" id="phmore" aria-label="Team menu">${PH_ICON.more}</button></div><div class="ph-body"></div>` +
-      `<nav class="ph-nav" aria-label="Pages">${PH_TABS.map(([k, label]) => `<button data-tab="${k}">${PH_ICON[k]}<span>${label}</span></button>`).join("")}</nav>`;
+      `<nav class="ph-nav" aria-label="Pages"></nav>`;
     ph.querySelector(".ph-logo").innerHTML = document.querySelector(".brand:not(.ph-logo)")?.innerHTML || "";   // the logo, wherever the bar has put it (header, footer or taken out)
     ph.querySelector(".ph-nav").onclick = e => { const b = e.target.closest("[data-tab]"); if (!b) return; localStorage.setItem("phonetab", b.dataset.tab); ph.querySelector(".ph-body").scrollTop = 0; try { phoneDraw(); } catch (e) { phError(e); } };
     $("#phmore").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     const body = ph.querySelector(".ph-body");
     body.addEventListener("click", e => {
+      const dash = e.target.closest("[data-dash]");
+      if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
       const who = body.dataset.tab === "mix" && e.target.closest(".who, .cnames .name");
       if (who) { const n = who.dataset.name || who.closest("[data-agent]")?.dataset.agent; if (n && S.agents.some(a => a.name === n && a.live)) return openDetail(n); }
       const o = e.target.closest("[data-open]"), m = e.target.closest("[data-menu-name]");
@@ -7874,12 +8117,17 @@ function phoneDraw() {
   const g = phGauge(), gb = ph.querySelector(".ph-week");
   if (g) {
     const m = g.meter, val = (g.parts || [{text: g.value, colour: g.colour}]).filter(x => x.text !== "").map(x => `<b style="color:${plugColour(x.colour || (g.parts ? "" : g.colour))}">${esc(x.text)}</b>`).join("");
-    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
+    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${meterFill(m)}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
     gb.setAttribute("aria-label", `${phGaugeName(g)}: ${g.value}${g.title ? ". " + g.title : ""}`); gb.title = g.title || "";
   } else {
     const wk = S.week;
     patch(gb, wk == null ? "–" : `<span class="gl">Week</span><i><u style="width:${Math.min(100, wk)}%;background:${gauge(wk)}"></u></i><span class="gv">${Math.round(wk)}%</span>`);
     gb.setAttribute("aria-label", wk == null ? "Week not read yet" : `Week used: ${Math.round(wk)}%`);
+  }
+  const nav = ph.querySelector(".ph-nav"), bar = phToolbar();
+  if (nav.dataset.tabs !== bar.join()) {
+    nav.dataset.tabs = bar.join(); nav.style.gridTemplateColumns = `repeat(${bar.length},minmax(0,1fr))`;
+    nav.innerHTML = bar.map(k => `<button data-tab="${k}">${PH_ICON[k]}<span>${PH_TABS.find(([x]) => x === k)[1]}</span></button>`).join("");
   }
   ph.querySelectorAll(".ph-nav [data-tab]").forEach(b => { b.classList.toggle("on", b.dataset.tab === tab); b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"); });
   const body = ph.querySelector(".ph-body");
@@ -7899,8 +8147,19 @@ function phoneDraw() {
     }
     phLoad(tab);
   }
+  else if (tab === "queue") {
+    patch(body, `<div class="ph-pane">${workQueueHtml(false)}</div>`);
+    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
+    phLoad(tab);
+  }
+  else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "perf"})}</div>`); phLoad(tab); }
+  else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } }
   else { patch(body, `<div class="ph-pane">${dayLogHtml()}</div>`); phLoad(tab); }
   if (tab === "list" || tab === "faces") markSeen([]);
+  // while the Dashboard is being arranged the rest of the phone is locked: the header and toolbar dimmed and deaf to taps
+  // until the tick (owner, 2026-11-10: "some way to lock the rest of the screen while editing the dashboard")
+  if (tab !== "dash") phDashEdit = false;
+  ph.classList.toggle("dashedit", phDashEdit);
 }
 let phHeld = 0;
 // A press held on an agent anywhere on the phone, by a finger or a mouse button (a row, a portrait, the agent view's strip of portraits, a name in
@@ -7939,9 +8198,10 @@ function phGauge() {
 }
 // The team menu: the team's state and its start and stop, the nudger, the theme, text size, and the desktop layout.
 let phStopAsk = null;
-function phoneMenu(again) {
+function phoneMenu(again, slide) {
   let sh = $("#phsheet");
   if (!sh) { sh = document.createElement("div"); sh.id = "phsheet"; document.body.append(sh); sh.onclick = e => { if (e.target === sh) phoneMenuOff(); }; }
+  if (phMenuAt === "toolbar") return phToolbarMenu(slide);
   const t = phTeamState(), lead = S.agents.find(a => a.name === S.lead);   // the first running of delivery lead, head of testing, head of operations, assistant
   const starting = S.starting.includes("team"), stopping = S.halting.includes("team"), down = t.word === "Stopped";
   const nudgeOn = nudgerTo != null ? !nudgerTo : !S.nudgerPaused;
@@ -7961,10 +8221,12 @@ function phoneMenu(again) {
       `<div class="r" style="cursor:default"><span>Order agents</span><div class="seg2" style="flex:none"><button data-go="by-state" class="${phOrder() === "state" ? "on" : ""}">Status</button><button data-go="by-role" class="${phOrder() === "role" ? "on" : ""}">Role</button></div></div>` +
       `<div class="r" style="cursor:default"><span>Theme</span><div class="seg2" style="flex:none"><button data-go="light" class="${light ? "on" : ""}">Light</button><button data-go="dark" class="${light ? "" : "on"}">Dark</button></div></div>` +
       `<button class="r" data-go="fs"><span>Text size</span><em>${fs}%</em></button>` +
+      `<button class="r" data-go="toolbar"><span>Toolbar<small>${esc(phToolbar().map(phTabName).join(", "))}</small></span>${PH_ICON.chev}</button>` +
       `<button class="r" data-go="desk"><span>Desktop layout<small>The full page, as on a computer, in this browser</small></span>${PH_ICON.chev}</button>` +
     `</div></div>`;
   const panel = sh.querySelector(".sh");
   if (!sh.classList.contains("on")) { sh.classList.add("on"); panel.style.transform = "translateY(100%)"; requestAnimationFrame(() => requestAnimationFrame(() => { panel.style.transform = ""; })); }
+  if (slide) panel.classList.add(slide);
   phSheetDrag(panel);
   sh.querySelector(".gsel")?.addEventListener("change", e => { localStorage.setItem("phonegauge", e.target.value); phoneDraw(); });
   sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
@@ -7979,11 +8241,12 @@ function phoneMenu(again) {
     else if (go === "light" || go === "dark") { retheme(go); phoneMenu(); }
     else if (go === "by-state" || go === "by-role") { localStorage.setItem("phoneorder", go.slice(3)); phoneDraw(); phoneMenu(); }
     else if (go === "fs") { const steps = [90, 100, 115, 130], next = steps[(steps.indexOf(fs) + 1) % steps.length] || 100; const s = settings(); s.fs = next; localStorage.setItem("settings", JSON.stringify(s)); applySettings(); phoneMenu(); }
+    else if (go === "toolbar") { phMenuAt = "toolbar"; phoneMenu(false, "slidein"); }
     else if (go === "desk") { localStorage.setItem("phone", "off"); phoneMenuOff(); phoneDraw(); draw(); }
   });
 }
 function phoneMenuOff() {
-  clearTimeout(phStopAsk); phStopAsk = null;
+  clearTimeout(phStopAsk); phStopAsk = null; phMenuAt = "team";
   const sh = $("#phsheet"), panel = sh?.querySelector(".sh");
   if (!sh?.classList.contains("on")) return;
   if (!panel) return sh.classList.remove("on");
@@ -8562,10 +8825,10 @@ def self_test():
             t("  no file is an empty queue", json.loads(code("/api/workqueue")[1])["state"], "empty")
         finally:
             g["WORK_QUEUE"], g["STANDUPS"] = keep_wq, keep_su
-        t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, with no phone tab",
+        t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, and a phone panel too",
           ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml(path === maxed)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
-           '["queue"' in PAGE), (True, True, True, False))
+           '["queue", "Work queue"]' in PAGE), (True, True, True, True))
         t("  it can be maximised, and draws titles and notes as Markdown",
           ('"file", "workqueue"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(i.title)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
@@ -8579,7 +8842,18 @@ def self_test():
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
-        t("  its tabs are Agents, Portraits, Combined and the Day log", 'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"]]' in PAGE, True)
+        t("  its panels are Agents, Portraits, Combined, the Day log, the Work queue, Performance and the Dashboard",
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["dash", "Dashboard"]]' in PAGE, True)
+        t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
+          ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
+           "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
+        t("  the Dashboard holds the bar's readings, the Agents count, the Bench and the Favourites, half or wide, dragged by grip in Edit",
+          ('const PH_DASH_OWN = ["tally", "bench", "favs"]' in PAGE, 'localStorage.setItem("phonedash"' in PAGE, 'data-dash="wide:${i}"' in PAGE,
+           'class="dgrip"' in PAGE, "#phone.dashedit .ph-top,#phone.dashedit .ph-nav{display:none}" in PAGE, 'class="dbtn dtune dclose"' in PAGE), (True,) * 6)
+        t("  a meter is the same colour on the bar, the phone's gauge and the Dashboard",
+          ("background:${meterFill(m)}" in PAGE, 'const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"' in PAGE), (True, True))
+        t("the header can show the Favourites, as the Bench, and the desktop agent menu adds and removes one",
+          ('bench: "Bench", favs: "Favourites"' in PAGE, "phFavToggle" in PAGE), (True, True))
         t("  Combined has its own Roles and lanes, behind one ⋯ in its header, kept in this browser",
           ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
         t("  its agents are by role unless Status is chosen, favourites first on Agents and Portraits, each group by name",
