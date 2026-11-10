@@ -26,6 +26,7 @@
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
+  /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, as the delivery lead keeps it
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -567,6 +568,49 @@ def daylog_json():
     rows = [{**r, "by": roster_name.get(letters(r["by"]), r["by"]) if isinstance(r.get("by"), str) else r.get("by"), "text": spelled_screen(r["text"], names)} for r in data["rows"]]
     state = "failed" if _daylog["error"] else "reading" if _daylog["data"] is None else "ok"
     return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
+
+
+# ── the work queue ──────────────────────────────────────────────────────────────────────────────────────────────
+# The Work queue pane: the work the team means to start, Now, Next and Later, as the delivery lead keeps it with
+# team/work-queue.py (see that command for the file's shape). The page draws the file; nothing here fills it. It is
+# $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it changes.
+WORK_QUEUE = os.environ.get("AGENT_WORK_QUEUE") or os.path.join(STATE_DIR, "work-queue.json")
+WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")   # as team/work-queue.py takes an id
+_workqueue = {"key": None, "data": None}
+
+
+def workqueue_json():
+    path = WORK_QUEUE
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": []}).encode()
+    if key != _workqueue["key"]:
+        try:
+            with open(path, encoding="utf-8") as f:
+                q = json.load(f)
+            if not isinstance(q, dict):
+                raise ValueError
+            text = lambda v, n=200: v.strip()[:n] if isinstance(v, str) else ""
+            names = shown_names()
+            letters = lambda s: re.sub(r"[\W_]", "", s).lower()
+            roster_name = {letters(k): k for k in names}
+            roster_name.update({letters(v): k for k, v in names.items()})
+            lists = {}
+            for name in ("now", "next", "later"):
+                items = q.get(name) if isinstance(q.get(name), list) else []
+                lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")),
+                                "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
+                                "url": u if re.match(r"https?://", u) else ""}
+                               for i in items[:100] if isinstance(i, dict)
+                               for k, u in [(text(i.get("key"), 100), text(i.get("url"), 500))] if WORK_ID.match(k)]
+            data = {"state": "ok", "file": path, **lists, "by": text(q.get("by"), 60),
+                    "at": q.get("at") if isinstance(q.get("at"), (int, float)) and not isinstance(q.get("at"), bool) else 0}
+        except (OSError, ValueError):
+            data = {"state": "bad", "file": path, "now": [], "next": [], "later": []}
+        _workqueue.update(key=key, data=data)
+    return json.dumps(_workqueue["data"]).encode()
 
 
 def refresh_board():
@@ -2724,6 +2768,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, meetings_json(), "application/json")
         elif path == "/api/daylog":
             self.send(200, daylog_json(), "application/json")
+        elif path == "/api/workqueue":
+            self.send(200, workqueue_json(), "application/json")
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -3279,6 +3325,17 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .daylog .day.verification{box-shadow:inset 3px 0 var(--amber)}
 .daylog a{color:var(--cyan);text-decoration:none;flex:none}
 .daylog a:hover{text-decoration:underline}
+/* one line an item: its note after its title, and the two cut short together; hovering shows them whole */
+.workq{padding:6px 10px}
+.workq .row{align-items:center;padding:1px 6px;gap:10px}
+.workq .row > a,.workq .key{flex:none;width:var(--wqk,5.5em);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workq .note{margin-left:10px;color:var(--mute)}
+.workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.workq .day:first-child{margin-top:0}
+.workq .day .n{margin-left:6px;font-weight:400}
+.workq .row.none{color:var(--mute)}
+.workq .row > .wh{justify-content:flex-end}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
@@ -5090,7 +5147,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team"};   // in the Show menu in this order
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team", workqueue: "Work queue"};   // in the Show menu in this order
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5420,6 +5477,34 @@ function dayLogHtml() {
       : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
+// The Work queue pane: the work to start, Now, Next and Later, as the delivery lead keeps it with team/work-queue.py
+// (see "the work queue" on the server). Read with every load while a Work queue pane is on the page.
+let workQueue = null;
+async function loadWorkQueue() {
+  if (!leaves(layout().root).some(([, n]) => n.show === "workqueue")) return;
+  try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
+}
+// The id column is as wide as the longest id, measured in the row's font, so every title starts in one column.
+const workQueueKeyW = keys => {
+  const c = dayLogCanvas ||= document.createElement("canvas").getContext("2d");
+  c.font = `${13 * (parseFloat(getComputedStyle(document.body).getPropertyValue("--fs")) || 1)}px ${getComputedStyle(document.body).fontFamily}`;
+  return Math.ceil(Math.max(60, ...keys.map(k => c.measureText(k).width))) + 2;
+};
+function workQueueHtml() {
+  const q = workQueue;
+  if (!q) return `<div class="blank">Loading…</div>`;
+  if (q.state === "bad") return `<div class="blank">The work queue at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/work-queue.py.</div>`;
+  if (!q.now.length && !q.next.length && !q.later.length) return `<div class="blank">Nothing in the work queue. The delivery lead keeps it with team/work-queue.py.</div>`;
+  const when = q.at ? (new Date(q.at * 1000).toDateString() === new Date().toDateString()
+    ? new Date(q.at * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"}) : dayLogAt(q.at)) : "";
+  const head = when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "";
+  const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
+    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${esc(i.title)}${i.note ? `<span class="note">${esc(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}</div>`;
+  const list = (name, items) => `<div class="day">${name}<span class="n">${items.length}</span></div>` +
+    (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`);
+  return `<div class="teamlog"><div class="thead"><span>Work queue</span><span>${esc(head)}</span></div>` +
+    `<div class="daylog workq" style="--whw:${dayLogWhW([...q.now, ...q.next, ...q.later].filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW([...q.now, ...q.next, ...q.later].map(i => i.key))}px">${list("Now", q.now)}${list("Next", q.next)}${list("Later", q.later)}</div></div>`;
+}
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
   if (!leaves(layout().root).some(([, n]) => n.show === "meeting")) return;
@@ -5650,6 +5735,8 @@ function customHtml(ceil, tabRow) {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
       body = dayLogHtml();
+    } else if (n.show === "workqueue") {
+      body = workQueueHtml();
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -5673,7 +5760,7 @@ function customHtml(ceil, tabRow) {
     const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
@@ -5816,7 +5903,7 @@ function combinedHtml(path, n, full, big) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog()]);
+  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -8313,6 +8400,77 @@ def self_test():
         for whole, parts in [("what it did — James", ("what it did", "James")), ("no name here", ("no name here", "")), ("a — b and more", ("a — b and more", "")), ("two — dashes — Ada", ("two — dashes", "Ada"))]:
             t(f"  a title's name: {whole!r}", dl.title_name(whole), parts)
         t("  a title with no ticket name has no kind", [dl.title_kind(x) for x in ("ci: a colon", "fix_only_a_name", "fix_a_name: ", "feat_a_b: c")], ["", "", "", "feat"])
+        # the work queue: team/work-queue.py keeps Now, Next and Later, and /api/workqueue serves them to the Work queue pane
+        from concurrent.futures import ThreadPoolExecutor
+        wqf = T + "/wq/work-queue.json"
+        def wq(*args, who="Lead", env=None):
+            return subprocess.run([os.path.join(ROOT, "team", "work-queue.py"), *args], capture_output=True, text=True, timeout=30,
+                                  env={**os.environ, "AGENT_WORK_QUEUE": wqf, "AGENT_NAME": who, **(env or {})})
+        def wq_keys():
+            with open(wqf) as f:
+                q = json.load(f)
+            return [i["key"] for i in q["now"]], [i["key"] for i in q["next"]], [i["key"] for i in q.get("later", [])]
+        t("work queue: add puts an item at the end of Next, or Now with --now",
+          [wq("add", "feat_one", "One", "--now", "--who", "Lea").returncode, wq("add", "AB-2", "Two").returncode,
+           wq("add", "AB-3", "Three", "--note", "after AB-2", "--url", "https://x/3").returncode, wq_keys()],
+          [0, 0, 0, (["feat_one"], ["AB-2", "AB-3"], [])])
+        with open(wqf) as f:
+            q = json.load(f)
+        t("  with its title, who, note and link, and who changed it last", (q["now"][0], q["next"][1]["url"], q["by"]),
+          ({"key": "feat_one", "title": "One", "who": "Lea", "note": "", "url": ""}, "https://x/3", "Lead"))
+        t("  an item already there is refused", wq("add", "AB-2", "again").returncode, 1)
+        t("  an id with a space or a leading dash is refused", (wq("add", "not an id", "x").returncode, wq("add", "-x", "x").returncode), (1, 1))
+        wq("up", "AB-3")
+        t("  up moves an item one place within its list", wq_keys(), (["feat_one"], ["AB-3", "AB-2"], []))
+        wq("up", "AB-3")
+        t("  and not past the top", wq_keys(), (["feat_one"], ["AB-3", "AB-2"], []))
+        wq("move", "AB-2", "now")
+        t("  move takes it to the end of the other list", wq_keys(), (["feat_one", "AB-2"], ["AB-3"], []))
+        wq("add", "AB-4", "Four", "--later")
+        wq("move", "AB-3", "later")
+        t("  --later and move ... later put it in Later, after what is there", wq_keys(), (["feat_one", "AB-2"], [], ["AB-4", "AB-3"]))
+        wq("move", "AB-4", "next")
+        wq("edit", "feat_one", "--who", "", "--title", "One again")
+        with open(wqf) as f:
+            t("  edit changes its words, and an empty value clears who", json.load(f)["now"][0],
+              {"key": "feat_one", "title": "One again", "who": "", "note": "", "url": ""})
+        os.makedirs(T + "/wqconf/sessions")
+        with open(T + "/wqconf/sessions/9.json", "w") as f:
+            json.dump({"sessionId": "s-1", "name": "Lead2"}, f)
+        wq("edit", "AB-2", "--note", "", who="", env={"CLAUDE_CONFIG_DIR": T + "/wqconf", "CLAUDE_CODE_SESSION_ID": "s-1"})
+        with open(wqf) as f:
+            t("  with no AGENT_NAME, who changed it is the Claude session's name", json.load(f)["by"], "Lead2")
+        t("  drop takes it out", (wq("drop", "AB-3").returncode, wq("drop", "AB-4").returncode, wq_keys()), (0, 0, (["feat_one", "AB-2"], [], [])))
+        t("  an id not in the queue says so", wq("drop", "AB-9").stderr.strip(), "work-queue: AB-9 is not in the queue")
+        with ThreadPoolExecutor(8) as pool:
+            list(pool.map(lambda n: wq("add", f"CD-{n}", f"t{n}"), range(16)))
+        t("  sixteen agents adding at once all land", sorted(wq_keys()[1]), sorted(f"CD-{n}" for n in range(16)))
+        keep_wq = g["WORK_QUEUE"]
+        g["WORK_QUEUE"] = wqf
+        try:
+            wq("edit", "AB-2", "--url", "https://x/2")
+            d = json.loads(code("/api/workqueue")[1])
+            wq("move", "CD-0", "later")
+            d = json.loads(code("/api/workqueue")[1])
+            t("work queue pane: Now, Next and Later in order, an item linked only where it gives an http(s) link",
+              (d["state"], [i["key"] for i in d["now"]], [i["url"] for i in d["now"]], len(d["next"]), [i["key"] for i in d["later"]]),
+              ("ok", ["feat_one", "AB-2"], ["", "https://x/2"], 15, ["CD-0"]))
+            with open(wqf, "w") as f:
+                json.dump({"now": [{"key": "<b>", "title": "x"}, {"key": "AB-5", "title": "t" * 500, "who": 3, "url": "javascript:x"}, "junk"], "next": "no"}, f)
+            d = json.loads(code("/api/workqueue")[1])
+            t("  a bad item is left out, words are cut short, and a link that is not http(s) is dropped",
+              ([i["key"] for i in d["now"]], len(d["now"][0]["title"]), d["now"][0]["who"], d["now"][0]["url"], d["next"], d["later"]), (["AB-5"], 200, "", "", [], []))
+            with open(wqf, "w") as f:
+                f.write("not json")
+            t("  a file that is not a queue says so", json.loads(code("/api/workqueue")[1])["state"], "bad")
+            t("  and so does the command, changing nothing", (wq("add", "AB-6", "x").returncode, open(wqf).read()), (1, "not json"))
+            os.remove(wqf)
+            t("  no file is an empty queue", json.loads(code("/api/workqueue")[1])["state"], "empty")
+        finally:
+            g["WORK_QUEUE"] = keep_wq
+        t("  the pane is offered, Now, Next and Later, one line an item, with no phone tab",
+          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml()" in PAGE and '${list("Later", q.later)}' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
+           '["queue"' in PAGE), (True, True, True, False))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
