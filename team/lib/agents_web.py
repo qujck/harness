@@ -26,7 +26,7 @@
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
-  /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, as the delivery lead keeps it
+  /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -571,9 +571,9 @@ def daylog_json():
 
 
 # ── the work queue ──────────────────────────────────────────────────────────────────────────────────────────────
-# The Work queue pane: the work the team means to start, Now, Next and Later, as the delivery lead keeps it with
-# team/work-queue.py (see that command for the file's shape). The page draws the file; nothing here fills it. It is
-# $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it changes.
+# The Work queue pane: the work the team means to start, Now, Next and Later, and what is Parked, as the delivery
+# lead keeps it with team/work-queue.py (see that command for the file's shape). The page draws the file; nothing
+# here fills it. It is $AGENT_WORK_QUEUE, else work-queue.json in the state directory, read again only when it changes.
 WORK_QUEUE = os.environ.get("AGENT_WORK_QUEUE") or os.path.join(STATE_DIR, "work-queue.json")
 WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")   # as team/work-queue.py takes an id
 _workqueue = {"key": None, "data": None}
@@ -585,7 +585,7 @@ def workqueue_json():
         st = os.stat(path)
         key = (path, st.st_mtime_ns, st.st_size)
     except OSError:
-        return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": []}).encode()
+        return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": [], "parked": []}).encode()
     if key != _workqueue["key"]:
         try:
             with open(path, encoding="utf-8") as f:
@@ -598,7 +598,7 @@ def workqueue_json():
             roster_name = {letters(k): k for k in names}
             roster_name.update({letters(v): k for k, v in names.items()})
             lists = {}
-            for name in ("now", "next", "later"):
+            for name in ("now", "next", "later", "parked"):
                 items = q.get(name) if isinstance(q.get(name), list) else []
                 lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")),
                                 "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
@@ -608,7 +608,7 @@ def workqueue_json():
             data = {"state": "ok", "file": path, **lists, "by": text(q.get("by"), 60),
                     "at": q.get("at") if isinstance(q.get("at"), (int, float)) and not isinstance(q.get("at"), bool) else 0}
         except (OSError, ValueError):
-            data = {"state": "bad", "file": path, "now": [], "next": [], "later": []}
+            data = {"state": "bad", "file": path, "now": [], "next": [], "later": [], "parked": []}
         _workqueue.update(key=key, data=data)
     return json.dumps(_workqueue["data"]).encode()
 
@@ -5477,7 +5477,8 @@ function dayLogHtml() {
       : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
-// The Work queue pane: the work to start, Now, Next and Later, as the delivery lead keeps it with team/work-queue.py
+// The Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it with
+// team/work-queue.py
 // (see "the work queue" on the server). Read with every load while a Work queue pane is on the page.
 let workQueue = null;
 async function loadWorkQueue() {
@@ -5494,7 +5495,8 @@ function workQueueHtml() {
   const q = workQueue;
   if (!q) return `<div class="blank">Loading…</div>`;
   if (q.state === "bad") return `<div class="blank">The work queue at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/work-queue.py.</div>`;
-  if (!q.now.length && !q.next.length && !q.later.length) return `<div class="blank">Nothing in the work queue. The delivery lead keeps it with team/work-queue.py.</div>`;
+  q.parked ||= [];
+  if (!q.now.length && !q.next.length && !q.later.length && !q.parked.length) return `<div class="blank">Nothing in the work queue. The delivery lead keeps it with team/work-queue.py.</div>`;
   const when = q.at ? (new Date(q.at * 1000).toDateString() === new Date().toDateString()
     ? new Date(q.at * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"}) : dayLogAt(q.at)) : "";
   const head = when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "";
@@ -5503,7 +5505,7 @@ function workQueueHtml() {
   const list = (name, items) => `<div class="day">${name}<span class="n">${items.length}</span></div>` +
     (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`);
   return `<div class="teamlog"><div class="thead"><span>Work queue</span><span>${esc(head)}</span></div>` +
-    `<div class="daylog workq" style="--whw:${dayLogWhW([...q.now, ...q.next, ...q.later].filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW([...q.now, ...q.next, ...q.later].map(i => i.key))}px">${list("Now", q.now)}${list("Next", q.next)}${list("Later", q.later)}</div></div>`;
+    `<div class="daylog workq" style="--whw:${dayLogWhW([...q.now, ...q.next, ...q.later, ...q.parked].filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW([...q.now, ...q.next, ...q.later, ...q.parked].map(i => i.key))}px">${list("Now", q.now)}${list("Next", q.next)}${list("Later", q.later)}${list("Parked", q.parked)}</div></div>`;
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
@@ -8429,6 +8431,12 @@ def self_test():
         wq("add", "AB-4", "Four", "--later")
         wq("move", "AB-3", "later")
         t("  --later and move ... later put it in Later, after what is there", wq_keys(), (["feat_one", "AB-2"], [], ["AB-4", "AB-3"]))
+        wq("add", "AB-5", "Five", "--parked")
+        wq("move", "AB-3", "parked")
+        with open(wqf) as f:
+            t("  --parked and move ... parked put it in Parked, after what is there", [i["key"] for i in json.load(f)["parked"]], ["AB-5", "AB-3"])
+        wq("move", "AB-3", "later")
+        wq("drop", "AB-5")
         wq("move", "AB-4", "next")
         wq("edit", "feat_one", "--who", "", "--title", "One again")
         with open(wqf) as f:
@@ -8468,8 +8476,8 @@ def self_test():
             t("  no file is an empty queue", json.loads(code("/api/workqueue")[1])["state"], "empty")
         finally:
             g["WORK_QUEUE"] = keep_wq
-        t("  the pane is offered, Now, Next and Later, one line an item, with no phone tab",
-          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml()" in PAGE and '${list("Later", q.later)}' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
+        t("  the pane is offered, Now, Next, Later and Parked, one line an item, with no phone tab",
+          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml()" in PAGE and '${list("Later", q.later)}${list("Parked", q.parked)}' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue"' in PAGE), (True, True, True, False))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
