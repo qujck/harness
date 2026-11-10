@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""The work queue's Now, Next and Later: the work the team means to start, soonest first, each list in order. The delivery lead keeps
-it with this command and the page's Work queue pane draws it. Nothing fills it from the ledger: it holds what the
-lead has put in it.
+"""The work queue's Now, Next and Later: the work the team means to start, soonest first, each list in order, and
+Parked: work set aside, not planned for now. The delivery lead keeps it with this command and the page's Work queue
+pane draws it. Nothing fills it from the ledger: it holds what the lead has put in it.
 
-  team/work-queue.py add ID "title" [--now | --next | --later] [--who NAME] [--note "words"] [--url URL]   (Next unless said)
+  team/work-queue.py add ID "title" [--now | --next | --later | --parked] [--who NAME] [--note "words"] [--url URL]   (Next unless said)
   team/work-queue.py edit ID [--title "title"] [--who NAME] [--note "words"] [--url URL]   (an empty value clears it)
-  team/work-queue.py move ID now|next|later                                                (to the end of that list)
+  team/work-queue.py move ID now|next|later|parked                                         (to the end of that list)
   team/work-queue.py up ID | down ID                                                       (one place, in its list)
   team/work-queue.py drop ID                                                (it started, or is no longer planned)
   team/work-queue.py list
 
 ID is the work's id, as the ledger names it (a ticket's slug, or a key such as ABC-123). The queue is
 $AGENT_WORK_QUEUE, else ~/.local/state/<project>/work-queue.json:
-  {"now": [item, ...], "next": [item, ...], "later": [item, ...], "at": epoch seconds of the last change, "by": who made it}
+  {"now": [item, ...], "next": [item, ...], "later": [item, ...], "parked": [item, ...], "at": epoch seconds of the last change, "by": who made it}
 where an item is {"key": ID, "title": "...", "who": "Name" or "", "note": "..." or "", "url": an http(s) link or ""}.
 A change is made under a lock and written whole, so two agents changing it at once both land. Who made it is
 AGENT_NAME, else the name of the Claude session running the command, else the user."""
@@ -31,7 +31,7 @@ ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path
 PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
 QUEUE = os.path.expanduser(os.environ.get("AGENT_WORK_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "work-queue.json"))
 KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,99}$")
-LISTS = ("now", "next", "later")
+LISTS = ("now", "next", "later", "parked")
 
 
 def die(words):
@@ -89,7 +89,7 @@ def options(args, allowed):
     out, i = {}, 0
     while i < len(args):
         a = args[i]
-        if a in ("--now", "--next", "--later") and "list" in allowed:
+        if a in ("--now", "--next", "--later", "--parked") and "list" in allowed:
             out["list"] = a[2:]
             i += 1
         elif a.startswith("--") and a[2:] in allowed and i + 1 < len(args):
@@ -138,7 +138,7 @@ def main(argv):
             q[name][i].update(options(args[1:], ("title", "who", "note", "url")))
         elif cmd == "move":
             if len(args) != 2 or args[1] not in LISTS:
-                die("move needs now, next or later: work-queue.py move ID now")
+                die("move needs now, next, later or parked: work-queue.py move ID now")
             name, i = find(q, key)
             q[args[1]].append(q[name].pop(i))
         elif cmd in ("up", "down"):
