@@ -5,10 +5,11 @@ Work stays in Now while it is worked and moves to Done when it is delivered. The
 command and the page's Work queue pane draws it, on two tabs: Doing (Now to Parked) and Done. Nothing fills it from
 the ledger: it holds what the lead has put in it.
 
-  team/work-queue.py add ID "title" [--now | --next | --later | --parked | --done] [--who NAME] [--note "words"] [--url URL]   (Next unless said)
-  team/work-queue.py edit ID [--title "title"] [--who NAME] [--note "words"] [--url URL]   (an empty value clears it)
+  team/work-queue.py add ID "title" [--now | --next | --later | --parked | --done] [--who NAME] [--note "words"] [--url URL] [--fix "words"]   (Next unless said)
+  team/work-queue.py edit ID [--title "title"] [--who NAME] [--note "words"] [--url URL] [--fix "words"]   (an empty value clears it)
   team/work-queue.py move ID now|next|later|parked|done                                    (to the end of that list)
-  team/work-queue.py done ID [--note "words"]                                 (delivered: to Done, stamped with when)
+  team/work-queue.py done ID [--fix "words"] [--note "words"]                 (delivered: to Done, stamped with when; --fix says in a
+                                                                             few words what the fix did, drawn under the title)
   team/work-queue.py up ID | down ID                                                       (one place, in its list)
   team/work-queue.py drop ID                                                                (no longer planned)
   team/work-queue.py list
@@ -122,6 +123,8 @@ def show(q):
         for item in q[name]:
             extra = "".join(f"  ({x})" for x in (item.get("who"), item.get("note")) if x)
             print(f"  {item['key']}  {item.get('title', '')}{extra}")
+            if item.get("fix"):
+                print(f"      fix: {item['fix']}")
         if not q[name]:
             print("  (empty)")
 
@@ -146,12 +149,12 @@ def main(argv):
                 die('add needs a title: work-queue.py add ID "title"')
             if any(item.get("key") == key for name in LISTS for item in q[name]):
                 die(f"{key} is already in the queue; use edit or move")
-            o = options(args[2:], ("list", "who", "note", "url"))
+            o = options(args[2:], ("list", "who", "note", "url", "fix"))
             q[o.get("list", "next")].append(stamped({"key": key, "title": args[1].strip(), "who": o.get("who", ""), "note": o.get("note", ""),
-                                                     "url": o.get("url", "")}, o.get("list", "next")))
+                                                     "url": o.get("url", ""), **({"fix": o["fix"]} if o.get("fix") else {})}, o.get("list", "next")))
         elif cmd == "edit":
             name, i = find(q, key)
-            q[name][i].update(options(args[1:], ("title", "who", "note", "url")))
+            q[name][i].update(options(args[1:], ("title", "who", "note", "url", "fix")))
         elif cmd == "move":
             if len(args) != 2 or args[1] not in LISTS:
                 die("move needs now, next, later, parked or done: work-queue.py move ID now")
@@ -159,7 +162,7 @@ def main(argv):
             q[args[1]].append(stamped(q[name].pop(i), args[1]))
         elif cmd == "done":
             name, i = find(q, key)
-            q["done"].append(stamped({**q[name].pop(i), **options(args[1:], ("note",))}, "done"))
+            q["done"].append(stamped({**q[name].pop(i), **options(args[1:], ("note", "fix"))}, "done"))
         elif cmd in ("up", "down"):
             name, i = find(q, key)
             j = i - 1 if cmd == "up" else i + 1
