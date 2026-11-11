@@ -3371,12 +3371,14 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .daylog a:hover{text-decoration:underline}
 /* one line an item: its note after its title, and the two cut short together; hovering shows them whole */
 .workq{padding:6px 10px}
+.teamlog[data-name="~workqueue"]{background:var(--bg)}   /* the page's grey behind the title bar and the section boxes */
+.wqtabs{background:var(--box)}   /* the pane's own colour on the grey, as the section boxes */
 .workq .row{align-items:center;padding:1px 6px;gap:10px}
 .workq .row > a,.workq .key{flex:none;width:var(--wqk,5.5em);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
 .workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workq .note{margin-left:10px;color:var(--mute)}
 .workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-.workq .sect{margin-top:8px;padding:4px 0;border:1px solid var(--line2);border-radius:var(--r-m)}
+.workq .sect{margin-top:8px;padding:4px 0;border:1px solid var(--line2);border-radius:var(--r-m);background:linear-gradient(180deg,var(--card1),var(--card2))}   /* shaded as the Tabs view's agent cards */
 .workq .sect:first-child{margin-top:0}
 .workq .sect .day{margin:2px 0 4px;padding:0 6px}
 .workq .day .n{margin-left:6px;font-weight:400}
