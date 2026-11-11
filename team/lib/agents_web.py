@@ -3282,7 +3282,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .bench .rrow.stack > [data-name]{box-shadow:0 0 0 1px var(--bg)}   /* a fine rim in the page's background colour parts each card of the stack */
 .bench em.more{cursor:pointer}
 .bench.favs{flex:none}   /* only as wide as its favourites, leaving the bench the room */
-.favs > span:first-child{display:inline-flex;color:var(--amber)}
+.favs > span:first-child{display:inline-flex;color:var(--text)}   /* the star in the text colour, as every other icon in the bar */
 .favs > span:first-child svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
 .favs .rrow [data-fav]{cursor:pointer}
 .favs .rrow em.off{opacity:.55}
@@ -3298,6 +3298,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
 .face.waiting,.face.wanted{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
+.face.bench{filter:grayscale(1);opacity:.55}   /* on the bench, greyed as the phone's bench is */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 .bench > span:first-child:empty{display:none}   /* no "bench" word (owner, 2026-11-02): only its filter button, while unlocked */
 .bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
@@ -4225,10 +4226,13 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .ph-dash .dtally i{width:9px;height:9px;border-radius:50%;background:var(--faint)}
 #phone .ph-dash .dtally b + i{margin-left:6px}
 #phone .ph-dash .dtally span{margin-left:8px;font-size:.8em}
-#phone .ph-dash .dfaces{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-#phone .ph-dash .dface{display:flex;flex-direction:column;align-items:center;gap:3px;width:52px;padding:0;border:0;background:none;color:var(--text);cursor:pointer}
+/* a row of portraits on one line: with more than fit, each gives up its width and they overlap, the last whole */
+#phone .ph-dash .dfaces{display:flex;gap:6px;margin-top:8px}
+#phone .ph-dash .dface{display:flex;flex:0 1 44px;min-width:0;padding:0;border:0;background:none;color:var(--text);cursor:pointer}
+#phone .ph-dash .dface:last-child{flex:none}
 #phone .ph-dash .dface .ph-por{width:44px;height:44px}
-#phone .ph-dash .dface small{max-width:100%;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .gico{display:inline-flex;color:var(--mute)}
+#phone .gico svg{width:18px;height:18px}
 #phone .ph-dash .dtune{display:grid;place-items:center;width:38px;padding:0;border:0}
 #phone .ph-dash .dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 #phone .ph-dash .dtile{min-width:0;padding:10px 12px;border:1px solid var(--line2);border-radius:12px;background:var(--card1)}
@@ -4241,6 +4245,11 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .ph-dash .dmeter u{position:absolute;top:0;bottom:0;width:2px;background:var(--text)}
 #phone .ph-dash .dspark{margin-top:6px;height:26px;color:var(--ownerbg)}
 #phone .ph-dash .dspark svg{width:100%;height:26px}
+/* outside Edit, a tile's icon sits on the line of its value or portraits, and its meter or sparkline runs the full width under them */
+#phone:not(.dashedit) .ph-dash .dtile{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;align-items:center}
+#phone:not(.dashedit) .ph-dash .dtile > .dlab{grid-column:1;grid-row:1;display:flex}
+#phone:not(.dashedit) .ph-dash .dtile > :is(.dval,.dfaces){grid-column:2;grid-row:1;margin-top:0}
+#phone:not(.dashedit) .ph-dash .dtile > :is(.dmeter,.dspark){grid-column:1 / -1}
 #phone .ph-dash .dedit{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 #phone .ph-dash .dedit button{height:30px;padding:0 10px}
 #phone .ph-dash .dedit .dx{display:grid;place-items:center;width:30px;padding:0;margin-left:auto}
@@ -4371,6 +4380,7 @@ html.phoneoff #phoneback{display:block}
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="favs"><div class="bench favs" id="favs"></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi" data-item="active"><div class="bench favs" id="active"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="view"><span id="pagemode"></span><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -5080,7 +5090,7 @@ function draw() {
   const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !pageLocked();
   $("#bench").innerHTML = S.bench.length ? `<span>${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
     const tip = `data-name="${esc(b.name)}"`;
-    return style === "icon" ? face(b, tip)
+    return style === "icon" ? face(b, tip, " bench")
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
   // each one's menu, its details only, on a rest or a right-click, as an agent's tile
   document.querySelectorAll("#bench .rrow [data-name]").forEach(m => {
@@ -5088,17 +5098,9 @@ function draw() {
     m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
   });
   // The favourites (owner, 2026-11-10: "a bit like the bench, a favourites bar", "just the local favourites"): the agents
-  // starred from their menu in this browser, by name A to Z, drawn as the bench is; a click opens a running one.
-  const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
-  const favHtml = `<span title="Favourites: star an agent from its menu">${MENU_ICON.star}</span><span class="rrow">${favs.map(a => {
-    const tip = `data-name="${esc(a.name)}" data-fav="${esc(a.name)}"`;
-    return style === "icon" ? face(a, tip) : `<em class="${a.live ? "" : "off"}" style="--c:${a.colour}" ${tip}>${esc(shown(a.name))}</em>`; }).join("") || `<span class="none">none yet</span>`}</span>`;
-  if ($("#favs").dataset.html !== favHtml) { $("#favs").innerHTML = favHtml; $("#favs").dataset.html = favHtml; }
-  document.querySelectorAll("#favs .rrow [data-name]").forEach(m => {
-    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
-    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
-    m.onclick = () => { if (S.agents.some(a => a.name === m.dataset.fav && a.live)) openDetail(m.dataset.fav); };
-  });
+  // starred from their menu in this browser, by name A to Z; and those active (owner, 2026-11-11: "alongside favourites
+  // bar can have an actives bar"). Each is drawn as the bench is, after its icon; a click opens a running one.
+  for (const k of ["favs", "active"]) agentRow($("#" + k), k, style);
   if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "icon" ? "icon" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
@@ -5314,7 +5316,7 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
-const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench", favs: "Favourites",
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench", favs: "Favourites", active: "Active",
   controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
@@ -5323,7 +5325,7 @@ const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team"
 const FREE = /^(gap|div)(\d+|-[a-z0-9]+)$/;
 const FREE_KINDS = {"new:gap": "Spacer", "new:div": "Divider"};
 // The Views toolbar, every view as its icon in a row, the one showing marked, is out of the bar until added.
-const BAR_SPARE = ["viewbar"];
+const BAR_SPARE = ["viewbar", "active"];
 // Any other plug-in (S.plugins, the server's AGENT_BAR_PLUGINS scripts) is one more item, out of the bar until added.
 const plugs = () => S?.plugins || [];
 const BAR_FIXED = ["brand", "lock"];
@@ -5359,6 +5361,8 @@ const BAR_ICON = Object.fromEntries(Object.entries({
   heat: '<path d="M6.5 2.6a1.5 1.5 0 0 1 3 0v6.5a3 3 0 1 1-3 0z"/><path d="M8 6.5v4"/>',
   fan: '<circle cx="8" cy="8" r="1.4"/><path d="M8 6.6C6.6 4.6 7 2 9 2.2s1.4 2.8-1 4.4M9.4 8.4c2.4-.4 4.6.8 4 2.7s-2.9 1-4-1.4M6.8 8.9c-1 2.2-3.3 3.4-4.4 1.8s.9-3 4.2-2.6"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+// Active: a pulse.
+const ICON_ACTIVE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8.5h3l2-5 3 9 2-4h3"/></svg>';
 // Each item's icon in a bar's + menu: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
 const ADD_ICON = Object.fromEntries(Object.entries({
   session: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
@@ -5370,7 +5374,7 @@ const ADD_ICON = Object.fromEntries(Object.entries({
   "new:div": '<path d="M8 2v12"/>',
   "new:gap": '<path d="M2 8h12M4.5 5.5 2 8l2.5 2.5M11.5 5.5 14 8l-2.5 2.5"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
-Object.assign(ADD_ICON, {week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON.disk, tally: MENU_ICON.team, controls: MENU_ICON.start,
+Object.assign(ADD_ICON, {favs: MENU_ICON.star, active: ICON_ACTIVE, week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON.disk, tally: MENU_ICON.team, controls: MENU_ICON.start,
   lanes: MENU_ICON.filter, view: MENU_ICON.grid});
 const addIcon = k => ADD_ICON[k] || BAR_ICON[plugs().find(x => x.key === k)?.icon] || MENU_ICON.chart;
 const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
@@ -7902,7 +7906,7 @@ const PH_TUNE = `<svg viewBox="0 0 16 16" width="18" height="18" fill="none" str
 // The bar's own items that show the team, offered beside the readings: the Agents count, the Bench and the Favourites
 // (owner, 2026-11-10: "Bench is a header and footer item and I asked for a favourites too"). The bar's buttons
 // (Start and stop, Lanes, Views, Lock, Theme, Settings, Help) are the phone's ⋯ menu's.
-const PH_DASH_OWN = ["tally", "bench", "favs"];
+const PH_DASH_OWN = ["tally", "bench", "favs", "active"];
 const phDashItems = () => [...PH_DASH_OWN.map(k => ({key: k, own: true, name: BAR_ITEMS[k]})), ...plugs().filter(x => !x.hidden)];
 // an own item's tile body: the count as the header's tally reads it; the bench and the favourites as portraits, a tap
 // opening a running one and a hold its menu
@@ -7911,9 +7915,9 @@ function phDashOwn(k) {
     const n = st => S.agents.filter(a => a.live && stOf(a) === st).length, waiting = S.agents.filter(a => a.status === "waiting").length;
     return `<div class="dval dtally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}"><i style="background:var(--green)"></i><b>${n("busy")}</b><i></i><b style="color:var(--mute)">${n("idle")}</b>${waiting ? `<span style="color:var(--amber)">${waiting} waiting</span>` : ""}</div>`;
   }
-  const who = k === "bench" ? S.bench : phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
-  return who.length ? `<div class="dfaces">${who.map(a => `<button class="dface" ${a.live ? `data-open="${esc(a.name)}" ` : ""}data-menu-name="${esc(a.name)}">${phPor(a.live ? a : {...a, live: undefined}, a.live ? "" : " bench")}<small>${esc(shown(a.name))}</small></button>`).join("")}</div>`
-    : `<div class="dval" style="color:var(--mute);font-weight:400;font-size:1em">${k === "bench" ? "No one on the bench" : "No favourites yet: star an agent from its menu"}</div>`;
+  const who = barWho(k);
+  return who.length ? `<div class="dfaces">${who.map(a => `<button class="dface" ${a.live ? `data-open="${esc(a.name)}" ` : ""}data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}" title="${esc(shown(a.name))}">${phPor(a.live ? a : {...a, live: undefined}, a.live ? "" : " bench")}</button>`).join("")}</div>`
+    : `<div class="dval" style="color:var(--mute);font-weight:400;font-size:1em">${BAR_ROW[k][2]}</div>`;
 }
 function phDash() {
   let mine; try { mine = JSON.parse(localStorage.getItem("phonedash")); } catch (e) {}
@@ -7927,7 +7931,7 @@ function phDashHtml() {
   const tile = (t, i) => {
     const x = by[t.k], m = !x.own && x.meter, parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
     const val = parts.map(p => `<${p.bold ? "b" : "span"} style="color:${plugColour(p.colour || (x.parts ? "" : x.colour))}">${esc(p.text)}</${p.bold ? "b" : "span"}>`).join("");
-    return `<div class="dtile${t.w === 2 ? " wide" : ""}" data-k="${esc(t.k)}" title="${esc(x.title || "")}"><div class="dlab">${phDashEdit ? `<span class="dgrip" aria-label="Drag ${esc(phGaugeName(x))} to move it">${PH_GRIP}</span>` : ""}${esc(phGaugeName(x))}</div>${x.own ? phDashOwn(t.k) : `<div class="dval">${val || "–"}</div>`}` +
+    return `<div class="dtile${t.w === 2 ? " wide" : ""}" data-k="${esc(t.k)}" title="${esc(x.title || "")}"><div class="dlab">${phDashEdit ? `<span class="dgrip" aria-label="Drag ${esc(phGaugeName(x))} to move it">${PH_GRIP}</span>${esc(phGaugeName(x))}` : phGaugeLabel(x)}</div>${x.own ? phDashOwn(t.k) : `<div class="dval">${val || "–"}</div>`}` +
       (m ? `<div class="dmeter"><i style="width:${m.pct}%;background:${meterFill(m)}"></i>${m.mark == null ? "" : `<u style="left:calc(${m.mark}% - 1px)"></u>`}</div>` : "") +
       (!x.own && x.spark?.length ? `<div class="dspark">${spark(x.spark, Math.max(1, ...x.spark), "currentColor")}</div>` : "") +
       (phDashEdit ? `<div class="dedit">` +
@@ -8001,6 +8005,27 @@ const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" :
 // bar's Favourites item.
 const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v.filter(n => typeof n === "string").sort((x, y) => x.localeCompare(y, undefined, {sensitivity: "base"})) : []; } catch (e) { return []; } };
 const phFav = name => phFavs().includes(name);
+// The agents in each of the bars' rows of agents, by item: the bench; the favourites, running or not; and the active, every
+// running agent not among the favourites, each with its state's dot (owner, 2026-11-11: "put the in shell icons in active",
+// "active should not show favourites", "I have 7 active agents").
+const barWho = k => k === "bench" ? S.bench
+  : k === "favs" ? phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean)
+  : k === "active" ? S.agents.filter(a => a.live && !phFav(a.name)) : [];
+const BAR_ROW = {favs: ["Favourites: star an agent from its menu", "none yet", "No favourites yet: star an agent from its menu"],
+  active: ["Running, other than the favourites", "none", "No one else running"], bench: ["On the bench", "", "No one on the bench"]};
+// A desktop bar's row of agents (favs or active) in its element: its icon, then each agent by name or icon as
+// the bench is set to show them; a rest or right-click shows its menu and a click opens a running one.
+function agentRow(el, k, style) {
+  const html = `<span title="${esc(BAR_ROW[k][0])}">${ADD_ICON[k]}</span><span class="rrow">${barWho(k).map(a => {
+    const tip = `data-name="${esc(a.name)}" data-fav="${esc(a.name)}"`;
+    return style === "icon" ? face(a, tip, a.live ? "" : " bench") : `<em class="${a.live ? "" : "off"}" style="--c:${a.colour}" ${tip}>${esc(shown(a.name))}</em>`; }).join("") || `<span class="none">${BAR_ROW[k][1]}</span>`}</span>`;
+  if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  el.querySelectorAll(".rrow [data-name]").forEach(m => {
+    m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
+    m.oncontextmenu = e => { e.preventDefault(); menuSoon(m, 0); };
+    m.onclick = () => { if (S.agents.some(a => a.name === m.dataset.fav && a.live)) openDetail(m.dataset.fav); };
+  });
+}
 function phFavToggle(name) {
   const f = phFavs(), next = f.includes(name) ? f.filter(x => x !== name) : [...f, name];
   try { localStorage.setItem("phonefavs", JSON.stringify(next)); } catch (e) {}
@@ -8165,11 +8190,11 @@ function phoneDraw() {
   const g = phGauge(), gb = ph.querySelector(".ph-week");
   if (g) {
     const m = g.meter, val = (g.parts || [{text: g.value, colour: g.colour}]).filter(x => x.text !== "").map(x => `<b style="color:${plugColour(x.colour || (g.parts ? "" : g.colour))}">${esc(x.text)}</b>`).join("");
-    patch(gb, `<span class="gl">${esc(phGaugeName(g))}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${meterFill(m)}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
+    patch(gb, `<span class="gl">${phGaugeLabel(g)}</span>` + (m ? `<i><u style="width:${m.pct}%;background:${meterFill(m)}"></u>${m.mark == null ? "" : `<s style="left:calc(${m.mark}% - 1px)"></s>`}</i>` : "") + `<span class="gv">${val}</span>`);
     gb.setAttribute("aria-label", `${phGaugeName(g)}: ${g.value}${g.title ? ". " + g.title : ""}`); gb.title = g.title || "";
   } else {
     const wk = S.week;
-    patch(gb, wk == null ? "–" : `<span class="gl">Week</span><i><u style="width:${Math.min(100, wk)}%;background:${gauge(wk)}"></u></i><span class="gv">${Math.round(wk)}%</span>`);
+    patch(gb, wk == null ? "–" : `<span class="gl"><span class="gico" role="img" aria-label="Week">${BAR_ICON.week}</span></span><i><u style="width:${Math.min(100, wk)}%;background:${gauge(wk)}"></u></i><span class="gv">${Math.round(wk)}%</span>`);
     gb.setAttribute("aria-label", wk == null ? "Week not read yet" : `Week used: ${Math.round(wk)}%`);
   }
   const nav = ph.querySelector(".ph-nav"), bar = phToolbar();
@@ -8240,6 +8265,9 @@ function phHoldWire() {
 // kept in this browser; until one is chosen, the day bar, else the week's (owner, 2026-11-08: "I want the day bar for now").
 const phGauges = () => plugs().filter(x => !x.hidden && (x.meter || x.value) && x.value !== "…");
 const phGaugeName = x => x.name || x.label || barName(x.key);
+// The phone shows an item by its icon, as the desktop bar can, and by name only where it has none (owner, 2026-11-11:
+// "we have icons for them they don't need to use up a load of space saying day bar and week bar").
+const phGaugeLabel = x => { const i = BAR_ICON[x.icon] || ADD_ICON[x.key]; return i ? `<span class="gico" role="img" aria-label="${esc(phGaugeName(x))}">${i}</span>` : esc(phGaugeName(x)); };
 function phGauge() {
   const all = phGauges(), want = localStorage.getItem("phonegauge");
   return all.find(x => x.key === want) || all.find(x => x.key === "daybar") || all.find(x => x.key === "weekbar") || all.find(x => x.key === "week") || null;
@@ -8942,8 +8970,8 @@ def self_test():
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
-        t("  the Dashboard holds the bar's readings, the Agents count, the Bench and the Favourites, half or wide, dragged by grip in Edit",
-          ('const PH_DASH_OWN = ["tally", "bench", "favs"]' in PAGE, 'localStorage.setItem("phonedash"' in PAGE, 'data-dash="wide:${i}"' in PAGE,
+        t("  the Dashboard holds the bar's readings, the Agents count, the Bench, the Favourites and the Active, half or wide, dragged by grip in Edit",
+          ('const PH_DASH_OWN = ["tally", "bench", "favs", "active"]' in PAGE, 'localStorage.setItem("phonedash"' in PAGE, 'data-dash="wide:${i}"' in PAGE,
            'class="dgrip"' in PAGE, "#phone.dashedit .ph-top,#phone.dashedit .ph-nav{display:none}" in PAGE, 'class="dbtn dtune dclose"' in PAGE), (True,) * 6)
         t("  a meter is the same colour on the bar, the phone's gauge and the Dashboard",
           ("background:${meterFill(m)}" in PAGE, 'const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"' in PAGE), (True, True))
