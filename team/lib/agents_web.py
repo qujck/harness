@@ -3298,7 +3298,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
 .face.waiting,.face.wanted{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
-.face.bench{filter:grayscale(1);opacity:.55}   /* on the bench, greyed as the phone's bench is */
+.face.benched{filter:grayscale(1);opacity:.55}   /* on the bench, greyed as the phone's bench is; not .bench, the bench bar's own grid */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 .bench > span:first-child:empty{display:none}   /* no "bench" word (owner, 2026-11-02): only its filter button, while unlocked */
 .bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
@@ -5087,10 +5087,10 @@ function draw() {
   // those that do not fit are counted in a "+N" that names them. Its filter button, there only while a custom layout is
   // unlocked, shows them by name or as icons (their portrait, else their role's shadow, as a pane's Icon badge); until
   // one is picked, icons while a Characters pane is on the page.
-  const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !pageLocked();
-  $("#bench").innerHTML = S.bench.length ? `<span>${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${S.bench.map(b => {
+  const style = benchStyle(), benchSel = localStorage.getItem("page") === "custom" && !pageLocked(), onBench = barWho("bench");
+  $("#bench").innerHTML = onBench.length ? `<span>${benchSel ? filterBtn("benchsel", "bench", [style], ["name", "icon"], BENCH_STYLES, "") : ""}</span><span class="rrow">${onBench.map(b => {
     const tip = `data-name="${esc(b.name)}"`;
-    return style === "icon" ? face(b, tip, " bench")
+    return style === "icon" ? face(b, tip, " benched")
       : `<em style="--c:${b.colour}" ${tip}>${esc(b.name)}</em>`; }).join("")}</span>` : "";
   // each one's menu, its details only, on a rest or a right-click, as an agent's tile
   document.querySelectorAll("#bench .rrow [data-name]").forEach(m => {
@@ -5101,7 +5101,7 @@ function draw() {
   // starred from their menu in this browser, by name A to Z; and those active (owner, 2026-11-11: "alongside favourites
   // bar can have an actives bar"). Each is drawn as the bench is, after its icon; a click opens a running one.
   for (const k of ["favs", "active"]) agentRow($("#" + k), k, style);
-  if (S.bench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "icon" ? "icon" : "name"}`,
+  if (onBench.length && benchSel) filterButton($("#bench .benchsel"), BENCH_STYLES, () => [benchStyle()], v => `The bench by ${v === "icon" ? "icon" : "name"}`,
     v => { menuOff(true); localStorage.setItem("bench", v); draw(); }, "Bench");
 
 
@@ -8005,10 +8005,13 @@ const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" :
 // bar's Favourites item.
 const phFavs = () => { try { const v = JSON.parse(localStorage.getItem("phonefavs")); return Array.isArray(v) ? v.filter(n => typeof n === "string").sort((x, y) => x.localeCompare(y, undefined, {sensitivity: "base"})) : []; } catch (e) { return []; } };
 const phFav = name => phFavs().includes(name);
-// The agents in each of the bars' rows of agents, by item: the bench; the favourites, running or not; and the active, every
+// The agents in each of the bars' rows of agents, by item: the bench, less the favourites while their bar is on screen
+// (owner, 2026-11-11: "favourites should not also show on the bench", "icons should show on the bench when I don't have the
+// favourites bar on the screen"); the favourites, running or not; and the active, every
 // running agent not among the favourites, each with its state's dot (owner, 2026-11-11: "put the in shell icons in active",
 // "active should not show favourites", "I have 7 active agents").
-const barWho = k => k === "bench" ? S.bench
+const favsShown = () => phoneOn() ? phDash().some(t => t.k === "favs") : (b => [...b.head, ...b.foot].includes("favs"))(barOf());
+const barWho = k => k === "bench" ? (favsShown() ? S.bench.filter(a => !phFav(a.name)) : S.bench)
   : k === "favs" ? phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean)
   : k === "active" ? S.agents.filter(a => a.live && !phFav(a.name)) : [];
 const BAR_ROW = {favs: ["Favourites: star an agent from its menu", "none yet", "No favourites yet: star an agent from its menu"],
@@ -8018,7 +8021,7 @@ const BAR_ROW = {favs: ["Favourites: star an agent from its menu", "none yet", "
 function agentRow(el, k, style) {
   const html = `<span title="${esc(BAR_ROW[k][0])}">${ADD_ICON[k]}</span><span class="rrow">${barWho(k).map(a => {
     const tip = `data-name="${esc(a.name)}" data-fav="${esc(a.name)}"`;
-    return style === "icon" ? face(a, tip, a.live ? "" : " bench") : `<em class="${a.live ? "" : "off"}" style="--c:${a.colour}" ${tip}>${esc(shown(a.name))}</em>`; }).join("") || `<span class="none">${BAR_ROW[k][1]}</span>`}</span>`;
+    return style === "icon" ? face(a, tip, a.live ? "" : " benched") : `<em class="${a.live ? "" : "off"}" style="--c:${a.colour}" ${tip}>${esc(shown(a.name))}</em>`; }).join("") || `<span class="none">${BAR_ROW[k][1]}</span>`}</span>`;
   if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
   el.querySelectorAll(".rrow [data-name]").forEach(m => {
     m.onmouseenter = () => menuSoon(m, 350); m.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
