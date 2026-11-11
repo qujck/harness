@@ -3380,7 +3380,10 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
 .workq .sect{margin-top:8px;padding:4px 0;border:1px solid var(--line2);border-radius:var(--r-m);background:linear-gradient(180deg,var(--card1),var(--card2))}   /* shaded as the Tabs view's agent cards */
 .workq .sect:first-child{margin-top:0}
-.workq .sect .day{margin:2px 0 4px;padding:0 6px}
+.workq .sect .day{display:flex;align-items:center;margin:2px 0 4px;padding:0 6px}
+.workq .sect.shut .day{margin-bottom:2px}
+.workq .wqfold{display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:var(--r-s);color:var(--mute);cursor:pointer}   /* as a card's fold button */
+.workq .wqfold:hover{background:var(--on);color:var(--text)}
 .workq .day .n{margin-left:6px;font-weight:400}
 .workq .row.none{color:var(--mute)}
 .workq .row > .wh{justify-content:flex-end}
@@ -4880,8 +4883,9 @@ const sayRow = a => `<div class="att" data-name="${esc(a.name)}"></div><div clas
 // A narrow card's state, model and activity rows fold away under its ^ and come back with its v, for room on a phone
 // (owner, 2026-11-01), kept per agent in this browser. A wide card has them on its name's line, so nothing to fold.
 const folded = () => { try { return JSON.parse(localStorage.getItem("folded")) || []; } catch (e) { return []; } };
-const foldButton = (name, on) => `<b class="foldbtn" data-name="${esc(name)}" title="${on ? "Show its state, model and activity" : "Hide its state, model and activity"}">` +
-  `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${on ? "M2.5 4.5 6 8l3.5-3.5" : "M2.5 7.5 6 4l3.5 3.5"}"/></svg></b>`;
+// The ^ that folds something away, a v once it is folded.
+const foldIcon = on => `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${on ? "M2.5 4.5 6 8l3.5-3.5" : "M2.5 7.5 6 4l3.5 3.5"}"/></svg>`;
+const foldButton = (name, on) => `<b class="foldbtn" data-name="${esc(name)}" title="${on ? "Show its state, model and activity" : "Hide its state, model and activity"}">${foldIcon(on)}</b>`;
 document.addEventListener("click", e => {
   const b = e.target.closest?.(".foldbtn");
   if (!b) return;
@@ -5633,6 +5637,15 @@ function doneByStandup(items, standups) {
   const between = (from, to) => newest.filter(i => (i.done || 0) >= (from || 0) && (to == null || (i.done || 0) < to));
   return [["Since " + day(s0), between(s0)], ...(s1 ? [[day(s0), between(s1, s0)]] : []), ...(s1 && s2 ? [[day(s1), between(s2, s1)]] : [])];
 }
+// Each section folds to its heading under its ^ and opens again under its v, kept per tab and section name in this browser.
+const wqFolded = () => { try { return JSON.parse(localStorage.getItem("workqueue:folded")) || []; } catch (e) { return []; } };
+document.addEventListener("click", e => {
+  const b = e.target.closest(".wqfold");
+  if (!b) return;
+  const k = b.dataset.sect, f = wqFolded();
+  try { localStorage.setItem("workqueue:folded", JSON.stringify(f.includes(k) ? f.filter(x => x !== k) : [...f, k])); } catch (e) {}
+  phoneOn() ? phoneDraw() : draw();
+});
 async function loadWorkQueue() {
   if (!leaves(layout().root).some(([, n]) => n.show === "workqueue")) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
@@ -5660,8 +5673,12 @@ function workQueueHtml(big) {
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
     `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}` +
     (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>`;
-  const list = (name, items) => `<div class="sect"><div class="day">${name}<span class="n">${items.length}</span></div>` +
-    (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
+  const list = (name, items) => {
+    const k = (done ? "done:" : "work:") + name, fold = wqFolded().includes(k);
+    return `<div class="sect${fold ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>` +
+      `<b class="wqfold" data-sect="${esc(k)}" title="${fold ? "Show this section" : "Hide this section"}">${foldIcon(fold)}</b></div>` +
+      (fold ? "" : items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
+  };
   const all = shownLists.flatMap(([, items]) => items);
   return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(i => i.key))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
 }
