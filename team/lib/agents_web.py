@@ -3298,7 +3298,7 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .face .ini{position:absolute;left:2px;bottom:2px;min-width:9px;padding:0 2px;border-radius:3px;border:1px solid var(--c);
   font:700 9px/10px var(--sans);text-align:center;color:var(--text);background:color-mix(in srgb,var(--c) 30%,var(--chtile))}   /* a shadow's initial, bottom left on every role */
 .face.waiting,.face.wanted{animation:alarm 1s ease-in-out infinite}   /* as a Characters tile */
-.face.benched{filter:grayscale(1);opacity:.55}   /* on the bench, greyed as the phone's bench is; not .bench, the bench bar's own grid */
+.face.benched > :is(img,svg){filter:grayscale(1);opacity:.55}   /* on the bench the portrait is greyed and its role colour kept (owner, 2026-11-11); not .bench, the bench bar's own grid */
 .bench > span:first-child{display:flex;align-items:center;gap:2px}
 .bench > span:first-child:empty{display:none}   /* no "bench" word (owner, 2026-11-02): only its filter button, while unlocked */
 .bench:has(> span:first-child:empty){grid-template-columns:minmax(0,1fr)}
@@ -4152,7 +4152,7 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-por i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--card1);background:var(--faint)}
 #phone .busy i,#phone .compacting i{background:var(--green)}
 #phone .waiting i{background:var(--amber)}
-#phone .off .ph-por > .fr,#phone .bench > .fr{filter:grayscale(1);opacity:.55}
+#phone .off .ph-por > .fr > *,#phone .bench > .fr > *{filter:grayscale(1);opacity:.55}   /* the portrait greyed, its frame keeping its role colour (owner, 2026-11-11) */
 #phone .ph-wait{display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 14px;border-radius:14px;border:1.5px solid var(--amber);background:color-mix(in srgb,var(--amber) 14%,var(--card1));text-align:left;cursor:pointer;width:100%}
 #phone .ph-wait small{display:block;font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--amber);text-transform:uppercase}
 #phone .ph-wait b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
