@@ -3376,8 +3376,9 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workq .note{margin-left:10px;color:var(--mute)}
 .workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-.workq .day:not(:first-child){margin-top:10px;padding-top:8px;border-top:1px solid var(--line2)}
-.workq .day:first-child{margin-top:0}
+.workq .sect{margin-top:8px;padding:4px 0;border:1px solid var(--line2);border-radius:var(--r-m)}
+.workq .sect:first-child{margin-top:0}
+.workq .sect .day{margin:2px 0 4px;padding:0 6px}
 .workq .day .n{margin-left:6px;font-weight:400}
 .workq .row.none{color:var(--mute)}
 .workq .row > .wh{justify-content:flex-end}
@@ -5657,8 +5658,8 @@ function workQueueHtml(big) {
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
     `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}` +
     (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>`;
-  const list = (name, items) => `<div class="day">${name}<span class="n">${items.length}</span></div>` +
-    (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`);
+  const list = (name, items) => `<div class="sect"><div class="day">${name}<span class="n">${items.length}</span></div>` +
+    (items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
   const all = shownLists.flatMap(([, items]) => items);
   return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(i => i.key))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
 }
