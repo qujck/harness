@@ -629,7 +629,7 @@ def workqueue_json():
             stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
             for name in ("now", "next", "later", "parked", "done"):
                 items = q.get(name) if isinstance(q.get(name), list) else []
-                lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")),
+                lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")), "fix": text(i.get("fix")),
                                 "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
                                 "url": u if re.match(r"https?://", u) else "", "done": stamp(i.get("done"))}
                                for i in items[:100] if isinstance(i, dict)
@@ -3377,6 +3377,8 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .row{align-items:center;padding:1px 6px;gap:10px}
 .workq .row > a,.workq .key{flex:none;width:var(--wqk,5.5em);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
 .workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* under a Done ticket: in a few words what the fix did, so the stand-up can say it */
+.workq .fix{padding:0 6px 3px calc(5.5em + 22px);color:var(--fg);opacity:.85;font-size:.92em}
 .workq .note{margin-left:10px;color:var(--mute)}
 .workq .day{margin:8px 0 2px;padding:0 6px;background:none;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
 .workq .sect{margin-top:8px;padding:4px 0;border:1px solid var(--line2);border-radius:var(--r-m);background:linear-gradient(180deg,var(--card1),var(--card2))}   /* shaded as the Tabs view's agent cards */
@@ -5676,7 +5678,8 @@ function workQueueHtml(big) {
   if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
     `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}` +
-    (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>`;
+    (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>` +
+    (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : "");
   const list = (name, items) => {
     const k = (done ? "done:" : "work:") + name, fold = wqFolded().includes(k);
     return `<div class="sect${fold ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>` +
