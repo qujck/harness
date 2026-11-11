@@ -27,6 +27,7 @@
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
   /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, Parked, and Done, as the delivery lead keeps it
+  /api/tokens        the Token usage pane: each agent's tokens by day, this week and the two before (see "token usage")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
   POST /api/meeting/ID/say       {"text"} the owner's line, or meeting-say's {"as", "text", "handover"}
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
@@ -50,6 +51,7 @@ the name is refused like any other, so a tunnel route made before its Access log
 """
 import base64
 import calendar
+import datetime
 import glob
 import hashlib
 import html
@@ -568,6 +570,97 @@ def daylog_json():
     rows = [{**r, "by": roster_name.get(letters(r["by"]), r["by"]) if isinstance(r.get("by"), str) else r.get("by"), "text": spelled_screen(r["text"], names)} for r in data["rows"]]
     state = "failed" if _daylog["error"] else "reading" if _daylog["data"] is None else "ok"
     return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
+
+# ── token usage ─────────────────────────────────────────────────────────────────────────────────────────────────
+# The Token usage pane (owner, 2026-11-11): each agent's tokens by day, from every conversation whose name (its
+# customTitle, as restore-claude.sh reads it) is the agent's, with the messages it sent (SendMessage calls). Each API
+# response counts once, by its request id. Weighted is in input-token units at the API's relative prices (cache write
+# 1.25x, cache read 0.1x, output 5x), so agents and days compare on one number. Days are UTC, as the transcripts are,
+# from the Monday TOKENS_WEEKS - 1 weeks before this week's to today; the pane draws a box for each week.
+# Each file is read once and then only from where it was last read, in a thread every TOKENS_EVERY seconds, so the
+# first read of every transcript is the only slow one; files not written in the window are not read at all.
+TOKENS_WEEKS = 3   # this week and the two before it, Monday to Sunday
+TOKENS_EVERY = 60
+TOKEN_TITLE = re.compile(r'"customTitle":"/?([^"]*)"')
+_tokens = {"at": 0, "busy": False, "data": None, "files": {}}
+
+
+def token_file(path, size, known):
+    """A transcript's totals so far, read on from where `known` stopped: {title, off, seen, days: {day: [fresh in,
+    cache write, cache read, out, calls, sent]}}. A file that shrank is read again from the start."""
+    if not known or size < known["off"]:
+        known = {"title": "", "off": 0, "seen": set(), "days": {}}
+    with open(path, "rb") as f:
+        f.seek(known["off"])
+        data = f.read(size - known["off"])
+    end = data.rfind(b"\n") + 1   # a line still being written is read next time
+    for raw in data[:end].splitlines():
+        line = raw.decode("utf-8", "replace")
+        t = TOKEN_TITLE.findall(line)
+        if t:
+            known["title"] = t[-1]
+        if '"assistant"' not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        msg = e.get("message") or {}
+        if e.get("type") != "assistant" or not isinstance(msg, dict):
+            continue
+        d = known["days"].setdefault((e.get("timestamp") or "")[:10], [0] * 6)
+        d[5] += sum(1 for b in msg.get("content") or [] if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "SendMessage")
+        u, key = msg.get("usage"), e.get("requestId") or msg.get("id")
+        if not u or key in known["seen"]:
+            continue
+        known["seen"].add(key)
+        d[0] += u.get("input_tokens") or 0; d[1] += u.get("cache_creation_input_tokens") or 0
+        d[2] += u.get("cache_read_input_tokens") or 0; d[3] += u.get("output_tokens") or 0; d[4] += 1
+    known["off"] += end
+    return known
+
+
+def refresh_tokens():
+    try:
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first = today - datetime.timedelta(days=today.weekday() + 7 * (TOKENS_WEEKS - 1))
+        days = [(first + datetime.timedelta(days=i)).isoformat() for i in range((today - first).days + 1)]
+        start = time.time() - (len(days) + 1) * 86400
+        files = _tokens["files"]
+        for path in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if st.st_mtime < start or (path in files and files[path]["off"] == st.st_size):
+                continue
+            try:
+                files[path] = token_file(path, st.st_size, files.get(path))
+            except OSError:
+                pass
+        team = [r["name"] for r in roster()]
+        per = {n: {} for n in team}
+        for k in files.values():
+            if k["title"] in per:
+                for day, v in k["days"].items():
+                    if day >= days[0]:
+                        cell = per[k["title"]].setdefault(day, [0] * 6)
+                        for i in range(6):
+                            cell[i] += v[i]
+        weigh = lambda v: round(v[0] + 1.25 * v[1] + 0.1 * v[2] + 5 * v[3])
+        agents = [{"name": n, "days": {d: {"w": weigh(v), "calls": v[4], "sent": v[5], "in": v[0], "cw": v[1], "cr": v[2], "out": v[3]}
+                                       for d, v in per[n].items()}} for n in team if per[n]]
+        _tokens["data"] = {"days": days, "agents": agents}
+    finally:
+        _tokens.update(at=time.time(), busy=False)
+
+
+def tokens_json():
+    if not _tokens["busy"] and time.time() - _tokens["at"] > TOKENS_EVERY:
+        _tokens["busy"] = True
+        threading.Thread(target=refresh_tokens, daemon=True).start()
+    return json.dumps({**(_tokens["data"] or {"days": [], "agents": []}), "state": "ok" if _tokens["data"] else "reading"}).encode()
+
 
 
 # ── the work queue ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -2804,6 +2897,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, meetings_json(), "application/json")
         elif path == "/api/daylog":
             self.send(200, daylog_json(), "application/json")
+        elif path == "/api/tokens":
+            self.send(200, tokens_json(), "application/json")
         elif path == "/api/workqueue":
             self.send(200, workqueue_json(), "application/json")
         elif path == "/api/commands":
@@ -3394,6 +3489,15 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 #phone .workq .tx{white-space:normal;overflow:visible;overflow-wrap:anywhere}
 #phone .workq .tx code{white-space:normal;overflow-wrap:anywhere}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
+.teamlog[data-name="~tokens"]{background:var(--bg)}   /* the page's grey behind the week boxes, as the Work queue's */
+.tokens{overflow-x:auto;padding:0 6px 2px;font-size:calc(var(--t-s)*var(--fs,1))}
+.tokens table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.tokens th{font-weight:500;color:var(--mute);padding:2px 8px;text-align:right;line-height:1.2;white-space:nowrap}
+.tokens td{padding:3px 8px;text-align:right;white-space:nowrap;border-top:1px solid var(--line)}
+.tokens td:first-child{text-align:left;padding-left:0}
+.tokens .who{font-weight:650;padding:0 6px;border-radius:4px;background:var(--pc);color:var(--ownerfg);cursor:pointer}
+.tokens .tot,.tokens tr.tot td{font-weight:650;color:var(--text)}
+.tokens tr:hover td{background:var(--track)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 @media (max-width:600px){.workq .row > :is(.wh,.at){margin-left:auto}.workq .row > .wh{width:auto}.workq .row > .wh + .at{margin-left:0}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
@@ -5286,7 +5390,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team", workqueue: "Work queue"};   // in the Show menu in this order
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team", workqueue: "Work queue", tokens: "Token usage"};   // in the Show menu in this order
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5620,6 +5724,39 @@ function dayLogHtml() {
       : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
     : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
 }
+// The Token usage pane (owner, 2026-11-11): each agent's weighted tokens by day (see "token usage" on the server), in a
+// box for each week, newest first, as the Work queue's sections: an agent a row in its colour, Monday to Sunday the
+// columns, with each row's and each day's total. A cell's title has its calls, the messages it sent and the four token
+// counts. A week folds under its ^ as a Work queue section does (its key "tokens:<Monday>").
+let tokens = null;
+async function loadTokens() {
+  if (!leaves(layout().root).some(([, n]) => n.show === "tokens")) return;
+  try { tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); } catch (e) {}
+}
+function tokensHtml(big) {
+  const pane = body => `<div class="teamlog" data-name="~tokens"><div class="thead"><span>Token usage</span><span>weighted tokens a day, UTC days</span>${maxButton(big)}</div>${body}</div>`;
+  if (!tokens || (tokens.state === "reading" && !tokens.agents.length)) return pane(`<div class="blank">Reading the conversations…</div>`);
+  if (!tokens.agents.length) return pane(`<div class="blank">No tokens used in the last ${tokens.days.length} days</div>`);
+  const sum = (xs, f) => xs.reduce((t, x) => t + (f(x) || 0), 0), at = d => new Date(d + "T12:00:00Z");
+  const plus = (d, n) => { const t = at(d); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const label = (d, o) => at(d).toLocaleDateString("en-GB", {timeZone: "UTC", ...o});
+  const tip = (who, day, c) => c ? `${who}, ${label(day, {weekday: "short"})} ${at(day).getUTCDate()} ${label(day, {month: "short"})}: ${k(c.w)} weighted\n${c.calls} calls, ${c.sent} messages sent\nfresh in ${k(c.in)}, cache write ${k(c.cw)}, cache read ${k(c.cr)}, out ${k(c.out)}` : "";
+  const shownK = n => n ? k(n) : "";
+  const weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse();
+  const week = mon => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), them = tokens.agents.filter(a => days.some(d => a.days[d]));
+    const total = sum(them, a => sum(days, d => a.days[d]?.w)), key = "tokens:" + mon, fold = wqFolded().includes(key);
+    const head = `<tr><th></th>${days.map(d => `<th>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}<th>Total</th></tr>`;
+    const rows = them.map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
+      days.map(d => `<td title="${esc(tip(shown(a.name), d, a.days[d]))}">${shownK(a.days[d]?.w)}</td>`).join("") +
+      `<td class="tot" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(sum(days, d => a.days[d]?.w))}</td></tr>`).join("");
+    const foot = `<tr class="tot"><td>Total</td>${days.map(d => `<td>${shownK(sum(them, a => a.days[d]?.w))}</td>`).join("")}<td>${k(total)}</td></tr>`;
+    return `<div class="sect${fold ? " shut" : ""}"><div class="day">Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}<span class="n">${k(total)}</span>` +
+      `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show this week" : "Hide this week"}">${foldIcon(fold)}</b></div>` +
+      (fold ? "" : them.length ? `<div class="tokens"><table>${head}${rows}${foot}</table></div>` : `<div class="row none">No tokens used</div>`) + `</div>`;
+  };
+  return pane(`<div class="daylog workq">${weeks.map(week).join("")}</div>`);
+}
 // The Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it with
 // team/work-queue.py (see "the work queue" on the server), on a Doing tab, and what is Done on a second tab, split by
 // stand-up. Titles and notes are Markdown, as an agent's words are: `code`, **bold**, web addresses and document
@@ -5784,12 +5921,12 @@ const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
 const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
 const rolesBtn = (path, n) => filterBtn("roles", "roles:" + path, rolesOn(n), roleList().map(r => r.role), roleItems(), "");
-// A pane's tabs over its body while it has two or more, each a configuration of its own (see TAB_KEYS): the showing
+// A pane's tabs over its body while it has two or more, each a pane of its own (see keepTab), named by its title or else its type: the showing
 // one renamed by a click on it, any dragged along the strip or closed while the layout is unlocked.
 function paneTabs(n, locked) {
   const tabs = n.tabs || [];
   return tabs.length < 2 ? "" : `<div class="ctabs">${tabs.map((t, i) => { const sel = i === (n.tab || 0);
-    return `<span class="ctab${sel ? " sel" : ""}" data-i="${i}"${locked ? "" : ' draggable="true"'} title="${sel && !locked ? "Click to rename" : ""}"><span class="ctl">${esc(t.title || "Tab " + (i + 1))}</span>` +
+    return `<span class="ctab${sel ? " sel" : ""}" data-i="${i}"${locked ? "" : ' draggable="true"'} title="${sel && !locked ? "Click to rename" : ""}"><span class="ctl">${esc(t.title || PANE_TYPES[sel ? n.show : t.show] || "Tab " + (i + 1))}</span>` +
       `${locked ? "" : `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>`}</span>`; }).join("")}</div>`;
 }
 // The View menu: every view, Grid and Tabs among them, its kind's icon and its name, the showing one ticked. A click on
@@ -5919,6 +6056,8 @@ function customHtml(ceil, tabRow) {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
       body = dayLogHtml();
+    } else if (n.show === "tokens") {
+      body = tokensHtml(path === maxed);
     } else if (n.show === "workqueue") {
       body = workQueueHtml(path === maxed);
     } else if (n.show === "combined") {
@@ -5940,11 +6079,11 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "grid" || n.show === "tabs") {
       body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
     }
-    const tabbed = TABBED.includes(n.show);
+    const tabbed = !!n.show;
     const bar = pageLocked() ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
       <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue", "tokens"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
       ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : ""}
       ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
@@ -6088,7 +6227,7 @@ function combinedHtml(path, n, full, big) {
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue()]);
+  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
   await Promise.all(names.map(async name => {
@@ -6421,20 +6560,25 @@ function toPaneEnds(ends) {
   document.querySelectorAll(FEEDS + " .ago[data-ts]").forEach(s => { const t = since(s.dataset.ts); if (s.textContent !== t) s.textContent = t; });
   document.querySelectorAll(FEEDS).forEach(f => { if (ends.has(f.parentElement.closest("[data-name]").dataset.name) || !paneFeeds.has(f)) f.scrollTop = f.scrollHeight; paneFeeds.add(f); markEnd(f); });
 }
-// The panes that can hold tabs (n.tabs, n.tab the one showing): the showing tab's configuration lives on the pane
-// itself, where everything that draws the pane reads it; each tab's own is kept in n.tabs and swapped in when it is
-// picked. A Combined pane's tab keeps its roles, lanes, badge, view and chat, a Team pane's who it leaves out and its
-// view, a Grid's its roles and view.
-const TABBED = ["combined", "team", "grid"];
-const TAB_KEYS = ["roles", "clanes", "lanes", "badge", "view", "chat", "hide"];
+// Any pane can hold tabs (n.tabs, n.tab the one showing), each tab a pane of its own of any type (owner, 2026-11-11:
+// "a panel that is tabs and each tab is a panel"): the showing tab's pane lives on the pane itself, where everything
+// that draws it reads it, and each tab's is kept whole in n.tabs, with its title, and swapped in when it is picked. A
+// tab holds one pane, never tabs of its own, so tabs are never nested.
+const TAB_OWN = ["tabs", "tab"];
+const tabPane = t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== "title"));
 function keepTab(n) {
-  const t = n.tabs[n.tab || 0];
-  for (const k of TAB_KEYS) if (k in n) t[k] = n[k]; else delete t[k];
+  const t = n.tabs[n.tab || 0], title = t.title;
+  for (const k of Object.keys(t)) delete t[k];
+  Object.assign(t, title == null ? {} : {title}, Object.fromEntries(Object.entries(n).filter(([k]) => !TAB_OWN.includes(k))));
+}
+function showTab(n, i) {
+  for (const k of Object.keys(n)) if (!TAB_OWN.includes(k)) delete n[k];
+  Object.assign(n, tabPane(n.tabs[i]));
+  n.tab = i;
 }
 function toTab(n, i) {
   keepTab(n);
-  for (const k of TAB_KEYS) if (k in n.tabs[i]) n[k] = n.tabs[i][k]; else delete n[k];
-  n.tab = i;
+  showTab(n, i);
 }
 function moveTab(n, from, to) {
   keepTab(n);
@@ -6445,9 +6589,7 @@ function closeTab(n, i) {
   keepTab(n);
   const at = n.tab || 0;
   n.tabs.splice(i, 1);
-  const next = i < at ? at - 1 : Math.min(at, n.tabs.length - 1);
-  for (const k of TAB_KEYS) if (k in n.tabs[next]) n[k] = n.tabs[next][k]; else delete n[k];
-  n.tab = next;
+  showTab(n, i < at ? at - 1 : Math.min(at, n.tabs.length - 1));
   if (n.tabs.length < 2) { delete n.tabs; delete n.tab; }
 }
 function customClicks() {
@@ -6552,9 +6694,9 @@ function customClicks() {
   main.querySelectorAll(".pane .cadd").forEach(el => el.onclick = () => {
     const path = el.closest(".pane").dataset.path;
     tabbed(el, n => {
-      if (!n.tabs?.length) { n.tabs = [{title: "Tab 1"}]; n.tab = 0; }
+      if (!n.tabs?.length) { n.tabs = [{}]; n.tab = 0; }   // untitled, a tab is called by its pane's type
       keepTab(n);
-      const copy = {...n.tabs[n.tab || 0], title: "Tab " + (n.tabs.length + 1)}; delete copy.chat;
+      const copy = tabPane(n.tabs[n.tab || 0]); delete copy.chat;
       n.tabs.push(copy); toTab(n, n.tabs.length - 1);
     });
     rename($(`#main .pane[data-path="${path}"] .ctab.sel`));   // a new tab is named straight away
@@ -9547,6 +9689,21 @@ def self_test():
            'focusAgent(needing()[0]?.name)' in PAGE), (True, True, True))
         t("a plug-in's icon is kept, and one that is not a plain name is not",("icon" in plug_item({"icon": "cpu"}, "n"), "icon" in plug_item({"icon": "<svg>"}, "n")),
           (True, False))
+        tf = os.path.join(T, "tokens.jsonl")
+        line = lambda rid, ts, u, tools=(): json.dumps({"type": "assistant", "requestId": rid, "timestamp": ts,
+            "message": {"usage": u, "content": [{"type": "tool_use", "name": n} for n in tools]}}) + "\n"
+        with open(tf, "w") as f:
+            f.write('{"type":"custom-title","customTitle":"Ann"}\n' + line("r1", "2026-11-09T10:00:00Z", {"input_tokens": 1, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 100, "output_tokens": 2})
+                    + line("r1", "2026-11-09T10:00:01Z", {"input_tokens": 1, "output_tokens": 2}, ["SendMessage"]))
+        k1 = token_file(tf, os.path.getsize(tf), None)
+        with open(tf, "a") as f:
+            f.write(line("r2", "2026-11-10T09:00:00Z", {"output_tokens": 5}) + '{"type":"assistant","requestId":"r3"')
+        k2 = token_file(tf, os.path.getsize(tf), k1)
+        t("token usage: a response counts once by its request id, its messages sent count, and a file is read on from where it stopped",
+          (k1["title"], k1["days"]["2026-11-09"], k2["days"].get("2026-11-10"), k2["off"] < os.path.getsize(tf)),
+          ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
+        t("token usage: the pane draws a box per week and any pane's tabs hold a whole pane",
+          ('Week of ${label(mon' in PAGE, "tokens: \"Token usage\"" in PAGE, "const tabbed = !!n.show;" in PAGE, "function showTab(n, i)" in PAGE), (True, True, True, True))
     finally:
         for k in kids:
             k.kill()
