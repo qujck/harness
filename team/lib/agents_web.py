@@ -3582,6 +3582,13 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .tokens th.sort{cursor:pointer;color:var(--text)}
 .tokens th.sort.on::after{content:" ↓"}
 .tokens tr.tot td.over{color:var(--amber)}
+.tokens tr.opens{cursor:pointer}
+.tokens .chev{display:inline-block;margin:0 4px 0 5px;color:var(--text);font-size:1.6em;line-height:.6;vertical-align:-2px}
+.tokens .cnt{color:var(--mute);font-weight:400}
+.tokens tr.trole td:first-child{white-space:nowrap}
+.tokens tr.tperson td{color:var(--mute)}
+.tokens tr.tperson td:first-child{padding-left:2.2em}
+.tokens td.tot.share{background:linear-gradient(to left, color-mix(in srgb, var(--amber) 14%, transparent) var(--bar), transparent var(--bar));font-weight:400;color:var(--mute)}
 #tktip{position:fixed;z-index:50;pointer-events:none;padding:6px 9px;border-radius:var(--r-s);background:var(--box);border:1px solid var(--line2);box-shadow:0 4px 14px rgba(0,0,0,.35);
   color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));font-variant-numeric:tabular-nums;white-space:nowrap}
 #tktip .tth{color:var(--text);margin-bottom:4px}
@@ -5919,11 +5926,11 @@ function dayLogHtml(n) {
 // box for each week, newest first, as the Work queue's sections, under the role chips and a line with the last seven
 // days' total. A week folds under its ^ as a Work queue section does (its key "tokens:<Monday>"). The role chips sit in
 // the pane, locked or not, and narrow every layout; a role's name on a chart works as its chip.
-// - Table: an agent a row in its colour, Monday to Sunday the columns, with each row's and each day's total. A cell's
-//   title has its calls, the messages it sent and the four token counts; a day is shaded against the heaviest whole
-//   agent-day of every week shown, so weeks compare by eye, and today, a part day, is boxed and not shaded. Each total
-//   has a bar against the week's largest; the Total header sorts by it (n.tksort). A weekday in the Total row over a
-//   fifth of the weekly allowance, the daily pace, is amber.
+// - Table: a row per role, opening on its people, Monday to Sunday the columns, with each row's and each day's total.
+//   A person's cell's title has its calls, the messages it sent and the four token counts; days are shaded on one scale
+//   across every week shown, so weeks compare by eye, and today, a part day, is boxed and not shaded. The Total header
+//   sorts roles, and the people in each, by total (n.tksort). A weekday in the Total row over a fifth of the weekly
+//   allowance, the daily pace, is amber.
 // - Line graph (n.graph "line", owner, 2026-11-12): a line for each role in its colour, or, with roles picked, a line
 //   for each of their agents, told apart within a role by shade and dash. Every week shares one scale. The way into
 //   today, a part day, is dashed.
@@ -5999,20 +6006,38 @@ function tokensHtml(big, n, path) {
   const allowance = since && S?.week > 0 ? sum(tokens.agents, a => sum(tokens.days.filter(d => d >= since), d => w(a, d))) * 100 / S.week : null;
   const last7 = sum(agents, a => sum([0, 1, 2, 3, 4, 5, 6].map(i => plus(today, -i)), d => w(a, d)));
 
-  // the table
-  const whole = tokens.days.filter(d => d < today), shadeTop = Math.max(1, ...agents.flatMap(a => whole.map(d => w(a, d))));
+  // the table: a row per role, in the charts' order and colours, that opens on its people (n.tkopen, the roles open;
+  // one role picked alone is always open). A role of one names its person and does not open. Day cells are shaded
+  // against the heaviest whole day of every week shown, a role's among the roles and a person's among their role's
+  // people; a role's total has a bar against the week's largest role, a person's a paler one against their role's.
+  const groups = [...roleList().map(r => ({role: r.role, name: r.name, colour: r.colour, them: agents.filter(a => roleOf(a.name) === r.role)})),
+    {role: "", name: "Others", colour: "#888", them: agents.filter(a => !roleOf(a.name))}].filter(g => g.them.length);
+  const whole = tokens.days.filter(d => d < today), roleDay = (g, d) => sum(g.them, a => w(a, d));
+  const roleTop = Math.max(1, ...groups.flatMap(g => whole.map(d => roleDay(g, d))));
+  const peopleTop = new Map(groups.map(g => [g, Math.max(1, ...g.them.flatMap(a => whole.map(d => w(a, d))))]));
   const table = (days, them) => {
-    const now1 = d => d === today ? ' class="today"' : "", tot = a => sum(days, d => w(a, d)), most = Math.max(1, ...them.map(tot));
-    const shade = (d, v) => v && d !== today ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * Math.min(1, v / shadeTop))}%, transparent)"` : "";
-    const rows = (n?.tksort === "total" ? [...them].sort((p, q) => tot(q) - tot(p)) : them).map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
-      days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(d, w(a, d))}>${shownK(w(a, d))}</td>`).join("") +
-      `<td class="tot" style="--bar:${Math.round(100 * tot(a) / most)}%" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(tot(a))}</td></tr>`).join("");
+    const now1 = d => d === today ? ' class="today"' : "", tot = a => sum(days, d => w(a, d)), sorted = n?.tksort === "total";
+    const shade = (d, v, top) => v && d !== today ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * Math.min(1, v / top))}%, transparent)"` : "";
+    const gs = groups.map(g => ({...g, them: g.them.filter(a => them.includes(a))})).filter(g => g.them.length).map(g => ({...g, total: sum(g.them, tot)}));
+    const most = Math.max(1, ...gs.map(g => g.total)), alone = rolesPicked(n || {}).length === 1;
+    const rows = (sorted ? [...gs].sort((p, q) => q.total - p.total) : gs).map(g => {
+      const one = g.them.length === 1, open = !one && (alone || (n?.tkopen || []).includes(g.role));
+      const name = one ? `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span> · ${esc(shown(g.them[0].name))}`
+        : `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span><span class="chev">${open ? "▾" : "▸"}</span><span class="cnt">${g.them.length}</span>`;
+      const head = `<tr class="trole${one ? "" : " opens"}"${one || alone ? "" : ` data-tkrole="${esc(g.role)}" title="${open ? "Hide" : "Show"} the ${esc(g.name)}s"`}><td>${name}</td>` +
+        days.map(d => { const v = one ? w(g.them[0], d) : roleDay(g, d);
+          return `<td${now1(d)} title="${esc(one ? tip(shown(g.them[0].name), d, g.them[0].days[d]) : v ? `${g.name}, ${dayName(d)} ${label(d, {month: "short"})}: ${k(v)} weighted` : "")}"${shade(d, v, roleTop)}>${shownK(v)}</td>`; }).join("") +
+        `<td class="tot" style="--bar:${Math.round(100 * g.total / most)}%">${k(g.total)}</td></tr>`;
+      const people = open ? (sorted ? [...g.them].sort((p, q) => tot(q) - tot(p)) : g.them).map(a => `<tr class="tperson"><td>${esc(shown(a.name))}</td>` +
+        days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(d, w(a, d), peopleTop.get(groups.find(x => x.role === g.role)))}>${shownK(w(a, d))}</td>`).join("") +
+        `<td class="tot share" style="--bar:${Math.round(100 * tot(a) / Math.max(1, g.total))}%" title="${Math.round(100 * tot(a) / Math.max(1, g.total))}% of the ${esc(g.name)}s' total; ${sum(days, d => a.days[d]?.sent)} messages sent">${k(tot(a))}</td></tr>`).join("") : "";
+      return head + people; }).join("");
     // the daily pace: a fifth of the weekly allowance on each working day; a weekend day is never over it
     const dayTot = d => sum(them, a => w(a, d)), pace = allowance && allowance / 5;
     const foot = `<tr class="tot"><td>Total</td>${days.map(d => { const v = dayTot(d), over = pace && !weekend(d) && v > pace;
       return `<td class="${d === today ? "today" : ""}${over ? " over" : ""}"${over ? ` title="Over the daily pace by ${k(Math.round(v - pace))}"` : ""}>${shownK(v)}</td>`; }).join("")}<td>${k(sum(them, tot))}</td></tr>`;
     const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}` +
-      `<th class="sort${n?.tksort === "total" ? " on" : ""}" data-sort="total" title="${n?.tksort === "total" ? "Back to the usual order" : "Largest total first"}">Total</th></tr>`;
+      `<th class="sort${sorted ? " on" : ""}" data-sort="total" title="${sorted ? "Back to the usual order" : "Largest total first"}">Total</th></tr>`;
     return `<div class="tokens"><table>${head}${rows}${foot}</table></div>`;
   };
 
@@ -7048,6 +7073,12 @@ function customClicks() {
     const path = el.closest(".pane").dataset.path, k = el.dataset.kind;
     change(l => { const n = nodeAt(l.root, path), on = Array.isArray(n.kinds) ? n.kinds : [], next = !k ? [] : on.includes(k) ? on.filter(x => x !== k) : [...on, k];
       if (next.length) n.kinds = next; else delete n.kinds; });
+  });
+  // a role's row in the Token usage table opens on its people, or closes, and stays so (n.tkopen)
+  main.querySelectorAll(".tokens tr[data-tkrole]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path, r = el.dataset.tkrole;
+    change(l => { const n = nodeAt(l.root, path), on = n.tkopen || [], next = on.includes(r) ? on.filter(x => x !== r) : [...on, r];
+      if (next.length) n.tkopen = next; else delete n.tkopen; });
   });
   main.querySelectorAll(".tokens th[data-sort]").forEach(el => el.onclick = () => {
     const path = el.closest(".pane").dataset.path;
@@ -10184,9 +10215,10 @@ def self_test():
         t("token usage: a response counts once by its request id, its messages sent count, and a file is read on from where it stopped",
           (k1["title"], k1["days"]["2026-11-09"], k2["days"].get("2026-11-10"), k2["off"] < os.path.getsize(tf)),
           ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
-        t("token usage: the pane draws a box per week as a table, stacked chart or line graph, with its own role chips and a snapping tooltip, and any pane's tabs hold a whole pane",
+        t("token usage: the pane draws a box per week as a table of roles opening on their people, a stacked chart or a line graph, with its own role chips and a snapping tooltip, and any pane's tabs hold a whole pane",
           ('Week of ${dayName(mon)}' in PAGE, '[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]]' in PAGE, '<div class="tkchips pown">' in PAGE,
-           "function tkHover(svg, e)" in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True,) * 6)
+           "function tkHover(svg, e)" in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE,
+           '<tr class="trole${one ? "" : " opens"}"' in PAGE, 'main.querySelectorAll(".tokens tr[data-tkrole]")' in PAGE), (True,) * 8)
         t("the test reviewer: a standing role in the Reviewer section, after the code reviewer, carrying the reviewer's glasses and pen",
           (ROLES["test-reviewer"][:3], "testrev" in STANDING, '"review", "testrev", "process", "pa"]' in PAGE, "PROPS.testrev = PROPS.review;" in PAGE),
           (("testrev", "Test Reviewer", "Reviewer"), True, True, True))
