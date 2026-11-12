@@ -17,6 +17,11 @@
 # the project's checkout (<parent>/<name, lower case>), in a tmux session of its own name. It has no launch line and no
 # identity: it sets its address on each commit, so it is known to be running by the folder its process runs in.
 #
+# A standing agent's model is its role's AGENTS_MODEL_<ROLE> in ~/.claude/agents.env (TEAM_START_MODELS), the role
+# upper-cased with - as _ (process-improvement -> AGENTS_MODEL_PROCESS_IMPROVEMENT); with none set there, no --model,
+# so Claude Code's own default ("model" in settings.json) applies. A /model in a running session lasts only until
+# it is restarted: put it here for the agent to keep it.
+#
 #   TEAM_START_DRY=1          print each command instead of starting it
 #   TEAM_START_PROJECT=<dir>  the project's checkout (default: the one ROSTER_FILE is in)
 set -uo pipefail
@@ -55,6 +60,19 @@ running_in() {
 [ -n "${TEAM_START_RUNNING:-}" ] && {
   running() { [[ " $TEAM_START_RUNNING " == *" $1 "* ]]; }
   running_in() { [[ " $TEAM_START_RUNNING " == *" $1 "* ]]; }
+}
+
+# role_model <role>: " --model <m>" from AGENTS_MODEL_<ROLE> in the models file, or nothing. The file is read, never
+# sourced, and a value that is not a plain model name is refused, since it goes into a shell command line.
+models="${TEAM_START_MODELS:-$HOME/.claude/agents.env}"
+role_model() {
+  local key m
+  key="AGENTS_MODEL_$(tr 'a-z-' 'A-Z_' <<<"$1")"
+  m="$(sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\?$key=//p" "$models" 2>/dev/null | tail -1)"
+  m="${m%"${m##*[![:space:]]}"}"; m="${m#[\"\']}"; m="${m%[\"\']}"
+  [ -n "$m" ] || return 0
+  [[ $m =~ ^[A-Za-z0-9._:-]+(\[[A-Za-z0-9]+\])?$ ]] || { echo "team-start: $key='$m' in $models is not a model name; starting on the default" >&2; return 0; }
+  printf ' --model %s' "$m"
 }
 
 # resume_flag <tree>: --continue when this folder has a conversation to resume
@@ -101,7 +119,7 @@ start_one() {
   # resume its newest conversation in that tree, when it has one
   cont="$(resume_flag "$tree")"
   session="${HARNESS_PROJECT:-$(basename "$project")}-${name,,}"
-  launch "$name" "$session" "$line --name $name$cont --remote-control $session" "$line"
+  launch "$name" "$session" "$line$(role_model "$role") --name $name$cont --remote-control $session" "$line"
 }
 
 selftest() {
@@ -141,6 +159,16 @@ J
   env "${env[@]}" bash "$_here/team-start.sh" --only Nobody >/dev/null 2>&1; check "a name off the roster is refused" "$?" 1
   out=$(env "${env[@]}" bash "$_here/team-start.sh" 2>&1); rc=$?
   check "the whole team is every active standing agent, and no assistant" "$rc:$(grep -c 'would start' <<<"$out"):$(grep -c 'Ada\|Old\|Max' <<<"$out")" "0:2:0"
+  out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Vi 2>&1)
+  check "with no models file, no --model, so the default applies" "$(grep -c -- '--model' <<<"$out")" 0
+  printf '# models\nAGENTS_MODEL_HEAD_OF_TESTING=claude-fable-5-2\nexport AGENTS_MODEL_DELIVERY_LEAD="opus[1m]"\nAGENTS_MODEL_NOBODY=x;rm\n' > "$T/agents.env"
+  out=$(env "${env[@]}" TEAM_START_MODELS="$T/agents.env" bash "$_here/team-start.sh" --only Vi 2>&1)
+  check "a role with a model set starts on it" "$(grep -c -- 'claude --model claude-fable-5-2 --name Vi --remote-control proj-vi' <<<"$out")" 1
+  out=$(env "${env[@]}" TEAM_START_MODELS="$T/agents.env" bash "$_here/team-start.sh" --only Lea 2>&1)
+  check "  quoted and exported values are read too" "$(grep -cF -- 'claude --model opus[1m] --name Lea' <<<"$out")" 1
+  printf 'AGENTS_MODEL_DELIVERY_LEAD=opus;touch %s/pwned\n' "$T" > "$T/agents.env"
+  out=$(env "${env[@]}" TEAM_START_MODELS="$T/agents.env" bash "$_here/team-start.sh" --only Lea 2>&1); rc=$?
+  check "  a value that is not a model name is refused, and the agent starts on the default" "$rc:$(grep -c 'not a model name' <<<"$out"):$(grep -c -- '--model' <<<"$out")" "0:1:0"
   bash "$_here/team-start.sh" --only >/dev/null 2>&1; check "--only needs a name" "$?" 2
   bash "$_here/team-start.sh" --sole Ada >/dev/null 2>&1; check "an unknown argument is refused" "$?" 2
   [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; return 1; }
