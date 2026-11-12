@@ -2,7 +2,7 @@
 """Week: the account's weekly use against the budget, a bar item for the team page (team/lib/agents_web.py runs it
 with the page's numbers on its input). Green on the plan, amber while the week's contingency is being spent, red past
 an even share of the whole allowance. While a development day is open (team/agents-day-budget.sh), the day instead:
-"Week: 70% - Day: 12%", marked where the week stood when the day started plus its share, amber with 1% of it left, red once spent past it.
+"70% used · Day: 12%", marked where the week stood when the day started plus its share, amber with 1% of it left, red once spent past it.
 On a verification day the share is only a reading: nothing stops at it, so it never turns amber or red.
 Between days that counts as a day whose share is what the week's plan has grown by
 since it began (team/agents-day-budget.sh)."""
@@ -22,11 +22,13 @@ c = "amber" if spare or last else "red" if over else "green"
 if w is None:
     value, title = ["no reading"], "No reading of the account's week yet"
 elif dy:
-    value = [{"text": f"{w}%", "colour": c, "bold": True}, " - Day: ", {"text": f"{dy['used']}%", "colour": c, "bold": True}]
+    value = [{"text": f"{w}%", "colour": c, "bold": True}, " used", {"text": " · Day: ", "drop": True}, {"text": f"{dy['used']}%", "colour": c, "bold": True, "drop": True}]
     title = (f"The verification day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%); nothing stops at it" if nostop
              else f"The day has used {dy['used']} of its {dy['quota']}% (the week from {dy['from']}%, so it stops past {p}%)")
 else:
-    value = [{"text": f"{w}%", "colour": c, "bold": True}] + ([f" of {p}% planned"] if p is not None else [])
-    title = "The account's week against the budget (team/agents-budget.sh)"
-print(json.dumps({"place": "header", "label": "Week", "value": value, "title": title, "every": 5,
+    gap = None if p is None else round(w - p)
+    plan = "" if gap is None else " · on plan" if gap == 0 else f" · {abs(gap)}% {'over' if gap > 0 else 'under'}"
+    value = [{"text": f"{w}%", "colour": c, "bold": True}, " used"] + ([{"text": plan, "drop": True}] if plan else [])
+    title = f"The account's week against the budget (team/agents-budget.sh): {w}% of the weekly allowance used" + (f", {p}% planned by now" if p is not None else "")
+print(json.dumps({"place": "header", "label": "", "name": "Week", "value": value, "title": title, "every": 5,
                   "meter": {"pct": w or 0, "mark": p, "colour": c if over or last else ""}}))
