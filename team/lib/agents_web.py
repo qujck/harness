@@ -143,6 +143,12 @@ TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
 # "Lead, Devs, Testers, Reviewer, Test Lead, Support, Improvement, Assistant"); any other role before the assistants.
 ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3, "head-of-testing": 4,
              "production-support": 5, "head-of-operations": 5, "process-improvement": 6, "assistant": 9}
+# The Token usage pane's order (owner, 2026-11-12): the SMT (the delivery lead and the chiefs: testing, operations,
+# process improvement), then developers, testers, reviewers, the assistant; by name within each. Any other role
+# goes before the assistant.
+TOKEN_RANK = {"delivery-lead": 0, "head-of-testing": 0, "production-support": 0, "head-of-operations": 0,
+              "process-improvement": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3,
+              "assistant": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
              "purple": 141, "orange": 209}
@@ -639,7 +645,8 @@ def refresh_tokens():
                 files[path] = token_file(path, st.st_size, files.get(path))
             except OSError:
                 pass
-        team = [r["name"] for r in roster()]
+        # By role, then name (owner, 2026-11-12: "the SMT, then devs, tests, reviewers, assistant").
+        team = [r["name"] for r in sorted(roster(), key=lambda r: (TOKEN_RANK.get(r["role"], 5), r["name"].casefold()))]
         per = {n: {} for n in team}
         for k in files.values():
             if k["title"] in per:
