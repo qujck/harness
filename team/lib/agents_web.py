@@ -5963,8 +5963,9 @@ function workQueueHtml(big, n) {
   const isToday = t => new Date(t * 1000).toDateString() === new Date().toDateString();
   const when = q.at ? (isToday(q.at) ? hhmm(q.at) : dayLogAt(q.at)) : "";
   const head = (when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "") + (n?.owner ? ` · only ${shown(n.owner)}'s: click the badge again for everyone's` : "");
-  // a pane can be narrowed to one owner (n.owner) by a click on their badge, and a second click widens it again
-  const owner = n?.owner, mine = items => items.filter(i => byRoles(n, i.who) && (!owner || i.who === owner));
+  // a pane can be narrowed to one owner (n.owner) by a click on their badge, and a second click widens it again. Role
+  // chips narrow it to the picked roles' items, but work no agent owns (unassigned, or the owner's) always stays.
+  const owner = n?.owner, mine = items => items.filter(i => (!roleOf(i.who) || byRoles(n, i.who)) && (!owner || i.who === owner));
   const shownLists = (done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]).map(([name, items]) => [name, mine(items)]);
   if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
