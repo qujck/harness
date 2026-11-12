@@ -1,29 +1,18 @@
 #!/usr/bin/env bash
-# Claude Code status line — model letter · cwd · context gauge · weekly-limit gauge.
+# Claude Code status line — trimmed to the agent's name and activity (owner, 2026-11-12: "I no longer use the
+# terminal"; it ran every 5 s in every session, 0.7-2 s and ~0.9 CPU-s a run, mostly walking every process for
+# gates). Its real job is the publish at the end: each session's context, activity and limits, which the team
+# page reads. The bars, the gate row and the CI-watch row went; git history has them.
 #
-# Layout:  O  ~/dev/strength ⑂wt   ctx ██░░░░░░░░ 93%   wk █████████░ 9%
-#
-# Both bars read the SAME way: filled segments = consumed, the number = REMAINING,
-# and the colour goes green → amber → red as that remaining figure shrinks. So a
-# short green bar is healthy and a long red one means you are nearly out.
-#   ctx = this session's context window (compact when it reddens)
-#   wk  = the 7-day all-models rate limit (nothing to do but wait when it reddens)
+# Layout:  Opus 5.5 1M  boozer  ● working
 # Fed a JSON blob on stdin (see: code.claude.com/docs/en/statusline.md).
 
 in=$(cat)
 
 if command -v jq >/dev/null 2>&1; then
-  mid=$(jq -r '.model.id // ""' <<<"$in")
-  mname=$(jq -r '.model.display_name // ""' <<<"$in")
-  dir=$(jq -r '.workspace.current_dir // .cwd // ""' <<<"$in")
-  rem=$(jq -r '.context_window.remaining_percentage // empty' <<<"$in")
-  branch=$(jq -r '.workspace.git_worktree // empty' <<<"$in")
-  wkused=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<<"$in")
-  cwsize=$(jq -r '.context_window.context_window_size // empty' <<<"$in")
-  sid=$(jq -r '.session_id // empty' <<<"$in")
-  tpath=$(jq -r '.transcript_path // empty' <<<"$in")
+  eval "$(jq -r '@sh "mid=\(.model.id // "") mname=\(.model.display_name // "") dir=\(.workspace.current_dir // .cwd // "") rem=\(.context_window.remaining_percentage // "") cwsize=\(.context_window.context_window_size // "") sid=\(.session_id // "") tpath=\(.transcript_path // "")"' <<<"$in")"
 else
-  mid=""; mname=""; dir="$PWD"; rem=""; branch=""; wkused=""; cwsize=""; sid=""; tpath=""
+  mid=""; mname=""; dir="$PWD"; rem=""; cwsize=""; sid=""; tpath=""
 fi
 
 # ── model → "<family> <version>" ──────────────────────────────────────────────
@@ -99,37 +88,7 @@ if [ -n "$cw" ] && { [ "$cw" -gt 200000 ] || [ -n "${capped:-}" ]; } 2>/dev/null
 fi
 
 rawdir=$dir          # keep the real path — .agent/ lookups below need it
-dir=${dir/#$HOME/\~}
-
-r=$'\033[0m'; dim=$'\033[2m'; cyan=$'\033[36m'
-
-# gauge <remaining-%> -> "<bar> <n>%" coloured by how much is left.
-gauge() {
-  local left=$1 used fill i bar c
-  left=${left%.*}; left=${left:-100}
-  [ "$left" -gt 100 ] 2>/dev/null && left=100
-  [ "$left" -lt 0 ]   2>/dev/null && left=0
-  used=$(( 100 - left ))
-
-  fill=$(( (used + 5) / 10 )); [ "$fill" -gt 10 ] && fill=10; [ "$fill" -lt 0 ] && fill=0
-  bar=""; for ((i = 0; i < 10; i++)); do [ "$i" -lt "$fill" ] && bar+="█" || bar+="░"; done
-
-  if   [ "$left" -le 15 ]; then c=$'\033[31m'   # red   — nearly out
-  elif [ "$left" -le 30 ]; then c=$'\033[33m'   # amber — getting tight
-  else                         c=$'\033[32m'; fi # green — healthy
-
-  printf '%s%s %s%%%s' "$c" "$bar" "$left" "$r"
-}
-
-ctx=$(gauge "${rem:-100}")
-
-wt=""; [ -n "$branch" ] && wt=" ${dim}⑂${branch}${r}"
-
-# The weekly gauge only appears when the payload carries the rate-limit block.
-wk=""
-if [ -n "$wkused" ]; then
-  wk=$(printf '  %swk%s %s' "$dim" "$r" "$(gauge $(( 100 - ${wkused%.*} )) )")
-fi
+r=$'\033[0m'; dim=$'\033[2m'
 
 # ── who this session is ──────────────────────────────────────────────────────
 # One script is shared by every session, but each session runs its OWN copy
@@ -239,124 +198,6 @@ if [ -z "$me" ] && [ -n "$sid" ]; then
   printf '%s\n' "$sid" > "$HOME/.claude/agent-names/.unnamed-$sid" 2>/dev/null
 fi
 
-# A SESSION WITH NO NAME DEGRADES HONESTLY: it lists every gate, each tagged
-# with its worktree, exactly as before this scoping existed. It does NOT guess.
-#
-# Process ancestry was tried here and removed. It is the obvious idea — a gate
-# you launched is a descendant of your `claude` — and it is unreliable in both
-# directions: one of three live gates had already been reparented to init and
-# had no chain to walk, and a backgrounded gate's own bash proved awkward to
-# match at all. An indicator whose whole job is answering "is MY run alive?"
-# cannot be built on a check that quietly says no. Naming the worktree costs one
-# file and is exact; guessing badly is worse than not guessing.
-
-# ── background gates ─────────────────────────────────────────────────────────
-# A long-running gate, while it is alive, so a silent session is visibly
-# distinguishable from a stopped one — the thing you cannot otherwise tell.
-# ABSENT means nothing is running: that is the signal, not a rendering gap.
-#
-# Free, and that is the whole point: the status line renders locally and never
-# enters the model's context, so watching a gate this way costs no tokens.
-#
-# ONLY THIS SESSION'S GATE IS NAMED. An earlier cut listed all of them, which in
-# four windows meant four identical lists and left the one question — is MINE
-# still going? — no easier to answer than before. Other agents' runs collapse to
-# a dim count, kept ONLY because contention changes how a red result reads:
-# verify.sh warns when it was contended, and this is where you see that coming.
-#
-# ONE GATE, not one per process. A single verify matches several times over (its
-# wrapper shell, the script, and the e2e/UI gates it invokes in turn), so the
-# longest-lived match wins — which picks the OUTERMOST gate for free, since the
-# wrapping verify has by definition been alive longer than anything it spawned.
-job=""; mine=""; unnamed=""
-for pat in verify.sh e2e.sh acceptance-ui.sh; do
-  for pid in $(pgrep -f "scripts/$pat" 2>/dev/null); do
-    # THE SCRIPT MUST BE AN ARGUMENT, NOT A MENTION. `pgrep -f` matches the whole
-    # command line, so a `bash -c '... scripts/e2e.sh ...'` wrapper — which is how
-    # every agent-issued command is shaped — counted as a live gate. Caught in
-    # testing: the bar showed `⏳ e2e 0m00s` for a run that had not started yet.
-    # A phantom "still working" is the exact lie this indicator exists to prevent,
-    # so require the script to appear as its own argv entry and reject any `-c`.
-    # `cat |` rather than `< file`, because a gate can EXIT between pgrep and this
-    # read: a failed `<` redirect is the SHELL's error and escapes tr's 2>/dev/null,
-    # leaking "No such file or directory" into the bar. Observed, not theorised.
-    argv=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' '\n')
-    printf '%s\n' "$argv" | /usr/bin/grep -qx -- '-c' && continue
-    printf '%s\n' "$argv" | /usr/bin/grep -qE "(^|/)scripts/$pat$" || continue
-    gdir=$(readlink "/proc/$pid/cwd" 2>/dev/null)
-    [ -n "$gdir" ] || continue
-    gname=$(cat "$gdir/.agent/name" 2>/dev/null)
-    secs=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
-    [ -n "$secs" ] || continue
-
-    if [ -z "$me" ]; then
-      # No name for this session — list everything, tagged, and claim nothing.
-      unnamed="$unnamed${pat%.sh} $(basename "$gdir") $secs"$'\n'
-    elif [ -n "$gname" ] && [ "${gname,,}" = "${me,,}" ]; then
-      mine="$mine${pat%.sh} $secs"$'\n'
-    fi
-    # Anything else belongs to another agent and is not shown. An earlier cut
-    # added a dim "N others on the box" for reading a contended result; the owner
-    # does not want it (2026-07-31). Neighbours' load stays out of this bar.
-  done
-done
-
-# ── CI runs being waited on ──────────────────────────────────────────────────
-# Same idea as the gates above, for the OTHER thing a session sits waiting on:
-# a `gh run watch <id>` following a run on the self-hosted runner (a PR verify,
-# the merge canary, the nightly). The watcher is a real process launched from
-# the agent's worktree, so the same scoping works: cwd → .agent/name → mine.
-# The run id is shown in full — it is what you paste into `gh run view`.
-#
-# The `-c` rejection matters doubly here: agent-issued watchers are wrapped in
-# `bash -c 'cd <worktree> && gh run watch …'`, so the wrapper MENTIONS the
-# command while the child gh process carries it as real argv. Rejecting -c keeps
-# the wrapper out and the child in — one entry per watched run, deduped below.
-for pid in $(pgrep -f 'gh run watch' 2>/dev/null); do
-  argv=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' '\n')
-  printf '%s\n' "$argv" | /usr/bin/grep -qx -- '-c' && continue
-  # Must be gh itself with `run watch <id>` as its own argv entries.
-  printf '%s\n' "$argv" | head -1 | /usr/bin/grep -qE '(^|/)gh$' || continue
-  printf '%s\n' "$argv" | /usr/bin/grep -qx 'watch' || continue
-  rid=$(printf '%s\n' "$argv" | /usr/bin/grep -m1 -xE '[0-9]{6,}')
-  [ -n "$rid" ] || continue
-  gdir=$(readlink "/proc/$pid/cwd" 2>/dev/null)
-  [ -n "$gdir" ] || continue
-  gname=$(cat "$gdir/.agent/name" 2>/dev/null)
-  secs=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
-  [ -n "$secs" ] || continue
-  if [ -z "$me" ]; then
-    unnamed="$unnamed""ci:$rid $(basename "$gdir") $secs"$'\n'
-  elif [ -n "$gname" ] && [ "${gname,,}" = "${me,,}" ]; then
-    mine="$mine""ci:$rid $secs"$'\n'
-  fi
-done
-
-# EVERY gate of MINE, one entry per script, longest-lived first. Not collapsed to
-# a single line, because a verify SPAWNS the others — so "verify 5m12s ·
-# acceptance-ui 0m48s" says both that it is alive and which stage it reached.
-# Deduped by script name, since one run matches as several processes.
-if [ -n "$mine" ]; then
-  while read -r jpat jsecs; do
-    [ -n "$jpat" ] || continue
-    printf -v seg '\033[33m⏳ %s %dm%02ds\033[0m  ' "$jpat" $(( jsecs / 60 )) $(( jsecs % 60 ))
-    job+="$seg"
-  done < <(printf '%s' "$mine" | awk 'NF { if ($2+0 > m[$1]) m[$1]=$2+0 }
-                                       END { for (k in m) print k, m[k] }' | sort -k2 -nr)
-fi
-
-# Unnamed session: one row per worktree, longest-lived match wins.
-if [ -z "$me" ] && [ -n "$unnamed" ]; then
-  n=0
-  while read -r jpat jdir jsecs; do
-    [ -n "$jpat" ] || continue
-    n=$(( n + 1 )); [ "$n" -le 3 ] || continue
-    printf -v seg '\033[33m⏳ %s %s %dm%02ds\033[0m  ' \
-      "$jpat" "$jdir" $(( jsecs / 60 )) $(( jsecs % 60 ))
-    job+="$seg"
-  done < <(printf '%s' "$unnamed" | awk 'NF { if ($3+0 > m[$2]) { m[$2]=$3+0; p[$2]=$1 } }
-                                          END { for (k in m) print p[k], k, m[k] }' | sort -k2)
-fi
 
 # ── is this agent WORKING right now? ─────────────────────────────────────────
 # (owner, 2026-09-28: pages typed into the input box pile up while an agent is busy, and clearing
@@ -439,31 +280,11 @@ if [ -n "$sid" ] && command -v jq >/dev/null 2>&1; then
   ) 2>/dev/null || true
 fi
 
-# THE NAME IS ALWAYS SHOWN, including when there isn't one. An agent can rename
-# itself mid-session, and the bar reading it live from .agent/name is the point:
-# it reflects what the agent currently calls itself, not what it was called at
-# startup. A session with no name says so rather than showing a blank, because
-# "unnamed" is itself worth seeing — init.sh requires a name, and gate scoping
-# below falls back to listing everyone's when there is none to match on.
+# The name always shows, "unnamed" when there is none: an agent can rename itself mid-session.
 if [ -n "$me" ]; then printf -v nm '  \033[35m%s\033[0m' "$me"
 else                  printf -v nm '  %sunnamed%s' "$dim" "$r"; fi
+printf '%s%s%s%s%s' "$dim" "$m" "$r" "$nm" "$act"
 
-printf '%s%s%s%s%s  %sctx%s %s%s  %s%s%s%s' \
-  "$dim" "$m" "$r" "$nm" "$act" "$dim" "$r" "$ctx" "$wk" "$cyan" "$dir" "$r" "$wt"
-
-# Gates get their OWN ROW, and only when one is running — so the bar stays a
-# single line at rest and grows a second only when there is something to report.
-# The extra row appearing is itself the signal. Docs note multi-line output with
-# escape codes is likelier to garble than single-line, which is the other reason
-# not to make this row permanent. No trailing newline: that would render a blank
-# row. (Requires statusLine.refreshInterval in settings.json — event-driven
-# updates go quiet exactly when the session is idle waiting on a gate, which is
-# the moment this is for.)
-[ -n "$job" ] && printf '\n%s' "${job%  }"
-
-# EXIT 0 EXPLICITLY, and never remove this. The line above is a bare `test &&`,
-# so with no gate running it evaluates false and becomes the script's exit
-# status — a non-zero status makes Claude Code render NOTHING, so the bar worked
-# only while a gate was alive and went blank the rest of the time. Any future
-# last-line conditional has the same trap; this makes it harmless.
+# EXIT 0 EXPLICITLY, and never remove this: a non-zero status makes Claude Code render NOTHING, and any
+# future last-line conditional would otherwise become the script's status.
 exit 0
