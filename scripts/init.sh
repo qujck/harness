@@ -112,6 +112,7 @@ echo "   Head of Testing      : docs/roles/head-of-testing.md      — what is t
 echo "   Process improvement  : docs/roles/process-improvement.md  — the pipeline, gates, runbooks; never product work"
 echo "   Code reviewer (opt.) : docs/roles/code-reviewer.md        — reviews every PR on the PR; fixes and merges nothing"
 echo "   Tester (opt.)        : docs/roles/tester.md               — one ticket: what is true about it; fixes nothing"
+echo "   Test reviewer (opt.) : docs/roles/test-reviewer.md        — reads every test plan and spec before its first run; runs nothing"
 echo "   Head of Ops (opt.)   : docs/roles/head-of-operations.md   — production, P1s, alerts, backups, the box; standing"
 echo "   Who holds which      : docs/roles/roster.md"
 

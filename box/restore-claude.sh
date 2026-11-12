@@ -124,7 +124,7 @@ columns() {
 # --- Delivery: worked out from the roster ---
 # delivery_slots -> the Delivery panes in column order (top, bottom, top, bottom, ...): the developers,
 # then the testers, then every other active agent not placed in Delivery Lead or Project, in roster
-# order, with the code reviewer always last: the bottom-right pane. Each group starts its own columns
+# order, with the reviewers last: the test reviewer, then the code reviewer in the bottom-right pane. Each group starts its own columns
 # and a group with an odd count ends on an empty slot "-", so developers and testers never share a
 # column. Empty columns, added before the last one, pad it to at least 8 panes; more agents means more
 # columns.
@@ -132,12 +132,13 @@ delivery_slots() {
   local g names out=() rev
   for g in developer tester other; do
     mapfile -t names < <(jq -r --arg g "$g" '.agents[]? | select(.status == "active")
-      | select(if $g == "other" then (.role | IN("developer", "tester", "delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "code-reviewer") | not)
+      | select(if $g == "other" then (.role | IN("developer", "tester", "delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "code-reviewer", "test-reviewer") | not)
                else .role == $g end) | .name' <<<"$ROSTER")
     if [ $g != other ] && [ $(( ${#names[@]} % 2 )) = 1 ]; then names+=(-); fi
     out+=("${names[@]}")
   done
-  mapfile -t rev < <(jq -r '.agents[]? | select(.status == "active" and .role == "code-reviewer") | .name' <<<"$ROSTER")
+  mapfile -t rev < <(jq -r '(.agents[]? | select(.status == "active" and .role == "test-reviewer") | .name),
+    (.agents[]? | select(.status == "active" and .role == "code-reviewer") | .name)' <<<"$ROSTER")
   # The reviewer(s) end the grid, the last one bottom right; a gap goes before them if needed.
   if [ $(( (${#out[@]} + ${#rev[@]}) % 2 )) = 1 ]; then out+=(-); fi
   out+=("${rev[@]}")

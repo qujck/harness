@@ -121,7 +121,7 @@ NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.pause
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
 STOPPED = os.environ.get("AGENTS_STOPPED") or os.path.join(STATE_DIR, "stopped")   # standing agents stopped one by one from the page, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
-STANDING = {"lead", "hot", "ops", "support", "review", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
+STANDING = {"lead", "hot", "ops", "support", "review", "testrev", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
 # (the three chiefs, owner 2026-10-31: Carl development, Vera test, Ed operations; production support is Ed's role until the roster renames it)
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
@@ -133,6 +133,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "tester": ("tester", "Tester", "Testers", "yellow"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
+         "test-reviewer": ("testrev", "Test Reviewer", "Reviewer", "purple"),
          "production-support": ("support", "Head of Operations", "Others", "orange"),   # Ed's title since 2026-10-31, until the roster renames the role
          "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),   # production support's colour, as Ed carries it over
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
@@ -140,7 +141,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
 TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
 # The order agents are listed in, by role, as the panel groups them (agents-dash.sh role_rank, owner 2026-10-26:
 # "Lead, Devs, Testers, Reviewer, Test Lead, Support, Improvement, Assistant"); any other role before the assistants.
-ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "head-of-testing": 4,
+ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3, "head-of-testing": 4,
              "production-support": 5, "head-of-operations": 5, "process-improvement": 6, "assistant": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
@@ -5525,7 +5526,7 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   splitcol: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 8h12"/>',
   tokens: '<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
-const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
+const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "testrev", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
 // before there were views starts with Grid, Tabs and its one layout (kept under "custom") as the view "Custom", on the
@@ -7399,6 +7400,7 @@ const PROPS = {
   pa: `<path d="M33 40 Q34 25 50 25 Q66 25 67 40 Q61 31 50 32 Q39 31 33 40 Z" class="p"/><path d="M38 64 L50 70 L38 76 Z M62 64 L50 70 L62 76 Z" class="p"/><circle cx="50" cy="70" r="3" class="p"/>`,
 };
 PROPS.ops = PROPS.support;   // the head of operations keeps production support's beacon (owner, 2026-11-01)
+PROPS.testrev = PROPS.review;   // a test reviewer reads, as the code reviewer does: the same glasses and pen
 function shadow(a) {
   const c = a.colour;
   const prop = (PROPS[a.role] || "").replace(/class="p"/g, `fill="${c}"`).replace(/class="k"/g, `fill="${c}" stroke="${c}" fill-opacity=".7"`)
@@ -8246,7 +8248,7 @@ function lastCompact(a) {
   const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
   return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
 }
-const STANDING_ROLES = new Set(["lead", "hot", "ops", "support", "review", "process", "pa"]);
+const STANDING_ROLES = new Set(["lead", "hot", "ops", "support", "review", "testrev", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
   if (anchor.closest?.(".meetrow")) return meetMenu(anchor, name, beside, rested);
@@ -10172,6 +10174,9 @@ def self_test():
         t("token usage: the pane draws a box per week as a table, stacked chart or line graph, with its own role chips and a snapping tooltip, and any pane's tabs hold a whole pane",
           ('Week of ${dayName(mon)}' in PAGE, '[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]]' in PAGE, '<div class="tkchips pown">' in PAGE,
            "function tkHover(svg, e)" in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True,) * 6)
+        t("the test reviewer: a standing role in the Reviewer section, after the code reviewer, carrying the reviewer's glasses and pen",
+          (ROLES["test-reviewer"][:3], "testrev" in STANDING, '"review", "testrev", "process", "pa"]' in PAGE, "PROPS.testrev = PROPS.review;" in PAGE),
+          (("testrev", "Test Reviewer", "Reviewer"), True, True, True))
         t("views: Gauges and Performance open as Machine, people views share the role chips, same-named tabs are numbered, and the Team pane draws",
           ('t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine";' in PAGE,
            'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];' in PAGE,

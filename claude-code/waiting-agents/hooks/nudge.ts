@@ -15,7 +15,7 @@ export const MAX_NUDGES = 2
 // The roles the nudger reports, by their roster ids, whoever is told. The delivery lead is never
 // reported; the head of testing defines what is true rather than working a ticket; assistants are not
 // on the team.
-export const NUDGE_ROLES: readonly string[] = ['developer', 'tester', 'code-reviewer', 'process-improvement']
+export const NUDGE_ROLES: readonly string[] = ['developer', 'tester', 'code-reviewer', 'test-reviewer', 'process-improvement']
 
 // Who the idle-team nudge goes to, from the one word in the `nudge-target` file beside the pause file.
 // The owner, 2026-10-31: "I'd like the nudger changed to either be nudging you or Vera or be off. No one

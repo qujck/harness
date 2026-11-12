@@ -33,6 +33,10 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
 - **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
   says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
   findings to the developer, and decide whether a finding holds the PR.
+- **The test reviewer's queue**, where the project has one. Pass the test reviewer each tester's plan, the
+  paths of its new and changed tests, the worktree and the head sha before the tester's first run on a
+  shared environment, and any request for an extra run; carry the `clear` or the findings back to the
+  tester. The test reviewer talks only to you.
 - **A red `main`.** One owner, ahead of everything: whoever reads it first owns it until a repair
   PR is armed ([../runbooks/main-is-red.md](../runbooks/main-is-red.md)). You make sure that
   owner exists and that nobody else is also fixing it.
@@ -87,7 +91,7 @@ lapses when the reason does** — when you find one, re-ask it rather than obeyi
 
 ## The size of the team: one agent per ticket, one ticket per agent
 
-You, the head of testing, process improvement and any code reviewer stay as you are. Developers and
+You, the head of testing, process improvement and any code or test reviewer stay as you are. Developers and
 testers come and go with the work: each is started for ONE ticket (its developer to build it, its
 tester once it is ready to test) and benched when that ticket's PR merges. The four steps ([roster.md](roster.md)):
 

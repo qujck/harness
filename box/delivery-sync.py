@@ -95,8 +95,8 @@ def slots(running, agents):
     for group in ("developer", "tester"):
         names = [n for n in order if role.get(n) == group]
         out += names + ([None] if len(names) % 2 else [])
-    out += [n for n in order if role.get(n) not in ("developer", "tester", "code-reviewer")]
-    rev = [n for n in order if role.get(n) == "code-reviewer"]
+    out += [n for n in order if role.get(n) not in ("developer", "tester", "code-reviewer", "test-reviewer")]
+    rev = [n for n in order if role.get(n) == "test-reviewer"] + [n for n in order if role.get(n) == "code-reviewer"]
     if (len(out) + len(rev)) % 2:
         out.append(None)
     out += rev

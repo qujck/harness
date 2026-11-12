@@ -22,9 +22,11 @@ doesn't ship one).*
 Four roles exist in every project that uses this harness, whatever the team size:
 [Delivery Lead / team lead](docs/roles/delivery-lead.md) · [Developer](docs/roles/developer.md) ·
 [Head of Testing](docs/roles/head-of-testing.md) · [Process improvement](docs/roles/process-improvement.md).
-Three optional roles join them where a project wants them: [Code reviewer](docs/roles/code-reviewer.md)
+Four optional roles join them where a project wants them: [Code reviewer](docs/roles/code-reviewer.md)
 (reviews every PR, on the PR, and talks only to the delivery lead), [Tester](docs/roles/tester.md)
-(started by the delivery lead for one ticket, and owns what is true about it) and
+(started by the delivery lead for one ticket, and owns what is true about it),
+[Test reviewer](docs/roles/test-reviewer.md) (reads every tester's plan and tests before their first run on
+a shared environment, runs nothing, and talks only to the delivery lead) and
 [Head of Operations](docs/roles/head-of-operations.md) (the released product, P1s, alerts, backups and
 the dev/test box; a standing chief beside the delivery lead and the head of testing). Who holds which is the [roster](docs/roles/roster.md). Each document says what you own and — the
 load-bearing half — what you must not touch. The rules below bind all four roles.
@@ -142,6 +144,10 @@ reviews every pull request once it is raised, posts its findings on the PR, and 
 delivery lead. No other agent messages the code reviewer: a developer who wants a review tells the
 delivery lead the PR is open, and the lead sends the reviewer the link. The reviewer answers only the
 delivery lead and forwards anything else there unanswered.
+
+**The test reviewer is reached the same way.** Where a project has one, a tester sends its plan and its
+new and changed tests to the delivery lead before their first run on a shared environment; the lead passes
+them to the test reviewer and brings the verdict back. The test reviewer answers only the delivery lead.
 
 **Developers and testers reach the owner through the delivery lead.** Don't put questions, approvals,
 review requests or status to the owner in your own pane. Send them to the delivery lead with
