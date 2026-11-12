@@ -3724,14 +3724,15 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top > .foldbtn + .lanes{margin-left:0}
 .card.folded > .row2,.card.folded > svg.spark{display:none}   /* folded: the name line alone, on every screen */
 .card .top{flex-wrap:wrap;row-gap:4px}
-/* in a pane, a card's name, role and ticket keep to one line; its fold and lanes show over the head's end on a rest */
+/* in a pane, a card's name, role, ticket, fold and lanes keep to one line, the role and ticket giving way first */
 .pane .card .top{position:relative;flex-wrap:nowrap;min-width:0}
 .pane .card .top .role{flex:0 20 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pane .card .top .name{flex:none}
 .pane .card .top .ticket{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pane .card .top > :last-child{flex:none;margin-left:auto}
-.pane .card .top .cctl{display:none}
-.pane .card:hover .top .cctl{position:absolute;right:34px;top:6px;z-index:3;display:flex;align-items:center;gap:6px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--box);box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.pane .card .top .foldbtn,.pane .card .top .lanes{align-self:center}
+.pane .card .top .foldbtn{margin-left:auto}   /* the fold and filter buttons together at the head's end, open or folded */
+.pane .card .top .foldbtn + .lanes{margin-left:0}
 .card .top .cctl{display:contents}
 .termseg b,.railseg b{padding:1px 5px;font-size:calc(var(--t-xs)*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
@@ -3952,16 +3953,16 @@ table.md th{background:var(--line);font-weight:650}
   .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
-  .card.full > .top > *,.card.full > .row2{grid-row:1;align-self:center}
+  .card.full > .top > *,.card.full > .top > .cctl > *,.card.full > .row2{grid-row:1;align-self:center}
   .card.full > .top > .name,.card.full > .top > .lead{grid-column:1;margin:10px 0 8px 12px}
   .card.full > .top > .role{grid-column:2}
   .card.full > .top > .ticket{grid-column:3;margin:0}
   .card.full > .top + .row2{grid-column:4;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top > .lanes{grid-column:8;align-self:start;margin:10px -8px 0 4px}
+  .card.full > .top .lanes{grid-column:8;align-self:start;margin:10px -8px 0 4px}
   .card.full > .top > .maxbtn{grid-column:9;align-self:start;margin:10px 10px 0 0;position:static}
-  .card.full > .top > .foldbtn{grid-column:7;align-self:start;margin:10px 0 0 4px}
+  .card.full > .top .foldbtn{grid-column:7;align-self:start;margin:10px 0 0 4px}
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
