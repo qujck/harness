@@ -366,7 +366,7 @@ process's CPU and memory:
   `xhigh` and `max` show in amber, as the two levels that spend the most tokens.
 - **The name in its role's colour**, black on the colour as Claude Code draws a name after `/color`:
   `AGENT_COLOUR_<ROLE>` in `harness.env`, defaulting to lead red, developer blue, tester yellow, head of testing
-  purple, code reviewer cyan, test reviewer magenta, head of operations orange, process improvement pink, assistant
+  purple, code reviewer cyan, test reviewer brown, head of operations orange, process improvement pink, assistant
   green. Besides Claude Code's eight `/color` names a role can take magenta, lime, teal, indigo, gold, brown, coral or
   grey (owner, 2026-11-12: "a few more colours"). A long wait turns the box amber.
 - **Free disk space** under the week bar, only for a path set in `AGENT_DISK_WATCH`: amber under 40G, red under
