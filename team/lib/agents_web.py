@@ -219,7 +219,9 @@ def spelled_screen(text, names):
     """Terminal text with each {name: spelling} written as spelled, where an agent means the person. A URL, a path and a
     name run into a longer word (strength-Ada, --to=Ada, Ada@host) are what a machine reads, so they keep the roster's."""
     for name, spelling in names.items():
-        hit = rf"https?://\S+|(?<![\w.])[~/]\S+|(?<![\w./=-]){re.escape(name)}(?![\w/@=-])"
+        # A name followed by a capitalised word is the start of a full name ("James O'Brian", "James Weaver"), so it
+        # stays as written: spelling it gave "Weaver O'Brian" (owner, 2026-11-12: "when I type James you see Weaver").
+        hit = rf"https?://\S+|(?<![\w.])[~/]\S+|(?<![\w./=-]){re.escape(name)}(?![\w/@=-])(?![ \t]+[A-Z])"
         text = re.sub(hit, lambda m, name=name, spelling=spelling: spelling if m.group(0) == name else m.group(0), text)
     return text
 
@@ -4686,7 +4688,7 @@ const DOC = /(^|[\s(>])((?:~|\/home|\/tmp\/claude-\d+)\/[^\s<>"'`()]+\.(?:md|mar
 // A name in an agent's words reads as the page spells it, on the page only: the words stored and sent are untouched,
 // and so is anything meant literally, which is `code`, a web address or a path.
 const spelled = html => Object.entries(S?.shownNames || {}).reduce((out, [name, as]) =>
-  out.replace(new RegExp("`[^`\\n]+`|\\bhttps?://\\S+|(?<![\\w.])[~/]\\S+|\\b" + name + "\\b", "g"), hit => hit === name ? esc(as) : hit), html);
+  out.replace(new RegExp("`[^`\\n]+`|\\bhttps?://\\S+|(?<![\\w.])[~/]\\S+|\\b" + name + "\\b(?![ \\t]+[A-Z])", "g"), hit => hit === name ? esc(as) : hit), html);
 const inline = s => spelled(esc(s))
   .replace(/^(#{1,6}) +(.+)$/gm, (_, h, t) => `<b class="h h${h.length}">${t}</b>`)
   .replace(/^(\s*)[-*] +/gm, "$1• ")
@@ -9194,7 +9196,8 @@ def self_test():
                             ("Ada, then Ada.", "A’da, then A’da."),
                             ("cd /home/me/Ada and ~/Ada", "cd /home/me/Ada and ~/Ada"),
                             ("see https://x.test/Ada now", "see https://x.test/Ada now"),
-                            ("strength-Ada Ada-x --to=Ada Ada@box Adam", "strength-Ada Ada-x --to=Ada Ada@box Adam")):
+                            ("strength-Ada Ada-x --to=Ada Ada@box Adam", "strength-Ada Ada-x --to=Ada Ada@box Adam"),
+                            ("Ada Tucker and Ada O'Brian, then Ada said", "Ada Tucker and Ada O'Brian, then A’da said")):
             t(f"screen: {words!r}", spelled_screen(words, shown_names()), want)
         t("screen: a coloured name is spelled, its colour kept", ansi_html("\x1b[1mAda\x1b[0m said", shown_names()),
           '<span style="font-weight:600">A’da</span> said')
