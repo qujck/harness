@@ -66,6 +66,12 @@ and tell the lead.
   **The split is yours.** You decide, for your ticket, what the developer's handover proves and what
   you attack. Where it is not obvious, say how you split it in your report before you start the attack,
   so the developer can see what they still own.
+- **Your plan, read before the first run,** where the project has a test reviewer
+  ([test-reviewer.md](test-reviewer.md)). Before your first run on a shared environment, send the delivery
+  lead your plan, the paths of your new and changed tests, your worktree and the head sha, and wait for the
+  verdict it brings back: `clear`, or findings you fix in your own tests. A run the plan did not name goes
+  the same way first, with the question it answers, which result would change your verdict and roughly how
+  long it takes.
 - **Reproductions.** A defect you find comes with the steps, the inputs and the output that show it,
   small enough for a developer to run unchanged.
 - **The record of the run.** What was run, on what, with what method, the exit code, and what the run

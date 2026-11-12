@@ -98,7 +98,7 @@ SPARK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
 roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER" | roster_grouped; }
 role_rank() {
   case "$1" in
-    delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; code-reviewer) echo 3 ;;
+    delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; code-reviewer|test-reviewer) echo 3 ;;
     head-of-testing) echo 4 ;; head-of-operations|production-support) echo 5 ;; process-improvement) echo 6 ;;
     assistant) echo 9 ;; *) echo 8 ;;
   esac
@@ -119,6 +119,7 @@ short_role() {
     head-of-testing) echo test ;;
     tester) echo tester ;;
     code-reviewer) echo review ;;
+    test-reviewer) echo testrev ;;
     process-improvement) echo process ;;
     head-of-operations) echo ops ;;
     production-support) echo support ;;
@@ -246,7 +247,7 @@ role_colour() {
   key=AGENT_COLOUR_${1^^}; key=${key//-/_}
   case "$1" in
     delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
-    code-reviewer) def=cyan ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
+    code-reviewer) def=cyan ;; test-reviewer) def=purple ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
     *) def="" ;;
   esac
   case "${!key-$def}" in
@@ -620,6 +621,7 @@ selftest() {
   t $'Carl\tdelivery-lead\tagent\nEd\tdeveloper\tagent\nIvy\tdeveloper\tagent\nTom\ttester\tagent\nBen\ttester\tagent\nStef\tcode-reviewer\tagent\nVera\thead-of-testing\tagent\nSup\tproduction-support\tagent\nRo\tprocess-improvement\tagent\nZed\tsome-new-role\tagent\nAda\tassistant\tassistant' \
     'roster: grouped lead, developers, testers, reviewer, head of testing, support, process, other; file order within a role; the assistant last' "$(ROSTER="$T/roster-grouped.json" roster)"
   t support 'short_role: production-support' "$(short_role production-support)"
+  t 'testrev 3 3' 'the test reviewer: its short label, ranked with the code reviewer' "$(short_role test-reviewer) $(role_rank test-reviewer) $(role_rank code-reviewer)"
   t '' 'roster_grouped: no rows in, none out' "$(printf '' | roster_grouped)"
   # The frames below read this small roster: Ed, Vera, Ben in file order IS the grouped order (dev, test, tester
   # is not: Ben the tester groups before Vera), so the frame arms also pin the grouping.

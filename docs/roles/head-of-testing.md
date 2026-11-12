@@ -86,7 +86,7 @@ lead off shift stays on the bench for the whole of the other's day.
 
 While the delivery lead has set the nudger to `testing` (`bash team/nudge-target.sh testing`), the
 `waiting-agents` mod nudges YOU, in your own session, instead of the lead: every five minutes it checks the
-developers, testers, code reviewer and process improvement, and when any have been idle for the quiet
+developers, testers, code and test reviewers and process improvement, and when any have been idle for the quiet
 threshold (15 minutes by default) it queues one prompt, e.g. `[Automated nudge 1 of 2 from the waiting-agents
 mod, not from the owner; it assigns nothing.] Team agents idle for 15 minutes or more: Tam, Ash. As head of
 testing, check each one and keep the team active.` The owner, 2026-10-31: "Vera should be managing the

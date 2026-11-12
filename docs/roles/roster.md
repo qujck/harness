@@ -17,6 +17,7 @@ is on:
 | `head-of-operations` *(optional)* | [head-of-operations.md](head-of-operations.md) | the released product and what it runs on: production reports, P1s, alerts, backups, the dev/test box; a standing chief with a release sign-off |
 | `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |
 | `code-reviewer` *(optional)* | [code-reviewer.md](code-reviewer.md) | a review of every PR, posted on the PR; talks only to the delivery lead |
+| `test-reviewer` *(optional)* | [test-reviewer.md](test-reviewer.md) | a read of every tester's plan and tests before their first run on a shared environment; runs nothing; talks only to the delivery lead |
 | `tester` *(optional)* | [tester.md](tester.md) | what is true about the one ticket it is started for; fixes nothing it finds |
 
 ## What a name IS comes from the session, not from a directory

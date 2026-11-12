@@ -235,8 +235,8 @@ roster_add() {
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_add: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
-    delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|tester) ;;
-    *) printf 'roster_add: unknown role %q — must be one of delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer, tester (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
+    delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|test-reviewer|tester) ;;
+    *) printf 'roster_add: unknown role %q — must be one of delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer, test-reviewer, tester (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
   esac
   if [[ "$full" == *[$'\t\n\r']* || ${#full} -gt 64 ]]; then
     printf 'roster_add: full name %q must be one line of at most 64 characters\n' "$full" >&2
@@ -319,8 +319,8 @@ roster_role() {
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_role: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
-    delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|tester) ;;
-    *) printf 'roster_role: unknown role %q — must be one of delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer, tester (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
+    delivery-lead|head-of-testing|head-of-operations|developer|process-improvement|code-reviewer|test-reviewer|tester) ;;
+    *) printf 'roster_role: unknown role %q — must be one of delivery-lead, head-of-testing, head-of-operations, developer, process-improvement, code-reviewer, test-reviewer, tester (they name docs/roles/<role>.md)\n' "$role" >&2; return 1 ;;
   esac
   roster_has_name "$name" || { printf 'roster_role: %q is not in the roster\n' "$name" >&2; return 1; }
   [[ "$(roster_lookup_status "$name")" == active ]] \
