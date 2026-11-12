@@ -6145,11 +6145,17 @@ async function loadWorkQueue() {
   if (!leaves(layout().root).some(([, n]) => n.show === "workqueue")) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
 }
-// The id column is as wide as the longest id, measured in the row's font, so every title starts in one column.
-const workQueueKeyW = keys => {
-  const c = dayLogCanvas ||= document.createElement("canvas").getContext("2d");
-  c.font = `${13 * (parseFloat(getComputedStyle(document.body).getPropertyValue("--fs")) || 1)}px ${getComputedStyle(document.body).fontFamily}`;
-  return Math.ceil(Math.max(60, ...keys.map(k => c.measureText(k).width))) + 2;
+// The id column shows an item's issue number, the "#N " its title starts with, and the title is drawn without it; an
+// item with none shows its key (the slug work-queue.py edits by), cut with an ellipsis, whole on hover and in a copy.
+const WQ_NUM = /^#(\d+)\s+/;
+const wqLabel = i => { const m = WQ_NUM.exec(i.title || ""); return m ? "#" + m[1] : i.key; };
+// The id column is as wide as the widest label, measured in the row's font, so every title starts in one column, but
+// never wider than WQ_KEY_MAX px (scaled with the font): a longer slug is cut there.
+const WQ_KEY_MAX = 90;
+const workQueueKeyW = labels => {
+  const c = dayLogCanvas ||= document.createElement("canvas").getContext("2d"), fs = parseFloat(getComputedStyle(document.body).getPropertyValue("--fs")) || 1;
+  c.font = `${13 * fs}px ${getComputedStyle(document.body).fontFamily}`;
+  return Math.ceil(Math.min(WQ_KEY_MAX * fs, Math.max(40, ...labels.map(k => c.measureText(k).width)))) + 2;
 };
 function workQueueHtml(big, n) {
   const q = workQueue;
@@ -6168,11 +6174,11 @@ function workQueueHtml(big, n) {
   const owner = n?.owner, mine = items => items.filter(i => (!roleOf(i.who) || byRoles(n, i.who)) && (!owner || i.who === owner));
   const shownLists = (done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]).map(([name, items]) => [name, mine(items)]);
   if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
-  const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
-    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>` +
+  const row = i => { const t = (i.title || "").replace(WQ_NUM, ""); return `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener" title="${esc(i.key)}">${esc(wqLabel(i))}</a>` : `<span class="key" title="${esc(i.key)}">${esc(wqLabel(i))}</span>`}` +
+    `<span class="tx" title="${esc(t + (i.note ? " — " + i.note : ""))}">${inline(t)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>` +
     (i.who ? `<span class="wqwho" data-owner="${esc(i.who)}" title="${owner ? "Show everyone's" : `Only ${esc(shown(i.who))}'s`}">${dayLogWho(i.who)}</span>` : `<span class="wh"><span class="who off unset">unassigned</span></span>`) +
     (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>` +
-    (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : "");
+    (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : ""); };
   const list = (name, items) => {
     const k = (done ? "done:" : "work:") + name, fold = wqFolded().includes(k);
     return `<div class="sect${fold ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>` +
@@ -6180,7 +6186,7 @@ function workQueueHtml(big, n) {
       (fold ? "" : items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
   };
   const all = shownLists.flatMap(([, items]) => items);
-  return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(i => i.key))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
+  return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(wqLabel))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
 }
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
