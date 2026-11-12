@@ -3438,6 +3438,36 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .pane.lifted{opacity:.55}
 .pane.drop{outline:2px dashed var(--cyan);outline-offset:-2px}
 .pbody{flex:1;min-height:0;display:flex;flex-direction:column}
+/* unlocked, a pane's tabs head its bar, and the showing tab's own settings are a row under them */
+.pbar > .ctabs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;min-width:0}
+.pbar > .ctabs .ctab{padding:3px 6px 3px 8px;border-radius:var(--r-s);border:1px solid transparent}
+.pbar > .ctabs .ctab.sel{background:var(--on);border-color:var(--line2)}
+.ctabs .cti{display:flex;opacity:.8}
+.ctabs .cti svg{width:13px;height:13px}
+.ctabs .cv{display:flex;padding:1px;margin-left:-2px;border-radius:3px;opacity:.6}
+.ctabs .cv:hover{opacity:1;background:var(--soft)}
+.ctabs .cv svg{width:11px;height:11px}
+.pbar .fbtn.cadd,.pbar .fbtn.pmore{padding:2px 4px}
+.pbar .fbtn.pmore{margin-left:auto}
+.pbar .pown{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:1px -10px -1px;padding:6px 10px 0;border-top:1px solid var(--line)}
+.pown .seg{margin-left:auto}
+.pown .chips{flex:1 1 0;min-width:0;display:flex;gap:4px;overflow:hidden}
+.chip{flex:none;display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--line2);border-radius:999px;font-weight:400;
+  font-size:calc(var(--t-s)*var(--fs,1));color:var(--mute);cursor:pointer;white-space:nowrap;user-select:none}
+.chip:hover{color:var(--text)}
+.chip.on{background:var(--on);color:var(--text);border-color:var(--mute)}
+.chip[hidden]{display:none}
+.chip .cdot{width:7px;height:7px;border-radius:50%}
+.blank .pchoose{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);cursor:pointer}
+.blank .pchoose svg{width:12px;height:12px}
+/* the view picker: the views in groups, each with its icon and a line on what it shows */
+#menu .mg{padding:7px 8px 3px;font-size:calc(var(--t-s)*var(--fs,1));color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+#menu .mg:not(:first-child){margin-top:3px;border-top:1px solid var(--line)}
+#menu .pvi{padding:4px 8px}
+#menu .pvico{display:flex}
+#menu .pvt{display:flex;flex-direction:column;flex:1;line-height:1.25}
+#menu .pvt b{font-weight:600}
+#menu .pvt small{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
 /* an agent picked in a Combined pane, a little inside it, over the Combined view greyed out behind */
 .pbody:has(> .paneover){position:relative}
 .paneover{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:18px;border-radius:0 0 var(--r-l) var(--r-l);
@@ -5390,7 +5420,34 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", daylog: "Day log", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Tabs", team: "Team", workqueue: "Work queue", tokens: "Token usage"};   // in the Show menu in this order
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", tokens: "Token usage"};
+// The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
+const PANE_GROUPS = [
+  ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
+    ["tabs", "One agent at a time, picked from a row"], ["characters", "The agents as portrait tiles"], ["team", "The messages between agents"],
+    ["combined", "Several agents' conversations as one feed"]]],
+  ["Work", [["workqueue", "Doing and Done, a box per section"], ["daylog", "What happened, day by day"], ["meeting", "A meeting with the agents invited"],
+    ["file", "One document, by its path"]]],
+  ["Metrics", [["gauges", "The machine's gauges at a glance"], ["perf", "The machine's figures, row by row"], ["tokens", "Tokens each agent used, a box per week"]]],
+];
+const PANE_ICON = Object.fromEntries(Object.entries({
+  grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
+  others: '<path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".7"/><circle cx="2.8" cy="8" r=".7"/><circle cx="2.8" cy="12" r=".7"/>',
+  agent: '<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14a5.2 5.2 0 0 1 10.4 0"/>',
+  tabs: '<path d="M2 6.5h12v7H2zM2 6.5V3h5.5v3.5"/>',
+  characters: '<rect x="2" y="2.5" width="5" height="11" rx="1"/><rect x="9" y="2.5" width="5" height="11" rx="1"/><circle cx="4.5" cy="6.5" r="1.3"/><circle cx="11.5" cy="6.5" r="1.3"/>',
+  team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
+  combined: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
+  workqueue: '<path d="M2.3 4.3l1.3 1.3 2.2-2.4M2.3 10.3l1.3 1.3 2.2-2.4M8 4.5h6M8 10.5h6"/>',
+  daylog: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
+  meeting: '<rect x="4" y="6" width="8" height="4" rx="2"/><circle cx="8" cy="2.8" r="1.3"/><circle cx="8" cy="13.2" r="1.3"/><circle cx="2.2" cy="8" r="1.3"/><circle cx="13.8" cy="8" r="1.3"/>',
+  file: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6.2 8.5h4.6M6.2 11h4.6"/>',
+  gauges: '<path d="M2.5 12a5.5 5.5 0 1 1 11 0"/><path d="M8 12l2.6-3.6"/>',
+  perf: '<path d="M2.5 13.5h11M4.5 11V7.5M8 11V4M11.5 11V9"/>',
+  splitrow: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11"/>',
+  splitcol: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 8h12"/>',
+  tokens: '<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5642,10 +5699,10 @@ function roleList() {
   for (const a of [...S.agents, ...S.bench]) seen[a.role] ??= {role: a.role, name: a.roleName || a.role, colour: a.colour};
   return Object.values(seen).sort((x, y) => (ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99));
 }
-// A grid, tabs or Combined pane's agents, role by role in the order the roles were picked (n.roles keeps it), A to Z
+// A grid, tabs or Combined pane's agents, role by role in the order the roles were picked (see rolesOn), A to Z
 // within a role.
 const byName = (x, y) => x.name.localeCompare(y.name, undefined, {sensitivity: "base"});
-const paneAgents = n => (n.roles || []).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
+const paneAgents = n => rolesOn(n).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
 // A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over what was said and the
 // meeting's message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to
 // message a single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is
@@ -5917,17 +5974,34 @@ const chrAgents = n => rolesOn(n).flatMap(r => [...S.agents, ...S.bench].filter(
 // How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default), as the bench's small tiles
 // ("icon"), or as their Characters tiles ("card").
 const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
-// A pane's Roles button and its menu: each role with a dot in its colour, ticked while the pane shows it.
-const rolesOn = n => n.show === "characters" && !Array.isArray(n.roles) ? roleList().map(r => r.role) : n.roles || [];
+// A pane's roles (n.roles, in the order they were picked), or every role while none is picked: "All".
+const rolesPicked = n => Array.isArray(n.roles) ? n.roles : [];
+const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
-const rolesBtn = (path, n) => filterBtn("roles", "roles:" + path, rolesOn(n), roleList().map(r => r.role), roleItems(), "");
-// A pane's tabs over its body while it has two or more, each a pane of its own (see keepTab), named by its title or else its type: the showing
-// one renamed by a click on it, any dragged along the strip or closed while the layout is unlocked.
+// The role chips under a pane's tabs: All, then each role with a dot in its colour, lit while the pane shows it. Those
+// that do not fit the row fold into a +N chip, which opens them as a menu (see fitChips).
+const roleChips = (path, n) => { const on = rolesPicked(n);
+  return `<span class="chips"><b class="chip${on.length ? "" : " on"}" data-role="" title="Every role">All</b>${roleList().map(r =>
+    `<b class="chip${on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
+    `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
+// A tab's name: the one given it (n.title), else one from what it shows: the agent an Agent view shows, the role when
+// one role is picked, else the view.
+const plural = w => /s$/.test(w) ? w : w + "s";
+function autoName(p) {
+  if (p.show === "agent" && p.name) return shown(p.name);
+  const one = ["grid", "tabs", "characters", "combined"].includes(p.show) && rolesPicked(p).length === 1 && roleList().find(r => r.role === p.roles[0]);
+  return one ? plural(one.name) : PANE_TYPES[p.show] || "Choose a view";
+}
+// A pane's tabs (n.tabs, n.tab the one showing; a pane without n.tabs is one tab), each with its view's icon and its
+// name. While the layout is unlocked they head the pane's bar, each with a chevron that changes its view, and with
+// two or more each can be dragged along the strip or closed; locked, they show over the body only when there are two.
 function paneTabs(n, locked) {
-  const tabs = n.tabs || [];
-  return tabs.length < 2 ? "" : `<div class="ctabs">${tabs.map((t, i) => { const sel = i === (n.tab || 0);
-    return `<span class="ctab${sel ? " sel" : ""}" data-i="${i}"${locked ? "" : ' draggable="true"'} title="${sel && !locked ? "Click to rename" : ""}"><span class="ctl">${esc(t.title || PANE_TYPES[sel ? n.show : t.show] || "Tab " + (i + 1))}</span>` +
-      `${locked ? "" : `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>`}</span>`; }).join("")}</div>`;
+  const sel = n.tab || 0, tabs = n.tabs ? n.tabs.map((t, i) => i === sel ? {...n, title: n.title ?? t.title} : t) : [n], many = tabs.length > 1;
+  if (locked && !many) return "";
+  return `<div class="ctabs">${tabs.map((t, i) => `<span class="ctab${i === sel ? " sel" : ""}" data-i="${i}"${!locked && many ? ' draggable="true"' : ""}${locked ? "" : ' title="Double-click to rename"'}>` +
+    `${PANE_ICON[t.show] ? `<i class="cti">${PANE_ICON[t.show]}</i>` : ""}<span class="ctl">${esc(t.title || autoName(t))}</span>` +
+    (locked ? "" : `<i class="cv" data-cur="${esc(t.show || "")}" title="Change this tab's view">${MENU_ICON.down}</i>`) +
+    (!locked && many ? `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>` : "") + `</span>`).join("")}</div>`;
 }
 // The View menu: every view, Grid and Tabs among them, its kind's icon and its name, the showing one ticked. A click on
 // one shows it; its pencil renames it in place (Enter or leaving the box keeps the name, Esc drops it) and its × deletes
@@ -6032,7 +6106,7 @@ function customHtml(ceil, tabRow) {
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
-    let body = `<div class="blank">${pageLocked() ? "" : "Choose what this pane shows"}</div>`;
+    let body = `<div class="blank">${pageLocked() ? "" : `<button class="pchoose" data-cur="">Choose a view${MENU_ICON.down}</button>`}</div>`;
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
       body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`
@@ -6041,7 +6115,7 @@ function customHtml(ceil, tabRow) {
       body = `<div class="others">${minis("")}</div>`;
     } else if (n.show === "characters") {
       const them = chrAgents(n);
-      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">${n.roles.length ? "No agent in these roles" : "Choose one or more roles"}</div>`;
+      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">No agent in these roles</div>`;
     } else if (n.show === "file") {
       // the document under a header as a Team pane's: its name, its full path, and the maximise button
       const d = n.path && fileDocs[n.path], ed = n.path && fileEdit[n.path];
@@ -6077,21 +6151,25 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "meeting") {
       body = `${meetBar(path, n, path === maxed)}${meetFaces(n)}${meetingHtml(path, n)}`;
     } else if (n.show === "grid" || n.show === "tabs") {
-      body = `<div class="blank">${(n.roles || []).length ? "No agent in these roles is running" : "Choose one or more roles"}</div>`;
+      body = `<div class="blank">No agent in these roles is running</div>`;
     }
-    const tabbed = !!n.show;
-    const bar = pageLocked() ? "" : `<div class="pbar">
+    // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
+    // settings: its roles, agent, document, badges or gauges, and Full or Summary
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue", "tokens"].includes(n.show);
+    const own = [
+      ["grid", "tabs", "characters", "combined"].includes(n.show) ? roleChips(path, n) : "",
+      n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : "",
+      n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : "",
+      ["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : "",
+      n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" || n.show === "gauges" ? perfBtn(path, n) : "",
+      full ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+        `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""].join("");
+    const bar = locked ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
-      <select data-act="show">${n.show ? "" : `<option value="" selected>Show…</option>`}${Object.entries(PANE_TYPES).map(([t, label]) => `<option value="${t}"${t === n.show ? " selected" : ""}>${label}</option>`).join("")}</select>
-      ${n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue", "tokens"].includes(n.show) ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
-        `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""}
-      ${n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : ""}
-      ${["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || (n.show === "meeting" ? "icon" : "name")) ? " selected" : ""}>${label}</option>`).join("")}</select>` : ""}
-      ${n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : ""}
-      ${["grid", "tabs", "characters", "combined"].includes(n.show) ? rolesBtn(path, n) : n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" || n.show === "gauges" ? perfBtn(path, n) : ""}
-      ${tabbed ? `<b class="fbtn cadd" title="Add a tab with this configuration">${MENU_ICON.plus}</b>` : ""}
-      <span class="pacts"><b data-act="row" title="Split side by side">⇆</b><b data-act="col" title="Split top and bottom">⇅</b><b data-act="del" title="Remove this pane">✕</b></span></div>`;
-    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${tabbed ? paneTabs(n, pageLocked()) : ""}${body}</div></div>`;
+      ${n.show ? paneTabs(n, false) + `<b class="fbtn cadd" title="Add a tab">${MENU_ICON.plus}</b>` : ""}
+      <b class="fbtn pmore" data-menu="pane:${path}" title="Split or remove this pane">${MENU_ICON.more}</b>
+      ${own ? `<div class="pown">${own}</div>` : ""}</div>`;
+    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${locked ? paneTabs(n, true) : ""}${body}</div></div>`;
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
@@ -6223,7 +6301,7 @@ function combinedHtml(path, n, full, big) {
     : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
   return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
     : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(shown(x))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">${(n.roles || []).length ? "no agent in these roles is running" : "choose one or more roles"}</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
@@ -6562,18 +6640,18 @@ function toPaneEnds(ends) {
 }
 // Any pane can hold tabs (n.tabs, n.tab the one showing), each tab a pane of its own of any type (owner, 2026-11-11:
 // "a panel that is tabs and each tab is a panel"): the showing tab's pane lives on the pane itself, where everything
-// that draws it reads it, and each tab's is kept whole in n.tabs, with its title, and swapped in when it is picked. A
-// tab holds one pane, never tabs of its own, so tabs are never nested.
+// that draws it reads it, its name (title) among the rest, and each tab's is kept whole in n.tabs and swapped in when
+// it is picked. A tab holds one pane, never tabs of its own, so tabs are never nested. A layout saved before a tab's
+// name lived on the pane has the showing tab's only in n.tabs, where keepTab leaves it until the tab is renamed.
 const TAB_OWN = ["tabs", "tab"];
-const tabPane = t => Object.fromEntries(Object.entries(t).filter(([k]) => k !== "title"));
 function keepTab(n) {
-  const t = n.tabs[n.tab || 0], title = t.title;
+  const t = n.tabs[n.tab || 0], title = n.title ?? t.title;
   for (const k of Object.keys(t)) delete t[k];
-  Object.assign(t, title == null ? {} : {title}, Object.fromEntries(Object.entries(n).filter(([k]) => !TAB_OWN.includes(k))));
+  Object.assign(t, Object.fromEntries(Object.entries(n).filter(([k]) => !TAB_OWN.includes(k))), title == null ? {} : {title});
 }
 function showTab(n, i) {
   for (const k of Object.keys(n)) if (!TAB_OWN.includes(k)) delete n[k];
-  Object.assign(n, tabPane(n.tabs[i]));
+  Object.assign(n, n.tabs[i]);
   n.tab = i;
 }
 function toTab(n, i) {
@@ -6592,28 +6670,65 @@ function closeTab(n, i) {
   showTab(n, i < at ? at - 1 : Math.min(at, n.tabs.length - 1));
   if (n.tabs.length < 2) { delete n.tabs; delete n.tab; }
 }
+// The view picker, from a tab's chevron, a pane's + or an empty pane: the views in their groups, the tab's own ticked;
+// picked(type) is called with the one clicked.
+function viewPicker(btn, path, picked) {
+  const key = "views:" + path + ":" + (btn.closest(".ctab")?.dataset.i ?? btn.className);
+  if (menuOn(key)) return menuOff(true);
+  menuAt(btn, key, PANE_GROUPS.map(([group, list]) => `<div class="mg">${group}</div>` + list.map(([t, line]) =>
+    `<div class="mi pvi" data-t="${t}"><i class="pvico">${PANE_ICON[t]}</i><span class="pvt"><b>${PANE_TYPES[t]}</b><small>${line}</small></span>` +
+    (t === btn.dataset.cur ? MENU_ICON.check.replace("<svg", '<svg class="tick"') : "") + `</div>`).join("")).join(""));
+  menu.querySelectorAll(".pvi").forEach(mi => mi.onclick = () => { menuOff(true); picked(mi.dataset.t); });
+}
+// A row of role chips keeps to its width: the roles that do not fit, from the end, are hidden behind a +N chip, lit
+// while one of them is picked, whose menu ticks and flips them as the chips do.
+function fitChips(row, path, flip) {
+  const chips = [...row.querySelectorAll('.chip[data-role]:not([data-role=""])')], more = row.querySelector(".chip.more");
+  chips.forEach(c => c.hidden = false); more.hidden = true;
+  if (row.scrollWidth <= row.clientWidth) return;
+  more.hidden = false;
+  const gone = [];
+  for (let i = chips.length - 1; i >= 0 && (gone.length === 0 || row.scrollWidth > row.clientWidth); i--) {
+    chips[i].hidden = true; gone.unshift(chips[i].dataset.role); more.textContent = "+" + gone.length;
+  }
+  more.classList.toggle("on", chips.some(c => c.hidden && c.classList.contains("on")));
+  filterButton(more, roleItems().filter(([r]) => gone.includes(r)), () => rolesPicked(nodeAt(layout().root, path)),
+    r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`, flip, "Roles");
+}
 function customClicks() {
   const main = $("#main"), change = f => { const l = layout(); f(l); saveLayout(l); draw(); };
   main.querySelectorAll(".pbar [data-act]").forEach(el => {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
-    if (act === "name" || act === "show" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
+    if (act === "name" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
     if (act === "move") { el.onpointerdown = e => movePane(e, el, path, change); return; }
     if (act === "path") {
       const show = () => { change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); };
       el.onchange = show; el.onfocus = el.oninput = () => pickShow(el, show); el.onkeydown = e => pickKey(e, el, show);
       return;
     }
-    el.onclick = () => change(l => {
-      const n = nodeAt(l.root, path);
-      if (act === "view") { n.view = el.dataset.v; setTimeout(load); }   // a full card needs its conversation
-      else if (act === "row" || act === "col") putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
-      else if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
-    });
+    if (act === "view") el.onclick = () => { change(l => { nodeAt(l.root, path).view = el.dataset.v; }); setTimeout(load); };   // a full card needs its conversation
   });
-  main.querySelectorAll(".pane .roles.fbtn").forEach(el => {
+  // a pane's menu: split it either way, or remove it
+  main.querySelectorAll(".pane .pmore").forEach(el => el.onclick = e => {
+    e.stopPropagation();
     const path = el.closest(".pane").dataset.path;
-    filterButton(el, roleItems(), () => rolesOn(nodeAt(layout().root, path)), r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`,
-      r => { change(l => { const n = nodeAt(l.root, path), on = rolesOn(n); n.roles = on.includes(r) ? on.filter(x => x !== r) : [...on, r]; }); setTimeout(load); }, "Roles");
+    if (menuOn(el.dataset.menu)) return menuOff(true);
+    menuAt(el, el.dataset.menu, [["row", "Split side by side", PANE_ICON.splitrow], ["col", "Split top and bottom", PANE_ICON.splitcol], ["del", "Remove this pane", MENU_ICON.close]].map(([a, t, i]) =>
+      `<div class="mi${a === "del" ? " warn" : ""}" data-a="${a}">${i}${t}</div>`).join(""));
+    menu.querySelectorAll("[data-a]").forEach(mi => mi.onclick = () => { menuOff(true); const act = mi.dataset.a; change(l => {
+      const n = nodeAt(l.root, path);
+      if (act === "del") path === "r" ? putAt(l, "r", {}) : putAt(l, path.slice(0, -1), nodeAt(l.root, path.slice(0, -1))[path.endsWith("a") ? "b" : "a"]);
+      else putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
+    }); });
+  });
+  // a pane's role chips: All shows every role; a role picked alone from All, then added or taken out, and All again
+  // once none is left
+  main.querySelectorAll(".pbar .chips").forEach(row => {
+    const path = row.closest(".pane").dataset.path;
+    const flip = r => { change(l => { const n = nodeAt(l.root, path), on = rolesPicked(n), next = !r ? [] : on.includes(r) ? on.filter(x => x !== r) : [...on, r];
+      if (next.length) n.roles = next; else delete n.roles; }); setTimeout(load); };
+    row.querySelectorAll(".chip[data-role]").forEach(c => c.onclick = () => flip(c.dataset.role));
+    fitChips(row, path, flip);
   });
   main.querySelectorAll(".pane .perfsel.fbtn").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -6654,15 +6769,16 @@ function customClicks() {
   });
   // a pane's tabs: picked, added (a copy of the one showing), renamed or closed
   const tabbed = (el, f) => { const path = el.closest(".pane").dataset.path; change(l => f(nodeAt(l.root, path))); setTimeout(load); };
-  // the tab showing is renamed in place: a click on it gives a box for its name, Enter or a click away keeps it, Esc
-  // leaves it as it was
+  const atPane = (path, f) => { change(l => f(nodeAt(l.root, path))); setTimeout(load); };
+  // the tab showing is renamed in place: a double-click on it gives a box for its name, Enter or a click away keeps
+  // it, Esc leaves it as it was; kept empty, the tab is named from what it shows again
   const rename = el => {
     if (!el || pageLocked() || el.querySelector(".ctname")) return;
     const label = el.querySelector(".ctl"), was = label.textContent, box = Object.assign(document.createElement("input"), {className: "ctname", value: was});
     let done = false;
     const end = keep => { if (done) return; done = true; const v = box.value.trim();
       box.remove(); label.hidden = false;
-      if (keep && v && v !== was) tabbed(el, n => { n.tabs[+el.dataset.i].title = v; }); else draw(); };
+      if (keep && v !== was) tabbed(el, n => { if (v) n.title = v; else { delete n.title; if (n.tabs) delete n.tabs[n.tab || 0].title; } }); else draw(); };
     box.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") end(true); else if (e.key === "Escape") end(false); };
     box.onblur = () => end(true);
     el.draggable = false; label.hidden = true; label.after(box); box.focus(); box.select();
@@ -6685,21 +6801,29 @@ function customClicks() {
       tabbed(el, n => moveTab(n, from, at > from ? at - 1 : at));
     };
   });
-  main.querySelectorAll(".pane .ctab").forEach(el => el.onclick = e => {
-    if (e.target.closest(".ctname")) return;
-    if (e.target.closest(".cx")) tabbed(el, n => closeTab(n, +el.dataset.i));
-    else if (el.classList.contains("sel")) rename(el);
-    else tabbed(el, n => toTab(n, +el.dataset.i));
+  main.querySelectorAll(".pane .ctab").forEach(el => {
+    el.onclick = e => {
+      if (e.target.closest(".ctname")) return;
+      const path = el.closest(".pane").dataset.path, i = +el.dataset.i, cv = e.target.closest(".cv");
+      if (cv) { e.stopPropagation(); viewPicker(cv, path, t => atPane(path, n => { if (n.tabs && i !== (n.tab || 0)) toTab(n, i); n.show = t; })); }
+      else if (e.target.closest(".cx")) tabbed(el, n => closeTab(n, i));
+      else if (!el.classList.contains("sel")) tabbed(el, n => toTab(n, i));
+    };
+    el.ondblclick = e => { if (el.classList.contains("sel") && !e.target.closest(".cv, .cx")) rename(el); };
   });
-  main.querySelectorAll(".pane .cadd").forEach(el => el.onclick = () => {
+  // + adds a tab of the view picked for it, showing every role; an empty pane picks its first view
+  main.querySelectorAll(".pane .cadd").forEach(el => el.onclick = e => {
+    e.stopPropagation();
     const path = el.closest(".pane").dataset.path;
-    tabbed(el, n => {
-      if (!n.tabs?.length) { n.tabs = [{}]; n.tab = 0; }   // untitled, a tab is called by its pane's type
-      keepTab(n);
-      const copy = tabPane(n.tabs[n.tab || 0]); delete copy.chat;
-      n.tabs.push(copy); toTab(n, n.tabs.length - 1);
-    });
-    rename($(`#main .pane[data-path="${path}"] .ctab.sel`));   // a new tab is named straight away
+    viewPicker(el, path, t => atPane(path, n => {
+      if (!n.tabs?.length) { n.tabs = [{}]; n.tab = 0; }
+      keepTab(n); n.tabs.push({show: t}); toTab(n, n.tabs.length - 1);
+    }));
+  });
+  main.querySelectorAll(".pane .pchoose").forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const path = el.closest(".pane").dataset.path;
+    viewPicker(el, path, t => atPane(path, n => { n.show = t; }));
   });
   main.querySelectorAll(".teamlog .agents.fbtn").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -9703,7 +9827,10 @@ def self_test():
           (k1["title"], k1["days"]["2026-11-09"], k2["days"].get("2026-11-10"), k2["off"] < os.path.getsize(tf)),
           ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
         t("token usage: the pane draws a box per week and any pane's tabs hold a whole pane",
-          ('Week of ${label(mon' in PAGE, "tokens: \"Token usage\"" in PAGE, "const tabbed = !!n.show;" in PAGE, "function showTab(n, i)" in PAGE), (True, True, True, True))
+          ('Week of ${label(mon' in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True, True, True))
+        t("pane tabs: each picks its view from the grouped picker, names itself, and filters by role chips with no roles meaning All",
+          ("function viewPicker(btn, path, picked)" in PAGE, "function autoName(p)" in PAGE, "const roleChips = " in PAGE,
+           "const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);" in PAGE), (True, True, True, True))
     finally:
         for k in kids:
             k.kill()
