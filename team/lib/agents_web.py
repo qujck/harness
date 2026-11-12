@@ -4593,7 +4593,15 @@ html.phone #drail .phf > span:not(.unseen){display:block;width:100%;height:100%;
 html.phone #drail .phf img,html.phone #drail .phf svg{display:block;width:100%;height:100%;object-fit:cover}
 html.phone #drail .phf i{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:6px;border:2px solid var(--box);background:var(--faint)}
 html.phone #drail .phf.busy i,html.phone #drail .phf.compacting i{background:var(--green)}
-html.phone #drail .phf.waiting i{background:var(--amber)}
+html.phone #drail .phf:is(.waiting,.wanted) i{background:var(--amber)}
+/* a portrait waiting on the owner pulses amber as its card does (owner, 2026-11-12: "so I can see the pulsing orange border") */
+html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 1s ease-in-out infinite}
+/* the title bar says how many others wait and opens the one waiting longest, so one swiped out of sight is not missed
+   (owner, 2026-11-12: "someone out of view is waiting for an answer I can't see … add a badge on the title bar I can click") */
+#dhead .phwait{display:none}
+html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
+  background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
+html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
 html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}   /* the frame's rule is the portrait span's alone: the badge, a span too, once took it and covered the face (owner, 2026-11-09) */
 html.phone #drail .phf .unseen[hidden]{display:none}
@@ -9170,6 +9178,9 @@ PHONE_MQ.addEventListener("change", () => { phoneDraw(); draw(); });
   draw = function () {
     if (!phoneOn() || !S) _draw();
     try { phoneDraw(); } catch (e) { phError(e); }
+    // the open agent's view is redrawn with each poll, as the desktop's draw does: its portraits' states and the title
+    // bar's waiting badge were drawn once, on opening, and never again (owner, 2026-11-12: "I can't see when an agent is waiting")
+    if (phoneOn() && S && open) { rail(); facts(); }
   };
 }
 // Anything that goes wrong on the phone is shown on it, over the page, with what it was and where: a phone has no
@@ -9204,7 +9215,25 @@ function phRail() {
       // redraw would rebuild its image, blank on the phone until it loads again (owner, 2026-11-09: a green frame with no face)
       `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : `<span class="unseen" hidden></span>`}</button>`; }).join(""));
   $("#drail").onclick = e => { const b = e.target.closest(".phf"); if (b && b.dataset.name !== open) openDetail(b.dataset.name); };
+  phWaitInView(list);
   markSeen([open]);
+}
+// An agent that starts waiting while its portrait is swiped out of the strip is brought into it, once per wait; not while
+// a finger or the mouse has just moved the strip, so it never fights the owner's own swipe.
+let phWaited = new Set(), phRailTouched = 0;
+["pointerdown", "touchstart", "wheel", "scroll"].forEach(ev => $("#drail").addEventListener(ev, e => { if (ev !== "scroll" || !phRailAuto) phRailTouched = Date.now(); }, {passive: true}));
+let phRailAuto = false;
+function phWaitInView(list) {
+  const rail = $("#drail"), now = new Set(list.filter(a => a.name !== open && ["waiting", "wanted"].includes(stOf(a))).map(a => a.name));
+  const fresh = [...now].filter(n => !phWaited.has(n));
+  phWaited = now;
+  if (!fresh.length || Date.now() - phRailTouched < 4000 || rail.scrollWidth <= rail.clientWidth) return;
+  const b = [...rail.querySelectorAll(".phf")].find(x => fresh.includes(x.dataset.name));
+  if (!b) return;
+  const l = b.offsetLeft - rail.offsetLeft, r = l + b.offsetWidth, pad = 12;
+  if (l >= rail.scrollLeft && r <= rail.scrollLeft + rail.clientWidth) return;
+  phRailAuto = true; setTimeout(() => { phRailAuto = false; }, 800);
+  rail.scrollTo({left: Math.max(0, l < rail.scrollLeft ? l - pad : r - rail.clientWidth + pad), behavior: "smooth"});
 }
 function phDetail() {
   if (!phoneOn() || !open || !S) { const g = $("#dsug"); if (g) g.hidden = true; return; }
@@ -9213,6 +9242,19 @@ function phDetail() {
   const a = S.agents.find(y => y.name === open) || {}, g = $("#dsug"), box = $("#dsay");
   const sug = a.live && a.status === "idle" && a.suggest && settings().suggest !== "off" && !box.value ? a.suggest : "";
   g.hidden = !sug; if (sug && g.dataset.s !== sug) { g.dataset.s = sug; g.textContent = "Suggested: " + sug; }
+  phWaitBadge();
+}
+function phWaitBadge() {
+  const head = $("#dhead"); if (!head) return;
+  let w = head.querySelector(".phwait");
+  if (!w) { w = document.createElement("b"); w.className = "phwait"; w.setAttribute("role", "button"); w.hidden = true; head.insertBefore(w, head.querySelector(".lanes") || head.querySelector("#dmore")); }
+  const others = needing().filter(a => a.name !== open), first = others[0];
+  w.hidden = !first;
+  if (!first) return;
+  const txt = `${others.length} waiting`;
+  if (w.textContent !== txt) w.textContent = txt;
+  w.title = `Open ${shown(first.name)}, waiting longest (${others.length} waiting)`; w.setAttribute("aria-label", w.title);
+  w.onclick = () => openDetail(first.name);
 }
 $("#dsug").onclick = () => { const box = $("#dsay"), s = $("#dsug").dataset.s; if (!s) return; box.value = s; box.dispatchEvent(new Event("input", {bubbles: true})); grow(box); $("#dsug").hidden = true; box.focus(); };
 function phBack() { if (history.state?.ph) history.back(); else closeDetail(); }
@@ -9683,7 +9725,7 @@ def self_test():
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue", "Work queue"]' in PAGE), (True, True, True, True))
         t("  it can be maximised, and draws titles and notes as Markdown",
-          ('"file", "workqueue"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(i.title)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
+          ('"file", "workqueue"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(t)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
@@ -9691,12 +9733,17 @@ def self_test():
           ('const PHONE_MQ = matchMedia("(max-width:700px)")' in PAGE, 'localStorage.getItem("phone") !== "off"' in PAGE,
            'html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}' in PAGE,
            '<div id="phone"><div class="ph-loading">Loading…</div></div><button id="phoneback">Phone layout</button>' in PAGE), (True, True, True, True))
+        t("  in an agent's view, a waiting portrait pulses, one out of sight is brought into the strip, and the title bar's badge opens the one waiting longest",
+          ("html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm" in PAGE, "phWaitInView(list);" in PAGE,
+           "if (phoneOn() && S && open) { rail(); facts(); }" in PAGE,
+           'rail.scrollTo({left: Math.max(0, l < rail.scrollLeft ? l - pad : r - rail.clientWidth + pad), behavior: "smooth"});' in PAGE,
+           "const others = needing().filter(a => a.name !== open), first = others[0];" in PAGE, "w.onclick = () => openDetail(first.name);" in PAGE), (True,) * 6)
         t("  its logo flashes and opens the agent waiting longest, as the header's does",
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
-        t("  its panels are Agents, Portraits, Combined, the Day log, the Work queue, Performance and the Dashboard",
-          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["dash", "Dashboard"]]' in PAGE, True)
+        t("  its panels are Agents, Portraits, Combined, the Day log, the Work queue, Performance, Token usage and the Dashboard",
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
