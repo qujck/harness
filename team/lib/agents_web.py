@@ -3319,10 +3319,13 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .bi > .bx{display:none}
 :not(.editing) > .bi:is([data-item=cpubar],[data-item=membar],[data-item=netbar],[data-item=gpubar],[data-item=heatbar],[data-item=fanbar]){cursor:pointer}
 .bi:has(> :first-child:is([style*="display: none"],[style*="display:none"])){display:none}   /* Session or Disk while it is not shown */
-.editing > .bi{outline:1px dashed var(--line2);outline-offset:3px;border-radius:var(--r-s);cursor:grab;touch-action:none}
+/* unlocked, a bar's items can be dragged and taken out; their outlines and ✕ show while the pointer is on that bar, and on
+   both bars while an item is being dragged, so an unlocked page is not cluttered while its panes are worked on */
+.editing > .bi{border-radius:var(--r-s);cursor:grab;touch-action:none}
+:is(.editing:hover, .editing:focus-within, body:has(.bi.dragging) .editing) > .bi{outline:1px dashed var(--line2);outline-offset:3px}
 .editing > .bi.tight + .bi.tight{margin-left:0}
 .editing > .bi.dragging{opacity:.4}
-.editing > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
+:is(.editing:hover, .editing:focus-within, body:has(.bi.dragging) .editing) > .bi > .bx{display:flex;position:absolute;z-index:5;top:-10px;right:-10px;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;
   background:var(--box);border:1px solid var(--line2);color:var(--mute);font:normal 10px/1 var(--sans);cursor:pointer}
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
@@ -3449,7 +3452,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .ctabs .cv svg{width:11px;height:11px}
 .pbar .fbtn.cadd,.pbar .fbtn.pmore{padding:2px 4px}
 .pbar .fbtn.pmore{margin-left:auto}
-.pbar .pown{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:1px -10px -1px;padding:6px 10px 0;border-top:1px solid var(--line)}
+.pbar .pown{flex:1 1 100%;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:1px -10px -1px;padding:6px 10px 0;border-top:1px solid var(--line)}
 .pown .seg{margin-left:auto}
 .pown .chips{flex:1 1 0;min-width:0;display:flex;gap:4px;overflow:hidden}
 .chip{flex:none;display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--line2);border-radius:999px;font-weight:400;
@@ -3458,6 +3461,18 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .chip.on{background:var(--on);color:var(--text);border-color:var(--mute)}
 .chip[hidden]{display:none}
 .chip .cdot{width:7px;height:7px;border-radius:50%}
+.chip svg{width:12px;height:12px}
+.teamlog .thead > span.tsum{font-weight:400;color:var(--mute)}
+.workq .wqwho{display:contents;cursor:pointer}
+.workq .wqwho .who{cursor:pointer}
+.workq .who.unset{opacity:.45;font-weight:400}
+.frecent{display:flex;flex-direction:column;gap:2px;min-width:min(420px,80%);text-align:left}
+.frecent > div{margin-bottom:4px;color:var(--faint)}
+.frecent a{display:flex;flex-direction:column;padding:5px 9px;border-radius:var(--r-s);color:var(--text);cursor:pointer}
+.frecent a:hover{background:var(--soft)}
+.frecent a span{font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pown .kchips{display:flex;flex-wrap:wrap;gap:4px}
+.pbar .pown input.tfilter{flex:0 0 110px;font-family:var(--sans)}
 .blank .pchoose{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);cursor:pointer}
 .blank .pchoose svg{width:12px;height:12px}
 /* the view picker: the views in groups, each with its icon and a line on what it shows */
@@ -3489,6 +3504,9 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .daylog .desc b{display:block;color:var(--text);font-weight:650}
 .daylog .ico svg{width:calc(14px*var(--fs,1));height:calc(14px*var(--fs,1))}
 .daylog .at{flex:none;width:9em;color:var(--mute);font-variant-numeric:tabular-nums}
+.daylog:not(.workq) .row:not(.day) .at{width:3.2em}
+.daylog:not(.workq) .row:not(.day) .ico{margin-left:0;color:var(--text)}
+.daylog:not(.workq) .row:not(.day) .desc{right:auto;left:0}
 .daylog .day{margin:8px 0 4px;padding:6px 8px;border-radius:6px;background:var(--track);font-weight:600}
 .daylog .day:first-child{margin-top:0}
 .daylog .day.development{box-shadow:inset 3px 0 var(--green)}
@@ -3498,7 +3516,6 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 /* one line an item: its note after its title, and the two cut short together; hovering shows them whole */
 .workq{padding:6px 10px}
 .teamlog[data-name="~workqueue"]{background:var(--bg)}   /* the page's grey behind the title bar and the section boxes */
-.wqtabs{background:var(--box)}   /* the pane's own colour on the grey, as the section boxes */
 .workq .row{align-items:center;padding:1px 6px;gap:10px}
 .workq .row > a,.workq .key{flex:none;width:var(--wqk,5.5em);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
 .workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3647,6 +3664,15 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .card > .top > .foldbtn + .lanes{margin-left:0}
 .card.folded > .row2,.card.folded > svg.spark{display:none}   /* folded: the name line alone, on every screen */
 .card .top{flex-wrap:wrap;row-gap:4px}
+/* in a pane, a card's name, role and ticket keep to one line; its fold and lanes show over the head's end on a rest */
+.pane .card .top{position:relative;flex-wrap:nowrap;min-width:0}
+.pane .card .top .role{flex:0 20 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pane .card .top .name{flex:none}
+.pane .card .top .ticket{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pane .card .top > :last-child{flex:none;margin-left:auto}
+.pane .card .top .cctl{display:none}
+.pane .card:hover .top .cctl{position:absolute;right:34px;top:6px;z-index:3;display:flex;align-items:center;gap:6px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--box);box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.card .top .cctl{display:contents}
 .termseg b,.railseg b{padding:1px 5px;font-size:calc(var(--t-xs)*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
 .fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:var(--r-s);color:var(--mute);cursor:pointer;font-weight:400}
@@ -3820,7 +3846,7 @@ table.md th{background:var(--line);font-weight:650}
 .tabbar .away{opacity:.45;filter:grayscale(1)}   /* a meeting attendee whose meeting session is not running */
 .tabbar button.away{cursor:default}   /* an icon with its unseen count on its corner, clear of its clipping */
 .icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:calc(var(--t-xs)*var(--fs,1));line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
-.teamlog .thead > .cnames.iconrow{gap:10px}   /* clear of each other's outlines, which stand 4px out */
+.teamlog .thead > .cnames.iconrow{gap:10px}
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
@@ -4093,6 +4119,21 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* the meeting's topic before it starts, how many are in it (amber above three, red above five), and the agents' faces:
    one on the way greyed, one whose meeting session is working pulsing */
 .meetbar .mtopic{flex:1;min-width:0;margin-right:auto;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);padding:2px 8px}
+.meetpick{flex-wrap:wrap;gap:8px 6px}
+.pbody .blank:has(.agentpick){display:flex;flex-direction:column;align-items:center}
+.agentpick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.agentpick.big{gap:12px 10px;max-width:640px;margin-top:10px}
+.agentpick .ftab{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+.pown .agentpick{justify-content:flex-start;flex:1 1 0;min-width:0}
+.pown .agentpick .face{width:22px;height:22px}
+.agentpick .ftab:not(.sel) .face{opacity:.55}
+.agentpick .ftab:hover .face,.agentpick.big .ftab .face{opacity:1}
+.agentpick .ftab.sel .face{outline:2px solid var(--c);outline-offset:2px}
+.agentpick small{max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(var(--t-xs)*var(--fs,1));color:var(--mute)}
+.meetpick .ftab,.meetrow .ftab{display:flex;flex-direction:column;align-items:center;gap:3px}
+.meetpick .ftab[data-invite]{cursor:pointer}
+.meetpick .ftab small,.meetrow .ftab small{max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(var(--t-xs)*var(--fs,1));color:var(--mute)}
+.meetpick .ftab.away{opacity:.4;filter:grayscale(1)}
 .meetbar .mcount{margin-right:0;min-width:18px;padding:0 6px;border-radius:999px;text-align:center;font-weight:650;color:var(--text);background:var(--soft);border:1px solid var(--line2)}
 .meetbar .mcount.amber{color:#000;background:var(--amber);border-color:var(--amber)}
 .meetbar .mcount.red{color:#fff;background:var(--red);border-color:var(--red)}
@@ -5043,12 +5084,12 @@ document.addEventListener("click", e => {
 function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, lead = ""} = {}) {
   const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
-  const ctx = a.ctxPct == null ? "" : `<span class="ctx"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
+  const ctx = a.ctxPct == null ? "" : `<span class="ctx" title="${a.ctxPct}% of context used"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}${extra}</div>
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}<span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
     <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
@@ -5420,7 +5461,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", tokens: "Token usage"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", tokens: "Token usage"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
@@ -5428,7 +5469,7 @@ const PANE_GROUPS = [
     ["combined", "Several agents' conversations as one feed"]]],
   ["Work", [["workqueue", "Doing and Done, a box per section"], ["daylog", "What happened, day by day"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
-  ["Metrics", [["gauges", "The machine's gauges at a glance"], ["perf", "The machine's figures, row by row"], ["tokens", "Tokens each agent used, a box per week"]]],
+  ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
 ];
 const PANE_ICON = Object.fromEntries(Object.entries({
   grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
@@ -5444,6 +5485,7 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   file: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6.2 8.5h4.6M6.2 11h4.6"/>',
   gauges: '<path d="M2.5 12a5.5 5.5 0 1 1 11 0"/><path d="M8 12l2.6-3.6"/>',
   perf: '<path d="M2.5 13.5h11M4.5 11V7.5M8 11V4M11.5 11V9"/>',
+  machine: '<path d="M2.5 12a5.5 5.5 0 1 1 11 0"/><path d="M8 12l2.6-3.6"/>',
   splitrow: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M8 2.5v11"/>',
   splitcol: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 8h12"/>',
   tokens: '<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>',
@@ -5453,6 +5495,11 @@ const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", 
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
 // before there were views starts with Grid, Tabs and its one layout (kept under "custom") as the view "Custom", on the
 // one it showed ("page"). "page" stays the showing view's kind, which is what the rest of the page reads.
+// A pane or tab saved as Gauges or Performance opens as the Machine view, on Gauges or Rows.
+function oldMachine(n) {
+  if (n.split) { oldMachine(n.a); oldMachine(n.b); return; }
+  for (const t of [n, ...(n.tabs || [])]) if (t.show === "gauges" || t.show === "perf") { t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine"; }
+}
 function views() {
   let v; try { v = JSON.parse(localStorage.getItem("views")); } catch (e) {}
   if (!v?.views?.length) {
@@ -5463,6 +5510,7 @@ function views() {
          at: page === "tabs" ? 1 : page === "custom" ? 2 + (some?.at | 0) : 0};
   }
   v.at = Math.min(Math.max(0, v.at | 0), v.views.length - 1);
+  v.views.forEach(x => x.layout?.root && oldMachine(x.layout.root));
   return v;
 }
 const saveViews = v => { localStorage.setItem("views", JSON.stringify(v)); localStorage.setItem("page", v.views[v.at].kind); };
@@ -5702,12 +5750,25 @@ function roleList() {
 // A grid, tabs or Combined pane's agents, role by role in the order the roles were picked (see rolesOn), A to Z
 // within a role.
 const byName = (x, y) => x.name.localeCompare(y.name, undefined, {sensitivity: "base"});
-const paneAgents = n => rolesOn(n).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
+const paneAgents = n => PICK_VIEWS.includes(n.show) && Array.isArray(n.pick) ? byRole(S.agents.filter(a => n.pick.includes(a.name)))
+  : rolesOn(n).flatMap(r => S.agents.filter(a => a.role === r).sort(byName));
+// Agent tabs and Combined show the agents picked by name (n.pick), or, in a layout saved before, by role (n.roles), or
+// all. Agents left out do not show.
+const PICK_VIEWS = ["tabs", "combined"];
+const inPick = (n, a) => Array.isArray(n.pick) ? n.pick.includes(a.name) : rolesOn(n).includes(a.role);
+const pickedAny = n => Array.isArray(n.pick) || rolesPicked(n).length > 0;
+// a role's chip on Agent tabs or Combined takes in all of that role (that role alone, from All), or leaves them all out
+function pickRole(n, r) {
+  const now = S.agents.filter(a => inPick(n, a)).map(a => a.name), them = S.agents.filter(a => a.role === r).map(a => a.name);
+  const next = !r ? [] : !pickedAny(n) ? them : them.every(x => now.includes(x)) ? now.filter(x => !them.includes(x)) : [...new Set([...now, ...them])];
+  delete n.roles;
+  if (!next.length || S.agents.every(a => next.includes(a.name))) delete n.pick; else n.pick = next;
+}
 // A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over what was said and the
 // meeting's message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to
 // message a single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is
-// invited (n.who, "role:<role>" and "name:<agent>" keys, chosen with its Who button while the layout is unlocked) is
-// the whole team until chosen.
+// invited (n.who, "name:<agent>" keys, and "role:<role>" in a layout saved before, chosen with the meeting's chips and
+// portraits while the layout is unlocked) is the whole team until chosen.
 const byRole = list => [...list].sort((x, y) => ((ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99)) || byName(x, y));
 const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name);
 // A meeting (owner, 2026-11-03) is the owner and the agents in it, every line said going to everyone; each agent
@@ -5730,6 +5791,13 @@ const DAY_LOG_ICONS = {
   feat: ["Feature", "Something new that the product can do.", '<path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8 6.4 6.4Z"/>'],
   infra: ["Infrastructure", "The scripts, checks and machinery behind the product.", '<rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/>'],
   docs: ["Documentation", "Written guidance rather than working code.", '<path d="M9.5 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5Z"/><path d="M9.5 1.5V5H13M5.5 8.5h5M5.5 11.5h5"/>'],
+  ticket: ["Ticket raised", "", '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M5 7h6M5 9.5h3.5"/>'],
+  started: ["Started", "", '<path d="M5 3.2v9.6L12.8 8z"/>'],
+  pr: ["PR raised", "", '<circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="12.5" r="1.6"/><path d="M4.5 5.1v5.8M11.5 10.9V7a2.5 2.5 0 0 0-2.5-2.5H7M8.5 3l-1.5 1.5L8.5 6"/>'],
+  merged: ["Merged", "", '<circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="8" r="1.6"/><path d="M4.5 5.1v5.8M4.5 5.5c0 2.5 2.5 2.5 5.4 2.5"/>'],
+  released: ["Released", "", '<path d="M9 2.5c2.5 0 4.5 2 4.5 4.5L9.5 11 5 6.5 9 2.5zM5 6.5 2.5 7l1.5 1.5M9.5 11l-.5 2.5-1.5-1.5M3.5 12.5l1.5-1.5"/>'],
+  done: ["Done", "", '<circle cx="8" cy="8" r="6"/><path d="M5.3 8.2 7.2 10l3.5-4"/>'],
+  note: ["Note", "", '<path d="M3 2.5h10v8l-3 3H3z"/><path d="M10 13.5v-3h3M5.5 6h5M5.5 8.5h3"/>'],
   chore: ["Housekeeping", "Upkeep that changes nothing for the people using the product.", '<path d="M14 2 8.5 7.5"/><path d="M6.5 6.2 9.8 9.5C9.5 11.5 8.5 13 7 14 4.8 13.5 3 12 2 9.8 4 9.5 5.5 8.2 6.5 6.2Z"/>'],
 };
 // A click on an icon says what it means and a second click, or one elsewhere, closes it. dayLogTip is the open row's key,
@@ -5768,18 +5836,32 @@ const dayLogWhW = names => {
   c.font = `650 10.5px ${getComputedStyle(document.body).fontFamily}`;
   return Math.ceil(Math.max(50, ...names.map(n => c.measureText(n).width + n.length * 0.21))) + 14;
 };
-function dayLogHtml() {
+// An entry's time, its day being the heading it sits under; who did it, from the log, or the releaser a release names,
+// or else the system.
+const dayLogTime = at => new Date(at * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+const dayLogBy = r => r.by || r.text?.match(/^Released by ([A-Z][\w-]*)/)?.[1] || "System";
+// A Day log's own filters beside its role chips: the kinds of entry (n.kinds, every kind while none is picked) as chips
+// with their icons, and a ticket (n.ticket), matched in its link's name or its words.
+const dayLogFilters = n => { const on = Array.isArray(n.kinds) ? n.kinds : [], kinds = [...new Set((dayLog?.rows || []).filter(r => r.type !== "day").map(r => r.kind))];
+  return `<span class="kchips"><b class="chip${on.length ? "" : " on"}" data-kind="" title="Every kind of entry">All types</b>${kinds.map(k => { const [what, , d] = dayLogKind(k);
+    return `<b class="chip${on.includes(k) ? " on" : ""}" data-kind="${esc(k)}" title="Show or leave out: ${esc(what)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${esc(what)}</b>`; }).join("")}</span>` +
+    `<input data-act="ticket" class="tfilter" value="${esc(n.ticket || "")}" placeholder="Ticket" spellcheck="false" title="Only this ticket's entries: Enter to apply, empty for all">`; };
+const dayLogKeep = (n, r) => byRoles(n, dayLogBy(r)) && (!Array.isArray(n?.kinds) || !n.kinds.length || n.kinds.includes(r.kind))
+  && (!n?.ticket || `${r.label || ""} ${r.text || ""}`.toLowerCase().includes(n.ticket.toLowerCase()));
+function dayLogHtml(n) {
   if (!dayLog) return `<div class="blank">Loading…</div>`;
   if (dayLog.state === "unset") return `<div class="blank">The Day log shows what a program prints, and there is none at ${esc(dayLog.program)}. Set AGENTS_DAY_LOG to a program that prints {"rows": [{"at", "type": "day" or "entry", "kind", "by", "text", "url", "label"}]} as JSON: see "the day log" in agents_web.py.</div>`;
   const notes = [dayLog.state === "failed" && `The Day log's program failed (${dayLog.error}), so this is what it last printed.`,
     dayLog.state === "reading" && "Reading the log…", dayLog.note].filter(Boolean).map(n => `<div class="note">${esc(n)}</div>`).join("");
   if (!dayLog.rows.length) return dayLog.state === "ok" ? `<div class="blank">${esc(dayLog.empty || "Nothing in the log yet")}</div>` : `<div class="daylog">${notes}</div>`;
+  // a day heading stays while an entry under it does
+  const rows = dayLog.rows.filter(r => r.type === "day" || dayLogKeep(n, r)).filter((r, i, all) => r.type !== "day" || (all[i + 1] && all[i + 1].type !== "day"));
   const days = dayLog.rows.filter(r => r.type === "day").length, entries = dayLog.rows.length - days;
   const sum = dayLog.summary || `${days} day${days === 1 ? "" : "s"}, ${entries} entr${entries === 1 ? "y" : "ies"}`;
-  return `<div class="teamlog"><div class="thead"><span>Day log</span><span>${esc(sum)}</span></div><div class="daylog" style="--whw:${dayLogWhW(dayLog.rows.filter(r => r.by).map(r => shown(r.by)))}px">${notes}${dayLog.rows.map((r, i) => r.type === "day"
+  return `<div class="teamlog"><div class="thead"><span class="tsum">${esc(sum)}</span></div><div class="daylog" style="--whw:${dayLogWhW(rows.filter(r => r.type !== "day").map(r => shown(dayLogBy(r))))}px">${notes}${rows.map((r, i) => r.type === "day"
     ? (r.kind ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
       : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
-    : `<div class="row">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>`).join("")}</div></div>`;
+    : `<div class="row">${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span></div>`).join("")}</div></div>`;
 }
 // The Token usage pane (owner, 2026-11-11): each agent's weighted tokens by day (see "token usage" on the server), in a
 // box for each week, newest first, as the Work queue's sections: an agent a row in its colour, Monday to Sunday the
@@ -5790,8 +5872,8 @@ async function loadTokens() {
   if (!leaves(layout().root).some(([, n]) => n.show === "tokens")) return;
   try { tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); } catch (e) {}
 }
-function tokensHtml(big) {
-  const pane = body => `<div class="teamlog" data-name="~tokens"><div class="thead"><span>Token usage</span><span>weighted tokens a day, UTC days</span>${maxButton(big)}</div>${body}</div>`;
+function tokensHtml(big, n) {
+  const pane = body => `<div class="teamlog" data-name="~tokens"><div class="thead"><span class="tsum">Weighted tokens a day, UTC days</span>${maxButton(big)}</div>${body}</div>`;
   if (!tokens || (tokens.state === "reading" && !tokens.agents.length)) return pane(`<div class="blank">Reading the conversations…</div>`);
   if (!tokens.agents.length) return pane(`<div class="blank">No tokens used in the last ${tokens.days.length} days</div>`);
   const sum = (xs, f) => xs.reduce((t, x) => t + (f(x) || 0), 0), at = d => new Date(d + "T12:00:00Z");
@@ -5801,14 +5883,19 @@ function tokensHtml(big) {
   const shownK = n => n ? k(n) : "";
   const weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse();
   const week = mon => {
-    const days = [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), them = tokens.agents.filter(a => days.some(d => a.days[d]));
+    const days = [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), them = tokens.agents.filter(a => byRoles(n, a.name) && days.some(d => a.days[d]));
     const total = sum(them, a => sum(days, d => a.days[d]?.w)), key = "tokens:" + mon, fold = wqFolded().includes(key);
+    // each agent's day shaded by its share of the week's heaviest agent-day, so heavy days stand out
+    const top = Math.max(1, ...them.flatMap(a => days.map(d => a.days[d]?.w || 0)));
+    const shade = v => v ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * v / top)}%, transparent)"` : "";
+    // the week showing now, with the account's share of its weekly allowance used (the toolbar's WEEK)
+    const now = days.includes(new Date().toISOString().slice(0, 10)) && S?.week != null ? ` · ${Math.round(S.week)}% of the weekly allowance used` : "";
     const head = `<tr><th></th>${days.map(d => `<th>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}<th>Total</th></tr>`;
     const rows = them.map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
-      days.map(d => `<td title="${esc(tip(shown(a.name), d, a.days[d]))}">${shownK(a.days[d]?.w)}</td>`).join("") +
+      days.map(d => `<td title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(a.days[d]?.w)}>${shownK(a.days[d]?.w)}</td>`).join("") +
       `<td class="tot" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(sum(days, d => a.days[d]?.w))}</td></tr>`).join("");
     const foot = `<tr class="tot"><td>Total</td>${days.map(d => `<td>${shownK(sum(them, a => a.days[d]?.w))}</td>`).join("")}<td>${k(total)}</td></tr>`;
-    return `<div class="sect${fold ? " shut" : ""}"><div class="day">Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}<span class="n">${k(total)}</span>` +
+    return `<div class="sect${fold ? " shut" : ""}"><div class="day">Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}<span class="n">${k(total)}${now}</span>` +
       `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show this week" : "Hide this week"}">${foldIcon(fold)}</b></div>` +
       (fold ? "" : them.length ? `<div class="tokens"><table>${head}${rows}${foot}</table></div>` : `<div class="row none">No tokens used</div>`) + `</div>`;
   };
@@ -5856,7 +5943,7 @@ const workQueueKeyW = keys => {
   c.font = `${13 * (parseFloat(getComputedStyle(document.body).getPropertyValue("--fs")) || 1)}px ${getComputedStyle(document.body).fontFamily}`;
   return Math.ceil(Math.max(60, ...keys.map(k => c.measureText(k).width))) + 2;
 };
-function workQueueHtml(big) {
+function workQueueHtml(big, n) {
   const q = workQueue;
   if (!q) return `<div class="blank">Loading…</div>`;
   const done = wqTab() === "done", tabs = `<span class="seg wqtabs">${[["work", "Doing"], ["done", "Done"]].map(([v, label]) =>
@@ -5867,11 +5954,14 @@ function workQueueHtml(big) {
   const hhmm = t => new Date(t * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
   const isToday = t => new Date(t * 1000).toDateString() === new Date().toDateString();
   const when = q.at ? (isToday(q.at) ? hhmm(q.at) : dayLogAt(q.at)) : "";
-  const head = when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "";
-  const shownLists = done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]];
+  const head = (when ? `Updated ${when}${q.by ? ` by ${shown(q.by)}` : ""}` : "") + (n?.owner ? ` · only ${shown(n.owner)}'s: click the badge again for everyone's` : "");
+  // a pane can be narrowed to one owner (n.owner) by a click on their badge, and a second click widens it again
+  const owner = n?.owner, mine = items => items.filter(i => byRoles(n, i.who) && (!owner || i.who === owner));
+  const shownLists = (done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]).map(([name, items]) => [name, mine(items)]);
   if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
   const row = i => `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.key)}</a>` : `<span class="key">${esc(i.key)}</span>`}` +
-    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>${i.who ? dayLogWho(i.who) : ""}` +
+    `<span class="tx" title="${esc(i.title + (i.note ? " — " + i.note : ""))}">${inline(i.title)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>` +
+    (i.who ? `<span class="wqwho" data-owner="${esc(i.who)}" title="${owner ? "Show everyone's" : `Only ${esc(shown(i.who))}'s`}">${dayLogWho(i.who)}</span>` : `<span class="wh"><span class="who off unset">unassigned</span></span>`) +
     (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>` +
     (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : "");
   const list = (name, items) => {
@@ -5890,10 +5980,20 @@ async function loadMeetings() {
 }
 // (the empty .att before the box is where every box's attachments go; a meeting takes text only)
 const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow"><textarea class="say" rows="1" data-name="${esc(MEET + path)}" placeholder="Message the meeting…" autocomplete="off"></textarea>${SEND}</div>`;
-const whoOn = n => Array.isArray(n.who) ? n.who : roleList().map(r => "role:" + r.role);
-const whoItems = () => [...roleList().map(r => ["role:" + r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]),
-  ...byRole([...S.agents, ...S.bench]).map(a => ["name:" + a.name, shown(a.name), `<span class="dot hollow" style="--c:${a.colour}"></span>`])];
-const whoBtn = (path, n) => filterBtn("who", "who:" + path, whoOn(n), Array.isArray(n.who) ? whoItems().map(([k]) => k) : whoOn(n), whoItems(), "Who");
+// The meeting's chips, the role chips' row: Invite all, and each role's, lit while all of that role are invited; a click
+// on one invites all of that role (that role alone, from Invite all), or leaves them all out once they are. Who is invited is kept by name (n.who), the
+// whole team while it is unset.
+const meetTeam = () => [...S.agents, ...S.bench];
+const meetChips = (path, n) => { const all = !Array.isArray(n.who), full = r => meetTeam().filter(a => a.role === r.role).every(a => inMeeting(n, a));
+  return `<span class="chips"><b class="chip${all ? " on" : ""}" data-invite-role="" title="Invite the whole team">Invite all</b>${roleList().map(r =>
+    `<b class="chip${!all && full(r) ? " on" : ""}" data-invite-role="${esc(r.role)}" data-role="${esc(r.role)}" title="Invite every ${esc(r.name)}, or leave them all out"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
+    `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
+// invites or leaves out these agents; the whole team invited is kept as unset
+function meetInvite(n, names, on) {
+  const now = new Set(meetTeam().filter(a => inMeeting(n, a)).map(a => a.name));
+  names.forEach(x => on ? now.add(x) : now.delete(x));
+  if (meetTeam().every(a => now.has(a.name))) delete n.who; else n.who = [...now].map(x => "name:" + x);
+}
 // The meeting's bar. Before it starts: who is invited (Who, while the layout is unlocked), a topic and Start. While it
 // is open: its topic and time, who is there, Add (anyone on the roster), Pause and End. The count of those in it, the
 // owner among them, turns amber above three and red above five (owner, 2026-11-03: "more than me + 2: amber, more than
@@ -5906,14 +6006,14 @@ const andList = list => list.length < 2 ? list.join("") : list.slice(0, -1).join
 const meetHhmm = t => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 function meetCount(agents) {
   const n = agents + 1, cls = n > 5 ? "red" : n > 3 ? "amber" : "";
-  return `<span class="mcount${cls ? " " + cls : ""}" title="${n} in the meeting, you among them${cls ? `: every line goes to each of the ${agents} agents` : ""}">${n}</span>`;
+  return `<span class="mcount${cls ? " " + cls : ""}" title="${n} in the meeting, you among them. Every line goes to every agent in it, so a big meeting is slow and costly: amber above 3, red above 5">${n} in the meeting</span>`;
 }
 function meetBar(path, n, big) {
   const m = meetOf(n), max = maxButton(big), btn = (what, icon, label, tip, cls = "") => `<b class="mbtn${cls}" data-meet="${what}" title="${esc(tip)}">${MENU_ICON[icon]}${label}</b>`;
   if (!m) {
     const who = meetInvited(n).map(a => a.name);
     return `<div class="meetbar"><input class="mtopic" data-name="mtopic:${esc(path)}" placeholder="Topic (optional)" autocomplete="off">${meetCount(who.length)}` +
-      (who.length ? btn("start", "start", "Start", `Start a meeting with ${andList(who.map(shown))}: each joins through a meeting session of its own`) : `<span>Choose who with Who</span>`) + max + `</div>`;
+      (who.length ? btn("start", "start", "Start", `Start a meeting with ${andList(who.map(shown))}: each joins through a meeting session of its own`) : `<span>Invite someone: a role's chip, or a portrait</span>`) + max + `</div>`;
   }
   const title = `<b>${esc(m.topic || "Meeting")}</b> ${m.ended ? `ended at ${meetHhmm(m.ended)}` : `since ${meetHhmm(m.opened)}`}`;
   if (m.ended) return `<div class="meetbar on"><span>${title} · the record is <a class="link" href="/doc?p=${encodeURIComponent(meetRecords + "/" + m.record)}" title="${esc(meetRecords + "/" + m.record)}" onclick="return showDoc(event, this)">${esc(m.record)}</a></span>${btn("new", "plus", "New meeting", "Set up the next meeting")}${max}</div>`;
@@ -5923,20 +6023,25 @@ function meetBar(path, n, big) {
       btn("pause", m.paused ? "start" : "pause", m.paused ? "Resume" : "Pause", m.paused ? "Let the agents hear each other again" : "Hold the agents' lines to each other until you speak or resume") +
       btn("end", "stop", "End", "End the meeting: each agent suggests what its own session should be told, for you to send or skip", " warn")) + max + `</div>`;
 }
-// Everyone in the meeting along its top: one not yet arrived greyed, one whose session is working pulsing.
+// Before the meeting starts, the whole team along its top, each named under its portrait: those invited in full colour,
+// the rest dimmed, a click inviting one or not (while the layout is unlocked). Once it starts, everyone in it: one not
+// yet arrived greyed, one whose session is working pulsing.
 function meetFaces(n) {
   const m = meetOf(n);
-  const them = m ? m.who.map(meetAgent) : meetInvited(n);
+  if (!m) { const all = byRole([...S.agents, ...S.bench]), edit = !pageLocked();
+    return all.length ? `<div class="tabbar meetpick">${all.map(a => `<span class="ftab${inMeeting(n, a) ? "" : " away"}"${edit ? ` data-invite="${esc(a.name)}" title="${inMeeting(n, a) ? "Invited: click to leave out" : "Click to invite"}"` : ""}>` +
+      `${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}"`)}<small>${esc(shown(a.name))}</small></span>`).join("")}</div>` : ""; }
+  const them = m.who.map(meetAgent);
   return them.length ? `<div class="tabbar icontabs meetrow">${them.map(a => {
     const on = m && !m.ended && m.live.includes(a.name), here = on && m.present[a.name], busy = on && m.busy.includes(a.name);
     const why = m && m.stuck?.[a.name];
     const tip = `${shown(a.name)}${m?.added.includes(a.name) ? ", brought in" : ""}${here ? (busy ? ", active, speaking or thinking" : ", active") : why ? ", stuck: " + why : on ? ", joining" : ", inactive"}`;
-    return `<span class="ftab${here ? "" : " away"}${busy ? " mbusy" : ""}">${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}" title="${esc(tip)}"`)}</span>`; }).join("")}</div>` : "";
+    return `<span class="ftab${here ? "" : " away"}${busy ? " mbusy" : ""}">${face({...a, live: true, status: "idle"}, `data-name="${esc(a.name)}" title="${esc(tip)}"`)}<small>${esc(shown(a.name))}</small></span>`; }).join("")}</div>` : "";
 }
 // The meeting as it was said, the owner's lines and each agent's, then, once it is ending, each agent's suggestion.
 function meetingHtml(path, n) {
   const m = meetOf(n), iso = t => new Date(t * 1000).toISOString();
-  const lines = !m ? `<div class="empty">${meetInvited(n).length ? "Start the meeting: each line anyone says goes to everyone in it" : "Choose who is invited with Who"}</div>`
+  const lines = !m ? `<div class="empty">${meetInvited(n).length ? "Start the meeting: each line anyone says goes to everyone in it" : "Invite someone: a role's chip, or a portrait"}</div>`
     : m.log.map(l => l.kind !== "say" ? `<div class="it mevent"><span class="tx">${esc(l.text)}</span><span class="ago" data-ts="${iso(l.at)}">${since(iso(l.at))}</span></div>`
       : l.who === S.owner || !m.who.includes(l.who) ? item({kind: "owner", who: l.who, text: l.text, ts: iso(l.at), lane: "owner"}, false, "")
       : item({kind: "said", text: l.text, ts: iso(l.at), lane: "owner"}, false, l.who)).join("") || `<div class="empty">Waiting for everyone to arrive</div>`;
@@ -5974,32 +6079,58 @@ const chrAgents = n => rolesOn(n).flatMap(r => [...S.agents, ...S.bench].filter(
 // How a Tabs or Combined pane shows its agents (n.badge): by name ("name", the default), as the bench's small tiles
 // ("icon"), or as their Characters tiles ("card").
 const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
+// An Agent view's pick of agent: the running agents as portraits, one click showing one. Large and named in the empty
+// pane; small under its tabs while one is showing, to change it.
+const agentPick = (n, big) => S.agents.length ? `<div class="tabbar agentpick${big ? " big" : ""}">${byRole(S.agents).map(a =>
+  `<span class="ftab${a.name === n.name ? " sel" : ""}" data-agent="${esc(a.name)}" title="Show ${esc(shown(a.name))}">${face(a, `data-name="${esc(a.name)}"`)}${big ? `<small>${esc(shown(a.name))}</small>` : ""}</span>`).join("")}</div>` : "No agent is running";
+// The documents File panes have shown, newest first, kept in this browser, offered in an empty File pane.
+const fileRecent = () => { try { return JSON.parse(localStorage.getItem("file:recent")) || []; } catch (e) { return []; } };
+const fileSeen = f => { if (f) localStorage.setItem("file:recent", JSON.stringify([f, ...fileRecent().filter(x => x !== f)].slice(0, 8))); };
 // A pane's roles (n.roles, in the order they were picked), or every role while none is picked: "All".
 const rolesPicked = n => Array.isArray(n.roles) ? n.roles : [];
 const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);
+// The views that list people or what they did, each filtered by the same role chips. A row by someone in no picked
+// role (the owner, or nobody) is left out while roles are picked.
+const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];
+const roleOf = name => [...S.agents, ...S.bench].find(a => a.name === name)?.role;
+const byRoles = (n, name) => !rolesPicked(n || {}).length || n.roles.includes(roleOf(name));
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
 // The role chips under a pane's tabs: All, then each role with a dot in its colour, lit while the pane shows it. Those
 // that do not fit the row fold into a +N chip, which opens them as a menu (see fitChips).
-const roleChips = (path, n) => { const on = rolesPicked(n);
-  return `<span class="chips"><b class="chip${on.length ? "" : " on"}" data-role="" title="Every role">All</b>${roleList().map(r =>
-    `<b class="chip${on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
+const roleChips = (path, n) => { const on = rolesPicked(n), pickView = PICK_VIEWS.includes(n.show);
+  const lit = r => pickView ? pickedAny(n) && S.agents.some(a => a.role === r.role) && S.agents.filter(a => a.role === r.role).every(a => inPick(n, a)) : on.includes(r.role);
+  return `<span class="chips"><b class="chip${(pickView ? pickedAny(n) : on.length) ? "" : " on"}" data-role="" title="Every role">All</b>${roleList().map(r =>
+    `<b class="chip${lit(r) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
     `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
 // A tab's name: the one given it (n.title), else one from what it shows: the agent an Agent view shows, the role when
 // one role is picked, else the view.
 const plural = w => /s$/.test(w) ? w : w + "s";
 function autoName(p) {
   if (p.show === "agent" && p.name) return shown(p.name);
-  const one = ["grid", "tabs", "characters", "combined"].includes(p.show) && rolesPicked(p).length === 1 && roleList().find(r => r.role === p.roles[0]);
+  if (p.show === "file" && p.path) return p.path.split("/").pop();
+  const picked = PICK_VIEWS.includes(p.show) && Array.isArray(p.pick) ? [...new Set(S.agents.filter(a => p.pick.includes(a.name)).map(a => a.role))] : rolesPicked(p);
+  const one = ["grid", "tabs", "characters", "combined"].includes(p.show) && picked.length === 1 && roleList().find(r => r.role === picked[0]);
   return one ? plural(one.name) : PANE_TYPES[p.show] || "Choose a view";
+}
+// Every tab's name on the page, by "path:index": two of the same name, given or not, are told apart by a number after
+// the first ("Characters", "Characters 2"), in the layout's order.
+let tabNamesNow = {};
+function tabNames(root) {
+  const out = {}, seen = {};
+  for (const [path, n] of leaves(root)) {
+    const sel = n.tab || 0, tabs = n.tabs ? n.tabs.map((t, i) => i === sel ? {...n, title: n.title ?? t.title} : t) : [n];
+    tabs.forEach((t, i) => { const name = t.title || autoName(t), c = seen[name] = (seen[name] || 0) + 1; out[path + ":" + i] = c > 1 ? `${name} ${c}` : name; });
+  }
+  return out;
 }
 // A pane's tabs (n.tabs, n.tab the one showing; a pane without n.tabs is one tab), each with its view's icon and its
 // name. While the layout is unlocked they head the pane's bar, each with a chevron that changes its view, and with
 // two or more each can be dragged along the strip or closed; locked, they show over the body only when there are two.
-function paneTabs(n, locked) {
+function paneTabs(n, locked, path) {
   const sel = n.tab || 0, tabs = n.tabs ? n.tabs.map((t, i) => i === sel ? {...n, title: n.title ?? t.title} : t) : [n], many = tabs.length > 1;
   if (locked && !many) return "";
   return `<div class="ctabs">${tabs.map((t, i) => `<span class="ctab${i === sel ? " sel" : ""}" data-i="${i}"${!locked && many ? ' draggable="true"' : ""}${locked ? "" : ' title="Double-click to rename"'}>` +
-    `${PANE_ICON[t.show] ? `<i class="cti">${PANE_ICON[t.show]}</i>` : ""}<span class="ctl">${esc(t.title || autoName(t))}</span>` +
+    `${PANE_ICON[t.show] ? `<i class="cti">${PANE_ICON[t.show]}</i>` : ""}<span class="ctl">${esc(tabNamesNow[path + ":" + i] || t.title || autoName(t))}</span>` +
     (locked ? "" : `<i class="cv" data-cur="${esc(t.show || "")}" title="Change this tab's view">${MENU_ICON.down}</i>`) +
     (!locked && many ? `<i class="cx" title="Close this tab">${MENU_ICON.close}</i>` : "") + `</span>`).join("")}</div>`;
 }
@@ -6085,6 +6216,7 @@ function renameView(el, i, after) {
 }
 function customHtml(ceil, tabRow) {
   const l = layout();
+  tabNamesNow = tabNames(l.root);
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
   // or a Team, Combined, Meeting, File or Work queue pane.
   let maxed = localStorage.getItem("custom:max");
@@ -6110,9 +6242,9 @@ function customHtml(ceil, tabRow) {
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
       body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`
-        : `<div class="blank">${n.name ? esc(n.name) + " is not running" : "Choose an agent"}</div>`;
+        : `<div class="blank">${n.name ? `<span>${esc(shown(n.name))} is not running</span>` : ""}${agentPick(n, true)}</div>`;
     } else if (n.show === "others") {
-      body = `<div class="others">${minis("")}</div>`;
+      body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
     } else if (n.show === "characters") {
       const them = chrAgents(n);
       body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">No agent in these roles</div>`;
@@ -6124,16 +6256,17 @@ function customHtml(ceil, tabRow) {
         : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
-      body = !n.path ? `<div class="blank">${pageLocked() ? "" : "Type a document's full path above"}</div>`
+      body = !n.path ? `<div class="blank">${pageLocked() ? "" : fileRecent().length ? `<div class="frecent"><div>Recently opened</div>${fileRecent().map(f =>
+          `<a data-recent="${esc(f)}" title="${esc(f)}"><b>${esc(f.split("/").pop())}</b><span>${esc(f)}</span></a>`).join("")}</div>` : "Type a document's full path above: the folder's files are suggested as you type"}</div>`
         : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${fileTools(n.path)}${maxButton(path === maxed)}</div>${doc}</div>`;
-    } else if (n.show === "perf" || n.show === "gauges") {
+    } else if (n.show === "machine") {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
-      body = dayLogHtml();
+      body = dayLogHtml(n);
     } else if (n.show === "tokens") {
-      body = tokensHtml(path === maxed);
+      body = tokensHtml(path === maxed, n);
     } else if (n.show === "workqueue") {
-      body = workQueueHtml(path === maxed);
+      body = workQueueHtml(path === maxed, n);
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -6155,21 +6288,24 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "perf", "gauges", "daylog", "workqueue", "tokens"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "workqueue", "tokens"].includes(n.show);
     const own = [
-      ["grid", "tabs", "characters", "combined"].includes(n.show) ? roleChips(path, n) : "",
-      n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="~/claude-work/owner-actions.md" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : "",
-      n.show === "agent" ? `<select data-act="name"><option value="">Agent…</option>${S.agents.map(a => `<option value="${esc(a.name)}"${a.name === n.name ? " selected" : ""}>${esc(shown(a.name))}</option>`).join("")}</select>` : "",
+      CHIP_VIEWS.includes(n.show) && n.show !== "meeting" ? roleChips(path, n) : "",
+      n.show === "daylog" ? dayLogFilters(n) : "",
+      n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="Type a file path" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : "",
+      n.show === "agent" && S.agents.some(a => a.name === n.name) ? agentPick(n, false) : "",
       ["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : "",
-      n.show === "meeting" ? whoBtn(path, n) : n.show === "perf" || n.show === "gauges" ? perfBtn(path, n) : "",
+      n.show === "meeting" && !meetOf(n) ? meetChips(path, n) : "",
+      n.show === "machine" ? `<span class="seg">${[["gauges", "Gauges"], ["rows", "Rows"]].map(([v, label]) =>
+        `<b data-act="machine" data-v="${v}" class="${v === (n.machine || "gauges") ? "on" : ""}">${label}</b>`).join("")}</span>` : "",
       full ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""].join("");
     const bar = locked ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
-      ${n.show ? paneTabs(n, false) + `<b class="fbtn cadd" title="Add a tab">${MENU_ICON.plus}</b>` : ""}
+      ${n.show ? paneTabs(n, false, path) + `<b class="fbtn cadd" title="Add a tab">${MENU_ICON.plus}</b>` : ""}
       <b class="fbtn pmore" data-menu="pane:${path}" title="Split or remove this pane">${MENU_ICON.more}</b>
       ${own ? `<div class="pown">${own}</div>` : ""}</div>`;
-    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${locked ? paneTabs(n, true) : ""}${body}</div></div>`;
+    return `<div class="pane" data-path="${path}">${bar}<div class="pbody">${locked ? paneTabs(n, true, path) : ""}${body}</div></div>`;
   };
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
@@ -6456,29 +6592,27 @@ let perfNow = null;
 const PERF_BARS = ["cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"];
 async function loadPerf() {
   const b = barOf();
-  if (!leaves(layout().root).some(([, n]) => n.show === "perf" || n.show === "gauges") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
+  if (!leaves(layout().root).some(([, n]) => n.show === "machine") && ![...b.head, ...b.foot].some(k => PERF_BARS.includes(k))) return;
   try { perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); } catch (e) {}
 }
 const PERF_ITEMS = [["cpu", "CPU"], ["mem", "Memory"], ["disk", "Disk"], ["net", "Network"], ["gpu", "GPU"], ["heat", "Heat"], ["fan", "Fans"]];
 const PERF_COLOUR = {cpu: "#4f9dff", mem: "#b37feb", disk: "#3fb950", net: "#e3a33b", gpu: "#39c5cf", heat: "#f778ba", fan: "#ff9b72"};
 // a figure's colour: the custom theme's for it, while that is the theme, else its own
 const perfColour = k => (themeNow() === "custom" && customTheme().perf[k]) || PERF_COLOUR[k];
-const perfOn = n => Array.isArray(n.perf) ? n.perf : PERF_ITEMS.map(([k]) => k);
-const perfBtn = (path, n) => filterBtn("perfsel", "perf:" + path, perfOn(n), PERF_ITEMS.map(([k]) => k), PERF_ITEMS, "");
 // sizes in Task Manager's way: 1024 to a K, a GB and so on; a disk's rate in bytes and the network's in bits
 const perfSize = (b, unit = "B") => { if (b == null) return "–"; let i = 0; while (b >= 1000 && i < 4) { b /= 1024; i++; } return `${b < 10 && i ? b.toFixed(1) : Math.round(b)} ${["", "K", "M", "G", "T"][i]}${unit}`; };
 // used and total in the total's unit: "23 / 31 GB"
 const perfOf = (used, total) => { const t = perfSize(total), i = ["", "K", "M", "G", "T"].indexOf(t.split(" ")[1]?.[0] ?? ""), u = (used || 0) / 1024 ** Math.max(0, i);
   return `${u < 10 && i > 0 ? u.toFixed(1) : Math.round(u)} / ${t}`; };
 function perfHtml(n) {
-  const d = perfNow, on = perfOn(n);
-  if (!on.length) return `<div class="blank">Choose what to show</div>`;
+  const d = perfNow;
   if (!d || d.warming) return `<div class="blank">Reading…</div>`;
-  const h = d.hist || {}, dials = n.show === "gauges";
+  const h = d.hist || {}, dials = n.machine !== "rows";
+  // a label is in its figure's status colour (normal, warning or critical), grey for a rate, which has none;
   // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C);
   // a row with a series (sk, its key in the history) opens it as the enlarged graph, its values read as gunit
   const row = (key, name, detail, pct, sk, ceil, tip = "", unit = "%", colour = gauge(pct), gunit = "%") =>
-    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${perfColour(key)}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${pct == null || unit === " rpm" ? "#8b949e" : colour}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
     (dials ? dial(name, detail, pct, sk && h[sk], ceil, unit, colour, gunit, perfColour(key)) :
     `<div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
     `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${colour}">${Math.round(pct)}${unit}</span>`}</div>` +
@@ -6496,7 +6630,7 @@ function perfHtml(n) {
     net: () => (d.net || []).filter(x => x.in + x.out > 0 || (h["net:" + x.name] || []).some(v => v > 0)).map(x => row("net", x.name, `↓ ${perfSize(x.in * 8, "b")}/s · ↑ ${perfSize(x.out * 8, "b")}/s`, null,
       "net:" + x.name, Math.max(1, ...(h["net:" + x.name] || [])), "Received and sent", "%", undefined, "b")).join("") || row("net", "Network", d.net?.length ? "no traffic" : "no interface", null),
     gpu: () => d.gpus.map(g => row("gpu", d.gpus.length > 1 ? `GPU ${g.id}` : "GPU", [g.name, g.mem_total ? perfOf(g.mem_used, g.mem_total) : g.mem_used ? perfSize(g.mem_used) : "",
-      g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, "gpu:" + g.id, 100, g.pct == null ? "Its use is not reported just now" : "")).join("")
+      g.temp != null ? `${g.temp} °C` : ""].filter(Boolean).join(" · "), g.pct, "gpu:" + g.id, 100, [g.name, g.pct == null ? "Its use is not reported just now" : ""].filter(Boolean).join("\n"))).join("")
       || row("gpu", "GPU", d.gpu_source === "nvidia-smi" ? "reading…" : "no figures here: no nvidia-smi or AMD card", null),
     // the hottest sensor, green, amber from 80 °C and red from 90 °C, as the Heat bar is; every sensor on a rest
     heat: () => { const t = d.temps, hot = t?.[0]?.c;
@@ -6507,9 +6641,9 @@ function perfHtml(n) {
     // each fan that has turned, its speed and the share of full power the board gives it; one that stops when cool reads 0
     fan: () => (d.fans || []).map(f => row("fan", f.name, f.duty == null ? (f.rpm ? "" : "stopped") : `${f.rpm ? "" : "stopped · "}power ${f.duty}%`,
         f.rpm, "fan:" + f.name, Math.max(1, ...(h["fan:" + f.name] || [])), "Its speed in turns a minute", " rpm", "var(--text)", "rpm")).join("")
-      || row("fan", "Fans", d.fans ? "no fan speeds here: the board's fan chip needs its driver (nct6775 or it87)" : "reading…", null),
+      || "",   // no Fans row while there are no fan readings
   };
-  return `<div class="others perfs${dials ? " dials" : ""}">${PERF_ITEMS.filter(([k]) => on.includes(k)).map(([k]) => rows[k]()).join("")}</div>`;
+  return `<div class="others perfs${dials ? " dials" : ""}">${PERF_ITEMS.map(([k]) => rows[k]()).join("")}</div>`;
 }
 // A Gauges pane's figure, as a Performance pane would show it but as a gauge: a half-circle filled to its percentage
 // (the Heat figure's °C read against 100), or, for a rate with no percentage (the network, a disk's bytes), to its
@@ -6682,8 +6816,14 @@ function viewPicker(btn, path, picked) {
 }
 // A row of role chips keeps to its width: the roles that do not fit, from the end, are hidden behind a +N chip, lit
 // while one of them is picked, whose menu ticks and flips them as the chips do.
+// A row is fitted again whenever its width changes, as a Characters pane's does once its tiles are measured.
+// Only a change of width refits it: fitting hides chips, which must not set off another fit.
+const chipRows = new ResizeObserver(es => es.forEach(e => { const w = Math.round(e.contentRect.width);
+  if (e.target.fitW !== w) { e.target.fitW = w; e.target.fit?.(); } }));
 function fitChips(row, path, flip) {
+  if (!row.fit) { row.fit = () => fitChips(row, path, flip); chipRows.observe(row); }
   const chips = [...row.querySelectorAll('.chip[data-role]:not([data-role=""])')], more = row.querySelector(".chip.more");
+  if (!row.isConnected || !more) { chipRows.unobserve(row); return; }   // a row a redraw has replaced
   chips.forEach(c => c.hidden = false); more.hidden = true;
   if (row.scrollWidth <= row.clientWidth) return;
   more.hidden = false;
@@ -6699,14 +6839,15 @@ function customClicks() {
   const main = $("#main"), change = f => { const l = layout(); f(l); saveLayout(l); draw(); };
   main.querySelectorAll(".pbar [data-act]").forEach(el => {
     const path = el.closest(".pane").dataset.path, act = el.dataset.act;
-    if (act === "name" || act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
+    if (act === "badge") { el.onchange = () => change(l => { nodeAt(l.root, path)[act] = el.value; }); return; }
     if (act === "move") { el.onpointerdown = e => movePane(e, el, path, change); return; }
+    if (act === "ticket") { el.onchange = () => { change(l => { const n = nodeAt(l.root, path), v = el.value.trim(); if (v) n.ticket = v; else delete n.ticket; }); }; return; }
     if (act === "path") {
-      const show = () => { change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); };
+      const show = () => { fileSeen(el.value.trim()); change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); };
       el.onchange = show; el.onfocus = el.oninput = () => pickShow(el, show); el.onkeydown = e => pickKey(e, el, show);
       return;
     }
-    if (act === "view") el.onclick = () => { change(l => { nodeAt(l.root, path).view = el.dataset.v; }); setTimeout(load); };   // a full card needs its conversation
+    if (act === "view" || act === "machine") el.onclick = () => { change(l => { nodeAt(l.root, path)[act] = el.dataset.v; }); setTimeout(load); };   // a full card needs its conversation
   });
   // a pane's menu: split it either way, or remove it
   main.querySelectorAll(".pane .pmore").forEach(el => el.onclick = e => {
@@ -6721,25 +6862,52 @@ function customClicks() {
       else putAt(l, path, {split: act, at: 0.5, a: n, b: {}});
     }); });
   });
+
+  main.querySelectorAll(".agentpick [data-agent]").forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const path = el.closest(".pane").dataset.path;
+    change(l => { nodeAt(l.root, path).name = el.dataset.agent; }); setTimeout(load);
+  });
+  main.querySelectorAll(".pown .kchips [data-kind]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path, k = el.dataset.kind;
+    change(l => { const n = nodeAt(l.root, path), on = Array.isArray(n.kinds) ? n.kinds : [], next = !k ? [] : on.includes(k) ? on.filter(x => x !== k) : [...on, k];
+      if (next.length) n.kinds = next; else delete n.kinds; });
+  });
+  main.querySelectorAll(".workq [data-owner]").forEach(el => el.onclick = e => {
+    e.stopPropagation();
+    const path = el.closest(".pane").dataset.path;
+    change(l => { const n = nodeAt(l.root, path); if (n.owner === el.dataset.owner) delete n.owner; else n.owner = el.dataset.owner; });
+  });
+  main.querySelectorAll(".frecent [data-recent]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path; fileSeen(el.dataset.recent);
+    change(l => { nodeAt(l.root, path).path = el.dataset.recent; }); setTimeout(load);
+  });
+  main.querySelectorAll(".meetpick [data-invite]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path;
+    change(l => { const n = nodeAt(l.root, path); meetInvite(n, [el.dataset.invite], !inMeeting(n, meetTeam().find(a => a.name === el.dataset.invite) || {})); });
+  });
   // a pane's role chips: All shows every role; a role picked alone from All, then added or taken out, and All again
   // once none is left
   main.querySelectorAll(".pbar .chips").forEach(row => {
     const path = row.closest(".pane").dataset.path;
+    if (row.querySelector("[data-invite-role]")) {
+      const invite = r => change(l => { const n = nodeAt(l.root, path);
+        if (!r) { delete n.who; return; }
+        const them = meetTeam().filter(a => a.role === r);   // from Invite all, a role's chip invites that role alone
+        if (!Array.isArray(n.who)) n.who = them.map(a => "name:" + a.name); else meetInvite(n, them.map(a => a.name), !them.every(a => inMeeting(n, a)));
+      });
+      row.querySelectorAll(".chip[data-invite-role]").forEach(c => c.onclick = () => invite(c.dataset.inviteRole));
+      fitChips(row, path, invite);
+      return;
+    }
     const flip = r => { change(l => { const n = nodeAt(l.root, path), on = rolesPicked(n), next = !r ? [] : on.includes(r) ? on.filter(x => x !== r) : [...on, r];
+      if (PICK_VIEWS.includes(n.show)) return pickRole(n, r);
       if (next.length) n.roles = next; else delete n.roles; }); setTimeout(load); };
     row.querySelectorAll(".chip[data-role]").forEach(c => c.onclick = () => flip(c.dataset.role));
     fitChips(row, path, flip);
   });
-  main.querySelectorAll(".pane .perfsel.fbtn").forEach(el => {
-    const path = el.closest(".pane").dataset.path;
-    filterButton(el, PERF_ITEMS, () => perfOn(nodeAt(layout().root, path)), k => `Show or leave out ${PERF_ITEMS.find(([x]) => x === k)[1]}`,
-      k => change(l => { const n = nodeAt(l.root, path), on = perfOn(n); n.perf = on.includes(k) ? on.filter(x => x !== k) : PERF_ITEMS.map(([x]) => x).filter(x => x === k || on.includes(x)); }));
-  });
-  main.querySelectorAll(".pane .who.fbtn").forEach(el => {
-    const path = el.closest(".pane").dataset.path;
-    filterButton(el, whoItems(), () => whoOn(nodeAt(layout().root, path)), k => `${k.startsWith("role:") ? "Every" : "Only"} ${whoItems().find(([x]) => x === k)?.[1] || k} in the meeting, or not`,
-      k => { change(l => { const n = nodeAt(l.root, path), on = whoOn(n); n.who = on.includes(k) ? on.filter(x => x !== k) : [...on, k]; }); setTimeout(load); }, "Who");
-  });
+
+
   // the meeting's bar: Start (with the topic typed beside it), Add, Pause or Resume, End, and New meeting once ended
   main.querySelectorAll(".meetbar [data-meet]").forEach(el => el.onclick = async e => {
     const path = el.closest(".pane").dataset.path, n = nodeAt(layout().root, path), m = meetOf(n), what = el.dataset.meet;
@@ -7036,7 +7204,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = stOf(a), n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-      <div class="mtop"><span class="name" title="${st === "wanted" ? esc(a.wanted) : STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name" title="${st === "wanted" ? esc(a.wanted) : STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}" title="${a.ctxPct}% of context used">ctx ${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -7079,14 +7247,14 @@ function tiles(them) {
     // a benched agent: its portrait or shadow, greyed, and "on the bench"; its menu has its details (and a standing one's Start)
     if (!a.feed) return `<div class="chr off bench" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, on the bench">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>`) + `<span class="tk">on the bench</span></div>`;
+      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span><span class="tk">on the bench</span></div>`;
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      (a.portrait ? "" : `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>`) +
+      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
-      `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
+      `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}" title="${a.ctxPct}% of context used">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
       `<span class="sp">${spark(a.series, ceil, a.colour)}</span></div>`;
   }).join("");
@@ -7650,6 +7818,7 @@ function menuAt(anchor, key, html, beside, stay) {
     menu.innerHTML = html; menu.querySelectorAll(".mi")[at]?.classList.add("at");
     return;
   }
+  clearTimeout(menuHide);   // a menu opening is not closed by the one it replaces, left a moment ago
   menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
   if (!anchor?.offsetParent) anchor = $(".brand");   // a button out of the bars, reached by its shortcut: from the logo
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
@@ -8497,7 +8666,7 @@ function phoneDraw() {
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
     phLoad(tab);
   }
-  else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "perf"})}</div>`); phLoad(tab); }
+  else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "machine", machine: "rows"})}</div>`); phLoad(tab); }
   else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } }
   else { patch(body, `<div class="ph-pane">${dayLogHtml()}</div>`); phLoad(tab); }
   if (tab === "list" || tab === "faces") markSeen([]);
@@ -9054,7 +9223,7 @@ def self_test():
           'Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)' in PAGE, True)
         g["DAY_LOG_PROGRAM"] = os.path.join(ROOT, "team", "day-log.py")
         _daylog.update(at=0, busy=False, data=None, error="", thread=None)
-        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml()" in PAGE), (True, True))
+        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml(n)" in PAGE), (True, True))
         # the harness's own program: its two logs and a stand-in gh, with the clock's window taken from now
         stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
         ep = lambda ago: int(time.time() - ago)
@@ -9221,7 +9390,7 @@ def self_test():
         finally:
             g["WORK_QUEUE"], g["STANDUPS"] = keep_wq, keep_su
         t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, and a phone panel too",
-          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml(path === maxed)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
+          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml(path === maxed, n)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue", "Work queue"]' in PAGE), (True, True, True, True))
         t("  it can be maximised, and draws titles and notes as Markdown",
@@ -9268,8 +9437,10 @@ def self_test():
            ".it .tx > .heads{float:left;height:1lh;" in PAGE), (True, True, True))
         t("  every menu is a sheet from the bottom over a dimmed page, which a tap closes",
           ("html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0" in PAGE, 'back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };' in PAGE), (True, True))
-        t("  each row starts with its name's badge and ends with its icon", ('${dayLogWho(r.by)}<span class="at">' in PAGE, '${dayLogIcon(r.kind, "d" + r.at)}</div>' in PAGE, '${dayLogIcon(r.kind, "e" + r.at + ":" + i)}</div>' in PAGE), (True, True, True))
-        t("  and the pane has its title", '<div class="thead"><span>Day log</span>' in PAGE, True)
+        t("  each entry starts with who did it (the releaser a release names, else System), its time and its kind's icon; a day's ends with its icon",
+          ('${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}' in PAGE, '${dayLogIcon(r.kind, "d" + r.at)}</div>' in PAGE,
+           'r.text?.match(/^Released by ([A-Z][\\w-]*)/)?.[1] || "System"' in PAGE), (True, True, True))
+        t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
         t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
@@ -9828,6 +9999,10 @@ def self_test():
           ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
         t("token usage: the pane draws a box per week and any pane's tabs hold a whole pane",
           ('Week of ${label(mon' in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True, True, True))
+        t("views: Gauges and Performance open as Machine, people views share the role chips, same-named tabs are numbered, and the Team pane draws",
+          ('t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine";' in PAGE,
+           'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];' in PAGE,
+           "out[path + \":\" + i] = c > 1 ? `${name} ${c}` : name;" in PAGE, "kept.length} message" in PAGE and "const kept = teamLog" in PAGE), (True, True, True, True))
         t("pane tabs: each picks its view from the grouped picker, names itself, and filters by role chips with no roles meaning All",
           ("function viewPicker(btn, path, picked)" in PAGE, "function autoName(p)" in PAGE, "const roleChips = " in PAGE,
            "const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);" in PAGE), (True, True, True, True))
