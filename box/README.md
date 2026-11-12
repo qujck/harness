@@ -15,8 +15,11 @@ with their history, so that the team-running scripts live in one repo with one o
 "statusLine": { "command": "/home/peter/dev/harness/box/statusline.sh", "refreshInterval": 5 }
 ```
 
-Claude Code pipes a JSON blob to it on stdin and renders the line it prints — model, agent name, cwd,
-context gauge, weekly-limit gauge, and the running gate for *this* session.
+Claude Code pipes a JSON blob to it on stdin and renders the line it prints — model, agent name and
+activity. Its real job is the row it publishes for each session (context, activity, limits) under
+`~/.local/state/strength/context/`, which the team page reads. The cwd, the context and weekly bars and
+the running-gate row were cut on 2026-11-12 (owner: "I no longer use the terminal"): it runs every 5 s in
+every session, and the gate row walked every process on each run, about 0.9 CPU-seconds a time.
 
 There is deliberately no copy step and nothing to keep in sync: one file, so it cannot drift. Two
 consequences worth knowing:
