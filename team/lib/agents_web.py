@@ -3510,6 +3510,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
+.teamlog[data-name="~tokens"] > .blank{margin:auto;padding:12px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}   /* "Reading the conversations…" in the middle of the pane */
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 8px}
@@ -3591,6 +3592,8 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .tokens th.sort.on::after{content:" ↓"}
 .tokens tr.tot td.over{color:var(--amber)}
 .tokens tr.opens{cursor:pointer}
+.tokens .who.icon{display:inline-grid;place-items:center;width:28px;height:20px;padding:0;vertical-align:middle}
+.tokens .who.icon .ricon{width:15px;height:15px}
 .tokens .chev{display:inline-block;margin:0 4px 0 5px;color:var(--text);font-size:1.6em;line-height:.6;vertical-align:-2px}
 .tokens .cnt{color:var(--mute);font-weight:400}
 .tokens tr.trole td:first-child{white-space:nowrap}
@@ -4446,6 +4449,11 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
 #phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #phone .ph-pane .teamlog .thead{flex-wrap:wrap;row-gap:4px}
+#phone .ph-tokens .thead .tsum{white-space:normal}
+#phone .ph-tokens .tkgraph{font-size:13px}
+#phone .ph-tokens .tokens{padding:0 2px 2px}
+#phone .ph-tokens .tokens :is(th, td){padding-left:3px;padding-right:3px}
+#phone .ph-tokens .tokens td:first-child{max-width:96px;overflow:hidden;text-overflow:ellipsis}
 #phone .ph-pane .cnames{flex-wrap:wrap;white-space:normal;overflow:visible}
 #phone .ph-nav span{white-space:nowrap}
 #phone .ph-nav{flex:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));height:62px;border-top:1px solid var(--line2);background:var(--card1);padding-bottom:env(safe-area-inset-bottom)}
@@ -5554,6 +5562,21 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   splitcol: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 8h12"/>',
   tokens: '<ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
+// each role's icon (owner, 2026-11-12), drawn in a role's coloured badge where there is no room for its name: a compass for the
+// lead, a shield for the head of testing, a gear for operations, </> for a developer, a flask for a tester, a magnifying
+// glass for the reviewer, a ticked clipboard for the test reviewer, circling arrows for process, a bow tie for the assistant
+const ROLE_ICON = {
+  lead: '<circle cx="8" cy="8" r="6.3"/><path d="M10.6 5.4L9.2 9.2 5.4 10.6 6.8 6.8z"/>',
+  hot: '<path d="M8 1.5l5.5 2v4.2c0 3.4-2.4 5.8-5.5 6.8-3.1-1-5.5-3.4-5.5-6.8V3.5z"/><path d="M5.4 8l1.8 1.8L10.8 6.4"/>',
+  ops: '<path d="M12.76 6.84 L14.50 6.88 L14.50 9.12 L12.76 9.16 L12.19 10.54 L13.39 11.81 L11.81 13.39 L10.54 12.19 L9.16 12.76 L9.12 14.50 L6.88 14.50 L6.84 12.76 L5.46 12.19 L4.19 13.39 L2.61 11.81 L3.81 10.54 L3.24 9.16 L1.50 9.12 L1.50 6.88 L3.24 6.84 L3.81 5.46 L2.61 4.19 L4.19 2.61 L5.46 3.81 L6.84 3.24 L6.88 1.50 L9.12 1.50 L9.16 3.24 L10.54 3.81 L11.81 2.61 L13.39 4.19 L12.19 5.46Z"/><circle cx="8" cy="8" r="2"/>',
+  dev: '<path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9.2 2.8l-2.4 10.4"/>',
+  tester: '<path d="M6 1.5h4M6.5 1.5v4.2L2.8 12.6a1.3 1.3 0 0 0 1.1 1.9h8.2a1.3 1.3 0 0 0 1.1-1.9L9.5 5.7V1.5"/><path d="M4.6 10h6.8"/>',
+  review: '<circle cx="6.8" cy="6.8" r="4.3"/><path d="M10 10l4.5 4.5"/>',
+  testrev: '<rect x="3" y="2.5" width="10" height="12" rx="1.3"/><path d="M6 1.5h4v2.2H6z"/><path d="M5.5 9l1.8 1.8L10.8 7"/>',
+  process: '<path d="M13.5 8a5.5 5.5 0 0 1-9.6 3.6M2.5 8a5.5 5.5 0 0 1 9.6-3.6"/><path d="M12.4 1.6v2.8H9.6M3.6 14.4v-2.8h2.8"/>',
+  pa: '<path d="M8 8L2 4.5v7zM8 8l6-3.5v7z"/><rect x="6.8" y="6.6" width="2.4" height="2.8" rx=".6"/>'
+};
+const roleIcon = role => ROLE_ICON[role] && `<svg class="ricon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ROLE_ICON[role]}</svg>`;
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "testrev", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -5992,7 +6015,7 @@ async function loadTokens() {
 // a round step for an axis of up to top, giving four or five gridlines
 const niceStep = top => { const raw = top / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; };
-function tokensHtml(big, n, path) {
+function tokensHtml(big, n, path, phone = false) {
   const views = `<span class="seg tkview">${[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]].map(([v, label]) =>
     `<b data-graph="${v}" class="${v === (n?.graph || "") ? "on" : ""}">${label}</b>`).join("")}</span>`;
   const chips = path == null ? "" : `<div class="tkchips pown">${roleChips(path, n)}</div>`;
@@ -6004,7 +6027,8 @@ function tokensHtml(big, n, path) {
   const label = (d, o) => at(d).toLocaleDateString("en-GB", {timeZone: "UTC", ...o});
   const dayName = d => `${label(d, {weekday: "short"})} ${at(d).getUTCDate()}`;
   const tip = (who, day, c) => c ? `${who}, ${dayName(day)} ${label(day, {month: "short"})}: ${k(c.w)} weighted\n${c.calls} calls, ${c.sent} messages sent\nfresh in ${k(c.in)}, cache write ${k(c.cw)}, cache read ${k(c.cr)}, out ${k(c.out)}` : "";
-  const shownK = v => v ? k(v) : "";
+  // a phone's table is narrow: tens of millions to the whole million, and each role by its short name
+  const kc = v => phone && v >= 1e7 ? Math.round(v / 1e6) + "M" : k(v), shownK = v => v ? kc(v) : "";
   const today = new Date().toISOString().slice(0, 10), weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse();
   const weekDays = mon => [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), weekend = d => [0, 6].includes(at(d).getUTCDay());
   const agents = tokens.agents.filter(a => byRoles(n, a.name)), w = (a, d) => a.days[d]?.w || 0;
@@ -6031,21 +6055,23 @@ function tokensHtml(big, n, path) {
     const most = Math.max(1, ...gs.map(g => g.total)), alone = rolesPicked(n || {}).length === 1;
     const rows = (sorted ? [...gs].sort((p, q) => q.total - p.total) : gs).map(g => {
       const one = g.them.length === 1, open = !one && (alone || (n?.tkopen || []).includes(g.role));
-      const name = one ? `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span> · ${esc(shown(g.them[0].name))}`
-        : `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span><span class="chev">${open ? "▾" : "▸"}</span><span class="cnt">${g.them.length}</span>`;
+      const icon = phone && roleIcon(g.role), badge = icon ? `<span class="who icon" style="--pc:${esc(g.colour)}" title="${esc(g.name)}" aria-label="${esc(g.name)}">${icon}</span>`
+        : `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span>`;   // a phone shows the role's icon in its badge
+      const name = one ? `${badge}${icon ? " " : " · "}${esc(shown(g.them[0].name))}`
+        : `${badge}<span class="chev">${open ? "▾" : "▸"}</span><span class="cnt">${g.them.length}</span>`;
       const head = `<tr class="trole${one ? "" : " opens"}"${one || alone ? "" : ` data-tkrole="${esc(g.role)}" title="${open ? "Hide" : "Show"} the ${esc(g.name)}s"`}><td>${name}</td>` +
         days.map(d => { const v = one ? w(g.them[0], d) : roleDay(g, d);
           return `<td${now1(d)} title="${esc(one ? tip(shown(g.them[0].name), d, g.them[0].days[d]) : v ? `${g.name}, ${dayName(d)} ${label(d, {month: "short"})}: ${k(v)} weighted` : "")}"${shade(d, v, roleTop)}>${shownK(v)}</td>`; }).join("") +
-        `<td class="tot" style="--bar:${Math.round(100 * g.total / most)}%">${k(g.total)}</td></tr>`;
+        `<td class="tot" style="--bar:${Math.round(100 * g.total / most)}%">${kc(g.total)}</td></tr>`;
       const people = open ? (sorted ? [...g.them].sort((p, q) => tot(q) - tot(p)) : g.them).map(a => `<tr class="tperson"><td>${esc(shown(a.name))}</td>` +
         days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(d, w(a, d), peopleTop.get(groups.find(x => x.role === g.role)))}>${shownK(w(a, d))}</td>`).join("") +
-        `<td class="tot share" style="--bar:${Math.round(100 * tot(a) / Math.max(1, g.total))}%" title="${Math.round(100 * tot(a) / Math.max(1, g.total))}% of the ${esc(g.name)}s' total; ${sum(days, d => a.days[d]?.sent)} messages sent">${k(tot(a))}</td></tr>`).join("") : "";
+        `<td class="tot share" style="--bar:${Math.round(100 * tot(a) / Math.max(1, g.total))}%" title="${Math.round(100 * tot(a) / Math.max(1, g.total))}% of the ${esc(g.name)}s' total; ${sum(days, d => a.days[d]?.sent)} messages sent">${kc(tot(a))}</td></tr>`).join("") : "";
       return head + people; }).join("");
     // the daily pace: a fifth of the weekly allowance on each working day; a weekend day is never over it
     const dayTot = d => sum(them, a => w(a, d)), pace = allowance && allowance / 5;
     const foot = `<tr class="tot"><td>Total</td>${days.map(d => { const v = dayTot(d), over = pace && !weekend(d) && v > pace;
-      return `<td class="${d === today ? "today" : ""}${over ? " over" : ""}"${over ? ` title="Over the daily pace by ${k(Math.round(v - pace))}"` : ""}>${shownK(v)}</td>`; }).join("")}<td>${k(sum(them, tot))}</td></tr>`;
-    const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}` +
+      return `<td class="${d === today ? "today" : ""}${over ? " over" : ""}"${over ? ` title="Over the daily pace by ${k(Math.round(v - pace))}"` : ""}>${shownK(v)}</td>`; }).join("")}<td>${kc(sum(them, tot))}</td></tr>`;
+    const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: phone ? "narrow" : "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}` +
       `<th class="sort${sorted ? " on" : ""}" data-sort="total" title="${sorted ? "Back to the usual order" : "Largest total first"}">Total</th></tr>`;
     return `<div class="tokens"><table>${head}${rows}${foot}</table></div>`;
   };
@@ -6059,11 +6085,11 @@ function tokensHtml(big, n, path) {
         colour: i % 3 ? `color-mix(in srgb, ${roleCol(roleOf(a.name))} ${100 - 30 * (i % 3)}%, var(--text))` : roleCol(roleOf(a.name)), dash: DASH[Math.floor(i / 3) % 4]})))
     : [...roleList().map(r => ({name: r.name, role: r.role, v: d => sum(agents.filter(a => roleOf(a.name) === r.role), a => w(a, d)), colour: r.colour, dash: ""})),
        ...(agents.some(a => !roleOf(a.name)) ? [{name: "Others", v: d => sum(agents.filter(a => !roleOf(a.name)), a => w(a, d)), colour: "#888", dash: "2 4"}] : [])];
-  const W = 1000, T = 12, B = 24, L = 50, R = 140;
+  const W = phone ? 420 : 1000, T = 12, B = 24, L = phone ? 52 : 50, R = phone ? 44 : 140;   // a phone's chart is narrower, so its text stays readable
   const frame = (days, count, hi, step) => {
-    const H = Math.max(240, T + B + 15 * count), x = i => L + (W - L - R) * i / (days.length - 1), y = v => T + (H - T - B) * (1 - v / hi);
+    const H = Math.max(phone ? 220 : 240, T + B + 15 * count), x = i => L + (W - L - R) * i / (days.length - 1), y = v => T + (H - T - B) * (1 - v / hi);
     const grid = Array.from({length: Math.round(hi / step) + 1}, (_, i) => i * step).map(v => `<line class="g" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join("");
-    const axis = days.map((d, i) => `<text class="ax${d === today ? " today" : ""}" x="${x(i)}" y="${H - 8}" text-anchor="middle">${dayName(d)}${d === today ? " · so far" : ""}</text>` +
+    const axis = days.map((d, i) => `<text class="ax${d === today ? " today" : ""}" x="${x(i)}" y="${H - 8}" text-anchor="middle">${phone ? `${label(d, {weekday: "narrow"})} ${at(d).getUTCDate()}` : dayName(d) + (d === today ? " · so far" : "")}</text>` +
       (d === today ? `<line class="now" x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}"/>` : "")).join("");
     return {H, x, y, under: grid + axis};
   };
@@ -8566,6 +8592,7 @@ const PH_ICON = {
   chev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
   queue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11"/><circle cx="5" cy="18" r="1.2"/></svg>`,
   perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>`,
+  tokens: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>`,
   dash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="14" y="13" width="7" height="8" rx="2"/></svg>`
 };
 // The Dashboard, the phone's own panel: any of the bar's readings (its plug-ins: Week, Session, Team, Disk and the
@@ -8655,7 +8682,7 @@ function phDashAct(go) {
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["dash", "Dashboard"]];   // no Team chat on the phone (owner, 2026-11-08: "lose the team chat")
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["tokens", "Token usage"], ["dash", "Dashboard"]];   // no Team chat on the phone (owner, 2026-11-08: "lose the team chat")
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
 // a line of what an agent said last, as plain text
@@ -8775,6 +8802,23 @@ function phMixNode() {
   const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "combined");
   return {show: "combined", roles: Array.isArray(desk?.roles) && desk.roles.length ? desk.roles : roleList().map(r => r.role), clanes: desk ? clanesOf(desk) : CALL};
 }
+// The Token usage tab: the desktop's pane drawn for a phone, its view (n.graph), roles opened (n.tkopen) and order
+// (n.tksort) the phone's own, kept in this browser; until one is chosen, the desktop's first Token usage pane's, with
+// every role.
+function phTokNode() {
+  let mine; try { mine = JSON.parse(localStorage.getItem("phonetokens")); } catch (e) {}
+  if (mine && typeof mine === "object") return {show: "tokens", ...mine};
+  const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "tokens");
+  return {show: "tokens", ...(desk?.graph ? {graph: desk.graph} : {}), ...(desk?.tkopen ? {tkopen: desk.tkopen} : {}), ...(desk?.tksort ? {tksort: desk.tksort} : {})};
+}
+function phTokAct(t) {
+  const {show, ...n} = phTokNode(), view = t.closest(".tkview [data-graph]"), row = t.closest(".tokens tr[data-tkrole]"), sort = t.closest(".tokens th[data-sort]");
+  if (view) { if (view.dataset.graph) n.graph = view.dataset.graph; else delete n.graph; }
+  else if (row) { const r = row.dataset.tkrole, on = n.tkopen || [], next = on.includes(r) ? on.filter(x => x !== r) : [...on, r]; if (next.length) n.tkopen = next; else delete n.tkopen; }
+  else if (sort) { if (n.tksort) delete n.tksort; else n.tksort = sort.dataset.sort; }
+  else return false;
+  localStorage.setItem("phonetokens", JSON.stringify(n)); phoneDraw(); return true;
+}
 // a filter's choice flips one role or lane, keeps the result as the phone's own, and reads any agent it brings in
 function phMixFlip(key, x) {
   const n = phMixNode(), on = key === "roles" ? n.roles : n.clanes, next = on.includes(x) ? on.filter(y => y !== x) : [...on, x];
@@ -8808,7 +8852,7 @@ function phMixMenu(btn) {
   new MutationObserver(() => back.classList.toggle("on", phoneOn() && menu.classList.contains("on"))).observe(menu, {attributes: true, attributeFilter: ["class"]});
   phSheetDrag(menu, () => menuOff(true), back, () => phoneOn());
 }
-let phQueueAt = 0, phPerfAt = 0;
+let phQueueAt = 0, phPerfAt = 0, phTokAt = 0;
 async function phLoad(tab) {
   // the Team chat and the Day log are read only while their tab is showing, as their panes are
   try {
@@ -8823,6 +8867,7 @@ async function phLoad(tab) {
     if (tab === "day" && Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
     // the Work queue and Performance are read while their tab shows, as often as their panes are
     if (tab === "queue" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now(); workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); phoneDraw(); }
+    if (tab === "tokens" && Date.now() - phTokAt > (tokens?.state === "reading" ? 3000 : 30000)) { phTokAt = Date.now(); tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); phoneDraw(); }
     if (tab === "perf" && Date.now() - phPerfAt > 1500) { phPerfAt = Date.now(); perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); phoneDraw(); }
   } catch (e) {}
 }
@@ -8845,6 +8890,7 @@ function phoneDraw() {
     body.addEventListener("click", e => {
       const dash = e.target.closest("[data-dash]");
       if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
+      if (body.dataset.tab === "tokens" && phTokAct(e.target)) return;
       const who = body.dataset.tab === "mix" && e.target.closest(".who, .cnames .name");
       if (who) { const n = who.dataset.name || who.closest("[data-agent]")?.dataset.agent; if (n && S.agents.some(a => a.name === n && a.live)) return openDetail(n); }
       const o = e.target.closest("[data-open]"), m = e.target.closest("[data-menu-name]");
@@ -8900,6 +8946,11 @@ function phoneDraw() {
   }
   else if (tab === "queue") {
     patch(body, `<div class="ph-pane">${workQueueHtml(false)}</div>`);
+    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
+    phLoad(tab);
+  }
+  else if (tab === "tokens") {
+    patch(body, `<div class="ph-pane ph-tokens">${tokensHtml(false, phTokNode(), null, true)}</div>`);
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
     phLoad(tab);
   }
