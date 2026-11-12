@@ -3545,6 +3545,9 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .tokens .who{font-weight:650;padding:0 6px;border-radius:4px;background:var(--pc);color:var(--ownerfg);cursor:pointer}
 .tokens .tot,.tokens tr.tot td{font-weight:650;color:var(--text)}
 .tokens tr:hover td{background:var(--track)}
+.tokens :is(th, td).today{border-left:1px solid var(--mute);border-right:1px solid var(--mute)}
+.tokens th.today{border-top:1px solid var(--mute);color:var(--text)}
+.tokens tr:last-child td.today{border-bottom:1px solid var(--mute)}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 @media (max-width:600px){.workq .row > :is(.wh,.at){margin-left:auto}.workq .row > .wh{width:auto}.workq .row > .wh + .at{margin-left:0}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
@@ -5881,25 +5884,30 @@ function tokensHtml(big, n) {
   const label = (d, o) => at(d).toLocaleDateString("en-GB", {timeZone: "UTC", ...o});
   const tip = (who, day, c) => c ? `${who}, ${label(day, {weekday: "short"})} ${at(day).getUTCDate()} ${label(day, {month: "short"})}: ${k(c.w)} weighted\n${c.calls} calls, ${c.sent} messages sent\nfresh in ${k(c.in)}, cache write ${k(c.cw)}, cache read ${k(c.cr)}, out ${k(c.out)}` : "";
   const shownK = n => n ? k(n) : "";
-  const weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse();
-  const week = mon => {
-    const days = [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), them = tokens.agents.filter(a => byRoles(n, a.name) && days.some(d => a.days[d]));
-    const total = sum(them, a => sum(days, d => a.days[d]?.w)), key = "tokens:" + mon, fold = wqFolded().includes(key);
+  const weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse(), today = new Date().toISOString().slice(0, 10);
+  // a box of seven days: the last seven, ending today (owner, 2026-11-12: "just the rolling last 7 days"), or a week;
+  // today's column is marked by a border either side
+  const box = (days, title, key, allowance) => {
+    const them = tokens.agents.filter(a => byRoles(n, a.name) && days.some(d => a.days[d]));
+    const total = sum(them, a => sum(days, d => a.days[d]?.w)), fold = wqFolded().includes(key);
+    const now1 = d => d === today ? ' class="today"' : "";
     // each agent's day shaded by its share of the week's heaviest agent-day, so heavy days stand out
     const top = Math.max(1, ...them.flatMap(a => days.map(d => a.days[d]?.w || 0)));
     const shade = v => v ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * v / top)}%, transparent)"` : "";
     // the week showing now, with the account's share of its weekly allowance used (the toolbar's WEEK)
-    const now = days.includes(new Date().toISOString().slice(0, 10)) && S?.week != null ? ` · ${Math.round(S.week)}% of the weekly allowance used` : "";
-    const head = `<tr><th></th>${days.map(d => `<th>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}<th>Total</th></tr>`;
+    const now = allowance && days.includes(today) && S?.week != null ? ` · ${Math.round(S.week)}% of the weekly allowance used` : "";
+    const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}<th>Total</th></tr>`;
     const rows = them.map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
-      days.map(d => `<td title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(a.days[d]?.w)}>${shownK(a.days[d]?.w)}</td>`).join("") +
+      days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(a.days[d]?.w)}>${shownK(a.days[d]?.w)}</td>`).join("") +
       `<td class="tot" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(sum(days, d => a.days[d]?.w))}</td></tr>`).join("");
-    const foot = `<tr class="tot"><td>Total</td>${days.map(d => `<td>${shownK(sum(them, a => a.days[d]?.w))}</td>`).join("")}<td>${k(total)}</td></tr>`;
-    return `<div class="sect${fold ? " shut" : ""}"><div class="day">Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}<span class="n">${k(total)}${now}</span>` +
-      `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show this week" : "Hide this week"}">${foldIcon(fold)}</b></div>` +
+    const foot = `<tr class="tot"><td>Total</td>${days.map(d => `<td${now1(d)}>${shownK(sum(them, a => a.days[d]?.w))}</td>`).join("")}<td>${k(total)}</td></tr>`;
+    return `<div class="sect${fold ? " shut" : ""}"><div class="day">${title}<span class="n">${k(total)}${now}</span>` +
+      `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show these days" : "Hide these days"}">${foldIcon(fold)}</b></div>` +
       (fold ? "" : them.length ? `<div class="tokens"><table>${head}${rows}${foot}</table></div>` : `<div class="row none">No tokens used</div>`) + `</div>`;
   };
-  return pane(`<div class="daylog workq">${weeks.map(week).join("")}</div>`);
+  const last7 = box([6, 5, 4, 3, 2, 1, 0].map(i => plus(today, -i)), "Last 7 days", "tokens:last7", false);
+  const week = mon => box([0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), `Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}`, "tokens:" + mon, true);
+  return pane(`<div class="daylog workq">${last7}${weeks.map(week).join("")}</div>`);
 }
 // The Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it with
 // team/work-queue.py (see "the work queue" on the server), on a Doing tab, and what is Done on a second tab, split by
