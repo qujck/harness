@@ -133,7 +133,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "tester": ("tester", "Tester", "Testers", "yellow"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
-         "test-reviewer": ("testrev", "Test Reviewer", "Reviewer", "purple"),
+         "test-reviewer": ("testrev", "Test Reviewer", "Reviewer", "magenta"),
          "production-support": ("support", "Head of Operations", "Others", "orange"),   # Ed's title since 2026-10-31, until the roster renames the role
          "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),   # production support's colour, as Ed carries it over
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
@@ -154,8 +154,11 @@ TOKEN_RANK = {"delivery-lead": 0, "head-of-testing": 0, "production-support": 0,
               "process-improvement": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3,
               "assistant": 9, "project-office": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
+# Claude Code's eight /color names, then more of our own (owner, 2026-11-12: "a few more colours"), so no two roles
+# need share one. The extra eight are the page's and the panel's only: /color in a terminal still takes just the first eight.
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
-             "purple": 141, "orange": 209}
+             "purple": 141, "orange": 209,
+             "magenta": 163, "lime": 149, "teal": 66, "indigo": 62, "gold": 220, "brown": 137, "coral": 203, "grey": 246}
 
 BASIC = ["#1b1e24", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#d1d7e0",
          "#636e7b", "#ff938a", "#6bc46d", "#daaa3f", "#6cb6ff", "#dcbdfb", "#56d4dd", "#f0f6fc"]

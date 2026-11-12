@@ -239,7 +239,7 @@ fit_level() {
 
 # role_colour <role id> -> black on the role's colour, as Claude Code draws a session's name after /color, or
 # nothing without colour. The colour is AGENT_COLOUR_<ROLE> in harness.env (AGENT_COLOUR_DELIVERY_LEAD=red,
-# ...), one of Claude Code's /color names; blank leaves the name plain bold. Purple and orange are the nearest
+# ...), one of Claude Code's /color names or the eight more agents_web.py's CC_COLOUR adds; blank leaves the name plain bold. Purple and orange are the nearest
 # 256-colour shades; the others match Claude Code's own.
 role_colour() {
   [ -n "$R" ] || return 0
@@ -247,12 +247,14 @@ role_colour() {
   key=AGENT_COLOUR_${1^^}; key=${key//-/_}
   case "$1" in
     delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
-    code-reviewer) def=cyan ;; test-reviewer) def=purple ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant|project-office) def=green ;;
+    code-reviewer) def=cyan ;; test-reviewer) def=magenta ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant|project-office) def=green ;;
     *) def="" ;;
   esac
   case "${!key-$def}" in
     red) bg=167 ;; green) bg=35 ;; yellow) bg=178 ;; blue) bg=110 ;; cyan) bg=37 ;; pink) bg=175 ;;
-    purple) bg=141 ;; orange) bg=209 ;; *) return 0 ;;
+    purple) bg=141 ;; orange) bg=209 ;;
+    magenta) bg=163 ;; lime) bg=149 ;; teal) bg=66 ;; indigo) bg=62 ;; gold) bg=220 ;; brown) bg=137 ;; coral) bg=203 ;; grey) bg=246 ;;
+    *) return 0 ;;
   esac
   printf '\033[38;5;16;48;5;%sm' "$bg"
 }
