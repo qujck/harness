@@ -4677,6 +4677,9 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 // How the page writes an agent's name: the roster's spelling unless the server says otherwise. Attributes that name
 // an agent for the code (data-name, data-tab) keep the roster's, as everything sent back to the server must.
 const shown = name => S?.shownNames?.[name] || name;
+// A Characters card is labelled with the agent's full name; the conversation and everything else write shown() (owner,
+// 2026-11-12: "I want his card to show James Weaver and conversation to show Weaver").
+const carded = a => a.fullName || shown(a.name);
 // The little Markdown agents write: ``` fenced blocks, tables, # headings, - bullets, `code` and **bold**; web
 // addresses become links, and so do full paths to documents the page can show (DOC_TYPES on the server).
 const DOC = /(^|[\s(>])((?:~|\/home|\/tmp\/claude-\d+)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
@@ -7425,14 +7428,14 @@ function tiles(them) {
   const ceil = Math.max(1, ...S.agents.flatMap(a => a.series)), nowS = Date.now() / 1000;
   return them.map(a => {
     // a benched agent: its portrait or shadow, greyed, and "on the bench"; its menu has its details (and a standing one's Start)
-    if (!a.feed) return `<div class="chr off bench" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, on the bench">` +
+    if (!a.feed) return `<div class="chr off bench" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(carded(a))}, on the bench">` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span><span class="tk">on the bench</span></div>`;
+      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(carded(a))}</span><span class="tk">on the bench</span></div>`;
     const st = stOf(a), n = unseen(a);
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
-    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
+    return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(carded(a))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
-      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(shown(a.name))}</span>` +
+      `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(carded(a))}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}" title="${a.ctxPct}% of context used">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
       (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
