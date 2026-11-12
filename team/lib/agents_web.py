@@ -133,7 +133,7 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "tester": ("tester", "Tester", "Testers", "yellow"),
          "head-of-testing": ("hot", "Head of Testing", "Testers", "purple"),
          "code-reviewer": ("review", "Code Reviewer", "Reviewer", "cyan"),
-         "test-reviewer": ("testrev", "Test Reviewer", "Reviewer", "magenta"),
+         "test-reviewer": ("testrev", "Test Reviewer", "Reviewer", "brown"),
          "production-support": ("support", "Head of Operations", "Others", "orange"),   # Ed's title since 2026-10-31, until the roster renames the role
          "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),   # production support's colour, as Ed carries it over
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
