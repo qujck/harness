@@ -13,7 +13,8 @@
 # starts one. An agent already running is left alone. A developer or tester is not started here: the delivery lead
 # spawns one per ticket (team/agent-spawn.sh). Exit 0 when each asked for is running, 1 when one could not start.
 #
-# An assistant (the roster's .assistants, not on the team) starts only when named with --only: in its own folder beside
+# An assistant (the roster's .assistants, not on the team), or the project office (an agent row with role
+# project-office, the assistant on the team list), starts only when named with --only: in its own folder beside
 # the project's checkout (<parent>/<name, lower case>), in a tmux session of its own name. It has no launch line and no
 # identity: it sets its address on each commit, so it is known to be running by the folder its process runs in.
 #
@@ -111,6 +112,8 @@ start_one() {
     echo "team-start: $name is not an active agent on $roster" >&2; return 1
   fi
   IFS=$'\t' read -r name role email <<<"$row"
+  # the project office is the assistant rostered as an agent: started only when named, in its own folder, like one
+  [ "$role" = project-office ] && { start_assistant "$name"; return; }
   case "$role" in developer|tester) echo "team-start: $name ($role) is started per ticket by the delivery lead (team/agent-spawn.sh), not here"; return 0 ;; esac
   if running "$email"; then echo "team-start: $name is already running"; return 0; fi
   line="$(launch_line "$name" 2>&1)" || { echo "team-start: no launch line for $name: $line" >&2; return 1; }
@@ -126,13 +129,14 @@ selftest() {
   local fails=0 out rc T
   check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got '$2', want '$3'"; fails=$((fails + 1)); fi; }
   T="$(mktemp -d)"; trap 'rm -rf "$T"' RETURN
-  mkdir -p "$T/proj/agents" "$T/cfg/projects/-t-proj-lea" "$T/max" "$T/cfg/projects/${T//[\/.]/-}-max"
+  mkdir -p "$T/proj/agents" "$T/cfg/projects/-t-proj-lea" "$T/max" "$T/bo" "$T/cfg/projects/${T//[\/.]/-}-max"
   : > "$T/cfg/projects/-t-proj-lea/old.jsonl"; : > "$T/cfg/projects/${T//[\/.]/-}-max/old.jsonl"
   cat > "$T/proj/agents/roster.json" <<'J'
 {"agents":[{"name":"Lea","role":"delivery-lead","email":"lea@p.test","status":"active"},
  {"name":"Vi","role":"head-of-testing","email":"vi@p.test","status":"active"},
  {"name":"Ada","role":"developer","email":"ada@p.test","status":"active"},
- {"name":"Old","role":"delivery-lead","email":"old@p.test","status":"retired"}],
+ {"name":"Old","role":"delivery-lead","email":"old@p.test","status":"retired"},
+ {"name":"Bo","role":"project-office","email":"bo@p.test","status":"active"}],
  "assistants":[{"name":"Max","role":"house-assistant","email":"max@p.test"},{"name":"Noa","role":"house-assistant"}]}
 J
   local env=(TEAM_START_DRY=1 ROSTER_FILE="$T/proj/agents/roster.json" HARNESS_PROJECT=proj CLAUDE_CONFIG_DIR="$T/cfg"
@@ -158,7 +162,9 @@ J
   check "an assistant with no folder is refused, and says where it looked" "$rc:$(grep -cF "$T/noa" <<<"$out")" "1:1"
   env "${env[@]}" bash "$_here/team-start.sh" --only Nobody >/dev/null 2>&1; check "a name off the roster is refused" "$?" 1
   out=$(env "${env[@]}" bash "$_here/team-start.sh" 2>&1); rc=$?
-  check "the whole team is every active standing agent, and no assistant" "$rc:$(grep -c 'would start' <<<"$out"):$(grep -c 'Ada\|Old\|Max' <<<"$out")" "0:2:0"
+  check "the whole team is every active standing agent, and no assistant or project office" "$rc:$(grep -c 'would start' <<<"$out"):$(grep -c 'Ada\|Old\|Max\|Bo' <<<"$out")" "0:2:0"
+  out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Bo 2>&1); rc=$?
+  check "the project office starts like an assistant: in its folder, no launch line" "$rc:$(grep -cF -- "cd $T/bo && claude --name Bo --remote-control bo" <<<"$out"):$(grep -c 'proj-bo\|GIT_AUTHOR' <<<"$out")" "0:1:0"
   out=$(env "${env[@]}" bash "$_here/team-start.sh" --only Vi 2>&1)
   check "with no models file, no --model, so the default applies" "$(grep -c -- '--model' <<<"$out")" 0
   printf '# models\nAGENTS_MODEL_HEAD_OF_TESTING=claude-fable-5-2\nexport AGENTS_MODEL_DELIVERY_LEAD="opus[1m]"\nAGENTS_MODEL_NOBODY=x;rm\n' > "$T/agents.env"
@@ -186,7 +192,7 @@ done
 
 [ -r "$roster" ] || { echo "team-start: no roster at '$roster' (set ROSTER_FILE or TEAM_START_PROJECT)" >&2; exit 2; }
 if [ ${#only[@]} -eq 0 ]; then
-  mapfile -t only < <(jq -r '.agents[]? | select(.status == "active" and .role != "developer" and .role != "tester") | .name' "$roster")
+  mapfile -t only < <(jq -r '.agents[]? | select(.status == "active" and .role != "developer" and .role != "tester" and .role != "project-office") | .name' "$roster")
 fi
 rc=0
 for n in "${only[@]}"; do start_one "$n" || rc=1; done

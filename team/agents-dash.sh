@@ -100,7 +100,7 @@ role_rank() {
   case "$1" in
     delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; code-reviewer|test-reviewer) echo 3 ;;
     head-of-testing) echo 4 ;; head-of-operations|production-support) echo 5 ;; process-improvement) echo 6 ;;
-    assistant) echo 9 ;; *) echo 8 ;;
+    assistant|project-office) echo 9 ;; *) echo 8 ;;
   esac
 }
 # stdin: panel rows -> the same rows, stable-sorted by role_rank (sort -s keeps file order within a rank).
@@ -123,7 +123,7 @@ short_role() {
     process-improvement) echo process ;;
     head-of-operations) echo ops ;;
     production-support) echo support ;;
-    assistant) echo pa ;;
+    assistant|project-office) echo pa ;;
     *) echo "${1:0:7}" ;;
   esac
 }
@@ -247,7 +247,7 @@ role_colour() {
   key=AGENT_COLOUR_${1^^}; key=${key//-/_}
   case "$1" in
     delivery-lead) def=red ;; developer) def=blue ;; tester) def=yellow ;; head-of-testing) def=purple ;;
-    code-reviewer) def=cyan ;; test-reviewer) def=purple ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant) def=green ;;
+    code-reviewer) def=cyan ;; test-reviewer) def=purple ;; head-of-operations|production-support) def=orange ;; process-improvement) def=pink ;; assistant|project-office) def=green ;;
     *) def="" ;;
   esac
   case "${!key-$def}" in
