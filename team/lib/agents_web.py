@@ -1235,7 +1235,8 @@ def perf_json():
 # item: a line of text, under its file name, or JSON:
 #   label, title        the name it shows and what a rest on it says
 #   value, colour       its value as text in one colour, or value as a list of parts, each text or
-#                       {"text", "colour", "bold"}; a colour is any CSS colour, or green, amber, red, text or faint
+#                       {"text", "colour", "bold", "drop"}; a colour is any CSS colour, or green, amber, red, text or
+#                       faint; a part with drop true is left out while the value does not fit
 #   meter               {"pct", "mark", "colour"}: a bar filled to pct, a mark at mark, in colour (else green)
 #   spark               a list of numbers, drawn as a sparkline
 #   every               seconds between runs, 2 to 3600 (60)
@@ -1273,7 +1274,7 @@ def plug_item(j, name):
     item = {"label": str(name if j.get("label") is None else j["label"])[:40], "title": str(j.get("title") or "")[:300], "colour": col(j.get("colour"))}
     v = j.get("value", "")
     if isinstance(v, list):
-        item["parts"] = [{"text": str(x.get("text", ""))[:40], "colour": col(x.get("colour")), "bold": bool(x.get("bold"))}
+        item["parts"] = [{"text": str(x.get("text", ""))[:40], "colour": col(x.get("colour")), "bold": bool(x.get("bold")), "drop": x.get("drop") is True}
                          if isinstance(x, dict) else {"text": str(x)[:40], "colour": "", "bold": False} for x in v[:8]]
         v = "".join(x["text"] for x in item["parts"])
     item["value"] = str(v)[:80]
@@ -2710,7 +2711,7 @@ def state():
     tabs = sessions + [t for t in TAB_ORDER if any(a["tab"] == t for a in agents)]
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     st = {
-        "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(),
+        "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(),
         "tabs": tabs,
         "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
@@ -3548,6 +3549,37 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .tokens :is(th, td).today{border-left:1px solid var(--mute);border-right:1px solid var(--mute)}
 .tokens th.today{border-top:1px solid var(--mute);color:var(--text)}
 .tokens tr:last-child td.today{border-bottom:1px solid var(--mute)}
+.tkview{margin-right:8px}
+.tkgraph{width:100%;height:auto;display:block;font-size:11px;cursor:default;user-select:none}
+.tkgraph .g{stroke:var(--line)}
+.tkgraph .now{stroke:var(--mute);stroke-dasharray:3 3}
+.tkgraph .ax{fill:var(--mute)}
+.tkgraph .ax.today{fill:var(--text);font-weight:650}
+.tkgraph polyline{fill:none;stroke:var(--lc);stroke-width:2;stroke-dasharray:var(--dash,none)}
+.tkgraph polyline.part{stroke-dasharray:4 4}
+.tkchips{display:flex;padding:0 10px 6px}
+.workq .day .n b{font-weight:inherit}
+.workq .day .n b.tkover{color:var(--amber)}
+.tkstack polygon{fill:color-mix(in srgb, var(--lc) 55%, transparent);stroke:var(--lc);stroke-width:1}
+.tkstack polygon.part{fill:color-mix(in srgb, var(--lc) 22%, transparent);stroke-dasharray:3 3}
+.tkgraph .nm{fill:var(--lc);font-weight:650;display:none}
+.tkgraph g.hot .nm{display:inline}
+.tkgraph g[data-s]{transition:opacity .1s}
+.tkgraph.hovering g[data-s]:not(.hot){opacity:.15}
+.tkgraph g.hot polyline{stroke-width:3}
+.tkgraph .snap line{stroke:var(--text);stroke-width:2}
+.tokens td.tot{background:linear-gradient(to left, color-mix(in srgb, var(--amber) 28%, transparent) var(--bar), transparent var(--bar))}
+.tokens th.sort{cursor:pointer;color:var(--text)}
+.tokens th.sort.on::after{content:" ↓"}
+.tokens tr.tot td.over{color:var(--amber)}
+#tktip{position:fixed;z-index:50;pointer-events:none;padding:6px 9px;border-radius:var(--r-s);background:var(--box);border:1px solid var(--line2);box-shadow:0 4px 14px rgba(0,0,0,.35);
+  color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));font-variant-numeric:tabular-nums;white-space:nowrap}
+#tktip .tth{color:var(--text);margin-bottom:4px}
+#tktip > div:not(.tth){display:grid;grid-template-columns:10px 1fr auto;gap:0 8px;align-items:center}
+#tktip > div > span:last-child{text-align:right}
+#tktip > div.on{color:var(--text);font-weight:650}
+#tktip > div.tot{color:var(--text);border-top:1px solid var(--line);margin-top:3px;padding-top:3px}
+#tktip .dot{width:7px;height:7px;border-radius:50%}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
 @media (max-width:600px){.workq .row > :is(.wh,.at){margin-left:auto}.workq .row > .wh{width:auto}.workq .row > .wh + .at{margin-left:0}}
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
@@ -5608,7 +5640,7 @@ function drawPlugs() {
     const icon = x.slim && BAR_ICON[x.icon];
     st.classList.toggle("slim", !!x.slim); st.classList.toggle("ico", !!icon);
     const parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
-    const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); return b; });
+    const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); if (p.drop) b.className = "drop"; return b; });
     const lab = e.querySelector(".lab");
     if (icon) { if (lab.dataset.icon !== x.icon) { lab.dataset.icon = x.icon; lab.innerHTML = icon; } }
     else { delete lab.dataset.icon; lab.textContent = x.label; }
@@ -5616,6 +5648,10 @@ function drawPlugs() {
     e.querySelector(".k").style.display = icon || x.label || inline && els.length ? "" : "none";
     e.querySelector(".v").replaceChildren(...(inline ? [] : els));
     e.querySelector(".v").style.display = inline ? "none" : "";
+    // the parts that may go are left out while the value does not fit its width
+    const kv = e.querySelector(inline ? ".k" : ".v"), drops = kv.querySelectorAll(".drop");
+    drops.forEach(d => d.hidden = false);
+    if (drops.length && kv.scrollWidth > kv.clientWidth) drops.forEach(d => d.hidden = true);
     const mt = e.querySelector(".meter");
     mt.style.display = m ? "" : "none";
     if (m) {
@@ -5867,47 +5903,164 @@ function dayLogHtml(n) {
     : `<div class="row">${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span></div>`).join("")}</div></div>`;
 }
 // The Token usage pane (owner, 2026-11-11): each agent's weighted tokens by day (see "token usage" on the server), in a
-// box for each week, newest first, as the Work queue's sections: an agent a row in its colour, Monday to Sunday the
-// columns, with each row's and each day's total. A cell's title has its calls, the messages it sent and the four token
-// counts. A week folds under its ^ as a Work queue section does (its key "tokens:<Monday>").
+// box for each week, newest first, as the Work queue's sections, under the role chips and a line with the last seven
+// days' total. A week folds under its ^ as a Work queue section does (its key "tokens:<Monday>"). The role chips sit in
+// the pane, locked or not, and narrow every layout; a role's name on a chart works as its chip.
+// - Table: an agent a row in its colour, Monday to Sunday the columns, with each row's and each day's total. A cell's
+//   title has its calls, the messages it sent and the four token counts; a day is shaded against the heaviest whole
+//   agent-day of every week shown, so weeks compare by eye, and today, a part day, is boxed and not shaded. Each total
+//   has a bar against the week's largest; the Total header sorts by it (n.tksort). A weekday in the Total row over a
+//   fifth of the weekly allowance, the daily pace, is amber.
+// - Line graph (n.graph "line", owner, 2026-11-12): a line for each role in its colour, or, with roles picked, a line
+//   for each of their agents, told apart within a role by shade and dash. Every week shares one scale. The way into
+//   today, a part day, is dashed.
+// - Stacked (n.graph "stack"): each week's daily total stacked by the same roles or agents, on one scale for every
+//   week, today's part day paler.
+// On a chart the pointer snaps to the nearest day and the line, or band, nearest it there: a + marks the point, that
+// line or band stands out and is named at its end while the others fade, and a tooltip (#tktip, the only one) gives
+// its figure and that day's figure for every line, with the total. A click there on a role's line or band works as
+// its chip. Each week's heading has its share of the weekly allowance.
 let tokens = null;
+// the chart under the pointer, its day i and line or band j (data-tk: each day's x, and each series' name, colour,
+// role, values and y), or none
+let tkHot = null;
+function tkHover(svg, e) {
+  const was = tkHot?.svg, tip = document.getElementById("tktip");
+  if (was && was !== svg) { was.classList.remove("hovering"); was.querySelectorAll("g.hot").forEach(g => g.classList.remove("hot")); was.querySelector(".snap").setAttribute("visibility", "hidden"); }
+  tkHot = null;
+  if (!svg) { if (tip) tip.hidden = true; return; }
+  if (svg.tkSrc !== svg.dataset.tk) { svg.tkSrc = svg.dataset.tk; svg.tk = JSON.parse(svg.tkSrc); }   // a redraw may patch the chart in place
+  const d = svg.tk, at = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  const i = d.xs.reduce((b, x, k) => Math.abs(x - at.x) < Math.abs(d.xs[b] - at.x) ? k : b, 0);
+  const inBand = s => s.lo && s.lo[i] >= at.y && at.y >= s.y[i];
+  const band = d.s.findIndex(inBand), j = band >= 0 ? band : d.s.reduce((b, s, m) => Math.abs(s.y[i] - at.y) < Math.abs(d.s[b].y[i] - at.y) ? m : b, 0);
+  tkHot = {svg, i, j, role: d.s[j].role};
+  svg.classList.add("hovering");
+  svg.querySelectorAll("g[data-s]").forEach(g => g.classList.toggle("hot", +g.dataset.s === j));
+  const snap = svg.querySelector(".snap"), s = d.s[j];
+  snap.setAttribute("transform", `translate(${d.xs[i]} ${s.y[i]})`); snap.setAttribute("visibility", "visible"); snap.style.setProperty("--lc", s.c);
+  const el = tip || Object.assign(document.createElement("div"), {id: "tktip"});
+  if (!tip) document.body.append(el);
+  const rows = (d.stack ? [...d.s].reverse() : [...d.s].sort((p, q) => q.v[i] - p.v[i])).filter(r => r.v[i] || r === s);
+  el.innerHTML = `<div class="tth"><b style="color:${esc(s.c)}">${esc(s.n)}</b> · ${esc(d.days[i])}${i === d.today ? " so far" : ""} · <b>${k(s.v[i])}</b></div>` +
+    rows.map(r => `<div class="${r === s ? "on" : ""}"><span class="dot" style="background:${esc(r.c)}"></span><span>${esc(r.n)}</span><span>${k(r.v[i])}</span></div>`).join("") +
+    `<div class="tot"><span></span><span>Total</span><span>${k(d.s.reduce((t, r) => t + r.v[i], 0))}</span></div>`;
+  el.hidden = false;
+  const left = e.clientX + 16 + el.offsetWidth > innerWidth ? e.clientX - 16 - el.offsetWidth : e.clientX + 16;
+  el.style.left = left + "px"; el.style.top = Math.max(4, Math.min(innerHeight - el.offsetHeight - 4, e.clientY - 20)) + "px";
+}
+const tkTipHide = () => tkHover(null);
+document.addEventListener("mousemove", e => tkHover(e.target.closest?.(".tkgraph") || null, e));
+document.addEventListener("mouseout", e => { if (!e.relatedTarget?.closest?.(".tkgraph")) tkTipHide(); });
+document.addEventListener("click", e => {
+  if (!tkHot?.role || !e.target.closest?.(".tkgraph")) return;
+  e.target.closest(".teamlog").querySelector(`.tkchips .chip[data-role="${CSS.escape(tkHot.role)}"]`)?.click();
+});
 async function loadTokens() {
   if (!leaves(layout().root).some(([, n]) => n.show === "tokens")) return;
   try { tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); } catch (e) {}
 }
-function tokensHtml(big, n) {
-  const pane = body => `<div class="teamlog" data-name="~tokens"><div class="thead"><span class="tsum">Weighted tokens a day, UTC days</span>${maxButton(big)}</div>${body}</div>`;
+// a round step for an axis of up to top, giving four or five gridlines
+const niceStep = top => { const raw = top / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; };
+function tokensHtml(big, n, path) {
+  const views = `<span class="seg tkview">${[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]].map(([v, label]) =>
+    `<b data-graph="${v}" class="${v === (n?.graph || "") ? "on" : ""}">${label}</b>`).join("")}</span>`;
+  const chips = path == null ? "" : `<div class="tkchips pown">${roleChips(path, n)}</div>`;
+  const pane = (body, head = "Weighted tokens a day, UTC days") => `<div class="teamlog" data-name="~tokens"><div class="thead">${views}<span class="tsum">${esc(head)}</span>${maxButton(big)}</div>${chips}${body}</div>`;
   if (!tokens || (tokens.state === "reading" && !tokens.agents.length)) return pane(`<div class="blank">Reading the conversations…</div>`);
   if (!tokens.agents.length) return pane(`<div class="blank">No tokens used in the last ${tokens.days.length} days</div>`);
   const sum = (xs, f) => xs.reduce((t, x) => t + (f(x) || 0), 0), at = d => new Date(d + "T12:00:00Z");
-  const plus = (d, n) => { const t = at(d); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const plus = (d, i) => { const t = at(d); t.setUTCDate(t.getUTCDate() + i); return t.toISOString().slice(0, 10); };
   const label = (d, o) => at(d).toLocaleDateString("en-GB", {timeZone: "UTC", ...o});
-  const tip = (who, day, c) => c ? `${who}, ${label(day, {weekday: "short"})} ${at(day).getUTCDate()} ${label(day, {month: "short"})}: ${k(c.w)} weighted\n${c.calls} calls, ${c.sent} messages sent\nfresh in ${k(c.in)}, cache write ${k(c.cw)}, cache read ${k(c.cr)}, out ${k(c.out)}` : "";
-  const shownK = n => n ? k(n) : "";
-  const weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse(), today = new Date().toISOString().slice(0, 10);
-  // a box of seven days: the last seven, ending today (owner, 2026-11-12: "just the rolling last 7 days"), or a week;
-  // today's column is marked by a border either side
-  const box = (days, title, key, allowance) => {
-    const them = tokens.agents.filter(a => byRoles(n, a.name) && days.some(d => a.days[d]));
-    const total = sum(them, a => sum(days, d => a.days[d]?.w)), fold = wqFolded().includes(key);
-    const now1 = d => d === today ? ' class="today"' : "";
-    // each agent's day shaded by its share of the week's heaviest agent-day, so heavy days stand out
-    const top = Math.max(1, ...them.flatMap(a => days.map(d => a.days[d]?.w || 0)));
-    const shade = v => v ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * v / top)}%, transparent)"` : "";
-    // the week showing now, with the account's share of its weekly allowance used (the toolbar's WEEK)
-    const now = allowance && days.includes(today) && S?.week != null ? ` · ${Math.round(S.week)}% of the weekly allowance used` : "";
-    const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}<th>Total</th></tr>`;
-    const rows = them.map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
-      days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(a.days[d]?.w)}>${shownK(a.days[d]?.w)}</td>`).join("") +
-      `<td class="tot" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(sum(days, d => a.days[d]?.w))}</td></tr>`).join("");
-    const foot = `<tr class="tot"><td>Total</td>${days.map(d => `<td${now1(d)}>${shownK(sum(them, a => a.days[d]?.w))}</td>`).join("")}<td>${k(total)}</td></tr>`;
-    return `<div class="sect${fold ? " shut" : ""}"><div class="day">${title}<span class="n">${k(total)}${now}</span>` +
-      `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show these days" : "Hide these days"}">${foldIcon(fold)}</b></div>` +
-      (fold ? "" : them.length ? `<div class="tokens"><table>${head}${rows}${foot}</table></div>` : `<div class="row none">No tokens used</div>`) + `</div>`;
+  const dayName = d => `${label(d, {weekday: "short"})} ${at(d).getUTCDate()}`;
+  const tip = (who, day, c) => c ? `${who}, ${dayName(day)} ${label(day, {month: "short"})}: ${k(c.w)} weighted\n${c.calls} calls, ${c.sent} messages sent\nfresh in ${k(c.in)}, cache write ${k(c.cw)}, cache read ${k(c.cr)}, out ${k(c.out)}` : "";
+  const shownK = v => v ? k(v) : "";
+  const today = new Date().toISOString().slice(0, 10), weeks = tokens.days.filter(d => at(d).getUTCDay() === 1).reverse();
+  const weekDays = mon => [0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), weekend = d => [0, 6].includes(at(d).getUTCDay());
+  const agents = tokens.agents.filter(a => byRoles(n, a.name)), w = (a, d) => a.days[d]?.w || 0;
+  // the weekly allowance in weighted tokens, estimated from everyone's use since the account's week reset (its day,
+  // AGENTS_WEEK_RESET, counted whole) and the toolbar's WEEK
+  const resetDay = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf((S?.reset || "").slice(0, 3));
+  const since = resetDay < 0 ? null : plus(today, -((at(today).getUTCDay() - resetDay + 7) % 7));
+  const allowance = since && S?.week > 0 ? sum(tokens.agents, a => sum(tokens.days.filter(d => d >= since), d => w(a, d))) * 100 / S.week : null;
+  const last7 = sum(agents, a => sum([0, 1, 2, 3, 4, 5, 6].map(i => plus(today, -i)), d => w(a, d)));
+
+  // the table
+  const whole = tokens.days.filter(d => d < today), shadeTop = Math.max(1, ...agents.flatMap(a => whole.map(d => w(a, d))));
+  const table = (days, them) => {
+    const now1 = d => d === today ? ' class="today"' : "", tot = a => sum(days, d => w(a, d)), most = Math.max(1, ...them.map(tot));
+    const shade = (d, v) => v && d !== today ? ` style="background:color-mix(in srgb, var(--amber) ${Math.round(6 + 44 * Math.min(1, v / shadeTop))}%, transparent)"` : "";
+    const rows = (n?.tksort === "total" ? [...them].sort((p, q) => tot(q) - tot(p)) : them).map(a => `<tr><td><span class="who" style="--pc:${esc(colours[a.name] || "#888")}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span></td>` +
+      days.map(d => `<td${now1(d)} title="${esc(tip(shown(a.name), d, a.days[d]))}"${shade(d, w(a, d))}>${shownK(w(a, d))}</td>`).join("") +
+      `<td class="tot" style="--bar:${Math.round(100 * tot(a) / most)}%" title="${sum(days, d => a.days[d]?.sent)} messages sent">${k(tot(a))}</td></tr>`).join("");
+    // the daily pace: a fifth of the weekly allowance on each working day; a weekend day is never over it
+    const dayTot = d => sum(them, a => w(a, d)), pace = allowance && allowance / 5;
+    const foot = `<tr class="tot"><td>Total</td>${days.map(d => { const v = dayTot(d), over = pace && !weekend(d) && v > pace;
+      return `<td class="${d === today ? "today" : ""}${over ? " over" : ""}"${over ? ` title="Over the daily pace by ${k(Math.round(v - pace))}"` : ""}>${shownK(v)}</td>`; }).join("")}<td>${k(sum(them, tot))}</td></tr>`;
+    const head = `<tr><th></th>${days.map(d => `<th${now1(d)}>${label(d, {weekday: "short"})}<br>${at(d).getUTCDate()}</th>`).join("")}` +
+      `<th class="sort${n?.tksort === "total" ? " on" : ""}" data-sort="total" title="${n?.tksort === "total" ? "Back to the usual order" : "Largest total first"}">Total</th></tr>`;
+    return `<div class="tokens"><table>${head}${rows}${foot}</table></div>`;
   };
-  const last7 = box([6, 5, 4, 3, 2, 1, 0].map(i => plus(today, -i)), "Last 7 days", "tokens:last7", false);
-  const week = mon => box([0, 1, 2, 3, 4, 5, 6].map(i => plus(mon, i)), `Week of ${label(mon, {weekday: "short"})} ${at(mon).getUTCDate()} ${label(mon, {month: "short"})}`, "tokens:" + mon, true);
-  return pane(`<div class="daylog workq">${last7}${weeks.map(week).join("")}</div>`);
+
+  // the charts' series: each role (its name a chip), or, with roles picked, each of their agents
+  const roleCol = role => roleList().find(r => r.role === role)?.colour || "#888", picked = rolesPicked(n || {}).length;
+  const DASH = ["", "7 4", "2 4", "10 4 2 4"];
+  const series = picked
+    ? Object.values(Object.groupBy(agents, a => roleOf(a.name) || "")).flatMap(group => group.map((a, i) => ({
+        name: shown(a.name), v: d => w(a, d),
+        colour: i % 3 ? `color-mix(in srgb, ${roleCol(roleOf(a.name))} ${100 - 30 * (i % 3)}%, var(--text))` : roleCol(roleOf(a.name)), dash: DASH[Math.floor(i / 3) % 4]})))
+    : [...roleList().map(r => ({name: r.name, role: r.role, v: d => sum(agents.filter(a => roleOf(a.name) === r.role), a => w(a, d)), colour: r.colour, dash: ""})),
+       ...(agents.some(a => !roleOf(a.name)) ? [{name: "Others", v: d => sum(agents.filter(a => !roleOf(a.name)), a => w(a, d)), colour: "#888", dash: "2 4"}] : [])];
+  const W = 1000, T = 12, B = 24, L = 50, R = 140;
+  const frame = (days, count, hi, step) => {
+    const H = Math.max(240, T + B + 15 * count), x = i => L + (W - L - R) * i / (days.length - 1), y = v => T + (H - T - B) * (1 - v / hi);
+    const grid = Array.from({length: Math.round(hi / step) + 1}, (_, i) => i * step).map(v => `<line class="g" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join("");
+    const axis = days.map((d, i) => `<text class="ax${d === today ? " today" : ""}" x="${x(i)}" y="${H - 8}" text-anchor="middle">${dayName(d)}${d === today ? " · so far" : ""}</text>` +
+      (d === today ? `<line class="now" x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}"/>` : "")).join("");
+    return {H, x, y, under: grid + axis};
+  };
+  // the hover data for a chart: each day's x and name, and each series' name, colour, role, values and y (lo: a band's foot)
+  const tk = (days, x, them, ys, stack) => esc(JSON.stringify({xs: days.map((d, i) => +x(i).toFixed(1)), days: days.map(dayName), today: days.indexOf(today), stack,
+    s: them.map((s, j) => ({n: s.name, c: s.colour, role: s.role, v: days.map(s.v), y: ys[j].y.map(v => +v.toFixed(1)), ...(ys[j].lo ? {lo: ys[j].lo.map(v => +v.toFixed(1))} : {})}))}));
+  const snap = `<g class="snap" visibility="hidden"><line x1="-7" x2="7" y1="0" y2="0"/><line x1="0" x2="0" y1="-7" y2="7"/></g>`;
+  const nameAt = (s, nx, ny) => `<text class="nm" x="${nx}" y="${ny + 4}">${esc(s.name)}</text>`;
+  const scale = vals => { const step = niceStep(Math.max(1, ...vals)); return [step * Math.ceil(Math.max(1, ...vals) / step), step]; };
+  const [lineTop, lineStep] = scale(series.flatMap(s => tokens.days.map(s.v)));
+  const lines = days => {
+    const upto = days.filter(d => d <= today), them = series.filter(s => upto.some(d => s.v(d)));
+    if (!them.length) return `<div class="row none">No tokens used</div>`;
+    const {H, x, y, under} = frame(days, them.length, lineTop, lineStep), last = upto.length - 1, partial = upto[last] === today && last > 0;
+    const drawn = them.map((s, j) => {
+      const pts = upto.map((d, i) => [x(i), y(s.v(d))]), solid = partial ? pts.slice(0, -1) : pts;
+      return `<g data-s="${j}" style="--lc:${esc(s.colour)}${s.dash ? `;--dash:${s.dash}` : ""}"><polyline points="${solid.join(" ")}"/>` +
+        (partial ? `<polyline class="part" points="${pts.slice(-2).join(" ")}"/>` : "") + nameAt(s, x(last) + 8, y(s.v(upto[last]))) + `</g>`; }).join("");
+    const data = tk(upto, x, them, them.map(s => ({y: upto.map(d => y(s.v(d)))})), false);
+    return `<div class="tokens"><svg class="tkgraph" viewBox="0 0 ${W} ${H}" data-tk="${data}">${under}${drawn}${snap}</svg></div>`;
+  };
+  const [stackTop, stackStep] = scale(tokens.days.map(d => sum(series, s => s.v(d))));
+  const stacked = days => {
+    const upto = days.filter(d => d <= today), bands = series.filter(s => upto.some(d => s.v(d)));
+    if (!bands.length) return `<div class="row none">No tokens used</div>`;
+    const {H, x, y, under} = frame(days, bands.length, stackTop, stackStep), last = upto.length - 1, partial = upto[last] === today && last > 0;
+    let below = upto.map(() => 0);
+    const layers = bands.map(s => { const lo = below, up = upto.map((d, i) => lo[i] + s.v(d)); below = up; return {s, lo, up}; });
+    const area = (l, from, to) => [...l.up.slice(from, to + 1).map((v, i) => `${x(from + i)},${y(v)}`), ...l.lo.slice(from, to + 1).map((v, i) => `${x(from + i)},${y(v)}`).reverse()].join(" ");
+    const drawn = layers.map((l, j) => `<g data-s="${j}" style="--lc:${esc(l.s.colour)}"><polygon points="${area(l, 0, partial ? last - 1 : last)}"/>` +
+      (partial ? `<polygon class="part" points="${area(l, last - 1, last)}"/>` : "") + nameAt(l.s, x(last) + 8, y((l.lo[last] + l.up[last]) / 2)) + `</g>`).join("");
+    const data = tk(upto, x, bands, layers.map(l => ({y: l.up.map(y), lo: l.lo.map(y)})), true);
+    return `<div class="tokens"><svg class="tkgraph tkstack" viewBox="0 0 ${W} ${H}" data-tk="${data}">${under}${drawn}${snap}</svg></div>`;
+  };
+
+  const week = mon => {
+    const days = weekDays(mon), them = agents.filter(a => days.some(d => a.days[d])), key = "tokens:" + mon, fold = wqFolded().includes(key);
+    const used = sum(tokens.agents, a => sum(days, d => w(a, d))), share = days.includes(today) ? S?.week : allowance ? 100 * used / allowance : null;
+    const pct = share == null ? "" : ` · <b class="${share > 100 ? "tkover" : ""}"${days.includes(today) ? "" : ` title="Estimated from this week's use against the weekly allowance"`}>${Math.round(share)}% of the weekly allowance${days.includes(today) ? " used" : ""}</b>`;
+    return `<div class="sect${fold ? " shut" : ""}"><div class="day">Week of ${dayName(mon)} ${label(mon, {month: "short"})}<span class="n">${k(sum(them, a => sum(days, d => w(a, d))))}${pct}</span>` +
+      `<b class="wqfold" data-sect="${esc(key)}" title="${fold ? "Show these days" : "Hide these days"}">${foldIcon(fold)}</b></div>` +
+      (fold ? "" : !them.length ? `<div class="row none">No tokens used</div>` : n?.graph === "line" ? lines(days) : n?.graph === "stack" ? stacked(days) : table(days, them)) + `</div>`;
+  };
+  return pane(`<div class="daylog workq">${weeks.map(week).join("")}</div>`, `Weighted tokens a day, UTC days · Last 7 days: ${k(last7)}`);
 }
 // The Work queue pane: the work to start, Now, Next and Later, and Parked, as the delivery lead keeps it with
 // team/work-queue.py (see "the work queue" on the server), on a Doing tab, and what is Done on a second tab, split by
@@ -5937,6 +6090,7 @@ const wqFolded = () => { try { return JSON.parse(localStorage.getItem("workqueue
 document.addEventListener("click", e => {
   const b = e.target.closest(".wqfold");
   if (!b) return;
+  tkTipHide();
   const k = b.dataset.sect, f = wqFolded();
   try { localStorage.setItem("workqueue:folded", JSON.stringify(f.includes(k) ? f.filter(x => x !== k) : [...f, k])); } catch (e) {}
   phoneOn() ? phoneDraw() : draw();
@@ -6273,7 +6427,7 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "daylog") {
       body = dayLogHtml(n);
     } else if (n.show === "tokens") {
-      body = tokensHtml(path === maxed, n);
+      body = tokensHtml(path === maxed, n, path);
     } else if (n.show === "workqueue") {
       body = workQueueHtml(path === maxed, n);
     } else if (n.show === "combined") {
@@ -6299,7 +6453,7 @@ function customHtml(ceil, tabRow) {
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
     const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "workqueue", "tokens"].includes(n.show);
     const own = [
-      CHIP_VIEWS.includes(n.show) && n.show !== "meeting" ? roleChips(path, n) : "",
+      CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
       n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="Type a file path" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : "",
       n.show === "agent" && S.agents.some(a => a.name === n.name) ? agentPick(n, false) : "",
@@ -6882,6 +7036,14 @@ function customClicks() {
     change(l => { const n = nodeAt(l.root, path), on = Array.isArray(n.kinds) ? n.kinds : [], next = !k ? [] : on.includes(k) ? on.filter(x => x !== k) : [...on, k];
       if (next.length) n.kinds = next; else delete n.kinds; });
   });
+  main.querySelectorAll(".tokens th[data-sort]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path;
+    change(l => { const n = nodeAt(l.root, path); if (n.tksort) delete n.tksort; else n.tksort = el.dataset.sort; });
+  });
+  main.querySelectorAll(".tkview [data-graph]").forEach(el => el.onclick = () => {
+    const path = el.closest(".pane").dataset.path; tkTipHide();
+    change(l => { const n = nodeAt(l.root, path); if (el.dataset.graph) n.graph = el.dataset.graph; else delete n.graph; });
+  });
   main.querySelectorAll(".workq [data-owner]").forEach(el => el.onclick = e => {
     e.stopPropagation();
     const path = el.closest(".pane").dataset.path;
@@ -6897,7 +7059,7 @@ function customClicks() {
   });
   // a pane's role chips: All shows every role; a role picked alone from All, then added or taken out, and All again
   // once none is left
-  main.querySelectorAll(".pbar .chips").forEach(row => {
+  main.querySelectorAll(".pbar .chips, .tkchips .chips").forEach(row => {
     const path = row.closest(".pane").dataset.path;
     if (row.querySelector("[data-invite-role]")) {
       const invite = r => change(l => { const n = nodeAt(l.root, path);
@@ -9452,7 +9614,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -9663,10 +9825,11 @@ def self_test():
           [(x["key"], x["label"], x["value"], x["colour"], x["title"]) for x in plugins()],
           [("x:bad", "bad", "?", "", "bad: nope"), ("x:load", "load", "0.42", "", ""), ("x:prs", "PRs", "3", "red", "")])
         t("  JSON's parts, meter, sparkline, pace and hiding, each bounded",
-          plug_item({"value": ["a", {"text": "b", "colour": "red", "bold": 1}], "meter": {"pct": 140, "mark": "x"}, "spark": [1, -2, "z"],
+          plug_item({"value": ["a", {"text": "b", "colour": "red", "bold": 1, "drop": True}, {"text": "c", "drop": 1}], "meter": {"pct": 140, "mark": "x"}, "spark": [1, -2, "z"],
                      "every": 1, "hidden": True}, "n"),
-          {"label": "n", "title": "", "colour": "", "parts": [{"text": "a", "colour": "", "bold": False}, {"text": "b", "colour": "red", "bold": True}],
-           "value": "ab", "meter": {"pct": 100, "mark": None, "colour": ""}, "spark": [1, 0, 0], "every": 2, "hidden": True})
+          {"label": "n", "title": "", "colour": "", "parts": [{"text": "a", "colour": "", "bold": False}, {"text": "b", "colour": "red", "bold": True, "drop": True},
+                                                              {"text": "c", "colour": "", "bold": False, "drop": False}],
+           "value": "abc", "meter": {"pct": 100, "mark": None, "colour": ""}, "spark": [1, 0, 0], "every": 2, "hidden": True})
         t("  and a meter with no pct is none", "meter" in plug_item({"meter": {"mark": 5}}, "n"), False)
         # the harness's own, keyed by their bare names, given the page's numbers on their input
         os.makedirs(T + "/shipped")
@@ -9689,7 +9852,7 @@ def self_test():
         txt = lambda j: "".join(p if isinstance(p, str) else p["text"] for p in j["value"]) if isinstance(j["value"], list) else j["value"]
         day = {"used": 12, "quota": 15, "from": 58}
         t("team/bar/week: with a day open, the week and the day's use, marked at the day's stop",
-          (txt(w := sh("week", {"week": 70, "plan": 85, "day": day})), w["meter"]["mark"], w["value"][0]["colour"]), ("70% - Day: 12%", 73, "green"))
+          (txt(w := sh("week", {"week": 70, "plan": 85, "day": day})), w["meter"]["mark"], w["value"][0]["colour"]), ("70% used · Day: 12%", 73, "green"))
         ver = {"used": 6, "quota": 5, "from": 74, "nostop": True}
         t("  a verification day past its share stays green in every bar, and says nothing stops it",
           ([sh(f, {"week": 80, "plan": 85, "day": ver})["value"][0]["colour"] for f in ("week", "weekbar", "daybar")],
@@ -9701,7 +9864,7 @@ def self_test():
           [sh(f, {"week": 72, "plan": 85, "day": {**day, "used": u}})["value"][0]["colour"] for f in ("week", "weekbar", "daybar") for u in (13, 14, 15)],
           ["green", "amber", "amber"] * 3)
         t("  with none, the week against the plan: green on it",
-          (txt(w := sh("week", {"week": 40, "plan": 44, "even": 50})), w["meter"]["mark"], w["value"][0]["colour"]), ("40% of 44% planned", 44, "green"))
+          (txt(w := sh("week", {"week": 40, "plan": 44, "even": 50})), w["meter"]["mark"], w["value"][0]["colour"]), ("40% used · 4% under", 44, "green"))
         t("  amber spending the contingency, red past an even share",
           [sh("week", {"week": v, "plan": 44, "even": 50})["value"][0]["colour"] for v in (46, 52)], ["amber", "red"])
         t("  and says when there is no reading", txt(sh("week", {"week": None})), "no reading")
@@ -9723,10 +9886,10 @@ def self_test():
           (txt(sh("week", {"week": 76, "plan": 85, "day": gap})), sh("week", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"],
            sh("weekbar", {"week": 76, "plan": 85, "day": gap})["meter"]["mark"], (d := sh("daybar", {"plan": 85, "day": gap}))["label"], txt(d),
            d["meter"]["pct"], d["value"][0]["colour"], sh("daybar", {"plan": 85, "day": {**gap, "used": 6}})["value"][0]["colour"]),
-          ("76% - Day: 2%", 79, 79, "Day", "2%", 40, "green", "red"))
+          ("76% used · Day: 2%", 79, 79, "Day", "2%", 40, "green", "red"))
         t("  and with no share, the week alone and no day bar",
           (txt(sh("week", {"week": 76, "plan": 85, "day": {**gap, "quota": None}})), sh("daybar", {"plan": 85, "day": {**gap, "quota": None}})["hidden"]),
-          ("76% of 85% planned", True))
+          ("76% used · 9% under", True))
         t("team/bar/daybar: the day's share used, red once past it, hidden with none open",
           ((d := sh("daybar", {"day": day}))["meter"]["pct"], txt(d), sh("daybar", {"day": {**day, "used": 16}})["value"][0]["colour"],
            sh("daybar", {"day": None})["hidden"]), (80, "12%", "red", True))
@@ -10006,8 +10169,9 @@ def self_test():
         t("token usage: a response counts once by its request id, its messages sent count, and a file is read on from where it stopped",
           (k1["title"], k1["days"]["2026-11-09"], k2["days"].get("2026-11-10"), k2["off"] < os.path.getsize(tf)),
           ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
-        t("token usage: the pane draws a box per week and any pane's tabs hold a whole pane",
-          ('Week of ${label(mon' in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True, True, True))
+        t("token usage: the pane draws a box per week as a table, stacked chart or line graph, with its own role chips and a snapping tooltip, and any pane's tabs hold a whole pane",
+          ('Week of ${dayName(mon)}' in PAGE, '[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]]' in PAGE, '<div class="tkchips pown">' in PAGE,
+           "function tkHover(svg, e)" in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE), (True,) * 6)
         t("views: Gauges and Performance open as Machine, people views share the role chips, same-named tabs are numbered, and the Team pane draws",
           ('t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine";' in PAGE,
            'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];' in PAGE,
