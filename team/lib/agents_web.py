@@ -7033,7 +7033,13 @@ function fitChips(row, path, flip) {
     chips[i].hidden = true; gone.unshift(chips[i].dataset.role); more.textContent = "+" + gone.length;
   }
   more.classList.toggle("on", chips.some(c => c.hidden && c.classList.contains("on")));
-  filterButton(more, roleItems().filter(([r]) => gone.includes(r)), () => rolesPicked(nodeAt(layout().root, path)),
+  // ticked as the chips are lit, read from this pane's row as drawn now (a flip redraws it): a pane's roles (n.roles)
+  // are only one of the ways a chip is lit; a Combined or tabs pane lights the roles its picked agents fill, and a
+  // meeting the roles it has invited, so reading n.roles left that menu with nothing ticked (owner, 2026-11-12)
+  const where = row.closest(".tkchips") ? ".tkchips .chips" : ".pbar .chips";
+  const lit = () => [...(document.querySelector(`.pane[data-path="${CSS.escape(path)}"] ${where}`) || row).querySelectorAll(".chip.on[data-role]")]
+    .map(c => c.dataset.role).filter(Boolean);
+  filterButton(more, roleItems().filter(([r]) => gone.includes(r)), lit,
     r => `Show or leave out the ${roleList().find(x => x.role === r)?.name || r}`, flip, "Roles");
 }
 function customClicks() {
