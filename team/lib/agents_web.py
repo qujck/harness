@@ -137,18 +137,22 @@ ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
          "production-support": ("support", "Head of Operations", "Others", "orange"),   # Ed's title since 2026-10-31, until the roster renames the role
          "head-of-operations": ("ops", "Head of Operations", "Others", "orange"),   # production support's colour, as Ed carries it over
          "process-improvement": ("process", "Process Improvement", "Others", "pink"),
-         "assistant": ("pa", "Assistant", "Others", "green")}
+         "assistant": ("pa", "Assistant", "Others", "green"),
+         # the project office (owner, 2026-11-12: Boozer on the team list, "New project-office role") is the assistant
+         # rostered as an agent: the same key, colour and place, and like the assistant it is outside the team's start
+         # and stop ("project office/assistant is you and yeah green")
+         "project-office": ("pa", "Project Office", "Others", "green")}
 TAB_ORDER = ["Lead", "Developers", "Testers", "Reviewer", "Others"]
 # The order agents are listed in, by role, as the panel groups them (agents-dash.sh role_rank, owner 2026-10-26:
 # "Lead, Devs, Testers, Reviewer, Test Lead, Support, Improvement, Assistant"); any other role before the assistants.
 ROLE_RANK = {"delivery-lead": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3, "head-of-testing": 4,
-             "production-support": 5, "head-of-operations": 5, "process-improvement": 6, "assistant": 9}
+             "production-support": 5, "head-of-operations": 5, "process-improvement": 6, "assistant": 9, "project-office": 9}
 # The Token usage pane's order (owner, 2026-11-12): the SMT (the delivery lead and the chiefs: testing, operations,
 # process improvement), then developers, testers, reviewers, the assistant; by name within each. Any other role
 # goes before the assistant.
 TOKEN_RANK = {"delivery-lead": 0, "head-of-testing": 0, "production-support": 0, "head-of-operations": 0,
               "process-improvement": 0, "developer": 1, "tester": 2, "code-reviewer": 3, "test-reviewer": 3,
-              "assistant": 9}
+              "assistant": 9, "project-office": 9}
 # Claude Code's /color names as the 256-colour shades it draws them in (agents-dash.sh role_colour)
 CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "pink": 175,
              "purple": 141, "orange": 209}
@@ -317,8 +321,9 @@ def name_file(path):
 
 
 def team_roster():
-    """The roster without its assistants, who are not on the team: the team's start and stop leave them alone."""
-    return [r for r in roster() if r["role"] != "assistant"]
+    """The roster without its assistants and project office, who are not started or stopped with the team: the team's
+    start and stop leave them alone."""
+    return [r for r in roster() if role_of(r["role"])[0] != "pa"]
 
 
 def grouped(rows):
