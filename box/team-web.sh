@@ -27,9 +27,9 @@ export HARNESS_PROJECT=strength
 export ROSTER_FILE=/home/peter/dev/strength/agents/roster.json
 # The names the owner sees in an agent's menu and tooltips; everything else keeps the roster's one spelling.
 export AGENT_FULL_NAMES=/home/peter/dev/harness/box/agent-full-names.json
-# How the page shows a name: everyone with a full name by it (owner, 2026-11-09: "make everyone with a full name
-# display their full name"), so the one file serves both.
-export AGENT_SHOWN_NAMES=/home/peter/dev/harness/box/agent-full-names.json
+# How the page shows a name, apart from the full name (owner, 2026-11-12: "James Weaver for example is just called
+# Weaver"). An agent not in it shows its roster name; the full name stays in the menu and tooltips.
+export AGENT_SHOWN_NAMES=/home/peter/dev/harness/box/agent-shown-names.json
 export CONTEXT_DIR=/home/peter/.local/state/strength/context
 export AGENTS_DASH_CACHE=/home/peter/.local/state/strength/dash
 # The Day log pane's merged PRs.
