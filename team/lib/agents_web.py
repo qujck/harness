@@ -849,28 +849,24 @@ def claims():
 
 
 # A ticket's GitHub issue number and title, so the page can show "#12130" in place of a hundred-character id. Read
-# through the ledger's `regenerate --out <dir> <id>` (one JSON per ticket, ~0.1 s) on a background thread and kept:
-# a number, once set, never changes. An id with no number yet is asked again after TICKET_RETRY seconds; a project
-# whose ledger has no such verb just keeps showing ids.
+# with one `ledger-db.sh ticket-issues <id>...` (id|issue|title per known id) on a background thread and kept: a
+# number, once set, never changes. An id with no number yet, or one the read did not answer, is asked again after
+# TICKET_RETRY seconds; a project whose ledger has no such verb just keeps showing ids.
 TICKET_RETRY = 600
 _tickets = {}            # id -> {"issue": int|None, "title": str, "at": when read}
 _tickets_busy = set()
 
 
 def _read_tickets(ids):
-    with tempfile.TemporaryDirectory() as d:
-        for tid in ids:
-            run("bash", LEDGER, "regenerate", "--out", d, tid, timeout=15)
-            fact = {"issue": None, "title": "", "at": time.time()}
-            try:
-                with open(os.path.join(d, tid + ".json")) as f:
-                    j = json.load(f)
-                n = j.get("issue")
-                fact = {**fact, "issue": n if isinstance(n, int) and n > 0 else None, "title": str(j.get("title") or "")}
-            except (OSError, ValueError, AttributeError):
-                pass
-            _tickets[tid] = fact
-            _tickets_busy.discard(tid)
+    got = {}
+    for line in run("bash", LEDGER, "ticket-issues", *ids, timeout=15).splitlines():
+        parts = line.split("|", 2)
+        if len(parts) == 3 and parts[0] in ids:
+            got[parts[0]] = {"issue": int(parts[1]) if parts[1].isdigit() and int(parts[1]) > 0 else None, "title": parts[2]}
+    now = time.time()
+    for tid in ids:
+        _tickets[tid] = {"issue": None, "title": "", **got.get(tid, {}), "at": now}
+        _tickets_busy.discard(tid)
 
 
 def ticket_facts(ids):
@@ -10206,9 +10202,8 @@ def self_test():
         global LEDGER
         was_ledger, LEDGER = LEDGER, f"{T}/fake-ledger.sh"
         with open(LEDGER, "w") as f:
-            f.write('echo "$*" >> "%s/ledger-calls"\n'
-                    'case "$4" in feat_x) echo \'{"id":"feat_x","title":"The X ticket","issue":12130}\' > "$3/$4.json";;\n'
-                    '  feat_w) echo \'{"id":"feat_w","title":"W","issue":null}\' > "$3/$4.json";; esac\n' % T)
+            f.write('[ "$1" = ticket-issues ] || exit 64; shift; printf "%%s\\n" "$@" >> "%s/ledger-calls"\n'
+                    'for i; do case "$i" in feat_x) echo "feat_x|12130|The X ticket | with a bar";; feat_w) echo "feat_w||W";; esac; done\n' % T)
         _tickets.clear(); _tickets_busy.clear()
         ticket_facts(["feat_x", "feat_w", "x;rm -rf /", ""])
         for _ in range(50):
@@ -10216,13 +10211,13 @@ def self_test():
                 break
             time.sleep(0.05)
         t("ticket numbers: an issue and title where the ledger has one, none where it has not",
-          ticket_facts(["feat_x", "feat_w"]), {"feat_x": {"issue": 12130, "title": "The X ticket", "at": _tickets["feat_x"]["at"]},
+          ticket_facts(["feat_x", "feat_w"]), {"feat_x": {"issue": 12130, "title": "The X ticket | with a bar", "at": _tickets["feat_x"]["at"]},
                                                 "feat_w": {"issue": None, "title": "W", "at": _tickets["feat_w"]["at"]}})
         ticket_facts(["feat_x", "feat_w"])
         time.sleep(0.2)
         with open(f"{T}/ledger-calls") as f:
             t("  each id is read once, a numberless one not again inside TICKET_RETRY, and a non-id never",
-              sorted(l.split()[-1] for l in f), ["feat_w", "feat_x"])
+              sorted(l.strip() for l in f), ["feat_w", "feat_x"])
         LEDGER = was_ledger
         _tickets.clear()
 
