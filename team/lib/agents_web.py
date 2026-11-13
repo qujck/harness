@@ -4811,7 +4811,7 @@ function lostImg(img) {
   if (box && !box.children.length) box.remove();
 }
 function thumbs(text, keys, agent) {
-  const paths = [...new Set([...String(text || "").matchAll(IMG)].map(m => m[1]))].slice(0, 8);
+  const paths = [...new Set([...String(text || "").matchAll(IMG)].map(m => m[1]))].slice(0, 24);   // up to 24 named in one message
   const pics = [...(keys || []).map((k, i) => ["/img?k=" + k, "pasted image " + (i + 1)]),
     ...paths.map(p => ["/img?p=" + encodeURIComponent(p) + (/^[\/~]/.test(p) ? "" : "&a=" + encodeURIComponent(agent || "")), p])]
     .filter(([u]) => !noImage.has(u));
