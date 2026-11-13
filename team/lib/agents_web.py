@@ -9,7 +9,7 @@
   /api/team         every message between the running agents, as one transcript
   /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last ten minutes, for Performance panes
   /api/perf/history?key=cpu&span=3600   one of those over 2 minutes, 10, an hour or a day, for the enlarged graph
-  /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML)
+  /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML); ?all=1 every turn of the 300
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/answer  {"n": 3, "label": "Type something.", "text": "..."} the prompt open in its pane
@@ -26,6 +26,7 @@
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
+  /api/search?q=     the running agents' conversations (the turns the page holds) and the Day log, searched for q, by agent
   /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, Parked, and Done, as the delivery lead keeps it
   /api/tokens        the Token usage pane: each agent's tokens by day, this week and the two before (see "token usage")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
@@ -588,6 +589,67 @@ def daylog_json():
     state = "failed" if _daylog["error"] else "reading" if _daylog["data"] is None else "ok"
     return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
 
+# ── search ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# The page's search (owner, 2026-11-13): q, case aside, in what the page already holds: each running agent's last 300
+# turns (the same cached read as the state's) and the Day log's rows. Hits come back grouped by agent, newest first,
+# each cut to the words around the match, as plain text (no markdown's markers), with who it was from and to; a Day log
+# row signed by no agent goes under "Day log". A hit carries what the page needs to find it again: its turn's time and
+# kind, or the Day log row's time.
+SEARCH_PER_GROUP = 30
+MD_MARKS = [(re.compile(r"!?\[([^\]]*)\]\([^)]*\)"), r"\1"), (re.compile(r"\*\*|__|`+|~~"), ""),
+            (re.compile(r"(?m)^\s*(#{1,6}\s+|>\s?|[-*+•]\s+|\d+[.)]\s+)"), ""), (re.compile(r"(?<!\w)[*_](?=\S)|(?<=\S)[*_](?!\w)"), "")]
+
+
+def plain(t):
+    """Text without markdown's markers: bold, italics, code, headings, quotes, list bullets, links (their words kept)."""
+    for pat, to in MD_MARKS:
+        t = pat.sub(to, t)
+    return t
+
+
+def from_to(it, name):
+    """Who a turn in name's conversation is from, and who it is to: name's own words are name's, its messages go to
+    whoever it sent them, another agent's and the owner's come to name; tool calls, events and output are from no one."""
+    k = it.get("kind")
+    if k == "said":
+        return name, ""
+    if k == "sent":
+        return name, it.get("who") or ""
+    if k in ("peer", "owner"):
+        return it.get("who") or "", name
+    return "", ""
+
+
+def search_json(q):
+    q = " ".join(q.split())[:100]
+    if len(q) < 2:
+        return json.dumps({"q": q, "groups": []}).encode()
+    low, groups = q.lower(), {}
+
+    def cut(t):
+        flat = " ".join(plain(t).split())
+        i = flat.lower().find(low)
+        a, b = max(0, i - 70), i + len(q) + 110
+        return ("…" if a else "") + flat[a:b] + ("…" if b < len(flat) else "")
+
+    for name, rec in live_sessions().items():
+        sid = rec.get("sessionId")
+        for it in reversed(feed(sid, 300) if sid else []):
+            t = it.get("text")
+            if isinstance(t, str) and low in " ".join(t.split()).lower():
+                frm, to = from_to(it, name)
+                groups.setdefault(name, []).append({"src": "conversation", "kind": it.get("kind") or "", "who": it.get("who") or "",
+                                                    "from": frm, "to": to, "ts": it.get("ts"), "text": cut(t)})
+    names = set(shown_names())
+    for r in reversed(json.loads(daylog_json()).get("rows") or []):
+        if r.get("type") == "entry" and low in " ".join((r.get("text") or "").split()).lower():
+            groups.setdefault(r["by"] if r.get("by") in names else "Day log", []).append(
+                {"src": "daylog", "kind": r.get("kind") or "", "at": r.get("at"), "text": cut(r["text"]), "url": r.get("url") or ""})
+    out = sorted(({"name": k, "hits": v[:SEARCH_PER_GROUP], "more": max(0, len(v) - SEARCH_PER_GROUP)} for k, v in groups.items()),
+                 key=lambda g: -len(g["hits"]))
+    return json.dumps({"q": q, "groups": out}).encode()
+
+
 # ── token usage ─────────────────────────────────────────────────────────────────────────────────────────────────
 # The Token usage pane (owner, 2026-11-11): each agent's tokens by day, from every conversation whose name (its
 # customTitle, as restore-claude.sh reads it) is the agent's, with the messages it sent (SendMessage calls). Each API
@@ -815,6 +877,19 @@ def even_plan(plan):
     except ValueError:
         return None
     return round(plan * 100 / total, 1) if plan is not None and 0 < total < 100 else None
+
+
+_full = {"at": 0, "list": []}
+
+
+def disks_full():
+    """Each disk the page shows (perf_spaces) that is more than 90% full, fullest first, as {label, pct}; read at most
+    every 30 seconds, as a Windows drive under WSL is slow to ask."""
+    if time.time() - _full["at"] > 30:
+        _full["list"] = sorted(({"label": sp["label"], "pct": round(100 * sp["used"] / sp["total"], 1)} for sp in perf_spaces()
+                                if sp["total"] and sp["used"] / sp["total"] > 0.9), key=lambda d: -d["pct"])
+        _full["at"] = time.time()
+    return _full["list"]
 
 
 def disk():
@@ -2744,7 +2819,7 @@ def state():
     tabs += sorted({a["tab"] for a in agents} - set(tabs))
     st = {
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
-        "disk": disk(),
+        "disk": disk(), "full": disks_full(),
         "tabs": tabs,
         "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
@@ -2797,13 +2872,16 @@ def state_json():
     return body
 
 
-def agent_json(name):
+def agent_json(name, every=False):
+    """name's conversation, the newest 60 turns of each lane of its last 300 (all 300 with every, as the page asks while
+    it shows a search's hit, which may be older than a lane's 60), and its pane as it is on screen now."""
     rec = live_sessions().get(name)
     where = panes().get(name)
     screen = ""
     if where:
         screen = ansi_html(run("tmux", "capture-pane", "-p", "-e", "-t", where["pane"]).rstrip("\n"), shown_names())
-    conv = with_ask(by_lane(feed(rec.get("sessionId"), 300), 60), rec.get("status"), where) if rec else []
+    turns = feed(rec.get("sessionId"), 300) if rec else []
+    conv = with_ask(turns if every else by_lane(turns, 60), rec.get("status"), where) if rec else []
     return json.dumps({"name": name, "feed": conv, "screen": screen,
                        "cols": (where or {}).get("cols", 0), "rows": (where or {}).get("rows", 0)}).encode()
 
@@ -2811,7 +2889,9 @@ def agent_json(name):
 def team_json():
     """Every message between running agents, oldest first, the last 200: each taken from its recipient's conversation,
     so a message is listed once, not again as its sender's. Only senders on the roster count, benched or not: a helper
-    an agent starts for itself (Claude Code's Explore, say) hands its report back the same way, but it is not on the team."""
+    an agent starts for itself (Claude Code's Explore, say) hands its report back the same way, but it is not on the team.
+    The turns are the same 300 the page's state and each agent's view read (feed caches by length), so the Team pane
+    shows the messages Combined does, and does not wait on a read of its own, which took 15-25s after a restart."""
     try:
         with open(ROSTER) as f:
             data = json.load(f)
@@ -2819,7 +2899,7 @@ def team_json():
         data = {}
     team, msgs = {a.get("name") for a in (data.get("agents") or []) + (data.get("assistants") or [])} - {None}, []
     for name, rec in live_sessions().items():
-        for it in feed(rec.get("sessionId"), 400):
+        for it in feed(rec.get("sessionId"), 300):
             if it["kind"] == "peer" and it["who"] in team:
                 msgs.append({"from": it["who"], "to": name, "text": it["text"], "ts": it["ts"]})
     msgs.sort(key=lambda m: m["ts"] or "")
@@ -2930,6 +3010,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, meetings_json(), "application/json")
         elif path == "/api/daylog":
             self.send(200, daylog_json(), "application/json")
+        elif path == "/api/search":
+            self.send(200, search_json(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("q", [""])[0]), "application/json")
         elif path == "/api/tokens":
             self.send(200, tokens_json(), "application/json")
         elif path == "/api/workqueue":
@@ -2937,7 +3019,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
-            self.send(200, agent_json(path[11:]), "application/json")
+            self.send(200, agent_json(path[11:], "all=1" in urllib.parse.urlsplit(self.path).query), "application/json")
         elif path == "/img":
             self.image()
         elif path == "/doc":
@@ -3306,7 +3388,7 @@ PAGE = r"""<!doctype html>
 <title>Team</title>
 <!-- The phone layout from the first paint: the same test as phoneOn(), made before the body draws, so a phone never
      shows the empty desktop page while the first state loads (owner, 2026-11-09). -->
-<script>try { if (matchMedia("(max-width:700px)").matches && !new URLSearchParams(location.search).has("only") && localStorage.getItem("phone") !== "off") document.documentElement.classList.add("phone"); } catch (e) {}</script>
+<script>try { if (matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)").matches && !new URLSearchParams(location.search).has("only") && localStorage.getItem("phone") !== "off") document.documentElement.classList.add("phone"); } catch (e) {}</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
 <style>
@@ -3364,8 +3446,6 @@ footer{padding:3px 14px;gap:18px;min-height:0}   /* the footer is a status bar: 
 .editing > .bi > .bx:hover{color:var(--red);border-color:var(--red)}
 header.bare:not(.editing),footer.bare:not(.editing){display:none}   /* a bar with nothing showing takes no room */
 html:not(.barsplaced) :is(header,footer){display:none}   /* nothing until the bars are where this browser keeps them, never the markup's order */
-header.editing:not(:has(.bi))::before{content:"Header · drag items here";color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
-footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
 /* a bar the dragged item cannot go in: boxed and crossed through in red, saying where it can go */
 :is(header,footer).refuse{position:relative;outline:2px solid var(--red);outline-offset:-2px}
 :is(header,footer).refuse::after{content:attr(data-refuse);position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
@@ -3376,6 +3456,64 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .barplus{margin-left:auto;flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:1px solid var(--line2);
   border-radius:var(--r-s);background:var(--soft);color:var(--mute);cursor:pointer}
 .barplus svg{width:14px;height:14px}
+/* the » at the header's right end holds the items that do not fit the window, the least wanted first; its panel opens under it */
+.barmore{position:relative;flex:none;margin-left:auto}
+.barmore + .barplus{margin-left:0}
+.barmore > button{display:flex;align-items:center;justify-content:center;height:24px;min-width:28px;padding:0 6px;border:1px solid var(--line2);
+  border-radius:var(--r-s);background:var(--soft);color:var(--mute);cursor:pointer;font:600 calc(var(--t-m)*var(--fs,1)) var(--sans)}
+.barmore > button:hover,.barmore.open > button{color:var(--text);border-color:var(--faint)}
+.barmorep{display:none;position:absolute;z-index:60;top:calc(100% + 10px);right:0;flex-direction:column;align-items:flex-start;gap:14px;padding:14px 16px;
+  min-width:200px;max-width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 90px);overflow:auto;background:var(--box);border:1px solid var(--line2);border-radius:var(--r-m,10px);
+  box-shadow:0 10px 30px -8px #0008}
+.barmore.open > .barmorep{display:flex}
+.barmorep > .bi{margin-left:0!important}
+.barmorep > .bi[data-item=bench]{flex:none;max-width:100%}
+header > .bi.div.orph{display:none}
+/* Customise bars: a sheet over the page between the header and the footer, which stay in sight and change as it is
+   used (top and bottom set by barSheetPlace); the header's items along its top, the items to add, the footer's along
+   its bottom */
+#barsheet{display:none;position:fixed;left:0;right:0;top:0;bottom:0;z-index:200;background:#0008;align-items:flex-start;justify-content:center;padding:12px 20px}
+#barsheet.on{display:flex}
+/* the sheet fits the room between the bars: the chips take what they need, the Add list the rest, scrolling inside itself */
+#barsheet .bs-dlg{width:min(1180px,100%);max-height:100%;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;padding:14px 18px 14px;background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-l);box-shadow:0 20px 60px -10px #000a}
+#barsheet .bs-head{flex:none;display:flex;align-items:center;gap:14px;margin-bottom:8px}
+#barsheet .bs-head h2{font-size:calc(var(--t-l)*1.15*var(--fs,1))}
+#barsheet .bs-note{color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
+#barsheet .bs-x{margin-left:auto;display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--mute);cursor:pointer}
+#barsheet .bs-x:hover{color:var(--text)}#barsheet .bs-x svg{width:14px;height:14px}
+#barsheet h3{flex:none;margin:10px 0 6px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.12em;font-weight:650}
+#barsheet h4{margin:6px 0 3px;color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1));font-weight:600;letter-spacing:.04em}
+/* as on the page: the header along the top, the footer along the bottom, the Add list between them */
+#barsheet .bs-bar{flex:none}
+#barsheet .bs-bar:first-of-type h3{margin-top:0}
+#barsheet .bs-groups + .bs-bar{margin-top:6px;padding-top:4px;border-top:1px solid var(--line)}
+/* a bar's items as chips that wrap, in its order: icon and name, what it shows on a rest */
+#barsheet .bs-slots{display:flex;flex-wrap:wrap;align-content:flex-start;gap:4px;min-height:36px;padding:3px;border-radius:var(--r-m)}
+#barsheet .bs-slots.refuse{outline:2px solid var(--red);outline-offset:-2px}
+#barsheet .bs-slots.over{outline:1px dashed var(--faint);outline-offset:-1px}
+#barsheet .bs-mark{flex:none;align-self:stretch;width:3px;min-height:28px;margin:0 -1px;border-radius:2px;background:var(--green)}
+#barsheet .bs-slots:has(> .bs-mark) > .bs-empty{display:none}
+#barsheet .bs-empty{flex:1;padding:6px 10px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1));border:1px dashed var(--line2);border-radius:var(--r-m)}
+#barsheet :is(.bs-slot,.bs-opt){display:flex;align-items:center;gap:8px;min-height:30px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box)}
+#barsheet .bs-slot{gap:5px;height:28px;min-height:0;padding:0 2px 0 8px;border-radius:var(--r-s);cursor:grab}
+#barsheet .bs-slot.fixed{padding-right:8px}
+#barsheet .bs-slot.moving{opacity:.45}
+#barsheet .bs-slot.nodata{opacity:.7}
+#barsheet :is(.bs-slot,.bs-opt) > svg{width:16px;height:16px;flex:none;color:var(--mute)}
+#barsheet .bs-name{flex:none;font-weight:600;font-size:calc(var(--t-m)*var(--fs,1))}
+#barsheet .bs-tip{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+#barsheet .bs-out{display:grid;place-items:center;width:24px;height:24px;border:1px solid transparent;border-radius:50%;background:none;color:var(--mute);cursor:pointer}
+#barsheet .bs-out:hover{color:var(--red);border-color:var(--red)}#barsheet .bs-out svg{width:11px;height:11px}
+#barsheet .bs-where{color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
+#barsheet .bs-groups{flex:1 1 auto;min-height:120px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));align-content:start;gap:0 18px;padding-right:4px}
+#barsheet .bs-groups section{display:flex;flex-direction:column;gap:3px}
+#barsheet .bs-opt.placed{opacity:.6}
+#barsheet .bs-opt[draggable]{cursor:grab}
+#barsheet .bs-opt[draggable]:hover{border-color:var(--faint)}
+#barsheet .bs-opt.lifting{opacity:.45}
+#barsheet .bs-opt .bs-grip{flex:none;display:flex;margin:0 -2px 0 -2px;color:var(--faint)}
+#barsheet .bs-opt .bs-grip svg{width:14px;height:14px}
+.barmorep > .bi.tight{gap:10px}.barmorep > .bi.tight::before{content:attr(data-name);min-width:64px;color:var(--mute);font-size:calc(var(--t-m)*var(--fs,1))}   /* a button says what it is */
 .brand{display:flex;align-items:center;flex:none}
 .brand .lt,html.light .brand .dk{display:none}html.light .brand .lt{display:block}   /* the logo drawn for the theme */
 /* While an agent waits the logo flashes as the footer's badge does, and a click opens the agent waiting longest: the logo
@@ -3408,6 +3546,39 @@ footer.editing:not(:has(.bi))::before{content:"Footer · drag items here";color:
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+/* Waiting: how many agents wait on the owner, a flashing amber badge whose click lists them; nothing while none waits,
+   except while the bars are unlocked, where it is named so it can be moved */
+.bi[data-item=waiting]:not(:has(.wbadge)){display:none}
+.editing > .bi[data-item=waiting]:not(:has(.wbadge)){display:flex}
+.editing > .bi[data-item=waiting] #waiting:empty::before{content:"Waiting";color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
+.wbadge{cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 12px;border:2px solid #ffb020;border-radius:999px;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+/* search: the box, then the hits by agent */
+#menu .srch{display:block;width:min(480px,calc(100vw - 40px));margin:2px 4px 6px;padding:7px 10px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--text);font:inherit}
+#menu .sres{max-height:min(60vh,520px);overflow:auto;width:min(488px,calc(100vw - 32px))}
+#menu .sgrp{display:flex;align-items:center;gap:8px;padding:8px 8px 4px;font-size:calc(var(--t-m)*var(--fs,1))}
+#menu .sgrp span:last-child{margin-left:auto;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+#menu .sgrp .face{width:20px;height:20px}
+#menu .sglyph svg{width:16px;height:16px;color:var(--mute)}
+#menu .mi.shit{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding-left:36px}
+#menu .shit .swhere{display:flex;gap:8px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+#menu .shit .swhere i{font-style:normal;margin-left:auto;font-family:var(--mono)}
+#menu .shit .stext{white-space:normal;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+#menu .shit mark{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inherit;border-radius:2px}
+#menu .shit .swhere b{font-weight:650}
+/* a search's hit in its conversation or the Day log: outlined for a few seconds, its words marked while it is shown */
+.seek{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px;animation:seekfade 10s ease-in forwards}
+@keyframes seekfade{0%,80%{outline-color:var(--amber)}100%{outline-color:transparent}}
+mark.seekm{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inherit;border-radius:2px}
+.seekgone{margin:6px 0 10px;padding:6px 10px;border-radius:6px;background:var(--soft);color:var(--mute)}
+#docbox.dayview #doccopy,#docbox.dayview #docall,#docbox.dayview #docsave,#docbox.dayview #doctab{display:none}
+#docbox.dayview #docbody{padding:0;white-space:normal;font-size:inherit;line-height:inherit}
+#menu .srchbtn svg{width:14px;height:14px;margin-right:6px;vertical-align:-2px}
+/* the waiting list: each agent with its portrait, what it waits on and for how long */
+#menu .mi.wmi{align-items:flex-start}
+#menu .wmi .wtxt{min-width:0;display:flex;flex-direction:column;gap:2px;max-width:340px}
+#menu .wmi .wtxt b{font-weight:650}
+#menu .wmi .wtxt span{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#menu .wmi .wago{margin-left:auto;padding-left:10px;color:var(--amber);font:600 calc(var(--t-s)*var(--fs,1)) var(--mono);white-space:nowrap}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden;padding:1px}   /* one row, overlapped to fit: fitBench; room for a stacked card's rim */
 .bench .rrow > *{position:relative}
@@ -3525,7 +3696,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
-.teamlog[data-name="~tokens"] > .blank{margin:auto;padding:12px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}   /* "Reading the conversations…" in the middle of the pane */
+.teamlog:is([data-name="~tokens"],[data-name="~team"]) > .blank{margin:auto;padding:12px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}   /* "Reading the conversations…" in the middle of the pane */
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .daylog{flex:1;min-height:0;overflow:auto;padding:10px 14px;color:var(--text);font-size:calc(13px*var(--fs,1));line-height:1.45}
 .daylog .row{display:flex;gap:12px;padding:3px 8px}
@@ -3566,8 +3737,8 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .workq .wqfold:hover{background:var(--on);color:var(--text)}
 .workq .day .n{margin-left:6px;font-weight:400}
 .workq .row.none{color:var(--mute)}
-.workq .row > .wh{justify-content:flex-end}
-.workq .row > .at{width:auto;min-width:3.2em;text-align:right}
+.workq .row .wh{justify-content:flex-end}   /* every badge at the right of its column, next to the time, as "unassigned" is (owner, 2026-11-13) */
+.workq .row > .at{width:12.6ch;text-align:right;white-space:nowrap}   /* as wide as the longest time it can show ("Wed 30, 23:59"), so the badges beside it line up (owner, 2026-11-13) */
 #phone .workq .tx{white-space:normal;overflow:visible;overflow-wrap:anywhere}
 #phone .workq .tx code{white-space:normal;overflow-wrap:anywhere}
 .daylog .note{padding:4px 0 8px;color:var(--mute)}
@@ -3624,7 +3795,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 #tktip > div.tot{color:var(--text);border-top:1px solid var(--line);margin-top:3px;padding-top:3px}
 #tktip .dot{width:7px;height:7px;border-radius:50%}
 @media (max-width:600px){.daylog .row{flex-wrap:wrap;gap:0 10px}.daylog .at{width:auto}.daylog .tx{flex-basis:100%;order:1}}
-@media (max-width:600px){.workq .row > :is(.wh,.at){margin-left:auto}.workq .row > .wh{width:auto}.workq .row > .wh + .at{margin-left:0}}
+@media (max-width:600px){.workq .row > :is(.wh,.at),.workq .row > .wqwho > .wh{margin-left:auto}.workq .row .wh{width:auto}.workq .row > :is(.wh,.wqwho) + .at{margin-left:0}}   /* a named badge sits in .wqwho, laid out as if it were not there */
 section.tab{min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-l);background:var(--section);backdrop-filter:blur(8px)}
 section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-items:center;padding:9px 14px;font-size:calc(var(--t-s)*var(--fs,1));letter-spacing:.16em;text-transform:uppercase;color:var(--mute);font-weight:650;border-bottom:1px solid var(--line)}
 .seg{display:flex;border:1px solid var(--line2);border-radius:var(--r-s);overflow:hidden;letter-spacing:0;text-transform:none}
@@ -3746,7 +3917,8 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .pane .card .top{position:relative;flex-wrap:nowrap;min-width:0}
 .pane .card .top .role{flex:0 20 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pane .card .top .name{flex:none}
-.pane .card .top .ticket{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* a card's name and role on its first line, its ticket, state and context on the second, so neither is cut short */
+.card .row2 .ticket{margin-left:0}
 .pane .card .top > :last-child{flex:none;margin-left:auto}
 .pane .card .top .foldbtn,.pane .card .top .lanes{align-self:center}
 .pane .card .top .foldbtn{margin-left:auto}   /* the fold and filter buttons together at the head's end, open or folded */
@@ -3903,6 +4075,9 @@ table.md th{background:var(--line);font-weight:650}
   mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 calc(1px + var(--ft,0px)),#000 calc(100% - var(--fb,0px)),transparent)}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
+/* on a wide screen an agent's conversation (a full card's, Combined's, the agent's own view) keeps its lines about 90
+   characters long, centred in the space: the room for its name badges and age is the 10em */
+.card.full .feed > *,.teamlog.combined .feed > *,#detail .conv > *{width:100%;max-width:calc((90ch + 10em) * var(--conv,1));margin-left:auto;margin-right:auto}
 .teamlog .it .who.to::before{content:"→ "}
 .teamlog .it .who.ag{background:var(--pc);color:var(--ownerfg)}
 .teamlog .it .who.ag:not(.to)::before{content:none}
@@ -3960,7 +4135,6 @@ table.md th{background:var(--line);font-weight:650}
 @container (min-width:440px) and (max-width:719.98px){
   .card.full{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto}
   .card.full > *{grid-column:1/-1}
-  .card.full > .top .ticket{margin-left:0}
   .card.full > .top + .row2{grid-column:1;grid-row:2;padding-right:0}
   .card.full > .row2 + .row2{grid-column:2;grid-row:2}
   .card.full > .termwrap{display:block;grid-row:4;grid-column:1/-1}
@@ -3974,8 +4148,7 @@ table.md th{background:var(--line);font-weight:650}
   .card.full > .top > *,.card.full > .top > .cctl > *,.card.full > .row2{grid-row:1;align-self:center}
   .card.full > .top > .name,.card.full > .top > .lead{grid-column:1;margin:10px 0 8px 12px}
   .card.full > .top > .role{grid-column:2}
-  .card.full > .top > .ticket{grid-column:3;margin:0}
-  .card.full > .top + .row2{grid-column:4;padding:0}
+  .card.full > .top + .row2{grid-column:3/5;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
   .card.full > .top .lanes{grid-column:8;align-self:start;margin:10px -8px 0 4px}
@@ -4027,7 +4200,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
 /* Characters: every agent as a portrait tile, in a custom pane */
 /* the tiles' panel follows the pane's rounded corners: the bottom two under the pane bar, all four when locked */
-.chrs{border-radius:0 0 var(--r-l) var(--r-l);flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,112px);grid-auto-rows:112px;gap:8px;padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+.chrs{border-radius:0 0 var(--r-l) var(--r-l);flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,calc(112px * var(--tz,1)));grid-auto-rows:calc(112px * var(--tz,1));gap:calc(8px * var(--tz,1));padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
+.chrs .chr{zoom:var(--tz,1)}   /* the pane's tiles larger while it has room for them all (tileZoom) */
 .pane > .pbody:first-child > .chrs{border-radius:var(--r-l)}
 .chr{--c:#888;position:relative;width:112px;height:112px;padding:0;border-radius:var(--r-m);border:1px solid var(--line2);border-bottom:3px solid var(--c);
   background:var(--chtile);color:var(--chmute);font:calc(var(--t-xs)*var(--fs,1))/1 var(--mono);cursor:pointer;overflow:hidden}
@@ -4045,6 +4219,9 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* clear of a clipboard on the right */
 .chr .nm.left{left:41px;max-width:50px}
 .chr .tl{position:absolute;top:6px;left:7px;display:flex;align-items:center;gap:4px}
+.bi.full .fullmark{flex:none;display:inline-block;width:8px;height:8px;margin-left:6px;border-radius:50%;background:var(--amber);vertical-align:middle}
+.bi.fuller .fullmark{background:var(--red)}
+.chr .wmark{position:absolute;top:4px;left:50%;transform:translateX(-50%);z-index:1;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:#ffb020;color:#000;font:800 12px var(--sans);box-shadow:0 0 0 2px var(--card1)}
 .chr .tl i{--reach:7px;width:6px;height:6px;border-radius:50%;background:var(--faint)}
 .chr .tl i.now{background:var(--green)}
 .chr.busy .tl i{background:var(--green);animation:ping 1.4s infinite}
@@ -4097,6 +4274,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #fpick .fp{display:flex;gap:8px;align-items:baseline;padding:3px 8px;border-radius:var(--r-s);cursor:pointer;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #fpick .fp.dir{color:var(--accent,var(--text));font-weight:650}
 #fpick .fp.at{background:var(--soft)}
+#fpick .fp.rec span{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}   /* a recent document: its name, then its folder dimmed */
 #fpick .none{padding:3px 8px;color:var(--mute);font:calc(var(--t-m)*var(--fs,1)) var(--sans)}
 #menu .sc{display:flex;align-items:baseline;gap:12px;padding:3px 8px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
 #menu .sc kbd{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--line2);border-radius:var(--r-s);font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--text);white-space:nowrap}
@@ -4154,16 +4332,19 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .mini .pdet{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}   /* with no sparkline, as much space below the name as above */
 /* A Gauges pane: the Performance pane's figures as tiles side by side, each a half-circle with its figure inside and
    its name below. */
-.others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));grid-auto-rows:max-content;align-content:start}   /* a short pane scrolls its gauges, never squeezes them */
-.others.perfs.dials .mini.dial{min-height:0;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;text-align:center}
-.mini.dial svg.arc{flex:none;width:100%;max-width:150px;height:auto;display:block}
+/* The gauges share the pane's width, all of them on one row where they fit, each between 140px and 320px wide (--gn is
+   how many there are); a gauge's arc and figures grow with it, its arc up to 280px, as they were at 150px and under. */
+.others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(140px,calc((100% - (var(--gn,8) - 1) * 8px) / var(--gn,8)),320px),1fr));grid-auto-rows:max-content;align-content:start}   /* a short pane scrolls its gauges, never squeezes them */
+.others.perfs.dials .mini.dial{min-height:0;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;text-align:center;container-type:inline-size}
+.mini.dial svg.arc{flex:none;width:100%;max-width:280px;height:auto;display:block}
 .mini.dial svg.arc path{fill:none;stroke-width:9;stroke-linecap:round}
 .mini.dial svg.arc path.track{stroke:var(--line2)}
-.mini.dial .dfig{margin-top:-30px;font:650 calc(var(--t-xl)*var(--fs,1)) var(--mono);line-height:22px}
-.mini.dial .dfig.rate{margin-top:-39px}   /* raised by its unit's line, so its name sits where every gauge's does */
-.mini.dial .dfig small{display:block;margin-top:-4px;font:400 calc(var(--t-xs)*var(--fs,1))/12px var(--mono)}
-.mini.dial .dname{margin-top:6px;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:var(--text)}
-.mini.dial .pdet{max-width:100%;margin-top:2px;font:calc(var(--t-s)*var(--fs,1))/1.35 var(--mono);color:var(--mute);white-space:normal;
+.mini.dial .dfig{margin-top:calc(-1 * clamp(30px,20cqi,56px));font:650 clamp(calc(var(--t-xl)*var(--fs,1)),calc(11.4cqi*var(--fs,1)),calc(32px*var(--fs,1))) var(--mono);line-height:clamp(22px,14.7cqi,41px)}
+.mini.dial .dfig.rate{margin-top:calc(-1 * clamp(39px,26cqi,73px))}   /* raised by its unit's line, so its name sits where every gauge's does */
+.mini.dial .dfig small{display:block;margin-top:-4px;font:400 clamp(calc(var(--t-xs)*var(--fs,1)),calc(6.7cqi*var(--fs,1)),calc(16px*var(--fs,1)))/clamp(12px,8cqi,22px) var(--mono)}
+.mini.dial .dname{margin-top:6px;font:clamp(calc(var(--t-m)*var(--fs,1)),calc(8cqi*var(--fs,1)),calc(17px*var(--fs,1))) var(--sans);color:var(--text)}
+.mini.dial .dname .name{font-size:inherit;line-height:1.1}
+.mini.dial .pdet{max-width:100%;margin-top:2px;font:clamp(calc(var(--t-s)*var(--fs,1)),calc(7.3cqi*var(--fs,1)),calc(14px*var(--fs,1)))/1.35 var(--mono);color:var(--mute);white-space:normal;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-height:2.7em}   /* two lines, kept for every gauge so a row's stand level */
 /* The List pane's cards, and the pop-up's side rail, share their height: when there are more agents than room,
    each card's line shrinks first, down to its name row, and only then does the list scroll. */
@@ -4201,7 +4382,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .meetpick{flex-wrap:wrap;gap:8px 6px}
 .pbody .blank:has(.agentpick){display:flex;flex-direction:column;align-items:center}
 .agentpick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-.agentpick.big{gap:12px 10px;max-width:640px;margin-top:10px}
+/* an empty Agent pane's picker: its portraits grow with the pane, from 34px to 96px, about fourteen to a row */
+.agentpick.big{--fz:clamp(34px,min(calc((100cqw - 80px) / 14 - 10px),9vh),96px);gap:12px 10px;max-width:min(100%,calc((var(--fz) + 24px) * 9));margin-top:10px}
+.agentpick.big .face{width:var(--fz);height:var(--fz)}
+.agentpick.big small{max-width:calc(var(--fz) + 30px);font-size:clamp(calc(var(--t-xs)*var(--fs,1)),calc(var(--fz) / 5),calc(var(--t-l)*var(--fs,1)))}
 .agentpick .ftab{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
 .pown .agentpick{justify-content:flex-start;flex:1 1 0;min-width:0}
 .pown .agentpick .face{width:22px;height:22px}
@@ -4371,6 +4555,10 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-title{flex:1;min-width:0;display:flex;flex-direction:column}
 #phone .ph-title b{font-size:17px}
 #phone .ph-title span{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .ph-waitbtn{flex:none;height:36px;padding:0 12px;border:2px solid #ffb020;border-radius:18px;color:#000;font:650 13px var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
+#phone .ph-waitbtn[hidden]{display:none}
+#phone .ph-waitbtn:not([hidden]){display:flex;align-items:center;gap:5px}
+#phone .ph-waitbtn svg{width:16px;height:16px}
 #phone .ph-week{flex:none;display:flex;align-items:center;gap:7px;height:44px;padding:0 11px;border:1px solid var(--line2);border-radius:22px;background:var(--card1);font:600 13px var(--mono)}
 #phone .ph-week i{display:block;width:30px;height:6px;border-radius:3px;background:var(--track);overflow:hidden}
 #phone .ph-week i{position:relative}
@@ -4434,6 +4622,22 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-hint{font-size:12px;color:var(--mute);text-align:center}
 #phone .ph-empty{padding:30px 10px;text-align:center;color:var(--mute)}
 #phone .ph-pane{flex:1;min-height:0;display:flex;flex-direction:column}
+/* rows of chips over Combined, Team and the Day log, each scrolling sideways under a finger */
+#phone .ph-chiprow{flex:none;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 2px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+#phone .ph-chiprow::-webkit-scrollbar{display:none}
+#phone .ph-chiprow .chip{flex:none;white-space:nowrap;padding:5px 12px;font-size:13px;cursor:pointer}
+#phone .ph-team .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
+#phone .ph-team .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+/* The Machine tab: the gauges two to a row; the one tapped open spans the row, with its hour's line and its whole detail */
+#phone .ph-perf .others.perfs.dials{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;overflow-y:auto}
+#phone .ph-perf .mini.perf[data-pk]{cursor:pointer;-webkit-tap-highlight-color:transparent}
+#phone .ph-perf .mini.perf[data-pk]:active{background:var(--on)}
+#phone .ph-perf .mini.perf.open{grid-column:1 / -1;border-color:var(--c)}
+#phone .ph-perf .mini.perf.open svg.arc{max-width:200px}
+#phone .ph-perf .mini.perf.open .pdet{-webkit-line-clamp:unset;display:block;min-height:0}
+#phone .ph-perf .ptrend{align-self:stretch;margin-top:10px}
+#phone .ph-perf .ptrend svg{display:block;width:100%;height:64px}
+#phone .ph-perf .ptrend small{display:flex;justify-content:space-between;margin-top:3px;font:calc(var(--t-xs)*var(--fs,1)) var(--mono);color:var(--faint)}
 #phone .ph-body[data-tab=mix]{padding:8px;overflow:hidden}
 #phone .ph-pane .teamlog .thead.phmix{padding-right:48px}
 #phone .ph-pane .thead .phmixmore{position:absolute;top:4px;right:4px;width:40px;height:40px;min-width:0;padding:0;border-radius:20px;color:var(--text)}
@@ -4539,8 +4743,11 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phsheet .tbrow button{display:grid;place-items:center;width:36px;height:34px;padding:0;border:0;background:none;color:var(--mute);cursor:pointer}
 #phsheet .tbrow button:disabled{opacity:.3;cursor:default}
 #phsheet .tbrow button svg{width:14px;height:14px}
-#phsheet .tbopts{display:flex;flex-wrap:wrap;gap:8px}
-#phsheet .tbopts button{display:flex;align-items:center;gap:6px;height:36px;padding:0 14px 0 10px;border:1px dashed var(--faint);border-radius:18px;background:none;color:var(--mute);font:inherit;cursor:pointer}
+#phsheet .tbopts{display:flex;flex-direction:column;gap:8px}
+#phsheet .tbopts button{display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 14px 6px 12px;border:1px dashed var(--faint);border-radius:12px;background:none;color:var(--mute);font:inherit;text-align:left;cursor:pointer}
+#phsheet .tbopts button span{display:flex;flex-direction:column;min-width:0}
+#phsheet .tbopts button b{font-weight:600;color:var(--text)}
+#phsheet .tbopts button small{font-size:12px;color:var(--mute)}
 #phsheet .tbopts button:disabled{opacity:.4;cursor:default}
 #phsheet .tbopts svg{width:16px;height:16px}
 @keyframes phslidein{from{transform:translateX(100%);opacity:.4}to{transform:none;opacity:1}}
@@ -4561,6 +4768,12 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phsheet .tstate{display:flex;align-items:center;gap:8px}
 #phsheet .tstate i{width:10px;height:10px;border-radius:5px;background:var(--faint)}
 #phsheet .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#phsheet .two.three{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+#phsheet .two.three .big{gap:6px;font-size:14px;padding:0 4px}
+#phsheet .big.amber{border-color:color-mix(in srgb,var(--amber) 55%,transparent);color:var(--amber)}
+#phsheet .sh{position:relative}
+#phsheet .shx{position:absolute;top:8px;right:8px;z-index:1;display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:20px;background:none;color:var(--mute);cursor:pointer}
+#phsheet .shx:active{background:var(--on)}
 #phsheet .big{height:52px;border-radius:12px;border:1.5px solid var(--line2);background:var(--card1);display:flex;align-items:center;justify-content:center;gap:10px;font:600 15px var(--sans);color:var(--text);cursor:pointer}
 #phsheet .big svg{width:18px;height:18px}
 #phsheet .big.go{border-color:var(--green);color:var(--green)}
@@ -4572,12 +4785,9 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phsheet .r{display:flex;align-items:center;gap:12px;min-height:56px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--text);font:600 15px var(--sans);text-align:left;padding:0;cursor:pointer;width:100%}
 #phsheet .r:last-child{border-bottom:0}
 #phsheet .r > span{flex:1;display:flex;flex-direction:column}
+#phsheet .r > svg{width:20px;height:20px;flex:none;color:var(--mute)}
 #phsheet .r small{font-weight:400;font-size:13px;color:var(--mute)}
 #phsheet .r em{font-style:normal;font-weight:400;color:var(--mute)}
-#phsheet .sw{flex:none;width:52px;height:32px;border-radius:16px;background:var(--line2);position:relative;transition:background .15s}
-#phsheet .sw:after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:13px;background:#fff;box-shadow:0 1px 3px #0003;transition:left .15s}
-#phsheet .sw.on{background:var(--green)}
-#phsheet .sw.on:after{left:23px}
 #phsheet .seg2{display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:12px;background:var(--track)}
 #phsheet .seg2 button{height:38px;padding:0 16px;border:0;border-radius:9px;background:none;font:500 14px var(--sans);color:var(--mute);cursor:pointer}
 #phsheet .seg2 button.on{background:var(--card1);color:var(--text);font-weight:600;box-shadow:0 1px 2px #0002}
@@ -4647,6 +4857,7 @@ html.phoneoff #phoneback{display:block}
 <header>
   <div class="bi" data-item="brand"><div class="brand" title="Claude agents"><svg class="dk" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#5EEAD4" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#5EEAD4"/><circle cx="150" cy="50" r="12" fill="none" stroke="#5EEAD4" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#5EEAD4"/><circle cx="150" cy="150" r="15" fill="#5EEAD4"/><circle cx="100" cy="100" r="36" fill="#F4F4F0"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#12161C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#12161C" stroke-width="8" stroke-linecap="round"/></svg><svg class="lt" width="40" height="40" aria-label="Agent hub" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g stroke="#0D9488" stroke-width="6" stroke-linecap="round" opacity="0.5"><line x1="100" y1="100" x2="50" y2="50"/><line x1="100" y1="100" x2="141.5" y2="58.5"/><line x1="100" y1="100" x2="50" y2="150"/><line x1="100" y1="100" x2="150" y2="150"/></g><circle cx="50" cy="50" r="15" fill="#0D9488"/><circle cx="150" cy="50" r="12" fill="none" stroke="#0D9488" stroke-width="6"/><circle cx="50" cy="150" r="15" fill="#0D9488"/><circle cx="150" cy="150" r="15" fill="#0D9488"/><circle cx="100" cy="100" r="36" fill="#12161C"/><path d="M85 87 L98 100 L85 113" fill="none" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><line x1="103" y1="114" x2="117" y2="114" stroke="#F4F4F0" stroke-width="8" stroke-linecap="round"/></svg></div></div>
   <div class="bi" data-item="tally"><div class="counts" id="counts"></div><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="waiting"><span id="waiting"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="bench"><div class="bench" id="bench"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="favs"><div class="bench favs" id="favs"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="active"><div class="bench favs" id="active"></div><i class="bx" title="Take this out of the bar">✕</i></div>
@@ -4657,6 +4868,7 @@ html.phoneoff #phoneback{display:block}
   <div class="bi tight" data-item="theme"><span class="pill btn" id="theme" title="The theme"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="settings"><b class="fbtn" id="settings" data-menu="settings" title="Settings"><svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M13.16 6.40 L14.90 6.82 L14.90 9.18 L13.16 9.60 L12.78 10.52 L13.72 12.04 L12.04 13.72 L10.52 12.78 L9.60 13.16 L9.18 14.90 L6.82 14.90 L6.40 13.16 L5.48 12.78 L3.96 13.72 L2.28 12.04 L3.22 10.52 L2.84 9.60 L1.10 9.18 L1.10 6.82 L2.84 6.40 L3.22 5.48 L2.28 3.96 L3.96 2.28 L5.48 3.22 L6.40 2.84 L6.82 1.10 L9.18 1.10 L9.60 2.84 L10.52 3.22 L12.04 2.28 L13.72 3.96 L12.78 5.48 Z"/><circle cx="8" cy="8" r="2.2"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="help"><b class="fbtn" id="help" data-menu="help" title="Keyboard shortcuts (?)">?</b><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="search"><b class="fbtn" id="search" data-menu="search" title="Search conversations and the Day log (Ctrl+K)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></svg></b><i class="bx" title="Take this out of the bar">✕</i></div>
 </header>
 <main id="main"></main>
 <footer></footer>
@@ -4714,7 +4926,7 @@ function theme(t) {
   document.querySelector("link[rel=icon]").href = FAVICON[base] || FAVICON.dark;
   localStorage.setItem("theme", t);
   // the pill names the theme showing, and a rest on it the one a click moves to
-  $("#theme").textContent = THEME_NAME[t]; $("#theme").title = "Click for " + THEME_NAME[THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]].slice(2);
+  $("#theme").textContent = THEME_NAME[t]; $("#theme").title = "The theme: click for the " + THEME_NAME[THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]].slice(2) + " theme";
 }
 theme(new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme") || "dark");
 // a theme changed after the page has drawn: the agents' and gauges' colours are drawn into the page, so it is drawn again
@@ -4841,6 +5053,7 @@ function showDoc(e, a) {
   $("#docsave").href = a.href + "&save=1"; $("#docsave").download = name.split("/").pop();
   $("#docbody").textContent = "Loading…";
   $("#docall").hidden = true;
+  $("#docbox").classList.remove("dayview");
   $("#docbox").classList.add("on");
   fetch(a.href).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(
     text => { if ($("#docname").textContent === name) { docText = text; $("#docall").hidden = false; }
@@ -5090,6 +5303,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   auto: '<rect x="3" y="5.5" width="10" height="8" rx="2"/><path d="M8 5.5V3"/><circle cx="8" cy="2.4" r=".7"/><circle cx="6" cy="9.5" r=".8"/><circle cx="10" cy="9.5" r=".8"/><path d="M1.5 8.5v2.5M14.5 8.5v2.5"/>',
   compact: '<path d="M2 2h12M2 14h12M8 4v3M6.3 5.3 8 7l1.7-1.7M8 12V9M6.3 10.7 8 9l1.7 1.7"/>',
   more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
+  search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // A filter button: its icon (and, on the page's, its name), lit while something is left out; a click opens its menu.
@@ -5114,18 +5328,33 @@ const laneSeg = name => filterBtn("lanes", "lanes:" + name, laneOf(name), ALL, L
 // A conversation as shown: the chosen lanes only (an open prompt and the working line always), with each run of automated events folded
 // into one line; in the agent view a folded run opens on a click.
 const openRuns = new Set();
+// The search hit the page shows (owner, 2026-11-13: "when I click an item nothing is highlighted and I don't know where
+// the search item is"): {src: "conversation", name, ts, q} for a turn, {src: "daylog", at, q} for a Day log row. Its turn
+// or row is drawn whatever the lanes or chips hide, outlined for a few seconds, with the words found marked; it stays
+// marked, through every redraw, until the agent's view closes or another hit is opened.
+let seek = null;
+const flatLow = t => String(t || "").split(/\s+/).join(" ").toLowerCase();
+const seekTurn = (it, name) => seek?.src === "conversation" && seek.name === name && it.ts === seek.ts && flatLow(it.text).includes(seek.q.toLowerCase());
+const seekRow = r => seek?.src === "daylog" && r.type === "entry" && r.at === seek.at && flatLow(r.text).includes(seek.q.toLowerCase());
+// a turn's or row's HTML with the words found marked, in its text only, never inside a tag, and the outline's class
+const seekWrap = html => {
+  const re = new RegExp(esc(seek.q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  return html.replace(/(^|>)([^<]+)/g, (m, a, t) => a + t.replace(re, x => `<mark class="seekm">${x}</mark>`)).replace(/^<div class="/, '<div class="seek ');
+};
 function feedHtml(items, name, compact, on = laneOf(name)) {
   if (name) items = items.concat(echoItems(items, name));
-  const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending", "echo"].includes(it.kind)), out = [];
+  const hit = it => seekTurn(it, it._agent || name);
+  const one = it => { const h = item(it, compact, it._agent || name, !!it._agent); return hit(it) ? seekWrap(h) : h; };
+  const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending", "echo"].includes(it.kind) || hit(it)), out = [];
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
-    if (j === i) { out.push(item(shown[i], compact, shown[i]._agent || name, !!shown[i]._agent)); continue; }
+    if (j === i) { out.push(one(shown[i])); continue; }
     const run = shown.slice(i, j + 1), key = run[0].ts + run[0].who, n = {};
     run.forEach(it => n[it.who] = (n[it.who] || 0) + 1);
     const what = Object.entries(n).map(([w, c]) => `${esc(w)}${c > 1 ? ` <span class="n">×${c}</span>` : ""}`).join(" · ");
     out.push(`<div class="it event folded l-auto" data-run="${esc(key)}"><span class="who">${run.length} automated</span><span class="tx">${what}</span><span class="ago" data-ts="${esc(run[run.length - 1].ts || "")}">${since(run[run.length - 1].ts)}</span></div>`);
-    if (!compact && openRuns.has(key)) out.push(...run.map(it => item(it, compact, it._agent || name, !!it._agent)));
+    if (!compact && (openRuns.has(key) || run.some(hit))) out.push(...run.map(one));
     i = j;
   }
   return out.length ? out.join("") : `<div class="empty">${on.length ? "nothing here lately" : "nothing shown"}</div>`;
@@ -5184,8 +5413,8 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span>${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}<span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
-    <div class="row2"><span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span><span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
+    <div class="row2">${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
@@ -5263,9 +5492,9 @@ function showPop(tx) {
 
 pop.onclick = e => { if (e.target.closest("a")) return; const name = pop.dataset.name; pop.classList.remove("on"); popFor = null; if (name) openDetail(name); };
 
-// The page's view, a button naming it whose menu picks Grid, Tabs or Custom; and a
+// The page's view, a button naming it whose menu picks Grid, Tabs or Panes (the views of kind custom); and a
 // Grid / Tabs switch for one section.
-const VIEW_TIP = {grid: "Every section side by side", tabs: "Every agent as one row of tabs, one at a time", custom: "Your own layout of panes"};
+const VIEW_TIP = {grid: "Every section side by side", tabs: "Every agent as one row of tabs, one at a time", custom: "Panes: your own layout of panes"};
 const viewButton = mode => `<b class="fbtn viewbtn" data-menu="view" title="${esc(VIEW_TIP[mode])}">${MENU_ICON[shownView().icon] || MENU_ICON[mode]}<span>${esc(shownView().name)}</span></b>`;
 function seg(mode, sec) {
   const tip = {grid: `Every agent in ${sec} as a card`, tabs: `${sec} as tabs, one agent at a time`};
@@ -5277,6 +5506,7 @@ function seg(mode, sec) {
 let mouseDown = false;
 addEventListener("pointerdown", () => { mouseDown = true; }, true);
 addEventListener("pointerup", () => { mouseDown = false; }, true);
+for (const ev of ["drop", "dragend"]) addEventListener(ev, () => { mouseDown = false; }, true);   // a drag takes the pointer, and no pointerup follows it
 addEventListener("blur", () => { mouseDown = false; });
 function holding(el) {
   if (mouseDown) return true;
@@ -5344,12 +5574,19 @@ function draw() {
   const waiting = needing().length;
   // the badge opens the agent that has been waiting longest, on a prompt or on the owner
   const longest = needing()[0]?.name || "";
-  // the working dot pulses while any agent works; the counts are rewritten only when they change, so the pulse runs on
+  // the working dot pulses while any agent works; the counts are rewritten only when they change, so the pulse runs on.
+  // Where the Waiting item shares the Agents item's bar, the count shows once, on Waiting.
+  const bars = barOf(), sameBar = ["head", "foot"].some(k => bars[k].includes("waiting") && bars[k].includes("tally"));
   const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
     `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
-    (waiting ? `<span class="wait" data-name="${esc(longest)}" title="Open ${esc(longest)}, waiting longest">${waiting} waiting</span>` : "") + `</span>`;
+    (waiting && !sameBar ? `<span class="wait" data-menu="waiting" title="The agents waiting on you">${waiting} waiting</span>` : "") + `</span>`;
   if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
-  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) openDetail(w.dataset.name); };
+  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); };
+  // the Waiting item, the same count on its own, which the header keeps whatever else goes into its »
+  const wb = waiting ? `<b class="wbadge" data-menu="waiting" title="The agents waiting on you: a click lists them">${waiting} waiting</b>` : "";
+  if ($("#waiting").dataset.html !== wb) { $("#waiting").innerHTML = wb; $("#waiting").dataset.html = wb; }
+  $("#waiting").onclick = e => { const w = e.target.closest(".wbadge"); if (w) waitMenu(w); };
+  waitNotify();
   // the logo flags it too, and opens the same agent
   const brand = $(".brand");
   brand.classList.toggle("waiting", !!waiting);
@@ -5495,7 +5732,7 @@ function draw() {
   });
   main.querySelectorAll(".chat .x").forEach(x => x.onclick = () => chatWith(x.dataset.chat, null));
   main.querySelectorAll(".chat .pick").forEach(b => b.onclick = () => chatPick(b));
-  fitBench(); beat();
+  fitBench(); beat(); fitHeader();
   if (tileGuess) { tileGuess = false; draw(); }   // a Characters pane drawn for the first time is sized again, now it can be measured
 }
 const BENCH_STYLES = [["name", "Name"], ["icon", "Icon"]];
@@ -5615,12 +5852,14 @@ function views() {
   if (!v?.views?.length) {
     let one, some; try { one = JSON.parse(localStorage.getItem("custom")); } catch (e) {}
     try { some = JSON.parse(localStorage.getItem("customs")); } catch (e) {}   // the custom views alone, as the page kept them a day
-    const mine = some?.views?.length ? some.views : [{name: "Custom", layout: one || {root: {}}}], page = localStorage.getItem("page");
+    const mine = some?.views?.length ? some.views : [{name: "Panes", layout: one || {root: {}}}], page = localStorage.getItem("page");
     v = {views: [{name: "Grid", kind: "grid"}, {name: "Tabs", kind: "tabs"}, ...mine.map(x => ({...x, kind: "custom"}))],
          at: page === "tabs" ? 1 : page === "custom" ? 2 + (some?.at | 0) : 0};
   }
   v.at = Math.min(Math.max(0, v.at | 0), v.views.length - 1);
   v.views.forEach(x => x.layout?.root && oldMachine(x.layout.root));
+  // the view of panes is called Panes (owner, 2026-11-13), not Custom, which is a theme; its kind stays "custom"
+  v.views.forEach(x => { if (x.kind === "custom" && x.name === "Custom") x.name = "Panes"; });
   return v;
 }
 const saveViews = v => { localStorage.setItem("views", JSON.stringify(v)); localStorage.setItem("page", v.views[v.at].kind); };
@@ -5633,16 +5872,16 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // The header and the footer (owner, 2026-11-01: "make the header a panel, and later create a footer panel too"): each
 // view keeps which of the bar's items sit in each, in order (its bar: head, foot, and off for those taken out), every
 // item in the header until chosen, the footer empty. While a custom view's layout is unlocked an item is dragged within
-// or between the two, taken out with its ✕ and put back with the Add at the end of either. The logo and the
+// or between the two, taken out with its ✕, and the ⋯ at the end of either opens Customise bars. The logo and the
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
-const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", bench: "Bench", favs: "Favourites", active: "Active",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help"};
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
+  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help", search: "Search"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
 // of their own. Each is its own item, keyed by its kind and a number ("gap-3", "div-k2x"; "gap1" from before), made by
-// the + menu's Spacer or Divider, which stay there to add another, and gone when its ✕ is clicked.
+// Customise bars' Spacer or Divider, which stay there to add another, and gone when its ✕ is clicked.
 const FREE = /^(gap|div)(\d+|-[a-z0-9]+)$/;
 const FREE_KINDS = {"new:gap": "Spacer", "new:div": "Divider"};
 // The Views toolbar, every view as its icon in a row, the one showing marked, is out of the bar until added.
@@ -5663,8 +5902,8 @@ function barOf() {
   const foot = (b.foot || []).filter(k => ok(k) && fits(k, true)), off = (b.off || []).filter(k => all.includes(k) && !BAR_FIXED.includes(k) && !foot.includes(k));
   const head = (b.head || []).filter(k => ok(k) && fits(k, false) && !foot.includes(k) && !off.includes(k)), placed = k => head.includes(k) || foot.includes(k) || off.includes(k);
   // a built-in the view has not placed yet (one new to the page) goes in after the one before it in the default order,
-  // or at the footer's end if it can only go there
-  for (const [i, k] of mine.entries()) if (BAR_SPARE.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.indexOf(mine[i - 1]) + 1, 0, k) : foot.push(k);
+  // at the header's end when that one is not in the header, or at the footer's end if it can only go there
+  for (const [i, k] of mine.entries()) if (BAR_SPARE.includes(k) && !placed(k)) off.push(k); else if (!placed(k)) fits(k, false) ? head.splice(head.includes(mine[i - 1]) ? head.indexOf(mine[i - 1]) + 1 : head.length, 0, k) : foot.push(k);
   return {head, foot, off: [...new Set([...off, ...all.filter(k => !mine.includes(k) && !placed(k))])]};
 }
 // Each plug-in drawn as a stat: its label over its value, or with a meter or a sparkline, "Label: value" over it; its
@@ -5684,7 +5923,7 @@ const BAR_ICON = Object.fromEntries(Object.entries({
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // Active: a pulse.
 const ICON_ACTIVE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8.5h3l2-5 3 9 2-4h3"/></svg>';
-// Each item's icon in a bar's + menu: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
+// Each item's icon in Customise bars: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
 const ADD_ICON = Object.fromEntries(Object.entries({
   session: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
   bench: '<path d="M4 3.5h8v3.5M2 7h12M2 10.5h12M3.5 7v6M12.5 7v6"/>',
@@ -5695,13 +5934,27 @@ const ADD_ICON = Object.fromEntries(Object.entries({
   "new:div": '<path d="M8 2v12"/>',
   "new:gap": '<path d="M2 8h12M4.5 5.5 2 8l2.5 2.5M11.5 5.5 14 8l-2.5 2.5"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
-Object.assign(ADD_ICON, {favs: MENU_ICON.star, active: ICON_ACTIVE, week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON.disk, tally: MENU_ICON.team, controls: MENU_ICON.start,
-  lanes: MENU_ICON.filter, view: MENU_ICON.grid});
+Object.assign(ADD_ICON, {search: MENU_ICON.search, favs: MENU_ICON.star, active: ICON_ACTIVE, week: BAR_ICON.week, team: BAR_ICON.tok, disk: BAR_ICON.disk, tally: MENU_ICON.team, controls: MENU_ICON.start,
+  lanes: MENU_ICON.filter, view: MENU_ICON.grid, lock: padlock(true),
+  brand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 8 4 4M8 8l4-4M8 8l-4 4M8 8l4 4"/><circle cx="4" cy="4" r="1.4"/><circle cx="12" cy="4" r="1.4"/><circle cx="4" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8" cy="8" r="2.4"/></svg>'});
 const addIcon = k => ADD_ICON[k] || BAR_ICON[plugs().find(x => x.key === k)?.icon] || MENU_ICON.chart;
 const PLUG_COLOUR = {green: "var(--green)", amber: "var(--amber)", red: "var(--red)", text: "var(--text)", faint: "var(--faint)"};
 const plugColour = c => PLUG_COLOUR[c] || c || "";
 // A plug-in's meter fill, the same in the bar, the phone's header gauge and its Dashboard: the colour the plug-in gives, else green
 const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)";
+// A disk more than 90% full puts an amber mark on the Disk and Disk bar items, wherever they are; more than 95%, red. Its
+// title names each disk and how full it is.
+function diskMark() {
+  const full = S.full || [], top = full[0]?.pct, tip = full.map(d => `${d.label} ${d.pct}% full`).join(", ");
+  document.querySelectorAll('.bi[data-item="disk"], .bi[data-item="diskbar"]').forEach(e => {
+    e.classList.toggle("full", top > 90); e.classList.toggle("fuller", top > 95);
+    if (top > 90) e.dataset.full = tip; else delete e.dataset.full;
+    let m = e.querySelector(".fullmark");   // after the item's label, so it sits beside the words it is about
+    if (top > 90 && !m) { m = Object.assign(document.createElement("span"), {className: "fullmark"}); e.querySelector(".stat .k")?.append(m); }
+    if (m && !(top > 90)) m.remove();
+    if (m) m.title = `${tip}: free some space`;
+  });
+}
 function drawPlugs() {
   const keys = plugs().map(x => x.key);
   document.querySelectorAll(".bi.plug").forEach(e => keys.includes(e.dataset.item) || e.remove());
@@ -5741,7 +5994,9 @@ function drawPlugs() {
 const saveBar = b => { try { localStorage.setItem("bar", JSON.stringify(b)); } catch (e) {} };
 const barEditing = () => !pageLocked();
 function placeBar() {
+  unfitHeader();
   drawPlugs();
+  diskMark();
   const b = barOf(), edit = barEditing(), free = [...b.head, ...b.foot].filter(k => FREE.test(k));
   document.querySelectorAll(".bi.gap, .bi.div").forEach(e => free.includes(e.dataset.item) || e.remove());
   for (const k of free) if (!$(`.bi[data-item="${k}"]`)) $("#barbin").insertAdjacentHTML("beforeend",
@@ -5751,17 +6006,60 @@ function placeBar() {
       for (const k of keys) if ($(`.bi[data-item="${k}"]`)) box.insertBefore($(`.bi[data-item="${k}"]`), box.querySelector(":scope > .barplus"));
     if (box.id !== "barbin") box.classList.toggle("editing", edit);
     box.querySelectorAll(":scope > .bi").forEach(e => e.draggable = edit && box.id !== "barbin");
-    // the items out of the bars A to Z (owner, 2026-11-01), then Divider and Spacer, last
-    const can = [...b.off.filter(k => fits(k, box.tagName === "FOOTER"))
-      .sort((x, y) => barName(x).localeCompare(barName(y), undefined, {numeric: true, sensitivity: "base"})), ...Object.keys(FREE_KINDS).sort()];
-    const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin" && can.length ? can.join() : "";
-    if (plus && plus.dataset.k !== want) plus.remove();
-    if (want && plus?.dataset.k !== want) box.insertAdjacentHTML("beforeend", `<button class="barplus" data-k="${want}" title="Add an item">${MENU_ICON.plus}</button>`);
+    // unlocked, each bar ends in a ⋯ opening Customise bars, so an empty one still shows
+    const plus = box.querySelector(":scope > .barplus"), want = edit && box.id !== "barbin";
+    if (plus && !want) plus.remove();
+    if (want && !plus) box.insertAdjacentHTML("beforeend", `<button class="barplus" title="Customise bars" aria-label="Customise bars">${MENU_ICON.more}</button>`);
   }
   // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch). Read once every
   // item has moved: an item on its way out of a bar would keep it showing, empty, until the next placement.
   for (const box of [$("header"), $("footer")]) box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
+  fitHeader(); barSheetPlace();
 }
+// The header never runs past the window (owner, 2026-11-13: "The header must never go wider than the window"): while
+// its items do not fit, the least wanted goes, one at a time, into the » at its right end, whose panel shows them under
+// it; the Add button stays. BAR_SHED is the order they go in; a plug-in not named in it goes before any that is, and the
+// logo, the padlock and Waiting never go. The items are put back where they belong before every placement and measured again.
+const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
+let barMoreOpen = false;
+function unfitHeader() {
+  const h = $("header"), more = h.querySelector(":scope > .barmore");
+  if (!more) return;
+  more.querySelectorAll(".barmorep > .bi").forEach(e => h.insertBefore(e, more));
+  more.remove();
+}
+function fitHeader() {
+  unfitHeader();
+  const h = $("header"), over = () => h.scrollWidth > h.clientWidth + 1;
+  h.querySelectorAll(":scope > .bi.div.orph").forEach(e => e.classList.remove("orph"));
+  if (phoneNow() || !h.offsetParent || !over()) return;
+  h.insertAdjacentHTML("beforeend", `<div class="barmore"><button title="More of the header: the items that do not fit">»</button><div class="barmorep"></div></div>`);
+  const more = h.querySelector(":scope > .barmore"), panel = more.firstElementChild.nextElementSibling;
+  h.insertBefore(more, h.querySelector(":scope > .barplus"));
+  const order = barOf().head, rank = k => BAR_SHED.indexOf(k);
+  const shown = e => e.offsetParent && getComputedStyle(e).display !== "none";
+  while (over()) {
+    const next = [...h.querySelectorAll(":scope > .bi:not(.gap, .div)")].filter(e => shown(e) && !BAR_FIXED.includes(e.dataset.item))
+      .filter(e => e.dataset.item !== "waiting").sort((x, y) => rank(x.dataset.item) - rank(y.dataset.item))[0];
+    if (!next) break;
+    next.dataset.name = barName(next.dataset.item); panel.append(next);
+  }
+  [...panel.children].sort((x, y) => order.indexOf(x.dataset.item) - order.indexOf(y.dataset.item)).forEach(e => panel.append(e));
+  // a divider with nothing beside it on one side, once the items either side have gone, goes too
+  const items = [...h.querySelectorAll(":scope > .bi")].filter(e => e.classList.contains("div") || shown(e));
+  items.forEach((e, i) => { if (e.classList.contains("div") && (!items[i - 1] || items[i - 1].classList.contains("div") || !items[i + 1])) e.classList.add("orph"); });
+  more.firstElementChild.textContent = `» ${panel.children.length}`;
+  more.classList.toggle("open", barMoreOpen);
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest?.(".barmore > button");
+  if (b) { barMoreOpen = !barMoreOpen; b.parentElement.classList.toggle("open", barMoreOpen); return; }
+  if (barMoreOpen && !e.target.closest?.(".barmorep, #menu")) { barMoreOpen = false; $(".barmore")?.classList.remove("open"); }
+});
+addEventListener("keydown", e => { if (e.key === "Escape" && barMoreOpen && !menu.classList.contains("on")) { barMoreOpen = false; $(".barmore")?.classList.remove("open"); } });
+addEventListener("resize", () => { if (!phoneNow()) fitHeader(); });
+// phoneOn is declared further down, and the first placement runs before it is
+const phoneNow = () => { try { return phoneOn(); } catch (e) { return false; } };
 document.addEventListener("click", e => {
   const x = e.target.closest(".editing > .bi > .bx");
   if (!x) return;
@@ -5769,24 +6067,134 @@ document.addEventListener("click", e => {
   const b = barOf(), k = x.parentElement.dataset.item;
   saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: FREE.test(k) ? b.off : [...b.off, k]}); draw();
 }, true);
-// a bar's + opens a menu of the items it can take, A to Z, then a line and Divider and Spacer; a click on one puts it
-// at the end of that bar
+// A bar's ⋯ opens Customise bars (owner, 2026-11-13): one sheet between the header and the footer, which stay in sight
+// and change as it is used ("now that sounds ideal"), with each bar's items as slots, dragged to reorder or into the
+// other bar and taken out with their ✕; between them every item that
+// can be added, by group, each with what it shows, dragged onto either bar where it is to go (owner, 2026-11-13: "drag
+// and drop them from the middle to the toolbar"), the ones already in a bar marked, Divider and Spacer as often as
+// wanted. An item with nothing to show (Fans while there are no fan readings) is not offered. Changes save as they are made.
 document.addEventListener("click", e => {
   const s = e.target.closest?.(".barplus");
   if (!s) return;
-  e.stopPropagation();
-  const foot = !!s.closest("footer"), key = "barplus:" + (foot ? "foot" : "head");
-  if (menuOn(key)) return menuOff(true);
-  const ks = s.dataset.k.split(",");
-  menuAt(s, key, `<div class="hd"><div>Add</div></div>` +
-    ks.map((k, i) => (FREE_KINDS[k] && i && !FREE_KINDS[ks[i - 1]] ? `<div class="sep"></div>` : "") +
-      `<div class="mi" data-k="${esc(k)}">${addIcon(k)}${esc(barName(k))}</div>`).join(""), false);
-  menu.querySelectorAll(".mi").forEach(mi => mi.onclick = () => {
-    const b = barOf(), kind = FREE_KINDS[mi.dataset.k] && mi.dataset.k.slice(4), k = kind ? `${kind}-${Date.now().toString(36)}` : mi.dataset.k;
-    menuOff(true);
-    saveBar({head: foot ? b.head : [...b.head, k], foot: foot ? [...b.foot, k] : b.foot, off: b.off.filter(i => i !== k)}); draw();
-  });
+  e.stopPropagation(); barSheet();
 });
+// Each item's group in the sheet's Add, and what it shows: the words of its tooltip where it has one that says so
+const BAR_GROUPS = [["Team controls", ["controls"]], ["Usage", ["week", "weekbar", "session", "team", "tokbar", "day", "dayfull"]],
+  ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active"]],
+  ["Layout", ["view", "viewbar", "lanes", "search", "theme", "settings", "help", "new:div", "new:gap"]]];
+const BAR_TIP = {brand: "The logo: it flashes while an agent waits, and a click opens the one waiting longest", lock: "Locks and unlocks the panes and the bars",
+  week: "The account's week against the budget (agents-budget)", weekbar: "How much of the account's weekly allowance is used; the mark is where the plan has it by now",
+  session: "The account's five-hour session", team: "Tokens a minute, every running agent together", tokbar: "The tokens a minute every running agent is using together, over the last while",
+  day: "How far through the working week it is", dayfull: "How far through the working week it is, over a full-width meter",
+  disk: "The space free on the disk the agents work on", diskbar: "How full the disk the agents work on is",
+  cpubar: "How busy the machine's processors are", membar: "How much of the machine's memory is in use",
+  netbar: "The machine's network traffic; the meter is its busiest connection against that connection's top speed",
+  gpubar: "How busy the machine's graphics card is", heatbar: "The machine's hottest temperature sensor", fanbar: "The fastest fan's speed; the meter is the most power the board gives any of them",
+  tally: "How many agents are working and idle, and a flashing badge while one waits", waiting: "How many agents are waiting on you, flashing; a click lists them. Nothing shows while none waits", bench: "The agents on the bench, not running",
+  favs: "Favourites: star an agent from its menu", active: "Running, other than the favourites", controls: "Start, pause and stop the team",
+  lanes: "Which lanes the cards show: yours, the team's, automation", view: "The view showing, and a menu of the others",
+  viewbar: "Every view as its icon in a row, the one showing marked", theme: "The theme: a click moves to the next one",
+  settings: "Settings, kept in this browser", help: "Keyboard shortcuts (?)", search: "Search conversations and the Day log (Ctrl+K)",
+  "new:div": "A thin upright line between the items either side", "new:gap": "Takes the room left, so the items after it keep to the right"};
+const barTip = k => BAR_TIP[k] || BAR_TIP[FREE.test(k) ? "new:" + k.match(FREE)[1] : ""] || (plugs().find(x => x.key === k)?.title || "").split("\n")[0].replace(/^[^:]{1,24}: /, "");
+const barNoData = k => !!plugs().find(x => x.key === k)?.hidden;
+let barSheetDrag = null;
+function barSheet() {
+  menuOff(true);
+  let sh = $("#barsheet");
+  if (!sh) {
+    sh = Object.assign(document.createElement("div"), {id: "barsheet"});
+    sh.onclick = e => { if (e.target === sh) barSheetOff(); };
+    document.body.append(sh);
+  }
+  const b = barOf(), inBar = k => b.head.includes(k) ? "header" : b.foot.includes(k) ? "footer" : "";
+  // a chip: its icon and name, what it shows and whether it can be taken out on a rest
+  const slot = (k, foot) => { const fixed = BAR_FIXED.includes(k), kind = FREE.test(k) ? "new:" + k.match(FREE)[1] : k;
+    const tip = [barTip(k), barNoData(k) && "Nothing to show just now", fixed && "Always in a bar, so the page can be unlocked and anything put back", "Drag to move it"].filter(Boolean).join("\n");
+    return `<div class="bs-slot${barNoData(k) ? " nodata" : ""}${fixed ? " fixed" : ""}" draggable="true" data-k="${esc(k)}" title="${esc(tip)}">${addIcon(kind)}<span class="bs-name">${esc(barName(kind))}</span>` +
+      (fixed ? "" : `<button class="bs-out" data-out="${esc(k)}" title="Take ${esc(barName(k))} out of the ${foot ? "footer" : "header"}">${MENU_ICON.close}</button>`) + `</div>`; };
+  const bar = foot => `<section class="bs-bar"><h3>${foot ? "FOOTER" : "HEADER"}</h3>` +
+    `<h4>${(foot ? b.foot : b.head).length} item${(foot ? b.foot : b.head).length === 1 ? "" : "s"} · drag to reorder, or into the ${foot ? "header" : "footer"}</h4>` +
+    `<div class="bs-slots" data-bar="${foot ? "foot" : "head"}">${(foot ? b.foot : b.head).map(k => slot(k, foot)).join("") || `<div class="bs-empty">Nothing in the ${foot ? "footer" : "header"}: drag an item here</div>`}</div></section>`;
+  const known = BAR_GROUPS.flatMap(([, ks]) => ks), all = [...Object.keys(BAR_ITEMS), ...plugs().map(x => x.key)];
+  const groups = [...BAR_GROUPS, ["Other", [...new Set(all.filter(k => !known.includes(k) && !BAR_FIXED.includes(k)))]]];
+  const opt = k => {
+    const free = !!FREE_KINDS[k], where = !free && inBar(k);
+    if (!free && !all.includes(k) || !free && !where && barNoData(k)) return "";
+    const only = !where && (fits(k, false) ? fits(k, true) ? "" : "header" : "footer");
+    return `<div class="bs-opt${where ? " placed" : ""}"${where ? "" : ` draggable="true" data-add="${esc(k)}" title="Drag onto the ${only || "header or footer"}"`}>` +
+      (where ? "" : `<span class="bs-grip">${PH_GRIP}</span>`) + `${addIcon(k)}<span class="bs-name">${esc(barName(k))}</span><span class="bs-tip" title="${esc(barTip(k))}">${esc(barTip(k))}</span>` +
+      (where ? `<span class="bs-where">In the ${where}</span>` : only ? `<span class="bs-where">Only the ${only}</span>` : "") + `</div>`;
+  };
+  sh.innerHTML = `<div class="bs-dlg" role="dialog" aria-label="Customise bars"><div class="bs-head"><h2>Customise bars</h2><span class="bs-note">Changes save as you go, in this browser</span>` +
+    `<button class="bs-x" title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</button></div>` +
+    `${bar(false)}<h3>ADD · DRAG ONTO THE HEADER OR FOOTER</h3><div class="bs-groups">` +
+    groups.map(([g, ks]) => { const rows = ks.map(opt).join(""); return rows ? `<section><h4>${esc(g)}</h4>${rows}</section>` : ""; }).join("") + `</div>${bar(true)}</div>`;
+  sh.classList.add("on");
+  barSheetPlace();
+  sh.querySelector(".bs-x").onclick = barSheetOff;
+  sh.querySelectorAll("[data-out]").forEach(x => x.onclick = () => {
+    const k = x.dataset.out, b = barOf();
+    saveBar({head: b.head.filter(i => i !== k), foot: b.foot.filter(i => i !== k), off: FREE.test(k) ? b.off : [...b.off, k]}); draw(); barSheet();
+  });
+  // A slot is dragged within its bar or into the other, and an item to add (a Divider or Spacer a new one each time)
+  // into either. While dragged over a bar, a marker shows where it would go, before the chip whose middle the pointer is
+  // short of; nothing changes until it is dropped there (owner, 2026-11-13: "dragging over shouldn't add it, drop
+  // should add it"). Let go anywhere else, or Esc, and both bars are as they were. A bar it cannot go in (a plug-in
+  // that goes only in the other) is crossed out while it is over it.
+  const unmark = () => { sh.querySelectorAll(".bs-mark").forEach(m => m.remove()); sh.querySelectorAll(".bs-slots.refuse, .bs-slots.over").forEach(x => x.classList.remove("refuse", "over")); };
+  const ended = () => { unmark(); sh.querySelectorAll(".moving, .lifting").forEach(x => x.classList.remove("moving", "lifting")); barSheetDrag = null; };
+  sh.querySelectorAll(".bs-slot").forEach(r => {
+    r.ondragstart = e => { barSheetDrag = {k: r.dataset.k, from: r}; r.classList.add("moving"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.dataset.k); };
+    r.ondragend = ended;
+  });
+  sh.querySelectorAll(".bs-opt[data-add]").forEach(o => {
+    o.ondragstart = e => {
+      const a = o.dataset.add, kind = FREE_KINDS[a] && a.slice(4);
+      barSheetDrag = {k: kind ? `${kind}-${Date.now().toString(36)}` : a, from: null}; o.classList.add("lifting");
+      e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", barSheetDrag.k);
+    };
+    o.ondragend = ended;
+  });
+  sh.querySelectorAll(".bs-slots").forEach(list => {
+    list.ondragover = e => {
+      if (!barSheetDrag) return;
+      const ok = fits(barSheetDrag.k, list.dataset.bar === "foot");
+      sh.querySelectorAll(".bs-slots").forEach(x => { x.classList.toggle("refuse", x === list && !ok); x.classList.toggle("over", x === list && ok); });
+      sh.querySelectorAll(".bs-mark").forEach(m => m.parentElement !== list && m.remove());
+      if (!ok) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = barSheetDrag.from ? "move" : "copy";
+      const at = [...list.querySelectorAll(":scope > .bs-slot:not(.moving)")].find(x => { const o = x.getBoundingClientRect();
+        return e.clientY < o.top || e.clientY <= o.bottom && e.clientX < o.left + o.width / 2; });   // the chips wrap: an earlier line, or this line short of its middle
+      const mark = list.querySelector(":scope > .bs-mark") || Object.assign(document.createElement("i"), {className: "bs-mark"});
+      if (mark.parentElement !== list || mark.nextElementSibling !== at) list.insertBefore(mark, at || null);
+    };
+    // leaving the bar for somewhere outside it takes its marker away
+    list.ondragleave = e => { if (!list.contains(e.relatedTarget)) { list.querySelector(":scope > .bs-mark")?.remove(); list.classList.remove("refuse", "over"); } };
+    list.ondrop = e => {
+      const d = barSheetDrag, mark = list.querySelector(":scope > .bs-mark");
+      if (!d || !mark) return ended();
+      e.preventDefault();
+      const foot = list.dataset.bar === "foot", keys = [...list.children].flatMap(x => x === mark ? [d.k] : x.classList.contains("bs-slot") && x.dataset.k !== d.k ? [x.dataset.k] : []);
+      const was = barOf(), other = (foot ? was.head : was.foot).filter(k => k !== d.k), head = foot ? other : keys, footKeys = foot ? keys : other;
+      ended();
+      if (head.join() === was.head.join() && footKeys.join() === was.foot.join()) return;
+      saveBar({head, foot: footKeys, off: was.off.filter(k => !head.includes(k) && !footKeys.includes(k))}); draw(); barSheet();
+    };
+  });
+}
+// The sheet sits between the bars, its top at the header's foot and its bottom at the footer's top, so both stay in
+// sight and show each change as it is made; a bar not showing leaves the sheet the window's edge.
+function barSheetPlace() {
+  const sh = $("#barsheet");
+  if (!sh?.classList.contains("on")) return;
+  const shows = el => el && el.offsetHeight && getComputedStyle(el).display !== "none", h = $("header"), f = $("footer");
+  sh.style.top = (shows(h) ? Math.max(0, h.getBoundingClientRect().bottom) : 0) + "px";
+  sh.style.bottom = (shows(f) ? Math.max(0, innerHeight - f.getBoundingClientRect().top) : 0) + "px";
+}
+function barSheetOff() { $("#barsheet")?.classList.remove("on"); }
+addEventListener("keydown", e => { if (e.key === "Escape" && $("#barsheet")?.classList.contains("on") && !menu.classList.contains("on")) { e.stopPropagation(); barSheetOff(); } }, true);
+addEventListener("resize", barSheetPlace);
 // a dragged item moves as the pointer does, before the item whose middle it is short of, and is kept where it is let go
 let barDrag = null;
 document.addEventListener("dragstart", e => {
@@ -5811,7 +6219,7 @@ function refuseIn(box) {
   document.querySelectorAll("header.refuse, footer.refuse").forEach(b => b !== box && b.classList.remove("refuse"));
   if (!box) return;
   const foot = box.tagName === "FOOTER";
-  box.dataset.refuse = `${barName(barDrag.dataset.item)} goes only in the ${foot ? "header" : "footer"}` + (foot && plugs().some(x => x.name === barName(barDrag.dataset.item) + " bar") ? `: add ${barName(barDrag.dataset.item)} bar from the footer's +` : "");
+  box.dataset.refuse = `${barName(barDrag.dataset.item)} goes only in the ${foot ? "header" : "footer"}` + (foot && plugs().some(x => x.name === barName(barDrag.dataset.item) + " bar") ? `: add ${barName(barDrag.dataset.item)} bar from Customise bars` : "");
   box.classList.add("refuse");
 }
 function barDropped() {
@@ -5881,10 +6289,12 @@ function pickRole(n, r) {
 // A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over what was said and the
 // meeting's message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to
 // message a single agent in a meeting - that's not how meetings work"); a rest on one still shows its menu. Who is
-// invited (n.who, "name:<agent>" keys, and "role:<role>" in a layout saved before, chosen with the meeting's chips and
-// portraits while the layout is unlocked) is the whole team until chosen.
+// invited (n.who: "all" for the whole team, else "name:<agent>" keys, and "role:<role>" in a layout saved before, chosen
+// with the meeting's chips and portraits while the layout is unlocked) is, until chosen, whoever this browser last
+// started a meeting with (meetLast), else nobody.
 const byRole = list => [...list].sort((x, y) => ((ROLE_ORDER.indexOf(x.role) + 1 || 99) - (ROLE_ORDER.indexOf(y.role) + 1 || 99)) || byName(x, y));
-const inMeeting = (n, a) => !Array.isArray(n.who) || n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name);
+const meetLast = () => { try { return JSON.parse(localStorage.getItem("meet:last")) || []; } catch (e) { return []; } };
+const inMeeting = (n, a) => n.who === "all" || (Array.isArray(n.who) ? n.who.includes("role:" + a.role) || n.who.includes("name:" + a.name) : meetLast().includes(a.name));
 // A meeting (owner, 2026-11-03) is the owner and the agents in it, every line said going to everyone; each agent
 // attends through a meeting session of its own, which speaks with meeting-say (the server's meetings). The pane keeps
 // the meeting it shows (n.meeting) and reads it from /api/meetings with every load while a Meeting pane is on the page.
@@ -5969,13 +6379,13 @@ function dayLogHtml(n) {
     dayLog.state === "reading" && "Reading the log…", dayLog.note].filter(Boolean).map(n => `<div class="note">${esc(n)}</div>`).join("");
   if (!dayLog.rows.length) return dayLog.state === "ok" ? `<div class="blank">${esc(dayLog.empty || "Nothing in the log yet")}</div>` : `<div class="daylog">${notes}</div>`;
   // a day heading stays while an entry under it does
-  const rows = dayLog.rows.filter(r => r.type === "day" || dayLogKeep(n, r)).filter((r, i, all) => r.type !== "day" || (all[i + 1] && all[i + 1].type !== "day"));
+  const rows = dayLog.rows.filter(r => r.type === "day" || dayLogKeep(n, r) || seekRow(r)).filter((r, i, all) => r.type !== "day" || (all[i + 1] && all[i + 1].type !== "day"));
   const days = dayLog.rows.filter(r => r.type === "day").length, entries = dayLog.rows.length - days;
   const sum = dayLog.summary || `${days} day${days === 1 ? "" : "s"}, ${entries} entr${entries === 1 ? "y" : "ies"}`;
   return `<div class="teamlog"><div class="thead"><span class="tsum">${esc(sum)}</span></div><div class="daylog" style="--whw:${dayLogWhW(rows.filter(r => r.type !== "day").map(r => shown(dayLogBy(r))))}px">${notes}${rows.map((r, i) => r.type === "day"
     ? (r.kind ? `<div class="row day ${esc(r.kind)}">${dayLogWho(r.by)}<span class="at">${dayLogAt(r.at)}</span><span class="tx">${esc(r.text)}</span>${dayLogIcon(r.kind, "d" + r.at)}</div>`
       : `<div class="row day"><span class="tx">${esc(r.text)}</span></div>`)   // a day of no kind is a plain calendar day: its name alone
-    : `<div class="row">${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span></div>`).join("")}</div></div>`;
+    : (h => seekRow(r) ? seekWrap(h) : h)(`<div class="row">${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label || "Open")}</a>` : r.label ? `<span>${esc(r.label)}</span>` : ""}<span class="tx">${esc(r.text)}</span></div>`)).join("")}</div></div>`;
 }
 // The Token usage pane (owner, 2026-11-11): each agent's weighted tokens by day (see "token usage" on the server), in a
 // box for each week, newest first, as the Work queue's sections, under the role chips and a line with the last seven
@@ -6246,18 +6656,18 @@ async function loadMeetings() {
 // (the empty .att before the box is where every box's attachments go; a meeting takes text only)
 const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div><div class="sayrow"><textarea class="say" rows="1" data-name="${esc(MEET + path)}" placeholder="Message the meeting…" autocomplete="off"></textarea>${SEND}</div>`;
 // The meeting's chips, the role chips' row: Invite all, and each role's, lit while all of that role are invited; a click
-// on one invites all of that role (that role alone, from Invite all), or leaves them all out once they are. Who is invited is kept by name (n.who), the
-// whole team while it is unset.
+// on one invites all of that role (that role alone, from Invite all), or leaves them all out once they are; Invite all
+// again leaves everyone out. Who is invited is kept by name (n.who), or as "all" for the whole team.
 const meetTeam = () => [...S.agents, ...S.bench];
-const meetChips = (path, n) => { const all = !Array.isArray(n.who), full = r => meetTeam().filter(a => a.role === r.role).every(a => inMeeting(n, a));
-  return `<span class="chips"><b class="chip${all ? " on" : ""}" data-invite-role="" title="Invite the whole team">Invite all</b>${roleList().map(r =>
+const meetChips = (path, n) => { const all = n.who === "all", full = r => meetTeam().filter(a => a.role === r.role).every(a => inMeeting(n, a));
+  return `<span class="chips"><b class="chip${all ? " on" : ""}" data-invite-role="" title="Invite the whole team, or leave everyone out once it is">Invite all</b>${roleList().map(r =>
     `<b class="chip${!all && full(r) ? " on" : ""}" data-invite-role="${esc(r.role)}" data-role="${esc(r.role)}" title="Invite every ${esc(r.name)}, or leave them all out"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
     `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
-// invites or leaves out these agents; the whole team invited is kept as unset
+// invites or leaves out these agents; the whole team invited is kept as "all"
 function meetInvite(n, names, on) {
   const now = new Set(meetTeam().filter(a => inMeeting(n, a)).map(a => a.name));
   names.forEach(x => on ? now.add(x) : now.delete(x));
-  if (meetTeam().every(a => now.has(a.name))) delete n.who; else n.who = [...now].map(x => "name:" + x);
+  n.who = meetTeam().every(a => now.has(a.name)) ? "all" : [...now].map(x => "name:" + x);
 }
 // The meeting's bar. Before it starts: who is invited (Who, while the layout is unlocked), a topic and Start. While it
 // is open: its topic and time, who is there, Add (anyone on the roster), Pause and End. The count of those in it, the
@@ -6349,14 +6759,15 @@ const BADGES = [["name", "Name"], ["icon", "Icon"], ["card", "Card"]];
 const agentPick = (n, big) => S.agents.length ? `<div class="tabbar agentpick${big ? " big" : ""}">${byRole(S.agents).map(a =>
   `<span class="ftab${a.name === n.name ? " sel" : ""}" data-agent="${esc(a.name)}" title="Show ${esc(shown(a.name))}">${face(a, `data-name="${esc(a.name)}"`)}${big ? `<small>${esc(shown(a.name))}</small>` : ""}</span>`).join("")}</div>` : "No agent is running";
 // The documents File panes have shown, newest first, kept in this browser, offered in an empty File pane.
-const fileRecent = () => { try { return JSON.parse(localStorage.getItem("file:recent")) || []; } catch (e) { return []; } };
-const fileSeen = f => { if (f) localStorage.setItem("file:recent", JSON.stringify([f, ...fileRecent().filter(x => x !== f)].slice(0, 8))); };
+// the documents last opened in this browser, newest first: the ten a path box lists, besides the one it shows
+const fileRecent = () => { try { return (JSON.parse(localStorage.getItem("file:recent")) || []).slice(0, 11); } catch (e) { return []; } };
+const fileSeen = f => { if (f) localStorage.setItem("file:recent", JSON.stringify([f, ...fileRecent().filter(x => x !== f)].slice(0, 11))); };
 // A pane's roles (n.roles, in the order they were picked), or every role while none is picked: "All".
 const rolesPicked = n => Array.isArray(n.roles) ? n.roles : [];
 const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);
 // The views that list people or what they did, each filtered by the same role chips. A row by someone in no picked
 // role (the owner, or nobody) is left out while roles are picked.
-const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];
+const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens"];
 const roleOf = name => [...S.agents, ...S.bench].find(a => a.name === name)?.role;
 const byRoles = (n, name) => !rolesPicked(n || {}).length || n.roles.includes(roleOf(name));
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
@@ -6425,7 +6836,7 @@ function viewMenu(btn, rested, again, ask) {
       `${v.views.length > 1 ? `<i class="vbtn vdel" title="Delete this view">${MENU_ICON.close}</i>` : '<i class="vbtn"></i>'}` : "") + `</div>` +
     (ask === i ? `<div class="ask">Delete the view "${esc(x.name)}"?</div><div class="mi warn vyes" data-v="${i}">${MENU_ICON.close}Delete ${esc(x.name)}</div>` +
       `<div class="mi vno">${MENU_ICON.close}Cancel</div><div class="sep"></div>` : "")).join("") +
-    (edit ? `<div class="mi vadd" title="Add an empty custom view">${MENU_ICON.plus}Add a view</div>` : ""), false, again);
+    (edit ? `<div class="mi vadd" title="Add an empty view of panes">${MENU_ICON.plus}Add a view</div>` : ""), false, again);
   if (rested && !again) menu.dataset.rested = "1";
   const go = changeViews;
   const redraw = ask => viewMenu(btn, false, true, ask);
@@ -6512,7 +6923,8 @@ function customHtml(ceil, tabRow) {
       body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
     } else if (n.show === "characters") {
       const them = chrAgents(n);
-      body = them.length ? `<div class="chrs">${tiles(them)}</div>` : `<div class="blank">No agent in these roles</div>`;
+      const up = path.length > 1 && nodeAt(l.root, path.slice(0, -1)), split = up && tileSide(up) === path.slice(-1) ? up : null;
+      body = them.length ? `<div class="chrs" style="--tz:${tileZoom(split || n, path, them.length, split?.split)}">${tiles(them)}</div>` : `<div class="blank">No agent in these roles</div>`;
     } else if (n.show === "file") {
       // the document under a header as a Team pane's: its name, its full path, and the maximise button
       const d = n.path && fileDocs[n.path], ed = n.path && fileEdit[n.path];
@@ -6521,7 +6933,7 @@ function customHtml(ceil, tabRow) {
         : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
         : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
-      body = !n.path ? `<div class="blank">${pageLocked() ? "" : fileRecent().length ? `<div class="frecent"><div>Recently opened</div>${fileRecent().map(f =>
+      body = !n.path ? `<div class="blank">${pageLocked() ? "" : fileRecent().length ? `<div class="frecent"><div>Recently opened</div>${fileRecent().slice(0, 10).map(f =>
           `<a data-recent="${esc(f)}" title="${esc(f)}"><b>${esc(f.split("/").pop())}</b><span>${esc(f)}</span></a>`).join("")}</div>` : "Type a document's full path above: the folder's files are suggested as you type"}</div>`
         : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${fileTools(n.path)}${maxButton(path === maxed)}</div>${doc}</div>`;
     } else if (n.show === "machine") {
@@ -6538,7 +6950,7 @@ function customHtml(ceil, tabRow) {
       body = one && path === maxed ? card1
         : combinedHtml(path, n, fullView(n) || path === maxed, path === maxed) + (one ? `<div class="paneover">${card1}</div>` : "");
     } else if (n.show === "team") {
-      body = teamHtml(path, fullView(n) || path === maxed, new Set(n.hide || []), path === maxed);
+      body = teamHtml(path, n, fullView(n) || path === maxed, path === maxed);
     } else if (n.show === "grid" && of.length) {
       const el = $(`#main .pane[data-path="${path}"] .pbody`), c = el ? cols(of.length, el.clientWidth, el.clientHeight) : Math.ceil(Math.sqrt(of.length));
       body = `<div class="cards" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${of.map(a => fullView(n)
@@ -6575,7 +6987,8 @@ function customHtml(ceil, tabRow) {
   const node = (n, path) => {
     if (!n.split) return pane(n, path);
     const side = tileSide(n), count = side && chrAgents(n[side]).length;
-    const size = side && (n.split === "row" ? tilesWidth(tileCols(n, path + side, count)) : tilesHeight(tileRows(n, path + side, count), path + side));
+    const z = side && tileZoom(n, path + side, count, n.split);
+    const size = side && (n.split === "row" ? tilesWidth(tileCols(n, path + side, count), z) : tilesHeight(tileRows(n, path + side, count), path + side, z));
     const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider drag" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
@@ -6587,9 +7000,9 @@ const fullView = n => n.view !== "summary";
 // number of rows high in the same way (one unless set).
 const tileSide = n => !!n.split && (n.a.show === "characters" ? "a" : n.b.show === "characters" ? "b" : null);
 const SNAP = 12;   // px within which a dragged divider snaps to a line (see the divider drag)
-const tilesWidth = c => 18 + 120 * (c || 2);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart
+const tilesWidth = (c, z = 1) => Math.ceil(18 + 120 * (c || 2) * z);   // the pane's border, the grid's padding and scroll gutter, 112px tiles 8px apart, z times larger
 // the pane's border, its bar (none when locked), the grid's padding and the rows of 112px tiles 8px apart
-const tilesHeight = (r, path) => 18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (pageLocked() ? 0 : 38)) + 120 * (r ?? 1);
+const tilesHeight = (r, path, z = 1) => Math.ceil(18 + ($(`#main .pane[data-path="${path}"] > .pbar`)?.offsetHeight ?? (pageLocked() ? 0 : 38)) + 120 * (r ?? 1) * z);
 // The columns a snapped Characters pane shows: its own setting, or more when the tiles would not fit its height in that many.
 // A pane not yet on the page has no height to go by; tileGuess has the page draw again once it is.
 let tileGuess = false;
@@ -6603,6 +7016,21 @@ function tileRows(n, path, count) {
   const w = $(`#main .pane[data-path="${path}"] .chrs`)?.clientWidth, cols = w ? Math.max(1, Math.floor((w - 7) / 120)) : 0;
   if (!w) tileGuess = true;
   return Math.max(n.tiles || 1, cols ? Math.ceil(count / cols) : 0);
+}
+// How much larger than 112px a Characters pane's tiles are drawn, up to twice, while it has room for every one of them
+// that size: beside another pane its height decides, above or below one its width, and alone both. split is the split
+// it is snapped in, if it is (n that split, as for tileCols), and path its own pane's. A tile and the gap after it are
+// 120px at size 1; the grid's padding takes 7px across and 16px down, as in tileCols.
+function tileZoom(n, path, count, split) {
+  const el = $(`#main .pane[data-path="${path}"] .chrs`);
+  if (!el) { tileGuess = true; return 1; }
+  if (!count) return 1;
+  const w = el.clientWidth - 7, h = el.clientHeight - 16;
+  let z = 1;
+  if (split === "row") z = h / (120 * Math.ceil(count / tileCols(n, path, count)));
+  else if (split === "col") z = w / (120 * Math.ceil(count / tileRows(n, path, count)));
+  else for (let t = 2; t > 1; t -= 0.05) if (Math.floor(w / (120 * t)) * Math.floor(h / (120 * t)) >= count) { z = t; break; }
+  return Math.max(1, Math.min(2, Math.floor(z * 20) / 20));
 }
 // An agent's card, or a Team, Combined, Meeting, File or Work queue pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
@@ -6640,31 +7068,27 @@ function paneTermHtml(name, t) {
 // The Team pane's transcript: every message between agents, fetched with each load while a Team pane is laid out.
 // Full scrolls through all of them, each whole; Summary shows the newest that fit, each cut to a few lines, as a card does.
 // Its Agents menu, saved with the pane, leaves out or brings back the messages an agent sent or received.
-let teamLog = [], teamVer = 0, teamText = "";
+// Until its first answer it says it is reading, not that there are none; a failed read keeps the last one.
+let teamLog = [], teamVer = 0, teamText = "", teamRead = false;
 async function loadTeam() {
   if (!leaves(layout().root).some(([, n]) => n.show === "team")) return;
   try {
     const d = await (await fetch("/api/team", {cache: "no-store"})).json(), text = JSON.stringify(d);
-    if (text !== teamText) { teamLog = d; teamText = text; teamVer++; }
+    if (!Array.isArray(d)) return;
+    if (text !== teamText || !teamRead) { teamLog = d; teamText = text; teamVer++; teamRead = true; }
   } catch (e) {}
 }
-// the agents in the Team transcript, in the roster's order, then any others by name
-function teamNames() {
-  const order = S.agents.map(a => a.name);
-  return [...new Set(teamLog.flatMap(m => [m.from, m.to]))]
-    .sort((a, b) => ((order.indexOf(a) + 1) || 999) - ((order.indexOf(b) + 1) || 999) || a.localeCompare(b));
-}
-const teamItems = () => teamNames().map(x => [x, x, `<span class="dot" style="--c:${colours[x] || "#888"}"></span>`]);
-function teamHtml(path, full, hide, big) {
-  const names = teamNames();
-  const kept = teamLog.filter(m => !hide.has(m.from) && !hide.has(m.to)), log = full ? kept : kept.slice(-30);
-  const key = ["team", teamVer, noImage.size, full, [...hide].sort(), paintKey].join("|");
+// The Team pane: the messages between agents, those from or to an agent in its picked roles (the role chips, as other views have)
+function teamHtml(path, n, full, big) {
+  const kept = teamLog.filter(m => byRoles(n, m.from) || byRoles(n, m.to)), log = full ? kept : kept.slice(-30);
+  if (!teamRead) return `<div class="teamlog" data-name="~team"><div class="thead"><span>Team</span><span>messages between agents</span>${maxButton(big)}</div><div class="blank">Reading the conversations…</div></div>`;
+  const key = ["team", teamVer, noImage.size, full, rolesPicked(n).join(","), paintKey].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
   const row = m => `<div class="it peer l-team" style="--pc:${colours[m.from] || "#888"}" data-agent="${esc(m.from)}"><span class="who">${esc(shown(m.from))}</span>` +
     `<span class="who to" style="--pc:${colours[m.to] || "#888"}">${esc(shown(m.to))}</span><span class="tx">${md(m.text)}</span>` +
     `<span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
-  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${kept.length} message${kept.length === 1 ? "" : "s"} between agents</span>${filterBtn("agents", "agents:" + path, names.filter(x => !hide.has(x)), names, teamItems(), "Agents")}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "every message here is left out" : "no messages between agents lately"}</div>`}</div></div>`;
+  return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${kept.length} message${kept.length === 1 ? "" : "s"} between agents</span>${maxButton(big)}</div>` +
+    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "no messages lately from or to an agent in these roles" : "no messages between agents lately"}</div>`}</div></div>`;
 }
 // The Combined pane: the conversations of the running agents in the roles chosen from its Roles menu as one, in time
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
@@ -6822,10 +7246,18 @@ async function pickShow(box, show) {
   fpick = {box, at: fpick.box === box ? Math.min(fpick.at, list.length - 1) : -1, list, show};
   pickDraw();
 }
+// A File pane's path box, on being clicked into, first lists the ten documents last opened in this browser, newest
+// first (the one showing left out); a click on one opens it, and typing lists the folder instead.
+function pickRecent(box, show) {
+  pickGen++;
+  const list = fileRecent().filter(f => f !== box.value.trim()).slice(0, 10).map(f => ({name: f.split("/").pop(), path: f, recent: true}));
+  fpick = {box, at: -1, list, show, recent: true};
+  pickDraw();
+}
 function pickDraw() {
   const box = fpick.box, r = box.getBoundingClientRect();
-  pickEl.innerHTML = fpick.list.length ? fpick.list.map((e, i) => `<div class="fp${e.dir ? " dir" : ""}${i === fpick.at ? " at" : ""}" data-i="${i}" title="${esc(e.path)}">${esc(e.name)}${e.dir ? "/" : ""}</div>`).join("")
-    : `<div class="none">Nothing here the pane can show</div>`;
+  pickEl.innerHTML = (fpick.recent ? `<div class="none">Recently opened</div>` : "") + (fpick.list.length ? fpick.list.map((e, i) => `<div class="fp${e.dir ? " dir" : ""}${e.recent ? " rec" : ""}${i === fpick.at ? " at" : ""}" data-i="${i}" title="${esc(e.path)}">${esc(e.name)}${e.dir ? "/" : ""}${e.recent ? `<span>${esc(e.path)}</span>` : ""}</div>`).join("")
+    : `<div class="none">Nothing here the pane can show</div>`);
   pickEl.style.cssText = `display:block;left:${r.left}px;width:${Math.max(r.width, 280)}px;top:${r.bottom + 4}px;max-height:${Math.max(120, innerHeight - r.bottom - 16)}px`;
   pickEl.querySelector(".fp.at")?.scrollIntoView({block: "nearest"});
   pickEl.querySelectorAll(".fp").forEach(el => el.onmousedown = e => { e.preventDefault(); fpick.at = +el.dataset.i; pickDone(); });
@@ -6876,12 +7308,15 @@ function perfHtml(n) {
   // a label is in its figure's status colour (normal, warning or critical), grey for a rate, which has none;
   // pct is shown as a percentage, or, given unit and colour, as a figure in that unit and colour (the Heat row's °C);
   // a row with a series (sk, its key in the history) opens it as the enlarged graph, its values read as gunit
+  // on the phone (n.phone) a figure with nothing to show (no reading and no series) is left out, each gauge is named for a
+  // tap (data-pk), and the one tapped open (n.open) spans the row with its last hour's line and its whole detail
   const row = (key, name, detail, pct, sk, ceil, tip = "", unit = "%", colour = gauge(pct), gunit = "%") =>
-    `<div class="mini perf${dials ? " dial" : ""}" style="--c:${pct == null || unit === " rpm" ? "#8b949e" : colour}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}>` +
+    n.phone && pct == null && !(sk && h[sk]) ? "" :
+    `<div class="mini perf${dials ? " dial" : ""}${n.phone && n.open === name ? " open" : ""}" style="--c:${pct == null || unit === " rpm" ? "#8b949e" : colour}" title="${esc(tip)}"${sk && h[sk] ? ` data-series="${esc(sk)}" data-label="${esc(name)}" data-unit="${gunit}"` : ""}${n.phone ? ` data-pk="${esc(name)}"` : ""}>` +
     (dials ? dial(name, detail, pct, sk && h[sk], ceil, unit, colour, gunit, perfColour(key)) :
     `<div class="mtop"><span class="name"><span class="dot"></span>${esc(name)}</span>` +
     `<span class="pdet">${esc(detail)}</span>${pct == null ? "" : `<span class="pct" style="color:${colour}">${Math.round(pct)}${unit}</span>`}</div>` +
-    `${sk && h[sk] ? spark(h[sk], ceil, perfColour(key)) : ""}`) + `</div>`;
+    `${sk && h[sk] ? spark(h[sk], ceil, perfColour(key)) : ""}`) + (n.phone && n.open === name ? phPerfTrend(sk, ceil, perfColour(key), gunit) : "") + `</div>`;
   const rows = {
     cpu: () => row("cpu", "CPU", `${d.cores} cores`, d.cpu, "cpu", 100, `CPU busy over the last ${d.step * d.keep / 60} minutes`),
     mem: () => { const m = d.mem;
@@ -6908,7 +7343,8 @@ function perfHtml(n) {
         f.rpm, "fan:" + f.name, Math.max(1, ...(h["fan:" + f.name] || [])), "Its speed in turns a minute", " rpm", "var(--text)", "rpm")).join("")
       || "",   // no Fans row while there are no fan readings
   };
-  return `<div class="others perfs${dials ? " dials" : ""}">${PERF_ITEMS.map(([k]) => rows[k]()).join("")}</div>`;
+  const all = PERF_ITEMS.map(([k]) => rows[k]()).join("");
+  return `<div class="others perfs${dials ? ` dials" style="--gn:${(all.match(/class="mini perf/g) || []).length || 1}` : ""}">${all}</div>`;
 }
 // A Gauges pane's figure, as a Performance pane would show it but as a gauge: a half-circle filled to its percentage
 // (the Heat figure's °C read against 100), or, for a rate with no percentage (the network, a disk's bytes), to its
@@ -7115,7 +7551,8 @@ function customClicks() {
     if (act === "ticket") { el.onchange = () => { change(l => { const n = nodeAt(l.root, path), v = el.value.trim(); if (v) n.ticket = v; else delete n.ticket; }); }; return; }
     if (act === "path") {
       const show = () => { fileSeen(el.value.trim()); change(l => { nodeAt(l.root, path).path = el.value.trim(); }); setTimeout(load); };
-      el.onchange = show; el.onfocus = el.oninput = () => pickShow(el, show); el.onkeydown = e => pickKey(e, el, show);
+      el.onchange = show; el.oninput = () => pickShow(el, show); el.onkeydown = e => pickKey(e, el, show);
+      el.onfocus = () => fileRecent().some(f => f !== el.value.trim()) ? pickRecent(el, show) : pickShow(el, show);
       return;
     }
     if (act === "view" || act === "machine") el.onclick = () => { change(l => { nodeAt(l.root, path)[act] = el.dataset.v; }); setTimeout(load); };   // a full card needs its conversation
@@ -7177,9 +7614,9 @@ function customClicks() {
     const path = row.closest(".pane").dataset.path;
     if (row.querySelector("[data-invite-role]")) {
       const invite = r => change(l => { const n = nodeAt(l.root, path);
-        if (!r) { delete n.who; return; }
+        if (!r) { n.who = n.who === "all" ? [] : "all"; return; }
         const them = meetTeam().filter(a => a.role === r);   // from Invite all, a role's chip invites that role alone
-        if (!Array.isArray(n.who)) n.who = them.map(a => "name:" + a.name); else meetInvite(n, them.map(a => a.name), !them.every(a => inMeeting(n, a)));
+        if (n.who === "all") n.who = them.map(a => "name:" + a.name); else meetInvite(n, them.map(a => a.name), !them.every(a => inMeeting(n, a)));
       });
       row.querySelectorAll(".chip[data-invite-role]").forEach(c => c.onclick = () => invite(c.dataset.inviteRole));
       fitChips(row, path, invite);
@@ -7199,8 +7636,8 @@ function customClicks() {
     if (what === "add") { e.stopPropagation(); return meetAdd(el, path); }
     if (what === "start") {
       const topic = el.closest(".meetbar").querySelector(".mtopic")?.value.trim() || "";
-      const d = await meetPost(null, "start", {who: meetInvited(n).map(a => a.name), topic, view: shownView().name || ""});
-      if (d?.id) change(l => { nodeAt(l.root, path).meeting = d.id; });
+      const who = meetInvited(n).map(a => a.name), d = await meetPost(null, "start", {who, topic, view: shownView().name || ""});
+      if (d?.id) { try { localStorage.setItem("meet:last", JSON.stringify(who)); } catch (e) {} change(l => { nodeAt(l.root, path).meeting = d.id; }); }
       else if (d?.error) alert("The meeting did not start. " + d.error);
       setTimeout(load);
     } else if (what === "new") change(l => { delete nodeAt(l.root, path).meeting; });
@@ -7277,14 +7714,6 @@ function customClicks() {
     e.stopPropagation();
     const path = el.closest(".pane").dataset.path;
     viewPicker(el, path, t => atPane(path, n => { n.show = t; }));
-  });
-  main.querySelectorAll(".teamlog .agents.fbtn").forEach(el => {
-    const path = el.closest(".pane").dataset.path;
-    filterButton(el, teamItems(), () => { const hide = nodeAt(layout().root, path).hide || []; return teamNames().filter(x => !hide.includes(x)); },
-      x => `Show or leave out ${x}'s messages`, x => change(l => {
-        const n = nodeAt(l.root, path), hide = new Set(n.hide || []);
-        hide.has(x) ? hide.delete(x) : hide.add(x); n.hide = [...hide];
-      }), "Agents");
   });
   // An agent in the list ("others") or a tile ("characters"), or a turn in a Team pane (the agent on the name clicked, else
   // the turn's own): one with a card in a pane gets the cursor in its message box, any other has its view opened. One in
@@ -7387,17 +7816,18 @@ function customClicks() {
     const lines = side ? [] : [mid(m), ...[...main.querySelectorAll(`.lay.${row ? "row" : "col"} > .divider`)]
       .filter(x => !lay.contains(x)).map(x => mid(x.getBoundingClientRect()))];
     const guide = $(".snapguide") || document.body.appendChild(Object.assign(document.createElement("div"), {className: "snapguide"}));
+    const tz = side && +$(`#main .pane[data-path="${d.dataset.path + side}"] .chrs`)?.style.getPropertyValue("--tz") || 1;   // the tiles' size, which snaps by whole tiles
     d.onpointermove = mv => {
       if (side && row) {
         const w = side === "a" ? mv.clientX - r.left : r.right - mv.clientX;
-        tiles = Math.max(1, Math.min(3, Math.round((w - 18) / 120)));
-        (side === "a" ? h1 : h2).style.flexBasis = tilesWidth(tiles) + "px";
+        tiles = Math.max(1, Math.min(3, Math.round((w - 18) / (120 * tz))));
+        (side === "a" ? h1 : h2).style.flexBasis = tilesWidth(tiles, tz) + "px";
         return;
       }
       if (side) {
         const h = side === "a" ? mv.clientY - r.top : r.bottom - mv.clientY, bar = tilesHeight(0, d.dataset.path + side);
-        tiles = Math.max(1, Math.min(3, Math.round((h - bar) / 120)));
-        (side === "a" ? h1 : h2).style.flexBasis = tilesHeight(tiles, d.dataset.path + side) + "px";
+        tiles = Math.max(1, Math.min(3, Math.round((h - bar) / (120 * tz))));
+        (side === "a" ? h1 : h2).style.flexBasis = tilesHeight(tiles, d.dataset.path + side, tz) + "px";
         return;
       }
       const pos = row ? mv.clientX : mv.clientY, near = lines.filter(x => Math.abs(x - pos) <= SNAP).sort((x, y) => Math.abs(x - pos) - Math.abs(y - pos))[0];
@@ -7538,6 +7968,7 @@ function tiles(them) {
     const last = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, ""), since = last ? Math.max(0, Math.round(nowS - Date.parse(last) / 1000)) : a.held;
     return `<div class="chr ${st}${switching(a)}" role="button" tabindex="0" style="--c:${a.colour}" data-name="${esc(a.name)}" aria-label="${esc(carded(a))}"${st === "wanted" ? ` title="${esc(shown(a.name))} wants you: ${esc(a.wanted)}"` : ""}>` +
       `<span class="por">${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span>` +
+      (st === "waiting" || st === "wanted" ? `<span class="wmark" title="Waiting on you">!</span>` : "") +
       `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(carded(a))}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}" title="${a.ctxPct}% of context used">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
@@ -7585,6 +8016,7 @@ function showRail() {
 }
 
 async function openDetail(name) {
+  if (seek?.src === "conversation") { if (seek.fresh && seek.name === name) seek.fresh = false; else seek = null; }   // a hit marks only the view it opened
   if ($("#detail").classList.contains("docked")) localStorage.setItem("tab:page", name);
   open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = ""; $("#dscreen").innerHTML = ""; $("#dterm").classList.remove("big"); $("#dzoom").textContent = "⤢";
   history.replaceState(null, "", "#" + encodeURIComponent(name));
@@ -7627,11 +8059,18 @@ function renderConv() {
 async function refreshDetail(first) {
   if (!open) return;
   const name = open;
-  const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
+  const seeking = seek?.src === "conversation" && seek.name === name;   // all 300 turns, as the hit may be older than a lane's newest 60
+  const d = await (await fetch("/api/agent/" + encodeURIComponent(name) + (seeking ? "?all=1" : ""), {cache: "no-store"})).json();
   if (name !== open) return;   // another agent was opened meanwhile
   const conv = $("#dconv");
   if (first) pinned = true;
   convFeed = d.feed; renderConv();
+  // opened from a search: the hit in the middle of the view, and the view left there, not pinned to the newest turn
+  if (first && seeking) {
+    const el = conv.querySelector(".it.seek");
+    if (el) { pinned = false; $("#dbottom").classList.add("on"); const go = () => el.scrollIntoView({block: "center"}); go(); requestAnimationFrame(go); }
+    else seekGone(conv);
+  }
   if (pinned && !holding(conv)) { conv.scrollTop = conv.scrollHeight; requestAnimationFrame(() => { conv.scrollTop = conv.scrollHeight; }); }
   if (!holding($("#dscreen"))) $("#dscreen").innerHTML = d.screen || `<span style="color:var(--faint)">not on screen</span>`;
   term = {cols: d.cols || 80, rows: d.rows || 24};
@@ -8035,7 +8474,7 @@ function dock(a) {
   d.classList.add("docked");
   if (open !== a.name) openDetail(a.name);
 }
-function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
+function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; if (seek?.src === "conversation") seek = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
 $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
@@ -8169,9 +8608,10 @@ const SHORTCUTS = [
   ["Agents", [["Alt+1 … 9", "That agent's message box, in list order"], ["Alt+↑ / ↓", "The agent before or after this one"],
     ["Alt+W", "The agent waiting longest"], ["Alt+Enter", "Open this agent's view, or close it"]]],
   ["Views", [["Ctrl+Alt+1 … 9", ""]]],
+  ["Panels", [["Ctrl+Shift+1 … 9", "That tab of the panel under the pointer (Ctrl+1 … 9 alone are the browser's)"]]],
   ["Page", [["Alt+V", "Choose the view"], ["Alt+L", "This agent's filter, else the page's"], ["Alt+M", "Maximise this pane, or restore it"]]],
   ["Message box", [["Enter", "Send"], ["Ctrl+Enter", "New line"], ["Esc Esc", "Clear the box"], ["Ctrl+U", "Add images or files"]]],
-  ["Anywhere", [["Esc", "Close what is open"], ["Ctrl+Click", "Open an agent in a new tab"], ["? or Alt+/", "These shortcuts"]]],
+  ["Anywhere", [["Ctrl+K or /", "Search conversations and the Day log"], ["Esc", "Close what is open"], ["Ctrl+Click", "Open an agent in a new tab"], ["? or Alt+/", "These shortcuts"]]],
   ["Menus", [["↑ / ↓", "Move"], ["Enter / Space", "Pick, or tick"], ["Esc", "Close"]]],
   ["Prompts", [["↑ / ↓", "Move to an option"], ["Enter", "Choose it"], ["1 … 9", "Choose that option"]]],
 ];
@@ -8221,6 +8661,7 @@ function settingsMenu(redraw) {
   const vkeys = views().views.map((x, i) => `<label class="set"><span>${esc(x.name)}</span>` +
     pick(`data-view="${esc(x.name)}"`, Object.keys(vkeyed).find(d => vkeyed[d] === i) || "", vdigits) + `</label>`).join("");
   menuAt($("#settings"), "settings", `<div class="hd"><div>Settings, kept in this browser</div></div>` +
+    `<button data-bars>Customise bars…</button><button class="srchbtn" data-search>${MENU_ICON.search}Search conversations and the Day log…</button>` +
     `<label class="set"><span>Text size</span>${pick('data-set="fs"', set.fs, sizes)}</label>` +
     `<label class="set"><span>Conversation text</span>${pick('data-set="conv"', set.conv, sizes)}</label>` +
     `<label class="set"><span>Message box text</span>${pick('data-set="box"', set.box, sizes)}</label>` +
@@ -8247,6 +8688,8 @@ function settingsMenu(redraw) {
     localStorage.setItem("settings", JSON.stringify(now)); applySettings(); settingsMenu(true); draw();
   });
   menu.querySelector("[data-reset]").onclick = () => { localStorage.removeItem("settings"); applySettings(); settingsMenu(true); };
+  menu.querySelector("[data-bars]").onclick = () => barSheet();
+  menu.querySelector("[data-search]").onclick = () => searchMenu($("#settings"));
   const edit = menu.querySelector("[data-edit-theme]");
   if (edit) edit.onclick = () => themeMenu();
 }
@@ -8323,12 +8766,30 @@ function focusAgent(name) {
 addEventListener("keydown", e => {
   const typing = e.target.closest?.("textarea, input, select");
   if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === "?" && !typing) { e.preventDefault(); helpMenu(false); return; }
+  // Ctrl+K (Cmd+K on a Mac) anywhere, or / outside a text box: search
+  if (!phoneOn() && ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyK" || !e.altKey && !e.ctrlKey && !e.metaKey && e.key === "/" && !typing && !e.target.closest?.("[contenteditable]"))) {
+    e.preventDefault(); e.stopPropagation();
+    if (!menuOn("search")) searchMenu(searchAnchor()); else menu.querySelector(".srch")?.focus();
+    return;
+  }
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit && e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey) {   // a view key
     const i = viewKeys()[digit[1]];
     if (i == null) return;
     e.preventDefault(); e.stopPropagation(); menuOff(true);
     if (i !== views().at) changeViews(v => { v.at = i; });
+    return;
+  }
+  // Ctrl+Shift+1 … 9: that tab of the panel under the pointer, else of the one holding the cursor, else of the first
+  // with tabs: a pane's tabs, or a Tabs row's agents. Ctrl+1 … 9 alone are the browser's own (its tabs), which a page
+  // is never given.
+  if (digit && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+    const strips = [...document.querySelectorAll("#main .ctabs, #main .tabbar")].filter(t => t.offsetParent);
+    const home = t => t.closest(".pane, section, .sec") || t.parentElement;
+    const strip = strips.find(t => home(t).matches(":hover")) || strips.find(t => home(t).contains(document.activeElement)) || strips[0];
+    const tab = strip?.querySelectorAll(".ctab, [data-tab]")[digit[1] - 1];
+    if (!tab) return;
+    e.preventDefault(); e.stopPropagation(); menuOff(true); tab.click();
     return;
   }
   if (digit && S && jumpMod(e, settings().mod, typing)) { e.preventDefault(); e.stopPropagation(); focusAgent(jumpTo(digit[1])); return; }
@@ -8430,6 +8891,118 @@ function meetMenu(anchor, name, beside, rested) {
 }
 // A tile or List row shows its agent's menu beside it after a moment's rest, or at once on a right-click.
 // The agents a Combined pane's chat can switch to: the pane's running agents, the one in the chat ticked; picking that
+// Search (owner, 2026-11-13), from the bar's Search button, Ctrl+K or /, the Settings menu or the phone's team menu: a box, and what /api/search finds for it
+// as it is typed, by agent, each hit's words around the match with the match marked; a click on a hit opens its agent,
+// or a Day log row's link. Esc closes it.
+const SEARCH_HINT = `<div class="mi off">Type two or more letters</div>`;
+// What the search opens beside: the bar's Search button where it shows, else the Settings button, else the logo
+const searchAnchor = () => [$("#search"), $("#settings"), $(".brand")].find(e => e?.offsetParent && !e.closest(".barmorep")) || $(".brand");
+$("#search").onclick = e => { e.stopPropagation(); menuOn("search") ? menuOff(true) : searchMenu(searchAnchor()); };
+function searchMenu(anchor) {
+  menuAt(anchor, "search", `<div class="hd"><div>Search conversations and the Day log</div></div>` +
+    `<input class="srch" type="search" placeholder="Words to find" aria-label="Words to find" autocomplete="off"><div class="sres">${SEARCH_HINT}</div>`, false);
+  const box = menu.querySelector(".srch"), res = menu.querySelector(".sres");
+  let wait = null, seq = 0;
+  const run = async () => {
+    const q = box.value.trim(), my = ++seq;
+    if (q.length < 2) { res.innerHTML = SEARCH_HINT; return; }
+    res.innerHTML = `<div class="mi off">Searching…</div>`;
+    let d;
+    try { d = await (await fetch("/api/search?q=" + encodeURIComponent(q), {cache: "no-store"})).json(); }
+    catch (e) { if (my === seq) res.innerHTML = `<div class="mi off">The search failed: ${esc(e.message)}</div>`; return; }
+    if (my !== seq || !menuOn("search")) return;
+    res.innerHTML = searchHtml(d);
+    res.querySelectorAll(".mi[data-hit]").forEach(mi => mi.onclick = () => {
+      const name = mi.dataset.hit;
+      if (mi.dataset.src === "daylog") { menuOff(true); return void seekDayLog(+mi.dataset.at, d.q); }
+      if (S.agents.some(a => a.name === name && a.live)) { seek = {src: "conversation", name, ts: mi.dataset.ts, q: d.q, fresh: true}; menuOff(true); openDetail(name); }
+    });
+  };
+  box.oninput = () => { clearTimeout(wait); wait = setTimeout(run, 250); };
+  box.onkeydown = e => { if (e.key === "Escape") { e.stopPropagation(); menuOff(true); } };
+  setTimeout(() => box.focus(), 0);
+}
+function searchHtml(d) {
+  if (!d.groups.length) return `<div class="mi off">Nothing found for “${esc(d.q)}”</div>`;
+  const mark = t => esc(t).replace(new RegExp(esc(d.q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), m => `<mark>${m}</mark>`);
+  const when = h => { const t = h.at ?? (h.ts ? Date.parse(h.ts) / 1000 : null); return t ? ago(Math.max(0, Math.round(S.now - t))) : ""; };
+  return d.groups.map(g => {
+    const a = S.agents.find(x => x.name === g.name) || S.bench.find(x => x.name === g.name), n = g.hits.length + g.more;
+    return `<div class="sgrp">${a ? face(a, "") : `<span class="sglyph">${MENU_ICON.calendar}</span>`}<b${a ? ` style="color:${a.colour}"` : ""}>${esc(a ? shown(a.name) : g.name)}</b><span>${n} found${g.more ? `, the newest ${g.hits.length} shown` : ""}</span></div>` +
+      g.hits.map(h => `<div class="mi shit" data-hit="${esc(g.name)}" data-src="${esc(h.src)}"${h.src === "daylog" ? ` data-at="${esc(h.at)}"` : ` data-ts="${esc(h.ts || "")}"`}>` +
+        `<span class="swhere">${h.src === "daylog" ? "Day log" : hitFrom(h)}<i>${when(h)}</i></span><span class="stext">${mark(h.text)}</span></div>`).join("");
+  }).join("");
+}
+// Who a conversation's hit is from and to, as Combined names them: an agent or the owner in their colour, "→" the one
+// it went to; a tool call, an event or output by its kind.
+function hitFrom(h) {
+  const nm = n => `<b style="color:${colours[n] || "var(--text)"}">${esc(n === S.owner ? n : shown(n))}</b>`;
+  if (!h.from) return esc(h.kind === "tools" || h.kind === "tool" ? "tools" : h.who || h.kind || "");
+  return nm(h.from) + (h.to ? ` → ${nm(h.to)}` : "");
+}
+// Opens the Day log on a search's hit: the Day log pane where the layout shows one, the phone's Day log tab where its
+// toolbar has it, else the Day log in the document viewer; the row in the middle, outlined, its words marked.
+async function seekDayLog(at, q) {
+  seek = {src: "daylog", at, q};
+  const pane = [...document.querySelectorAll(".daylog")].find(e => e.offsetParent && !e.closest("#docbox, #phone"));
+  if (phoneOn() && phToolbar().includes("day")) { localStorage.setItem("phonetab", "day"); phoneDraw(); return seekFind(() => $("#phone .daylog .row.seek")); }
+  if (pane && !phoneOn()) { draw(); return seekFind(() => pane.isConnected ? pane.querySelector(".row.seek") : $(".daylog .row.seek")); }
+  if (!dayLog || dayLog.state === "reading") { try { dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); } catch (e) {} }
+  $("#docname").textContent = $("#docname").title = "Day log";
+  $("#docbox").classList.add("on", "dayview");
+  $("#docbody").innerHTML = dayLogHtml({show: "daylog"});
+  seekFind(() => $("#docbody .row.seek"), $("#docbody"));
+}
+// Brings the hit into the middle of its view once it is drawn (a pane or tab may still be loading), else says it is gone.
+function seekFind(get, box) {
+  let n = 0;
+  const look = () => {
+    const el = get();
+    if (el) { el.scrollIntoView({block: "center"}); requestAnimationFrame(() => el.scrollIntoView({block: "center"})); return; }
+    if (++n < 40) return void setTimeout(look, 150);
+    if (box) seekGone(box);
+  };
+  look();
+}
+// A hit no longer in its view (the conversation has moved on past the 300 turns the page reads, or the Day log changed)
+function seekGone(box) {
+  if (box.querySelector(":scope > .seekgone")) return;
+  box.insertAdjacentHTML("afterbegin", `<div class="seekgone">That match is no longer in what this view holds: it has moved on past it.</div>`);
+}
+// What an agent waiting on the owner waits on: the line owner-wanted left, else the prompt open in its pane.
+const waitLine = a => !a ? "" : stOf(a) === "wanted" ? a.wanted || "" : [...(a.feed || [])].reverse().find(it => it.kind === "ask")?.text || "A prompt is open in its pane";
+// The waiting list, from the Waiting badge (header, the Agents item's badge, the phone's top bar): every agent waiting
+// on the owner, longest first, with what it waits on and for how long; a click opens it. Under them, while this
+// browser has not been asked, the one way to turn on notifications, as browsers allow only from a click.
+function waitMenu(anchor, again) {
+  if (!again && menuOn("waiting")) return menuOff(true);
+  const them = needing(), perm = "Notification" in window ? Notification.permission : "";
+  const note = perm === "default" ? `<div class="mi" data-notify>${MENU_ICON.bell}Notify me when an agent starts waiting</div>`
+    : perm === "granted" ? `<div class="mi off">Notifications are on: one shows when an agent starts waiting while this page is not in front</div>`
+    : perm === "denied" ? `<div class="mi off">Notifications are blocked for this page in the browser's settings</div>` : "";
+  menuAt(anchor, "waiting", `<div class="hd"><div>Waiting on you</div></div>` + (them.length ? them.map(a => `<div class="mi wmi" data-open="${esc(a.name)}">${face(a, "")}` +
+    `<span class="wtxt"><b>${esc(shown(a.name))} · ${stOf(a) === "wanted" ? "wants you" : "a prompt is open"}</b><span>${esc(waitLine(a))}</span></span><span class="wago">${ago(heldOf(a))}</span></div>`).join("")
+    : `<div class="mi off">Nobody is waiting on you now</div>`) + (note ? `<div class="sep"></div>${note}` : ""), false, again);
+  menu.refresh = () => waitMenu(anchor, true);
+  menu.querySelectorAll(".mi[data-open]").forEach(mi => mi.onclick = () => { menuOff(true); openDetail(mi.dataset.open); });
+  const ask = menu.querySelector(".mi[data-notify]");
+  if (ask) ask.onclick = async () => { try { await Notification.requestPermission(); } catch (e) {} waitMenu(anchor, true); };
+}
+// A browser notification for each agent that starts waiting on the owner, once this browser allows them, while the page
+// is not in front; none for those already waiting when the page opened. A click on one brings the page up on that agent.
+let waitSeen = null;
+function waitNotify() {
+  const now = needing().map(a => a.name), fresh = waitSeen ? now.filter(n => !waitSeen.includes(n)) : [];
+  waitSeen = now;
+  if (!fresh.length || !("Notification" in window) || Notification.permission !== "granted" || document.hasFocus()) return;
+  for (const n of fresh) {
+    const a = S.agents.find(x => x.name === n);
+    try {
+      const note = new Notification(`${shown(n)} is waiting on you`, {body: waitLine(a), tag: "wait:" + n, icon: a?.portrait || undefined});
+      note.onclick = () => { focus(); openDetail(n); note.close(); };
+    } catch (e) {}   // a phone's browser may show them only through a service worker, which this page has not
+  }
+}
 // one again closes the chat.
 function chatPick(anchor) {
   const path = anchor.dataset.chat, key = "chatpick:" + path, n = nodeAt(layout().root, path), cur = n?.chat;
@@ -8540,8 +9113,11 @@ addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventD
 // At 700px or narrower (owner, 2026-11-08) the page is drawn as a phone app in #phone: a header with the logo, the
 // team's state, the week and the team menu; then the team as a list, waiting agents first, or as portraits, or the
 // Team chat or Day log; and tabs along the bottom. An agent opens in the agent view, full screen. A tablet or a wide
-// window keeps the desktop page; "Desktop layout" in the team menu keeps it on a phone too, in this browser.
-const PHONE_MQ = matchMedia("(max-width:700px)");
+// window keeps the desktop page; "Desktop layout" in the team menu keeps it on a phone too, in this browser. A phone turned
+// on its side (a touch screen no more than 500px high) stays a phone. Each keeps its own: the desktop page its views
+// and bars ("views", "bar"), the phone its toolbar and tab ("phonetabs", "phonetab"), so the one never changes the other
+// and each device shows its own automatically (owner, 2026-11-13: "layouts per device").
+const PHONE_MQ = matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)");
 const phoneOn = () => PHONE_MQ.matches && !ONLY && localStorage.getItem("phone") !== "off";
 // The toolbar: up to PH_MAX of the panels, chosen and put in order in the team menu and kept in this browser; until
 // chosen, the first four (owner, 2026-11-10: "let me choose up to 5 for my toolbar", then "can the toolbar items be
@@ -8561,14 +9137,14 @@ const PH_GRIP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentCo
 const phToolbarSave = next => { if (next.length && next.length <= PH_MAX) { localStorage.setItem("phonetabs", JSON.stringify(next)); phoneDraw(); } };
 function phToolbarMenu(slide) {
   const sh = $("#phsheet"), bar = phToolbar(), spare = PH_TABS.filter(([k]) => !bar.includes(k));
-  sh.innerHTML = `<div class="sh tbsheet" role="dialog" aria-label="Toolbar"><span class="grab"></span>` +
+  sh.innerHTML = `<div class="sh tbsheet" role="dialog" aria-label="Toolbar"><span class="grab"></span>${PH_SHX}` +
     `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the team menu">${PH_ICON.chev}</button><h2>TOOLBAR</h2></div>` +
     `<h3>PREVIEW</h3><div class="tbprev" style="grid-template-columns:repeat(${bar.length},minmax(0,1fr))">${bar.map((k, i) => `<span class="${i ? "" : "on"}">${PH_ICON[k]}<small>${phTabName(k)}</small></span>`).join("")}</div>` +
     `<h3>SLOTS · DRAG TO REORDER</h3>` +
     `<div class="tblist">${bar.map((k, i) => `<div class="tbrow" data-k="${k}"><span class="tbgrip" aria-label="Drag ${phTabName(k)} to reorder">${PH_GRIP}</span><span class="tbnum">${i + 1}</span>${PH_ICON[k]}<span class="tbname">${phTabName(k)}</span>` +
       `<button data-go="out:${k}"${bar.length > 1 ? "" : " disabled"} aria-label="Take ${phTabName(k)} out">${MENU_ICON.close}</button></div>`).join("")}</div>` +
-    (spare.length ? `<h3>${bar.length >= PH_MAX ? `NOT IN THE TOOLBAR · TAKE ONE OUT TO ADD` : "ADD"}</h3><div class="tbopts">${spare.map(([k, l]) => `<button data-go="add:${k}"${bar.length >= PH_MAX ? " disabled" : ""}>${PH_ICON[k]}+ ${l}</button>`).join("")}</div>` : "") +
-    `<div class="note">Up to ${PH_MAX}, left to right. Changes save as you go.</div></div>`;
+    (spare.length ? `<h3>${bar.length >= PH_MAX ? `NOT IN THE TOOLBAR · TAKE ONE OUT TO ADD` : "ADD"}</h3><div class="tbopts">${spare.map(([k, l]) => `<button data-go="add:${k}"${bar.length >= PH_MAX ? " disabled" : ""}>${PH_ICON[k]}<span><b>+ ${l}</b><small>${esc(PH_TAB_TIP[k] || "")}</small></span></button>`).join("")}</div>` : "") +
+    `<div class="note">Up to ${PH_MAX}, left to right. Changes save as you go. An agent opened from any of them shows its conversation, with the others as a strip of portraits to switch between: the desktop's Agent tabs.</div></div>`;
   const panel = sh.querySelector(".sh"), list = panel.querySelector(".tblist");
   if (!sh.classList.contains("on")) sh.classList.add("on");
   if (slide) panel.classList.add(slide);
@@ -8576,6 +9152,7 @@ function phToolbarMenu(slide) {
   panel.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const [go, k] = b.dataset.go.split(":");
     if (go === "back") { phMenuAt = "team"; phoneMenu(false, "slideback"); return; }
+    if (go === "close") return phoneMenuOff();
     phToolbarSave(go === "out" ? bar.filter(x => x !== k) : [...bar, k]);
     phToolbarMenu();
   });
@@ -8614,7 +9191,7 @@ const PH_ICON = {
   day: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>`,
   chev: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
   queue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11"/><circle cx="5" cy="18" r="1.2"/></svg>`,
-  perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>`,
+  perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5a8.5 8.5 0 1 1 17 0"/><path d="M12 17.5l4.2-5.6"/></svg>`,   // the desktop Machine view's gauge
   tokens: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>`,
   dash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="14" y="13" width="7" height="8" rx="2"/></svg>`
 };
@@ -8705,7 +9282,12 @@ function phDashAct(go) {
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["tokens", "Token usage"], ["dash", "Dashboard"]];   // no Team chat on the phone (owner, 2026-11-08: "lose the team chat")
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
+// what each shows, in the toolbar's add list: the desktop view it stands for where it has another name there
+const PH_TAB_TIP = {list: "Every agent and what it is doing: the desktop's Grid and List", faces: "The team as portraits: the desktop's Characters",
+  mix: "Every running agent's conversation as one", team: "The messages between agents", day: "What the team did, day by day",
+  queue: "Now, next, later and done", perf: "The machine's gauges: CPU, memory, disks, network, GPU, heat", tokens: "Tokens used, by role and agent",
+  dash: "The bar's readings as tiles, arranged as you like: the phone's own"};
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
 // a line of what an agent said last, as plain text
@@ -8799,31 +9381,36 @@ function phListHtml() {
 function phFacesHtml() {
   const live = S.agents.filter(a => a.live), rank = a => a.status === "waiting" ? 0 : a.status === "busy" || a.compacting ? 1 : 2;
   let up = [...live].sort((x, y) => rank(x) - rank(y)), off = [...S.agents.filter(a => !a.live), ...S.bench];
-  const tile = a => { const st = stOf(a), n = unseen(a);
+  const tile = (a, byRole) => { const st = stOf(a), n = unseen(a);
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
-      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.ticket || a.roleName || "")}</span></button>`; };
+      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(a.ticket)}"` : ""}>${esc((byRole ? a.roleName : a.ticket || a.roleName) || "")}</span></button>`; };
   const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.roleName || "")}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
   // favourites first, as in the Agents tab, and not again under their role
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">${favs.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>` : "";
-  if (phOrder() === "role") return fav + phByRole().map(([r, list]) => [r, list.filter(a => !favs.includes(a))]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${esc(r.name)}</h2><div class="ph-grid">${list.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>`).join("") +
-    `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
+  // by role, the tiles flow on together in role order, each captioned with its role, so a role of one shares a row
+  // (owner, 2026-11-13: "let tiles flow together with the role as a caption")
+  if (phOrder() === "role") { const by = phByRole().flatMap(([, list]) => list.filter(a => !favs.includes(a)));
+    return fav + (by.length ? `<div class="ph-grid">${by.map(a => a.live ? tile(a, true) : offTile(a)).join("")}</div>` : "") +
+      `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`; }
   const notFav = a => !favs.includes(a);
   up = up.filter(notFav); off = off.filter(notFav);
   return fav + (up.length ? `<div class="ph-grid">${up.map(tile).join("")}</div>` : !live.length ? `<div class="ph-empty">No agent is running</div>` : "") +
     (off.length ? `<section><h2>Stopped</h2><div class="ph-grid bench">${off.map(a => `<button class="ph-tile${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
 }
-let phDayAt = 0, phMixAt = 0;
+let phDayAt = 0, phMixAt = 0, phTeamAt = 0;
 // The Combined tab: every running agent's conversation as one, in time order. Its Roles and lanes filters are the
 // phone's own, kept in this browser (owner, 2026-11-08); until one is used, the desktop's first Combined pane's here,
 // else every role, every lane.
 function phMixNode() {
   let mine; try { mine = JSON.parse(localStorage.getItem("phonemix")); } catch (e) {}
-  if (mine && Array.isArray(mine.roles) && Array.isArray(mine.clanes)) return {show: "combined", roles: mine.roles, clanes: mine.clanes};
+  // Summary until Full is chosen, so the agents' words come before their tool lines (owner, 2026-11-13)
+  const full = mine?.full === true;
+  if (mine && Array.isArray(mine.roles) && Array.isArray(mine.clanes)) return {show: "combined", roles: mine.roles, clanes: mine.clanes, full};
   const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "combined");
-  return {show: "combined", roles: Array.isArray(desk?.roles) && desk.roles.length ? desk.roles : roleList().map(r => r.role), clanes: desk ? clanesOf(desk) : CALL};
+  return {show: "combined", roles: Array.isArray(desk?.roles) && desk.roles.length ? desk.roles : roleList().map(r => r.role), clanes: desk ? clanesOf(desk) : CALL, full};
 }
 // The Token usage tab: the desktop's pane drawn for a phone, its view (n.graph), roles opened (n.tkopen) and order
 // (n.tksort) the phone's own, kept in this browser; until one is chosen, the desktop's first Token usage pane's, with
@@ -8845,8 +9432,37 @@ function phTokAct(t) {
 // a filter's choice flips one role or lane, keeps the result as the phone's own, and reads any agent it brings in
 function phMixFlip(key, x) {
   const n = phMixNode(), on = key === "roles" ? n.roles : n.clanes, next = on.includes(x) ? on.filter(y => y !== x) : [...on, x];
-  localStorage.setItem("phonemix", JSON.stringify({roles: key === "roles" ? next : n.roles, clanes: key === "roles" ? n.clanes : next}));
+  localStorage.setItem("phonemix", JSON.stringify({roles: key === "roles" ? next : n.roles, clanes: key === "roles" ? n.clanes : next, full: n.full}));
   phMixAt = 0; phoneDraw();
+}
+function phMixFull(full) { const n = phMixNode(); localStorage.setItem("phonemix", JSON.stringify({roles: n.roles, clanes: n.clanes, full})); phoneDraw(); }
+// The role chips over the Combined, Team and Day log tabs (and the Day log's kinds of entry), each a row that scrolls
+// sideways: All, then each role in its colour, lit while it shows. Combined keeps the roles it shows, every one until
+// some are picked; Team and the Day log keep the roles picked, none meaning every one.
+function phRoleChips(on, all) {
+  return `<div class="ph-chiprow" data-chips="role"><b class="chip${all ? " on" : ""}" data-role="">All</b>${roleList().map(r =>
+    `<b class="chip${!all && on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}</div>`;
+}
+const phNode = k => { let v; try { v = JSON.parse(localStorage.getItem(k)); } catch (e) {} return v && typeof v === "object" ? v : {}; };
+const phDayNode = () => { const v = phNode("phoneday"); return {show: "daylog", roles: Array.isArray(v.roles) ? v.roles : [], kinds: Array.isArray(v.kinds) ? v.kinds : []}; };
+const phTeamNode = () => { const v = phNode("phoneteam"); return {show: "team", roles: Array.isArray(v.roles) ? v.roles : []}; };
+// a chip tapped: All shows every role (or kind); a role picked from All shows it alone; one picked again leaves it out
+function phChipAct(tab, chip) {
+  const flip = (on, x) => on.includes(x) ? on.filter(y => y !== x) : [...on, x];
+  if (chip.dataset.kind != null) { const n = phDayNode(); localStorage.setItem("phoneday", JSON.stringify({...n, kinds: chip.dataset.kind ? flip(n.kinds, chip.dataset.kind) : []})); }
+  else if (tab === "mix") {
+    const n = phMixNode(), every = roleList().map(r => r.role), all = every.every(r => n.roles.includes(r)), r = chip.dataset.role;
+    const next = !r ? every : all ? [r] : flip(n.roles, r);
+    localStorage.setItem("phonemix", JSON.stringify({roles: next.length ? next : every, clanes: n.clanes, full: n.full})); phMixAt = 0;
+  } else { const key = tab === "day" ? "phoneday" : "phoneteam", n = tab === "day" ? phDayNode() : phTeamNode();
+    localStorage.setItem(key, JSON.stringify({...n, roles: chip.dataset.role ? flip(n.roles, chip.dataset.role) : []})); }
+  phoneDraw();
+}
+// the Day log's kinds of entry as a second row of chips
+function phKindChips(n) {
+  const kinds = [...new Set((dayLog?.rows || []).filter(r => r.type !== "day").map(r => r.kind))];
+  return kinds.length ? `<div class="ph-chiprow" data-chips="kind"><b class="chip${n.kinds.length ? "" : " on"}" data-kind="">All types</b>${kinds.map(k => { const [what, , d] = dayLogKind(k);
+    return `<b class="chip${n.kinds.includes(k) ? " on" : ""}" data-kind="${esc(k)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${esc(what)}</b>`; }).join("")}</div>` : "";
 }
 // the Combined tab's filters: one ⋯ in its header, lit while something is left out, opening its Roles and its lanes
 function phMixFilters(body) {
@@ -8861,11 +9477,13 @@ function phMixMenu(btn) {
   if (menuOn("phmix")) return menuOff(true);
   const tick = MENU_ICON.check.replace("<svg", '<svg class="tick"');
   const row = (k, l, t, icon) => `<div class="mi" data-k="${k}" data-lane="${esc(l)}">${icon || ""}${esc(t)}${tick}</div>`;
-  menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>` + roleItems().map(([l, t, icon]) => row("roles", l, t, icon)).join("") +
+  menuAt(btn, "phmix", `<div class="hd"><div>Show</div></div>` + row("view", "summary", "Summary: the newest turns") + row("view", "full", "Full: the whole conversation") +
+    `<div class="hd sec"><div>Roles</div></div>` + roleItems().map(([l, t, icon]) => row("roles", l, t, icon)).join("") +
     `<div class="hd sec"><div>Lanes</div></div>` + CLANES.map(([l, t]) => row("clanes", l, t || S.owner, MENU_ICON[l])).join(""), false);
-  const ticks = () => { const n = phMixNode(); menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off", !n[mi.dataset.k].includes(mi.dataset.lane))); };
+  const ticks = () => { const n = phMixNode(); menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off",
+    mi.dataset.k === "view" ? (mi.dataset.lane === "full") !== n.full : !n[mi.dataset.k].includes(mi.dataset.lane))); };
   ticks();
-  menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.onclick = () => { phMixFlip(mi.dataset.k, mi.dataset.lane); ticks(); });
+  menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.onclick = () => { if (mi.dataset.k === "view") phMixFull(mi.dataset.lane === "full"); else phMixFlip(mi.dataset.k, mi.dataset.lane); ticks(); });
 }
 // The page under a menu on the phone is dimmed, and a tap there closes the menu and does nothing else; the menu
 // follows a finger pulling it down and closes if pulled far enough.
@@ -8876,6 +9494,29 @@ function phMixMenu(btn) {
   phSheetDrag(menu, () => menuOff(true), back, () => phoneOn());
 }
 let phQueueAt = 0, phPerfAt = 0, phTokAt = 0;
+// The Machine tab: the desktop's gauges, two to a row, any with nothing to show left out. A tap opens a gauge across the
+// row with its line over the last hour (read every ten seconds while open) and its whole detail; a tap closes it.
+let phPerfOpen = null;   // {name, sk: its series' key or none, at: when its hour was read, points}
+function phPerfTap(g) {
+  const name = g.dataset.pk;
+  phPerfOpen = phPerfOpen?.name === name ? null : {name, sk: g.dataset.series || null, at: 0, points: null};
+  phoneDraw(); if (phPerfOpen) phLoad("perf");
+}
+function phPerfTrend(sk, ceil, colour, unit) {
+  const o = phPerfOpen;
+  if (!sk) return `<div class="ptrend"><small>No line is kept for this one</small></div>`;
+  if (!o?.points) return `<div class="ptrend"><small>Reading the last hour…</small></div>`;
+  const pts = o.points, vals = pts.map(p => p[1]);
+  if (!vals.length) return `<div class="ptrend"><small>No readings in the last hour yet</small></div>`;
+  // along the hour by time, as the enlarged graph draws it: readings from only part of the hour fill only that part
+  const top = Math.max(...vals), c = unit === "%" ? 100 : unit === "°C" ? Math.max(100, top * 1.1) : Math.max(1, top * 1.15);
+  const W = 300, H = 60, end = pts[pts.length - 1][0], x = t => W * (1 - (end - t) / 3600), y = v => H - 1 - (Math.min(v, c) / c) * (H - 4);
+  const line = pts.map((p, i) => (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join(" "), id = "pt" + Math.random().toString(36).slice(2);
+  return `<div class="ptrend"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${colour}" stop-opacity=".4"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient></defs>` +
+    `<line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--line2)" vector-effect="non-scaling-stroke"/>` +
+    `<path d="${line} L${x(end).toFixed(1)} ${H} L${x(pts[0][0]).toFixed(1)} ${H} Z" fill="url(#${id})"/><path d="${line}" fill="none" stroke="${colour}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>` +
+    `<small><span>an hour ago</span><span>highest ${graphFmt(top, unit)}</span><span>now</span></small></div>`;
+}
 async function phLoad(tab) {
   // the Team chat and the Day log are read only while their tab is showing, as their panes are
   try {
@@ -8887,11 +9528,22 @@ async function phLoad(tab) {
       }));
       phoneDraw();
     }
+    if (tab === "team" && Date.now() - phTeamAt > 3500) {
+      phTeamAt = Date.now();
+      const d = await (await fetch("/api/team", {cache: "no-store"})).json(), text = JSON.stringify(d);
+      if (Array.isArray(d) && (text !== teamText || !teamRead)) { teamLog = d; teamText = text; teamVer++; teamRead = true; phoneDraw(); }
+    }
     if (tab === "day" && Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
     // the Work queue and Performance are read while their tab shows, as often as their panes are
     if (tab === "queue" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now(); workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); phoneDraw(); }
     if (tab === "tokens" && Date.now() - phTokAt > (tokens?.state === "reading" ? 3000 : 30000)) { phTokAt = Date.now(); tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); phoneDraw(); }
     if (tab === "perf" && Date.now() - phPerfAt > 1500) { phPerfAt = Date.now(); perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); phoneDraw(); }
+    const o = phPerfOpen;
+    if (tab === "perf" && o?.sk && Date.now() - o.at > 10000) {
+      o.at = Date.now();
+      const r = await fetch(`/api/perf/history?key=${encodeURIComponent(o.sk)}&span=3600`, {cache: "no-store"});
+      if (o === phPerfOpen && r.ok) { o.points = (await r.json()).points || []; phoneDraw(); }
+    }
   } catch (e) {}
 }
 function phoneDraw() {
@@ -8903,18 +9555,23 @@ function phoneDraw() {
   if (ph.querySelector(":scope > .ph-loading")) ph.innerHTML = "";
   const tab = phoneTab();
   if (!ph.firstChild) {
-    ph.innerHTML = `<div class="ph-top"><div class="brand ph-logo"></div><div class="ph-title"></div><button class="ph-week"></button><button class="ph-icon" id="phmore" aria-label="Team menu">${PH_ICON.more}</button></div><div class="ph-body"></div>` +
+    ph.innerHTML = `<div class="ph-top"><div class="brand ph-logo"></div><div class="ph-title"></div><button class="ph-waitbtn" data-menu="waiting" hidden></button><button class="ph-week"></button><button class="ph-icon" id="phmore" aria-label="Team menu">${PH_ICON.more}</button></div><div class="ph-body"></div>` +
       `<nav class="ph-nav" aria-label="Pages"></nav>`;
     ph.querySelector(".ph-logo").innerHTML = document.querySelector(".brand:not(.ph-logo)")?.innerHTML || "";   // the logo, wherever the bar has put it (header, footer or taken out)
     ph.querySelector(".ph-nav").onclick = e => { const b = e.target.closest("[data-tab]"); if (!b) return; localStorage.setItem("phonetab", b.dataset.tab); ph.querySelector(".ph-body").scrollTop = 0; try { phoneDraw(); } catch (e) { phError(e); } };
     $("#phmore").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
+    ph.querySelector(".ph-waitbtn").onclick = e => { try { waitMenu(e.currentTarget); } catch (err) { phError(err); } };
     ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     const body = ph.querySelector(".ph-body");
     body.addEventListener("click", e => {
       const dash = e.target.closest("[data-dash]");
       if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
       if (body.dataset.tab === "tokens" && phTokAct(e.target)) return;
-      const who = body.dataset.tab === "mix" && e.target.closest(".who, .cnames .name");
+      const chip = e.target.closest(".ph-chiprow .chip");
+      if (chip) return phChipAct(body.dataset.tab, chip);
+      const gauge = body.dataset.tab === "perf" && e.target.closest(".mini.perf[data-pk]");
+      if (gauge) return phPerfTap(gauge);
+      const who = (body.dataset.tab === "mix" || body.dataset.tab === "team") && e.target.closest(".who, .cnames .name");
       if (who) { const n = who.dataset.name || who.closest("[data-agent]")?.dataset.agent; if (n && S.agents.some(a => a.name === n && a.live)) return openDetail(n); }
       const o = e.target.closest("[data-open]"), m = e.target.closest("[data-menu-name]");
       if (Date.now() - phHeld < 600) return;   // the finger that held for the menu lifts with a click
@@ -8926,12 +9583,13 @@ function phoneDraw() {
     // one that does is the same hold, and opens nothing twice.
     phHoldWire();
   }
-  // the logo flashes, and opens the agent waiting longest, as the header's does
-  const logo = ph.querySelector(".ph-logo"), waits = S.agents.filter(a => a.status === "waiting").sort((x, y) => (y.held || 0) - (x.held || 0));
+  // the logo flashes, and opens the agent waiting longest, as the header's does; beside the title, how many wait, whose tap lists them
+  const logo = ph.querySelector(".ph-logo"), waits = needing(), wb = ph.querySelector(".ph-waitbtn");
   logo.classList.toggle("waiting", !!waits.length); logo.title = waits.length ? `Open ${shown(waits[0].name)}, waiting longest (${waits.length} waiting)` : "Claude agents";
   logo.onclick = waits.length ? () => openDetail(waits[0].name) : null;
   const t = phTeamState();
-  patch(ph.querySelector(".ph-title"), `<b>${esc(S.project || document.title || "Team")}</b><span><span style="color:${t.colour}">●</span> ${t.word} · ${t.up} up${t.off ? ` · ${t.off} stopped` : ""}${S.nudgerPaused ? " · nudger paused" : ""}</span>`);
+  // short enough for a phone's width: how many of the team are up; the team menu says it in full
+  patch(ph.querySelector(".ph-title"), `<b>${esc(S.project || document.title || "Team")}</b><span><span style="color:${t.colour}">●</span> ${t.word} · ${t.up}/${t.up + t.off}</span>`);
   // an uncoloured meter is green, as on the desktop bar: the plug-in owns its colour (it leaves green blank), so the
   // phone must not re-colour it by its own fill thresholds (owner, 2026-11-09: "amber on the phone but green on the desktop")
   const g = phGauge(), gb = ph.querySelector(".ph-week");
@@ -8957,10 +9615,11 @@ function phoneDraw() {
   else if (tab === "faces") patch(body, phFacesHtml());
   else if (tab === "mix") {
     // the transcript is drawn again only when it changes, and stays at its newest turn unless scrolled up
-    const html = combinedHtml("phone", phMixNode(), true, false);
+    const mn = phMixNode(), html = phRoleChips(mn.roles, roleList().every(r => mn.roles.includes(r.role))) + combinedHtml("phone", mn, mn.full, false);
     if (body.dataset.html !== html) {
-      const f = body.querySelector(".feed"), end = !f || f.scrollHeight - f.scrollTop - f.clientHeight < 60, was = f?.scrollTop;
+      const f = body.querySelector(".feed"), end = !f || f.scrollHeight - f.scrollTop - f.clientHeight < 60, was = f?.scrollTop, chipsAt = body.querySelector(".ph-chiprow")?.scrollLeft;
       body.innerHTML = `<div class="ph-pane">${html}</div>`; body.dataset.html = html;
+      if (chipsAt) body.querySelector(".ph-chiprow").scrollLeft = chipsAt;
       body.querySelectorAll(".maxbtn, .newest").forEach(b => b.remove());
       phMixFilters(body);
       const g = body.querySelector(".feed"); if (g) g.scrollTop = end ? g.scrollHeight : was;
@@ -8977,14 +9636,26 @@ function phoneDraw() {
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
     phLoad(tab);
   }
-  else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "machine", machine: "rows"})}</div>`); phLoad(tab); }
+  else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "machine", machine: "dials", phone: true, open: phPerfOpen?.name})}</div>`); phLoad(tab); }
   else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } }
-  else { patch(body, `<div class="ph-pane">${dayLogHtml()}</div>`); phLoad(tab); }
+  else if (tab === "team") {
+    const n = phTeamNode();
+    phKeepChips(body, () => patch(body, `<div class="ph-pane ph-team">${phRoleChips(n.roles, !n.roles.length)}${teamHtml("phone", n, true, false)}</div>`));
+    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
+    phLoad(tab);
+  }
+  else { const n = phDayNode(); phKeepChips(body, () => patch(body, `<div class="ph-pane">${phRoleChips(n.roles, !n.roles.length)}${phKindChips(n)}${dayLogHtml(n)}</div>`)); phLoad(tab); }
   if (tab === "list" || tab === "faces") markSeen([]);
   // while the Dashboard is being arranged the rest of the phone is locked: the header and toolbar dimmed and deaf to taps
   // until the tick (owner, 2026-11-10: "some way to lock the rest of the screen while editing the dashboard")
   if (tab !== "dash") phDashEdit = false;
   ph.classList.toggle("dashedit", phDashEdit);
+}
+// a redraw keeps how far each row of chips was scrolled sideways
+function phKeepChips(body, draw) {
+  const at = [...body.querySelectorAll(".ph-chiprow")].map(r => [r.dataset.chips, r.scrollLeft]);
+  draw();
+  for (const [k, x] of at) { const r = body.querySelector(`.ph-chiprow[data-chips="${k}"]`); if (r && r.scrollLeft !== x) r.scrollLeft = x; }
 }
 let phHeld = 0;
 // A press held on an agent anywhere on the phone, by a finger or a mouse button (a row, a portrait, the agent view's strip of portraits, a name in
@@ -9026,25 +9697,31 @@ function phGauge() {
 }
 // The team menu: the team's state and its start and stop, the nudger, the theme, text size, and the desktop layout.
 let phStopAsk = null;
+// a sheet's ✕, at its top right; a pull down on its handle and Esc close it too
+const PH_SHX = `<button class="shx" data-go="close" aria-label="Close" title="Close (Esc)">${PH_CROSS}</button>`;
+addEventListener("keydown", e => { if (e.key === "Escape" && $("#phsheet")?.classList.contains("on")) { e.preventDefault(); e.stopPropagation(); phoneMenuOff(); } }, true);
 function phoneMenu(again, slide) {
   let sh = $("#phsheet");
   if (!sh) { sh = document.createElement("div"); sh.id = "phsheet"; document.body.append(sh); sh.onclick = e => { if (e.target === sh) phoneMenuOff(); }; }
   if (phMenuAt === "toolbar") return phToolbarMenu(slide);
   const t = phTeamState(), lead = S.agents.find(a => a.name === S.lead);   // the first running of delivery lead, head of testing, head of operations, assistant
   const starting = S.starting.includes("team"), stopping = S.halting.includes("team"), down = t.word === "Stopped";
-  const nudgeOn = nudgerTo != null ? !nudgerTo : !S.nudgerPaused;
   const light = document.documentElement.classList.contains("light"), fs = settings().fs || 100;
-  sh.innerHTML = `<div class="sh" role="dialog" aria-label="Team menu"><span class="grab"></span>` +
-    `<h2>TEAM</h2><div class="tstate"><i style="background:${t.colour}"></i><b>${t.word}</b><span style="color:var(--mute)">· ${t.up} up, ${t.off} stopped</span></div>` +
-    `<div class="two">` +
+  // Pause and Resume, the desktop header's: the nudger stops or starts reminding idle agents that have work waiting
+  const pausing = nudgerTo != null, paused = pausing ? nudgerTo : S.nudgerPaused;
+  const pauseBtn = pausing ? `<button class="big" disabled>${MENU_ICON[paused ? "pause" : "start"]}${paused ? "Pausing…" : "Resuming…"}</button>`
+    : paused ? `<button class="big go" data-go="resume">${MENU_ICON.start}Resume</button>` : `<button class="big amber" data-go="pause">${MENU_ICON.pause}Pause</button>`;
+  sh.innerHTML = `<div class="sh" role="dialog" aria-label="Team menu"><span class="grab"></span>${PH_SHX}` +
+    `<h2>TEAM</h2><div class="tstate"><i style="background:${t.colour}"></i><b>${t.word}</b><span style="color:var(--mute)">· ${t.up} up, ${t.off} stopped${S.nudgerPaused ? " · nudger paused" : ""}</span></div>` +
+    `<div class="${down || starting ? "two" : "two three"}">` +
       (down || starting ? `<button class="big go" data-go="start"${starting ? " disabled" : ""}>${MENU_ICON.start}${starting ? "Starting…" : "Start team"}</button>`
-        : `<button class="big" data-go="open-lead"${lead?.live ? "" : " disabled"}>${MENU_ICON.open}Open lead</button>`) +   // whoever leads now (owner, 2026-11-09: "the button should just say open lead")
+        : `<button class="big" data-go="open-lead"${lead?.live ? "" : " disabled"}>${MENU_ICON.open}Open lead</button>${pauseBtn}`) +   // whoever leads now (owner, 2026-11-09: "the button should just say open lead")
       (down || starting ? `<button class="big" disabled>${MENU_ICON.stop}Stopped</button>`
         : stopping ? `<button class="big warn" disabled>${MENU_ICON.stop}Stopping…</button>`
-        : `<button class="big ${phStopAsk ? "sure" : "warn"}" data-go="stop"${lead?.live ? "" : " disabled"}>${MENU_ICON.stop}${phStopAsk ? "Tap to confirm" : "Stop team…"}</button>`) +
-    `</div><div class="note">${down ? `Starts ${S.teamUp ? esc(S.teamUp.map(shown).join(", ")) : "everyone with a session on the roster"}.` : stopping ? "Waiting for everyone to reach a clean point." : `Stop asks ${esc(shown(lead?.name || "the lead"))} to wind everyone down at a clean point.`}</div>` +
+        : `<button class="big ${phStopAsk ? "sure" : "warn"}" data-go="stop"${lead?.live ? "" : " disabled"}>${MENU_ICON.stop}${phStopAsk ? "Confirm" : "Stop…"}</button>`) +
+    `</div><div class="note">${down ? `Starts ${S.teamUp ? esc(S.teamUp.map(shown).join(", ")) : "everyone with a session on the roster"}.` : stopping ? "Waiting for everyone to reach a clean point." : `Pause stops reminding idle agents that have work waiting. Stop asks ${esc(shown(lead?.name || "the lead"))} to wind everyone down at a clean point.`}</div>` +
     `<div class="rows">` +
-      `<button class="r" data-go="nudge"><span>Nudge waiting agents<small>Reminds idle agents that have work waiting</small></span><i class="sw${nudgeOn ? " on" : ""}" role="switch" aria-checked="${nudgeOn}"></i></button>` +
+      `<button class="r srow" data-go="search">${MENU_ICON.search}<span>Search conversations and the Day log</span></button>` +
       (phGauges().length ? `<label class="r" style="cursor:default"><span>Header gauge</span><select class="gsel">${phGauges().map(x => `<option value="${esc(x.key)}"${x.key === phGauge()?.key ? " selected" : ""}>${esc(phGaugeName(x))}</option>`).join("")}</select></label>` : "") +
       `<div class="r" style="cursor:default"><span>Order agents</span><div class="seg2" style="flex:none"><button data-go="by-state" class="${phOrder() === "state" ? "on" : ""}">Status</button><button data-go="by-role" class="${phOrder() === "role" ? "on" : ""}">Role</button></div></div>` +
       `<div class="r" style="cursor:default"><span>Theme</span><div class="seg2" style="flex:none"><button data-go="light" class="${light ? "on" : ""}">Light</button><button data-go="dark" class="${light ? "" : "on"}">Dark</button></div></div>` +
@@ -9065,7 +9742,9 @@ function phoneMenu(again, slide) {
       if (!phStopAsk) { phStopAsk = setTimeout(() => { phStopAsk = null; if ($("#phsheet")?.classList.contains("on")) phoneMenu(); }, 4000); return phoneMenu(); }
       clearTimeout(phStopAsk); phStopAsk = null; post("/api/team/stop"); phoneMenuOff();
     }
-    else if (go === "nudge") { const pause = nudgeOn; nudgerTo = pause; setTimeout(() => { nudgerTo = null; }, 10000); post(pause ? "/api/nudger/pause" : "/api/nudger/resume"); phoneMenu(); }
+    else if (go === "pause" || go === "resume") { const pause = go === "pause"; nudgerTo = pause; setTimeout(() => { nudgerTo = null; if ($("#phsheet")?.classList.contains("on") && phMenuAt === "team") phoneMenu(); }, 10000); post(pause ? "/api/nudger/pause" : "/api/nudger/resume"); phoneMenu(); }
+    else if (go === "close") phoneMenuOff();
+    else if (go === "search") { phoneMenuOff(); searchMenu($("#phmore")); }
     else if (go === "light" || go === "dark") { retheme(go); phoneMenu(); }
     else if (go === "by-state" || go === "by-role") { localStorage.setItem("phoneorder", go.slice(3)); phoneDraw(); phoneMenu(); }
     else if (go === "fs") { const steps = [90, 100, 115, 130], next = steps[(steps.indexOf(fs) + 1) % steps.length] || 100; const s = settings(); s.fs = next; localStorage.setItem("settings", JSON.stringify(s)); applySettings(); phoneMenu(); }
@@ -9278,8 +9957,8 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
   const _open = openDetail, _rail = rail, _facts = facts, _hint = sayHint;
   openDetail = function (name) {
     if (phoneOn() && !history.state?.ph) history.pushState({ph: 1}, "", "#" + encodeURIComponent(name));
-    const r = _open(name);
-    if (phoneOn() && history.state?.ph) history.replaceState({ph: 1}, "", "#" + encodeURIComponent(name));
+    const r = _open(name);   // which writes its own entry over the one pushed: the mark goes back on it
+    if (phoneOn()) history.replaceState({ph: 1}, "", "#" + encodeURIComponent(name));
     phDetail(); return r;
   };
   rail = function () { if (phoneOn() && open && S) phRail(); else _rail(); };
@@ -9296,6 +9975,54 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
     if (d.classList.contains("docked")) { d.classList.remove("docked"); d.style.inset = ""; open = null; d.classList.remove("open"); }
   };
   closeDetail = function () { if (phoneOn() && history.state?.ph) history.back(); else _close(); };
+}
+// Back (a phone's swipe, the browser's button) closes the overlay on top - a picture, a document, a graph, a sheet, a
+// menu opened by a click - instead of moving the page under it. Each overlay takes a history entry as it opens, kept
+// on the state the page had (the phone's open agent) so going back to it leaves the page as it was. An overlay closed
+// any other way gives its entry back, or hands it to one opening in its place; one left under another is skipped.
+{
+  const OVERLAYS = {
+    picture: [() => $("#phpor"), () => $("#phpor")?.remove()],
+    image: [() => $("#lightbox.on"), closeImg],
+    doc: [() => $("#docbox.on"), closeDoc],
+    graph: [() => $("#graphbox.on"), closeGraph],
+    menu: [() => menu.classList.contains("on") && !menu.dataset.rested, () => menuOff(true)],
+    bars: [() => $("#barsheet.on"), barSheetOff],
+    sheet: [() => $("#phsheet.on:not(.closing)"), phoneMenuOff],
+  };
+  let live = [], seq = Date.now(), skip = 0;
+  const going = new Set();   // closed by back, until they are seen closed
+  const st = () => history.state || {};
+  if (st().ov) { const {ov, ...s} = st(); history.replaceState(s, ""); }   // reloaded with one open: it is not
+  function sync() {
+    const on = Object.keys(OVERLAYS).filter(k => OVERLAYS[k][0]());
+    going.forEach(k => on.includes(k) || going.delete(k));
+    let free = false;   // the entry showing belonged to one just closed
+    live = live.filter(o => { const keep = on.includes(o.key); if (!keep && o.id === st().ov) free = true; return keep; });
+    for (const k of on) {
+      if (going.has(k) || live.some(o => o.key === k)) continue;
+      if (navigator.userActivation && !navigator.userActivation.isActive) { later(); continue; }   // see later()
+      const id = ++seq, s = st();
+      if (free || (s.ov && !live.some(o => o.id === s.ov))) history.replaceState({...s, ov: id}, ""); else history.pushState({...s, ov: id}, "");
+      free = false; live.push({key: k, id});
+    }
+    if (free) { skip++; history.back(); }
+  }
+  // An entry added before the page has been touched or clicked (a phone menu opened by a finger still held down) is one
+  // Chrome's back skips, so it would leave the overlay open: it is added at the next lift of a finger, click or key.
+  let waits = false;
+  function later() {
+    if (waits) return; waits = true;
+    const go = () => { ["touchend", "pointerup", "click", "keydown"].forEach(t => removeEventListener(t, go, true)); waits = false; setTimeout(sync); };
+    ["touchend", "pointerup", "click", "keydown"].forEach(t => addEventListener(t, go, true));
+  }
+  new MutationObserver(sync).observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ["class", "data-rested"]});
+  addEventListener("popstate", () => {
+    if (skip) { skip--; return; }
+    const at = st().ov || 0, shut = live.filter(o => o.id > at);
+    if (shut.length) { live = live.filter(o => o.id <= at); shut.reverse().forEach(o => { going.add(o.key); OVERLAYS[o.key][1](); }); return; }
+    if (at && !live.some(o => o.id === at)) { skip++; history.back(); }   // an entry its overlay left behind
+  });
 }
 // A poll is skipped while the last one is still out, so a slow server is not sent more work than it can answer.
 const once = f => { let out = false; return () => { if (out) return; out = true; Promise.resolve(f()).catch(() => {}).finally(() => { out = false; }); }; };
@@ -9745,7 +10472,7 @@ def self_test():
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
         t("at 700px or narrower the page is the phone layout, and Desktop layout turns it off in this browser",
-          ('const PHONE_MQ = matchMedia("(max-width:700px)")' in PAGE, 'localStorage.getItem("phone") !== "off"' in PAGE,
+          ('const PHONE_MQ = matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)")' in PAGE, 'localStorage.getItem("phone") !== "off"' in PAGE,
            'html.phone body > header,html.phone body > main,html.phone body > footer{display:none !important}' in PAGE,
            '<div id="phone"><div class="ph-loading">Loading…</div></div><button id="phoneback">Phone layout</button>' in PAGE), (True, True, True, True))
         t("  in an agent's view, a waiting portrait pulses, one out of sight is brought into the strip, and the title bar's badge opens the one waiting longest",
@@ -9756,9 +10483,9 @@ def self_test():
         t("  its logo flashes and opens the agent waiting longest, as the header's does",
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
-          ('phStopAsk ? "Tap to confirm" : "Stop team…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
-        t("  its panels are Agents, Portraits, Combined, the Day log, the Work queue, Performance, Token usage and the Dashboard",
-          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Performance"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
+          ('phStopAsk ? "Confirm" : "Stop…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
+        t("  its panels are Agents, Portraits, Combined, Team, the Day log, the Work queue, Machine, Token usage and the Dashboard",
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
@@ -9769,8 +10496,8 @@ def self_test():
           ("background:${meterFill(m)}" in PAGE, 'const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"' in PAGE), (True, True))
         t("the header can show the Favourites, as the Bench, and the desktop agent menu adds and removes one",
           ('bench: "Bench", favs: "Favourites"' in PAGE, "phFavToggle" in PAGE), (True, True))
-        t("  Combined has its own Roles and lanes, behind one ⋯ in its header, kept in this browser",
-          ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Roles</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
+        t("  Combined has its own Summary or Full, Roles and lanes, behind one ⋯ in its header, kept in this browser",
+          ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Show</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
         t("  its agents are by role unless Status is chosen, favourites first on Agents and Portraits, each group by name",
           ('const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" : "role";' in PAGE,
            'const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">' in PAGE,
@@ -9794,7 +10521,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -10358,7 +11085,7 @@ def self_test():
           (("testrev", "Test Reviewer", "Reviewer"), True, True, True))
         t("views: Gauges and Performance open as Machine, people views share the role chips, same-named tabs are numbered, and the Team pane draws",
           ('t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine";' in PAGE,
-           'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "daylog", "workqueue", "tokens"];' in PAGE,
+           'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens"];' in PAGE,
            "out[path + \":\" + i] = c > 1 ? `${name} ${c}` : name;" in PAGE, "kept.length} message" in PAGE and "const kept = teamLog" in PAGE), (True, True, True, True))
         t("pane tabs: each picks its view from the grouped picker, names itself, and filters by role chips with no roles meaning All",
           ("function viewPicker(btn, path, picked)" in PAGE, "function autoName(p)" in PAGE, "const roleChips = " in PAGE,
