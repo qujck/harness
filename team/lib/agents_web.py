@@ -2313,7 +2313,8 @@ def ask_of(pane):
     above that footer - are its own: a numbered list higher up, in the conversation or a prompt already answered, is
     not. Some prompts (trusting a folder, confirming a tool's action) list their options unnumbered, the cursor's row
     marked ❯ and the others lined up with its text; those are numbered here in order and answered by moving the cursor
-    ("select", with "cursor" the option it is on). None when no prompt's options are on screen."""
+    ("select", with "cursor" the option it is on). A prompt with no options at all (signing in again: a web address
+    and a field for the code) is its text alone, with none. None when no prompt is on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
     # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
@@ -2326,7 +2327,7 @@ def ask_of(pane):
                                        if TOP_RULE.match(lines[i]) and not splits_options(i)), 0)
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
     if not opts:
-        return select_of(lines, top, foot) if foot is not None else None
+        return None if foot is None else select_of(lines, top, foot) or text_of(pane)
     first = opts[-1]
     above = range(first - 1, max(-1, first - 80), -1)
     start = next((i + 1 for i in above if TOP_RULE.match(lines[i])),
@@ -2354,6 +2355,19 @@ def ask_of(pane):
                      or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
             options.append({"n": n, "label": label, "typed": typed})
     return {"text": text, "options": options, **({"preview": True} if preview else {})}
+
+
+def text_of(pane):
+    """An open prompt with no options, as its text: from its solid rule to its footer, read with wrapped lines joined
+    so a long web address stays whole. None when there is no rule above the footer or nothing between."""
+    lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-J", "-t", pane).splitlines()]
+    foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
+    top = None if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1) if TOP_RULE.match(lines[i])), None)
+    if top is None:
+        return None
+    block = [l.strip() for l in lines[top:foot]]
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(block)).strip()
+    return {"text": text, "options": []} if text else None
 
 
 def select_of(lines, top, foot):
@@ -3050,8 +3064,9 @@ class Handler(BaseHTTPRequestHandler):
         if not text and not images:
             return self.send(400, b"nothing to send\n", "text/plain")
         where = panes().get(m.group(1))
-        # a prompt ignores a paste, so the Enter after it would only choose whichever option is highlighted
-        if where and open_ask(m.group(1), where["pane"]):
+        # a prompt with options ignores a paste, so the Enter after it would only choose whichever option is highlighted;
+        # one with none (a sign-in's field for its code) takes the paste
+        if where and (open_ask(m.group(1), where["pane"]) or {}).get("options"):
             return self.send(409, b"a prompt is open in its pane: answer it with its buttons\n", "text/plain")
         ok = type_into(m.group(1), text, images)
         if ok is None:
