@@ -848,6 +848,44 @@ def claims():
     return held
 
 
+# A ticket's GitHub issue number and title, so the page can show "#12130" in place of a hundred-character id. Read
+# through the ledger's `regenerate --out <dir> <id>` (one JSON per ticket, ~0.1 s) on a background thread and kept:
+# a number, once set, never changes. An id with no number yet is asked again after TICKET_RETRY seconds; a project
+# whose ledger has no such verb just keeps showing ids.
+TICKET_RETRY = 600
+_tickets = {}            # id -> {"issue": int|None, "title": str, "at": when read}
+_tickets_busy = set()
+
+
+def _read_tickets(ids):
+    with tempfile.TemporaryDirectory() as d:
+        for tid in ids:
+            run("bash", LEDGER, "regenerate", "--out", d, tid, timeout=15)
+            fact = {"issue": None, "title": "", "at": time.time()}
+            try:
+                with open(os.path.join(d, tid + ".json")) as f:
+                    j = json.load(f)
+                n = j.get("issue")
+                fact = {**fact, "issue": n if isinstance(n, int) and n > 0 else None, "title": str(j.get("title") or "")}
+            except (OSError, ValueError, AttributeError):
+                pass
+            _tickets[tid] = fact
+            _tickets_busy.discard(tid)
+
+
+def ticket_facts(ids):
+    """id -> {"issue", "title"} for the ids already read; the rest (and numberless ones gone stale) start a read."""
+    now, want = time.time(), []
+    for tid in {i for i in ids if i and re.fullmatch(r"[a-z][a-z0-9_-]{1,200}", i)}:
+        got = _tickets.get(tid)
+        if tid not in _tickets_busy and (got is None or (got["issue"] is None and now - got["at"] >= TICKET_RETRY)):
+            want.append(tid)
+    if want and os.path.exists(LEDGER):
+        _tickets_busy.update(want)
+        threading.Thread(target=_read_tickets, args=(sorted(want),), daemon=True).start()
+    return {i: _tickets[i] for i in ids if i in _tickets}
+
+
 def budget_plan():
     m = re.search(r" of (\d+)% planned", run(BUDGET))
     return int(m.group(1)) if m else None
@@ -2762,6 +2800,7 @@ def state():
     now = time.time()
     live, rows, burns, last = live_sessions(), context_rows(), burn(), last_sessions()
     where, held = panes(), claims()
+    tfacts = ticket_facts(list(held.values()))
     agents, bench = [], []
     for r in grouped(roster()):
         name = r["name"]
@@ -2798,6 +2837,8 @@ def state():
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""),
             "ticket": held.get(name.lower(), ""),
+            "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
+            "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was),
@@ -2825,6 +2866,7 @@ def state():
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
+        "prRepo": os.environ.get("AGENTS_PR_REPO", ""),
     }
     return {**st, "plugins": plugins(bar_facts(st))}
 
@@ -4938,6 +4980,13 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 // How the page writes an agent's name: the roster's spelling unless the server says otherwise. Attributes that name
 // an agent for the code (data-name, data-tab) keep the roster's, as everything sent back to the server must.
 const shown = name => S?.shownNames?.[name] || name;
+// How the page writes an agent's ticket: its issue number ("#12130") when the ledger has one, else the id; the
+// title and the id stay in the hover text. tkLink() makes the number a link to its issue when the repo is known.
+const tk = a => a.ticketNo ? `#${a.ticketNo}` : a.ticket || "";
+const tkTip = a => a.ticketNo ? `${a.ticketTitle ? a.ticketTitle + "\n" : ""}${a.ticket}` : a.ticket || "";
+const tkLink = a => a.ticketNo && S?.prRepo
+  ? `<a href="https://github.com/${esc(S.prRepo)}/issues/${a.ticketNo}" target="_blank" rel="noopener" title="${esc(tkTip(a))}" style="color:inherit;text-decoration:none">${esc(tk(a))}</a>`
+  : esc(tk(a));
 // A Characters card is labelled with the agent's full name; the conversation and everything else write shown() (owner,
 // 2026-11-12: "I want his card to show James Weaver and conversation to show Weaver").
 const carded = a => a.fullName || shown(a.name);
@@ -5414,7 +5463,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span><span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
-    <div class="row2">${a.ticket ? `<span class="ticket">${esc(a.ticket)}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
+    <div class="row2">${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
@@ -7919,7 +7968,7 @@ function minis(cur, agents = S.agents) {
   return agents.map(a => {
     const st = stOf(a), n = a.name === cur ? 0 : unseen(a);
     return `<div class="mini ${st}${switching(a)}${a.name === cur ? " cur" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-      <div class="mtop"><span class="name" title="${st === "wanted" ? esc(a.wanted) : STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}" title="${a.ctxPct}% of context used">ctx ${a.ctxPct}%</span>`}</div>
+      <div class="mtop"><span class="name" title="${st === "wanted" ? esc(a.wanted) : STATE[st] || esc(st)}"><span class="dot"></span>${esc(shown(a.name))}${n ? unseenBadge(n) : ""}</span>${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="mstat" title="${esc(mstat(a, st))}">${esc(mstat(a, st))}</span><span class="ago">${ago(a.held)}</span>${a.ctxPct == null ? "" : `<span class="pct" style="color:${gauge(a.ctxPct)}" title="${a.ctxPct}% of context used">ctx ${a.ctxPct}%</span>`}</div>
       ${spark(a.series, ceil, a.colour)}</div>`;
   }).join("");
 }
@@ -7972,7 +8021,7 @@ function tiles(them) {
       `<span class="nm${LEFT_BADGE.has(a.role) ? " left" : ""}">${esc(carded(a))}</span>` +
       `<span class="tl"><i class="${since != null && since < 60 ? "now" : ""}"></i>${since == null ? "" : ago(since)}</span>` +
       `<span class="tr">${a.ctxPct == null ? "" : `<b class="${a.ctxPct >= 60 ? "hi" : ""}" title="${a.ctxPct}% of context used">${a.ctxPct}%</b>`}${n ? unseenBadge(n) : ""}</span>` +
-      (a.ticket ? `<span class="tk" title="${esc(a.ticket)}">${esc(a.ticket)}</span>` : "") +
+      (a.ticket ? `<span class="tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : "") +
       `<span class="sp">${spark(a.series, ceil, a.colour)}</span></div>`;
   }).join("");
 }
@@ -8023,7 +8072,7 @@ async function openDetail(name) {
   if (ONLY) document.title = shown(name);
   const a = S.agents.find(x => x.name === name) || {};
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px">${esc(a.ticket)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
@@ -8847,7 +8896,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   }
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
   // its name and details, with its second portrait, else its portrait, on the right
-  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + esc(a.ticket) : ""}</div>` +
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
     (bench ? (bench.standing ? power : "") : !a.live ? power :   // a benched developer or tester has only its details, a benched standing agent its Start; one that is not running has nothing to open
@@ -9358,7 +9407,7 @@ function phListHtml() {
     return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
   const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
     return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
-      (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : big ? "" : `<span class="ph-role">${esc(a.roleName || "")}</span>`) +
+      (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : big ? "" : `<span class="ph-role">${esc(a.roleName || "")}</span>`) +
       `<span class="ph-right">${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
       (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
@@ -9366,7 +9415,7 @@ function phListHtml() {
   const rrow = a => { if (!a.live) return `<button class="ph-row off" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
       const st = stOf(a), last = phLast(a), n = unseen(a), busy = st === "busy" || st === "compacting" || st === "waiting";
       return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
-        (a.ticket ? `<span class="ph-tk">${esc(a.ticket)}</span>` : "") +
+        (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : "") +
         `<span class="ph-right">${n ? unseenBadge(n) : ""}<span style="color:${st === "waiting" ? "var(--amber)" : busy ? "var(--green)" : "var(--mute)"}">${STATE[st] || esc(st)}</span> ${ago(a.held)}</span></span>` +
         (busy && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites · ${favs.length}</h2><div class="ph-list">${favs.map(rrow).join("")}</div></section>` : "";
@@ -9384,7 +9433,7 @@ function phFacesHtml() {
   const tile = (a, byRole) => { const st = stOf(a), n = unseen(a);
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
-      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(a.ticket)}"` : ""}>${esc((byRole ? a.roleName : a.ticket || a.roleName) || "")}</span></button>`; };
+      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(tkTip(a))}"` : ""}>${esc((byRole ? a.roleName : tk(a) || a.roleName) || "")}</span></button>`; };
   const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.roleName || "")}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
   // favourites first, as in the Agents tab, and not again under their role
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
@@ -10152,6 +10201,31 @@ def self_test():
             f.write("feat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\n")
         t("claims: the first ticket each agent holds, unclaimed rows skipped", claims(), {"ada": "feat_x", "tess": "feat_w"})
 
+        # a ticket's issue number, read through the ledger's regenerate verb in the background and kept; an id with no
+        # number is asked again only after TICKET_RETRY, and an id that is not a ticket id is never passed to the ledger
+        global LEDGER
+        was_ledger, LEDGER = LEDGER, f"{T}/fake-ledger.sh"
+        with open(LEDGER, "w") as f:
+            f.write('echo "$*" >> "%s/ledger-calls"\n'
+                    'case "$4" in feat_x) echo \'{"id":"feat_x","title":"The X ticket","issue":12130}\' > "$3/$4.json";;\n'
+                    '  feat_w) echo \'{"id":"feat_w","title":"W","issue":null}\' > "$3/$4.json";; esac\n' % T)
+        _tickets.clear(); _tickets_busy.clear()
+        ticket_facts(["feat_x", "feat_w", "x;rm -rf /", ""])
+        for _ in range(50):
+            if not _tickets_busy:
+                break
+            time.sleep(0.05)
+        t("ticket numbers: an issue and title where the ledger has one, none where it has not",
+          ticket_facts(["feat_x", "feat_w"]), {"feat_x": {"issue": 12130, "title": "The X ticket", "at": _tickets["feat_x"]["at"]},
+                                                "feat_w": {"issue": None, "title": "W", "at": _tickets["feat_w"]["at"]}})
+        ticket_facts(["feat_x", "feat_w"])
+        time.sleep(0.2)
+        with open(f"{T}/ledger-calls") as f:
+            t("  each id is read once, a numberless one not again inside TICKET_RETRY, and a non-id never",
+              sorted(l.split()[-1] for l in f), ["feat_w", "feat_x"])
+        LEDGER = was_ledger
+        _tickets.clear()
+
         os.environ.update(AGENT_WEEK_PCT_PER_HOUR="2", AGENT_WORK_HOURS="08:00-17:00", AGENT_WORK_DAYS="Mon Tue Wed Thu Fri")
         t("even plan: 2 an hour for 45 hours leaves 10% in hand, so 36% planned shares out as 40%", even_plan(36), 40.0)
         os.environ["AGENT_WEEK_PCT_PER_HOUR"] = "3"
@@ -10521,7 +10595,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
