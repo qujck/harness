@@ -5793,6 +5793,9 @@ function seg(mode, sec) {
 let mouseDown = false;
 addEventListener("pointerdown", () => { mouseDown = true; }, true);
 addEventListener("pointerup", () => { mouseDown = false; }, true);
+// a finger that slides is the browser's to scroll or swipe, and it ends with pointercancel, not pointerup: without this
+// the page held every redraw until the next tap (owner, 2026-11-14: a swipe "moves between them but doesn't load their text")
+addEventListener("pointercancel", () => { mouseDown = false; }, true);
 for (const ev of ["drop", "dragend"]) addEventListener(ev, () => { mouseDown = false; }, true);   // a drag takes the pointer, and no pointerup follows it
 addEventListener("blur", () => { mouseDown = false; });
 function holding(el) {
@@ -11063,7 +11066,8 @@ def self_test():
         t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
           ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE,
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
-           'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE), (True,) * 5)
+           'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
+           'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 6)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
