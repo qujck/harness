@@ -2481,7 +2481,10 @@ def ask_of(pane):
             options.append({"n": 0, "label": "Submit", "typed": False})
             continue
         m, n = OPTION.match(l), sum(1 for o in options if o["n"]) + 1
-        if m and int(m.group(1)) == n:
+        if CHAT_ROW.match(l) and options:
+            # unnumbered, so it has no digit: it is reached with the cursor ("move") and taken with Enter
+            options.append({"n": n, "label": "Chat about this", "typed": False, "move": True})
+        elif m and int(m.group(1)) == n:
             label = PREVIEW.sub("", m.group(2))
             typed = (label.startswith("Type something") or editing and l.lstrip().startswith("❯")
                      or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
@@ -2592,7 +2595,7 @@ def asked_text(items, ask):
     the preview left out."""
     # the pane can wrap "(Recommended)" under a label, or cut a long one short
     norm = lambda s: re.sub(r"\s*\(Recommended\)$", "", str(s).strip()).rstrip("…").strip()
-    labels = [norm(o["label"]) for o in ask["options"] if o["n"]]
+    labels = [norm(o["label"]) for o in ask["options"] if o["n"] and not o.get("move")]
     calls = [c for it in items if it.get("kind") == "tools" for c in it["calls"]]
     for c in reversed(calls):
         for q in reversed(c.get("asked") or []):
@@ -2748,13 +2751,14 @@ def answer(name, n, label, text):
 
     multi = any(o["n"] == 0 for o in ask["options"])
     order = {o["n"]: i for i, o in enumerate(ask["options"])}
+    chat = next((o["n"] for o in ask["options"] if o.get("move")), None)   # an unnumbered "Chat about this"
 
     def cursor():
         """The option the pane's cursor is on (0 for Submit), or None when it is on none of them."""
         for l in reversed(run("tmux", "capture-pane", "-p", "-t", pane).splitlines()):
-            m = re.match(r"\s*❯\s*(?:(\d+)\.(?:\s|$)|Submit$)", ESCAPES.sub("", l).rstrip())
+            m = re.match(r"\s*❯\s*(?:(\d+)\.(?:\s|$)|Submit$|(Chat about this)$)", ESCAPES.sub("", l).rstrip())
             if m:
-                return int(m.group(1) or 0)
+                return chat if m.group(2) else int(m.group(1) or 0)
         return None
 
     def move_to(m):
@@ -2795,7 +2799,7 @@ def answer(name, n, label, text):
             if o["typed"] and o["n"] != n and field_of(pane, o["n"]) is not None:
                 if not clear(o["n"]) or not key("Up") or not wait_for(lambda: field_of(pane, o["n"]) is None, 1, 0.1):
                     return 500, "the pane's cursor is stuck in another answer's field: nothing was sent"
-        if not opt["typed"] and ask.get("preview"):
+        if not opt["typed"] and (ask.get("preview") or opt.get("move")):
             # a question with previews is answered by Enter on the option, the cursor taken to it first; the
             # preview beside it changes as it moves, so the test for the prompt closing is taken after
             if not move_to(n):
@@ -10825,9 +10829,10 @@ def self_test():
             ask = ask_of("%1")
         finally:
             g["run"] = was_run
-        t("a preview question with \"Chat about this\" below a rule: its three options are read, with previews",
-          (ask and [o["label"] for o in ask["options"]], ask and ask.get("preview")),
-          (["Compact count", "Segmented status", "Per-author rows"], True))
+        t("a preview question with \"Chat about this\" below a rule: its options are read, with previews, and \"Chat about this\" "
+          "as a choice taken with the cursor, so the owner can decline them all",
+          (ask and [(o["label"], bool(o.get("move"))) for o in ask["options"]], ask and ask.get("preview")),
+          ([("Compact count", False), ("Segmented status", False), ("Per-author rows", False), ("Chat about this", True)], True))
         asked = [{"question": "Which shape?", "options": [
             {"label": "Compact count (Recommended)", "description": "One item.", "preview": "PRs ● 7\nhidden line"},
             {"label": "Segmented status", "description": "Two."}, {"label": "Per-author rows", "description": "Three."}]}]
