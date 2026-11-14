@@ -5102,6 +5102,10 @@ html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 
 html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
   background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
 html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
+html.phone #dconv.phin-r{animation:phinr .22s ease-out}
+html.phone #dconv.phin-l{animation:phinl .22s ease-out}
+@keyframes phinr{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
+@keyframes phinl{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
 html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}   /* the frame's rule is the portrait span's alone: the badge, a span too, once took it and covered the face (owner, 2026-11-09) */
 html.phone #drail .phf .unseen[hidden]{display:none}
@@ -8781,7 +8785,7 @@ function dock(a) {
   d.classList.add("docked");
   if (open !== a.name) openDetail(a.name);
 }
-function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; if (seek?.src === "conversation") seek = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
+function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; phRailFor = null; if (seek?.src === "conversation") seek = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
 $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
@@ -10386,6 +10390,7 @@ function phRail() {
       // redraw would rebuild its image, blank on the phone until it loads again (owner, 2026-11-09: a green frame with no face)
       `<span>${a.portrait ? `<img src="${esc(a.portrait)}" alt="">` : shadow(a)}</span><i></i>${n ? unseenBadge(n) : `<span class="unseen" hidden></span>`}</button>`; }).join(""));
   $("#drail").onclick = e => { const b = e.target.closest(".phf"); if (b && b.dataset.name !== open) openDetail(b.dataset.name); };
+  phCurInView();
   phWaitInView(list);
   markSeen([open]);
 }
@@ -10394,6 +10399,50 @@ function phRail() {
 let phWaited = new Set(), phRailTouched = 0;
 ["pointerdown", "touchstart", "wheel", "scroll"].forEach(ev => $("#drail").addEventListener(ev, e => { if (ev !== "scroll" || !phRailAuto) phRailTouched = Date.now(); }, {passive: true}));
 let phRailAuto = false;
+// the open agent's portrait is brought into the strip once each time an agent is opened, from the Dashboard, a list or
+// a swipe (owner, 2026-11-14: "if the icon is off the screen, to the right, when I open the agent ... it doesn't scroll
+// him into view"); the redraws after leave the strip where the owner puts it
+var phRailFor = null;   // var: closeDetail, earlier in the page, clears it
+function phCurInView() {
+  const rail = $("#drail"), b = rail.querySelector(".phf.cur");
+  if (phRailFor === open || !b || !rail.clientWidth) return;
+  const smooth = phRailFor !== null;
+  phRailFor = open;
+  const l = b.offsetLeft - rail.offsetLeft, r = l + b.offsetWidth, pad = 12;
+  if (l >= rail.scrollLeft && r <= rail.scrollLeft + rail.clientWidth) return;
+  phRailAuto = true; setTimeout(() => { phRailAuto = false; }, 800);
+  rail.scrollTo({left: Math.max(0, l < rail.scrollLeft ? l - pad : r - rail.clientWidth + pad), behavior: smooth ? "smooth" : "auto"});
+}
+// A swipe left or right across the agent view opens the next or the previous agent in the strip's order (owner,
+// 2026-11-14: "can I have swipe left and right on the page to move between them?"). Not from the strip, the message
+// box or anything that scrolls sideways itself (a wide code block, a table), and not from the screen's edges, where the
+// phone's own back gesture starts. A mostly-sideways move of 70px or more, quickly, is a swipe; anything else scrolls.
+(function phSwipe() {
+  let x0 = null, y0 = 0, t0 = 0;
+  const sideways = el => { for (; el && el.id !== "detail"; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
+  $("#detail").addEventListener("touchstart", e => {
+    x0 = null;
+    if (!phoneOn() || !open || e.touches.length !== 1) return;
+    const t = e.touches[0], el = e.target;
+    if (t.clientX < 24 || t.clientX > innerWidth - 24 || el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)) return;
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
+  }, {passive: true});
+  $("#detail").addEventListener("touchend", e => {
+    if (x0 === null) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || Date.now() - t0 > 700) return;
+    phSwipeTo(dx < 0 ? 1 : -1);
+  }, {passive: true});
+  $("#detail").addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
+})();
+function phSwipeTo(step) {
+  const names = [...$("#drail").querySelectorAll(".phf[data-name]")].map(b => b.dataset.name), i = names.indexOf(open), to = names[i + step];
+  if (i < 0 || !to) return;
+  const c = $("#dconv");
+  openDetail(to);
+  c.classList.remove("phin-l", "phin-r"); void c.offsetWidth; c.classList.add(step > 0 ? "phin-r" : "phin-l");
+}
 function phWaitInView(list) {
   const rail = $("#drail"), now = new Set(list.filter(a => a.name !== open && ["waiting", "wanted"].includes(stOf(a))).map(a => a.name));
   const fresh = [...now].filter(n => !phWaited.has(n));
@@ -11011,6 +11060,10 @@ def self_test():
           ('data-ppgo="${esc(c.key)}"' in PAGE, '<section class="pp-ss" data-ppsec="${esc(s.key)}">' in PAGE,
            'data-ppgo="~merged"' in PAGE and 'data-ppsec="~merged"' in PAGE,
            'const go = e.target.closest(".ppdesk [data-ppgo]"), desk = go?.closest(".ppdesk");' in PAGE), (True,) * 4)
+        t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
+          ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE,
+           "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
+           'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE), (True,) * 5)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
