@@ -2215,7 +2215,10 @@ def tool_line(block):
         what = inp.get("skill", "")
     else:
         what = ""
-    return {"kind": "tool", "who": name.replace("mcp__", "").split("__")[-1], "text": short(str(what), 140)}
+    line = {"kind": "tool", "who": name.replace("mcp__", "").split("__")[-1], "text": short(str(what), 140)}
+    if name == "AskUserQuestion" and isinstance(inp.get("questions"), list):
+        line["asked"] = [q for q in inp["questions"] if isinstance(q, dict)]   # the pane cuts a question's previews; this has them whole
+    return line
 
 
 TAG = re.compile(r"<(system-reminder|local-command-stdout|local-command-caveat)>.*?</\1>", re.S)
@@ -2421,6 +2424,7 @@ OPTION = re.compile(r"^\s*(?:❯\s*)?(\d+)\.\s+(.*\S)")
 CURSOR_ROW = re.compile(r"^(\s*❯\s+)(\S.*)$")   # an unnumbered choice's cursor row ("❯ No, exit"); its label starts where the text does
 SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that ends a multi-select question
 PREVIEW = re.compile(r"\s{2,}[┌│└].*$")   # a question with previews draws the cursor's option's preview to the right of the options
+CHAT_ROW = re.compile(r"^\s*(?:❯\s*)?Chat about this$")   # a preview question's unnumbered last choice, below a rule of its own
 CHECKBOX = re.compile(r"^\[[ ✔]\]\s?")   # a multi-select option's tick box
 DIM = re.compile(r"\x1b\[2m.*?\x1b\[(?:0|22)?m")   # a dim run: an empty field's placeholder
 ESCAPES = re.compile(r"\x1b\[[0-9;:?]*[A-Za-z]")
@@ -2445,11 +2449,12 @@ def ask_of(pane):
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
     # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
-    # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10).
+    # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10). A question
+    # with previews draws it unnumbered ("  Chat about this"), and that rule hid the whole question (owner's phone, 2026-11-14).
     def splits_options(i):
         below = next((l for l in lines[i + 1:foot] if l.strip()), "")
         m = OPTION.match(below)
-        return bool(m) and int(m.group(1)) > 1
+        return bool(m) and int(m.group(1)) > 1 or CHAT_ROW.match(below) is not None
     top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1)
                                        if TOP_RULE.match(lines[i]) and not splits_options(i)), 0)
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
@@ -2572,10 +2577,35 @@ def with_ask(items, status, pane):
         return items   # a queue lasts only as long as the turn it waits behind
     if status == "waiting":
         ask = ask_of(pane["pane"])
+        if ask and ask.get("preview"):
+            ask = {**ask, "text": asked_text(items, ask)}
         return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "cursor": ask.get("cursor"), "ts": None,
                           "lane": "owner"}] if ask else []) + pending
     now = working_of(pane["pane"])
     return items + ([{"kind": "live", "who": "working", "text": now, "ts": None, "lane": "owner"}] if now else []) + pending
+
+
+def asked_text(items, ask):
+    """A question with previews, written out whole: the pane draws only the preview of the option under its cursor, cut
+    to fit, beside the options. The question the agent asked is in its transcript with every option's description
+    and preview; it is the latest one whose options carry these labels. Without it, the question as the pane shows it,
+    the preview left out."""
+    # the pane can wrap "(Recommended)" under a label, or cut a long one short
+    norm = lambda s: re.sub(r"\s*\(Recommended\)$", "", str(s).strip()).rstrip("…").strip()
+    labels = [norm(o["label"]) for o in ask["options"] if o["n"]]
+    calls = [c for it in items if it.get("kind") == "tools" for c in it["calls"]]
+    for c in reversed(calls):
+        for q in reversed(c.get("asked") or []):
+            opts = [o for o in q.get("options") or [] if isinstance(o, dict)]
+            if len(opts) != len(labels) or not all(norm(o.get("label", "")).startswith(p) for o, p in zip(opts, labels)):
+                continue
+            out = [str(q.get("question", "")).strip()]
+            for n, o in enumerate(opts, 1):
+                out.append(f"\n{n}. {o.get('label', '')}" + (f"\n   {o['description']}" if o.get("description") else ""))
+                if o.get("preview"):
+                    out.append("\n".join("   │ " + l for l in str(o["preview"]).splitlines()))
+            return "\n".join(out)[:6000]
+    return ask["text"].split("\n❯ 1.")[0].split("\n  1.")[0].rstrip()
 
 
 def open_ask(name, pane):
@@ -10781,6 +10811,37 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # a question with previews as Claude Code v2.1 draws it (captured 2026-11-14): "Chat about this" unnumbered below a
+        # rule of its own, which was read as the top of the prompt, so the owner's phone showed only "Chat about this"
+        rule = "─" * 120
+        shot = (f"❯ Ask me\n\n{rule}\n ☐ PR bar\n\n│ Which shape do you want for the new bar?\n\n"
+                "❯ 1. Compact count                ┌──────────────────┐\n  2. Segmented status             │ ┌──────────────┐ │\n"
+                "  3. Per-author rows              │ │ PRs ● 7 open │ │\n                                  │ └──────────────┘ │\n"
+                "                                  ├─── ✂ ─── 1 lines hidden ┤\n                                  └──────────────────┘\n\n"
+                f"                                  Notes: press n to add notes\n\n{rule}\n  Chat about this\n\n"
+                "Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel\n\n")
+        g["run"] = lambda *cmd, **kw: shot if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            ask = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("a preview question with \"Chat about this\" below a rule: its three options are read, with previews",
+          (ask and [o["label"] for o in ask["options"]], ask and ask.get("preview")),
+          (["Compact count", "Segmented status", "Per-author rows"], True))
+        asked = [{"question": "Which shape?", "options": [
+            {"label": "Compact count (Recommended)", "description": "One item.", "preview": "PRs ● 7\nhidden line"},
+            {"label": "Segmented status", "description": "Two."}, {"label": "Per-author rows", "description": "Three."}]}]
+        feed_items = [{"kind": "tools", "calls": [tool_line({"type": "tool_use", "name": "AskUserQuestion", "input": {"questions": asked}})]}]
+        g_ask, g["ask_of"] = g["ask_of"], lambda p: ask
+        try:
+            whole = with_ask(feed_items, "waiting", {"pane": "%1"})[-1]["text"]
+            bare = with_ask([], "waiting", {"pane": "%1"})[-1]["text"]
+        finally:
+            g["ask_of"] = g_ask
+        t("a preview question is written out whole from the transcript, the line the pane cut included; without it, its question alone",
+          ("1. Compact count (Recommended)\n   One item.\n   │ PRs ● 7\n   │ hidden line" in whole, "3. Per-author rows\n   Three." in whole,
+           "┌" in bare or "Chat about" in bare, bare.endswith("Which shape do you want for the new bar?")),
+          (True, True, False, True))
         # a question whose last option sits below a rule of its own, as Claude Code draws "Chat about this"
         shot = (" ☐ Migration\n\n│ Who applies it?\n\n❯ 1. You apply it (Recommended)\n     It stays with you.\n  2. Deacon applies it\n"
                 "  3. Type something.\n" + "─" * 60 + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n" + "─" * 60 + "\n")
