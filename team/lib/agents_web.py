@@ -3824,6 +3824,18 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 .chip.on{background:var(--on);color:var(--text);border-color:var(--mute)}
 .chip[hidden]{display:none}
 .chip .cdot{width:7px;height:7px;border-radius:50%}
+.chip .cicon{display:inline-flex}
+#phone section > h2 .cicon{display:inline-flex;vertical-align:-2px;margin-right:6px}
+#phone section > h2 .cicon .ricon{width:14px;height:14px}
+#phone section > h2 .ph-nodot{display:none}
+.chip .cicon .ricon{width:13px;height:13px}
+.rwith{display:inline-flex;align-items:center;gap:.3em;min-width:0;max-width:100%;vertical-align:bottom}
+.rwith .ricon{flex:none;width:1.1em;height:1.1em;color:var(--rc)}
+.rwith > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* where there is no room for the role's name, its icon alone: the phone's agent header and its portrait tiles */
+html.phone #dhead .role .rwith > span,#phone .ph-tile .ph-role .rwith > span{display:none}
+html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
+#phone .ph-tile .ph-role .rwith .ricon{width:15px;height:15px}
 .chip svg{width:12px;height:12px}
 .teamlog .thead > span.tsum{font-weight:400;color:var(--mute)}
 .workq .wqwho{display:contents;cursor:pointer}
@@ -5700,7 +5712,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
   const fold = folded().includes(a.name);
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${esc(a.roleName)}</span><span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${roleWith(a)}</span><span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
     <div class="row2">${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
@@ -6128,6 +6140,13 @@ const ROLE_ICON = {
   pa: '<path d="M8 8L2 4.5v7zM8 8l6-3.5v7z"/><rect x="6.8" y="6.6" width="2.4" height="2.8" rx=".6"/>'
 };
 const roleIcon = role => ROLE_ICON[role] && `<svg class="ricon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ROLE_ICON[role]}</svg>`;
+// a role named with its icon before it, the icon in the role's colour (owner, 2026-11-14: "put the icon alongside the
+// role, coloured the role colour, and then in the places space is tight put just the icon"); the name is always the
+// title too, so where CSS hides it (.rwith > span) the icon still says whose it is. A role with no icon is its name.
+const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";
+  return ic ? `<span class="rwith" style="--rc:${esc(a.colour || "")}" title="${esc(nm)}">${ic}<span>${esc(nm)}</span></span>` : esc(nm); };
+// a role chip's mark: its icon in the role's colour, else the coloured dot
+const roleMark = r => { const ic = roleIcon(r.role); return ic ? `<span class="cicon" style="color:${esc(r.colour || "")}">${ic}</span>` : `<span class="cdot" style="background:${r.colour}"></span>`; };
 const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", "testrev", "process", "pa"];
 // The views, kept in this browser: each a name, a kind (grid, tabs or custom) and, for a custom one, a layout, one of
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
@@ -6954,7 +6973,7 @@ const meetRow = path => `<div class="att" data-name="${esc(MEET + path)}"></div>
 const meetTeam = () => [...S.agents, ...S.bench];
 const meetChips = (path, n) => { const all = n.who === "all", full = r => meetTeam().filter(a => a.role === r.role).every(a => inMeeting(n, a));
   return `<span class="chips"><b class="chip${all ? " on" : ""}" data-invite-role="" title="Invite the whole team, or leave everyone out once it is">Invite all</b>${roleList().map(r =>
-    `<b class="chip${!all && full(r) ? " on" : ""}" data-invite-role="${esc(r.role)}" data-role="${esc(r.role)}" title="Invite every ${esc(r.name)}, or leave them all out"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
+    `<b class="chip${!all && full(r) ? " on" : ""}" data-invite-role="${esc(r.role)}" data-role="${esc(r.role)}" title="Invite every ${esc(r.name)}, or leave them all out">${roleMark(r)}${esc(r.name)}</b>`).join("")}` +
     `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
 // invites or leaves out these agents; the whole team invited is kept as "all"
 function meetInvite(n, names, on) {
@@ -7069,7 +7088,7 @@ const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" 
 const roleChips = (path, n) => { const on = rolesPicked(n), pickView = PICK_VIEWS.includes(n.show);
   const lit = r => pickView ? pickedAny(n) && S.agents.some(a => a.role === r.role) && S.agents.filter(a => a.role === r.role).every(a => inPick(n, a)) : on.includes(r.role);
   return `<span class="chips"><b class="chip${(pickView ? pickedAny(n) : on.length) ? "" : " on"}" data-role="" title="Every role">All</b>${roleList().map(r =>
-    `<b class="chip${lit(r) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}` +
+    `<b class="chip${lit(r) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}">${roleMark(r)}${esc(r.name)}</b>`).join("")}` +
     `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
 // A tab's name: the one given it (n.title), else one from what it shows: the agent an Agent view shows, the role when
 // one role is picked, else the view.
@@ -8337,7 +8356,7 @@ async function openDetail(name) {
   if (ONLY) document.title = shown(name);
   const a = S.agents.find(x => x.name === name) || {};
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${esc(a.roleName || "")}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
@@ -9167,7 +9186,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   }
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
   // its name and details, with its second portrait, else its portrait, on the right
-  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${esc(a.roleName || "")}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
+  menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${roleWith(a)}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
     (bench ? (bench.standing ? power : "") : !a.live ? power :   // a benched developer or tester has only its details, a benched standing agent its Start; one that is not running has nothing to open
@@ -9198,7 +9217,7 @@ function meetMenu(anchor, name, beside, rested) {
   const m = meetOf(nodeAt(layout().root, pane?.dataset.path || "") || {}), state = anchor.title.split(", ").slice(1).join(", ");
   if (menuOn(key)) { if (rested) return; if (menu.dataset.rested) delete menu.dataset.rested; else menuOff(true); return; }
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || name)} · meeting</span>` +
-    `<div>${esc(a.roleName || "")}</div>${state ? `<div>${esc(state[0].toUpperCase() + state.slice(1))}</div>` : ""}</div>` +
+    `<div>${roleWith(a)}</div>${state ? `<div>${esc(state[0].toUpperCase() + state.slice(1))}</div>` : ""}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div></div>` +
     (m && !m.ended && box ? `<div class="mi" data-go="mention">${MENU_ICON.said}Mention @${esc(name)}</div>` : ""), beside);
   if (rested) menu.dataset.rested = "1";
@@ -9836,7 +9855,7 @@ function phListHtml() {
     return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
   const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
     return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
-      (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : big ? "" : `<span class="ph-role">${esc(a.roleName || "")}</span>`) +
+      (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : big ? "" : `<span class="ph-role">${roleWith(a)}</span>`) +
       `<span class="ph-right">${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
       (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
@@ -9849,7 +9868,7 @@ function phListHtml() {
         (busy && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites · ${favs.length}</h2><div class="ph-list">${favs.map(rrow).join("")}</div></section>` : "";
   if (phOrder() === "role") {
-    return fav + wait.map(banner).join("") + phByRole().map(([r, list]) => [r, list.filter(notFav)]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
+    return fav + wait.map(banner).join("") + phByRole().map(([r, list]) => [r, list.filter(notFav)]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
       (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
   }
   return fav + wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
@@ -9862,8 +9881,8 @@ function phFacesHtml() {
   const tile = (a, byRole) => { const st = stOf(a), n = unseen(a);
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
-      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(tkTip(a))}"` : ""}>${esc((byRole ? a.roleName : tk(a) || a.roleName) || "")}</span></button>`; };
-  const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${esc(a.roleName || "")}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
+      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(tkTip(a))}"` : ""}>${byRole || !tk(a) ? roleWith(a) : esc(tk(a))}</span></button>`; };
+  const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${roleWith(a)}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
   // favourites first, as in the Agents tab, and not again under their role
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">${favs.map(a => a.live ? tile(a) : offTile(a)).join("")}</div></section>` : "";
@@ -9919,7 +9938,7 @@ function phMixFull(full) { const n = phMixNode(); localStorage.setItem("phonemix
 // some are picked; Team and the Day log keep the roles picked, none meaning every one.
 function phRoleChips(on, all) {
   return `<div class="ph-chiprow" data-chips="role"><b class="chip${all ? " on" : ""}" data-role="">All</b>${roleList().map(r =>
-    `<b class="chip${!all && on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}"><span class="cdot" style="background:${r.colour}"></span>${esc(r.name)}</b>`).join("")}</div>`;
+    `<b class="chip${!all && on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}">${roleMark(r)}${esc(r.name)}</b>`).join("")}</div>`;
 }
 const phNode = k => { let v; try { v = JSON.parse(localStorage.getItem(k)); } catch (e) {} return v && typeof v === "object" ? v : {}; };
 const phDayNode = () => { const v = phNode("phoneday"); return {show: "daylog", roles: Array.isArray(v.roles) ? v.roles : [], kinds: Array.isArray(v.kinds) ? v.kinds : []}; };
@@ -11068,6 +11087,12 @@ def self_test():
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
            'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
            'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 6)
+        t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles)",
+          ('const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";' in PAGE,
+           '<span class="role">${roleWith(a)}</span><span class="cctl">' in PAGE, '<span class="role">${roleWith(a)}</span>${a.ticket ?' in PAGE,
+           "html.phone #dhead .role .rwith > span,#phone .ph-tile .ph-role .rwith > span{display:none}" in PAGE,
+           PAGE.count("${roleMark(r)}${esc(r.name)}</b>") == 3, '<h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}' in PAGE,
+           "esc(a.roleName" not in PAGE), (True,) * 7)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
