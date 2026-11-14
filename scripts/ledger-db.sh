@@ -2614,6 +2614,15 @@ case "${1:-}" in
   # ⚠ EVERY STATUS, INCLUDING `archived`. The question is "has this id ever been used", not "is it
   # live" — a duplicate of finished work is exactly as expensive as a duplicate of live work, and
   # 4,082 of the 4,403 rows here are archived. A status filter would hide the majority of the answer.
+  # ── A TICKET'S SHORT NUMBER: `ticket-refs <id>...` prints `id|ref|issue|title` per known id. `ref` is the ledger's
+  # own short, permanent address (migration 172; the admin ledger writes it "#6466"), `issue` its GitHub issue, empty
+  # when none is recorded; the title last, so a `|` in it cannot shift a column. Read-only, from v_ticket_detail. The
+  # team page shows "#6466" in place of a hundred-character id with it.
+  ticket-refs) shift
+            (( $# )) || { echo "usage: ledger-db.sh ticket-refs <id>..." >&2; exit 64; }
+            _ti_list=""
+            for _ti_id in "$@"; do _ti_list+="${_ti_list:+,}$(_sql_lit "$_ti_id")"; done
+            _as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id" ;;
   ticket-row) shift
             _tr_id="${1-}"
             if [[ -z "$_tr_id" ]]; then
