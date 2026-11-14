@@ -4828,6 +4828,12 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phpor{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:#000b}
 #phpor img{width:min(84vw,420px);aspect-ratio:1;object-fit:cover;border-radius:16px;box-shadow:0 12px 40px #000a}
 @keyframes phup{from{transform:translateY(100%)}}
+/* closing, a sheet slides back down from wherever it is, the pulled-down place included, while the page under it
+   brightens, and only then goes (owner, 2026-11-14: "can they slide out of view when closing rather then just suddelny
+   disappear"); the settings sheet already did, in phoneMenuOff */
+html.phone #menu.on.closing,#phone .pp-sheet.closing .pp-panel{animation:none;transform:translateY(100%) !important;transition:transform .2s cubic-bezier(.4,0,1,1) !important;pointer-events:none}
+html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:#0000 !important;transition:background .2s;pointer-events:none}
+#phone .pp-sheet.closing{pointer-events:none}
 #phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
 #phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #phone .ph-pane .teamlog .thead{flex-wrap:wrap;row-gap:4px}
@@ -8825,6 +8831,7 @@ function menuAt(anchor, key, html, beside, stay) {
     return;
   }
   clearTimeout(menuHide);   // a menu opening is not closed by the one it replaces, left a moment ago
+  menu.classList.remove("closing"); $("#phmenuback")?.classList.remove("closing");
   menu.innerHTML = html; menu.dataset.key = key; delete menu.dataset.rested; menu.refresh = null; menu.classList.add("on");
   if (!anchor?.offsetParent) anchor = $(".brand");   // a button out of the bars, reached by its shortcut: from the logo
   const r = anchor.getBoundingClientRect(), w = menu.offsetWidth, h = menu.offsetHeight;
@@ -8866,7 +8873,12 @@ menu.addEventListener("click", e => {
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
-  menuHide = setTimeout(() => { menu.classList.remove("on"); delete menu.dataset.key; delete menu.dataset.rested; menu.refresh = null; }, now ? 0 : 200);
+  const back = $("#phmenuback"), gone = () => {
+    menu.classList.remove("on", "closing"); back?.classList.remove("closing"); delete menu.dataset.key; delete menu.dataset.rested; menu.refresh = null;
+  };
+  // on the phone the menu is a bottom sheet, and it slides down before it goes (the CSS beside @keyframes phup)
+  if (phoneOn() && menu.classList.contains("on")) { menu.classList.add("closing"); back?.classList.add("closing"); menuHide = setTimeout(gone, 210); return; }
+  menuHide = setTimeout(gone, now ? 0 : 200);
 }
 menu.onmouseenter = () => clearTimeout(menuHide);
 menu.onmouseleave = () => { if (menu.dataset.rested) menuOff(); };
@@ -9593,7 +9605,12 @@ function ppSheetHtml(p) {
 function ppSheetDraw() {
   const ph = $("#phone"), p = ppData();
   let sh = ph && ph.querySelector(":scope > .pp-sheet");
-  if (!ppOpen || !p || !ph) { if (sh) sh.remove(); return; }
+  if (!ppOpen || !p || !ph) {
+    // it slides down from where it is, a pulled-down place included, and goes once it is out of view
+    if (sh && !sh.classList.contains("closing")) { sh.classList.add("closing"); setTimeout(() => sh.remove(), 210); }
+    return;
+  }
+  if (sh?.classList.contains("closing")) { sh.remove(); sh = null; }   // opened again while it was going: a new one
   if (!sh) {
     sh = document.createElement("div"); sh.className = "pp-sheet";
     sh.innerHTML = `<div class="pp-scrim" data-ppclose></div><div class="pp-panel" role="dialog" aria-modal="true" aria-labelledby="pp-title">` +
@@ -9623,15 +9640,15 @@ function ppSheetDraw() {
     }, {passive: false});
     const tend = () => {
       if (!tdrag) return;
-      tdrag = tfree = false; panel.style.transition = ""; panel.style.transform = "";
-      if (tdy > 90) { ppOpen = false; ppSheetDraw(); }
+      tdrag = tfree = false; panel.style.transition = "";
+      if (tdy > 90) { ppOpen = false; ppSheetDraw(); } else panel.style.transform = "";
     };
     panel.addEventListener("touchend", tend); panel.addEventListener("touchcancel", tend);
     top.onpointerdown = e => {
       if (e.pointerType === "touch" || e.target.closest(".pp-x")) return;
       const y0 = e.clientY; let dy = 0; top.setPointerCapture(e.pointerId);
       top.onpointermove = ev => { dy = Math.max(0, ev.clientY - y0); panel.style.transform = dy ? `translateY(${dy}px)` : ""; };
-      top.onpointerup = top.onpointercancel = () => { top.onpointermove = top.onpointerup = top.onpointercancel = null; panel.style.transform = ""; if (dy > 90) { ppOpen = false; ppSheetDraw(); } };
+      top.onpointerup = top.onpointercancel = () => { top.onpointermove = top.onpointerup = top.onpointercancel = null; if (dy > 90) { ppOpen = false; ppSheetDraw(); } else panel.style.transform = ""; };
     };
     sh.querySelector(".pp-x").focus({preventScroll: true});
   }
@@ -10930,6 +10947,11 @@ def self_test():
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
         t("  the Pipeline sheet moves under a finger from anywhere only when its list starts at the top",
           ('tfree = e.touches.length === 1 && !e.target.closest(".pp-x") && body.scrollTop <= 0;' in PAGE, "}, {passive: false});" in PAGE), (True, True))
+        t("  on the phone a menu and the Pipeline sheet slide down out of view as they close, a pulled one from where it was",
+          ('if (phoneOn() && menu.classList.contains("on")) { menu.classList.add("closing")' in PAGE,
+           'sh.classList.add("closing"); setTimeout(() => sh.remove(), 210)' in PAGE,
+           "html.phone #menu.on.closing,#phone .pp-sheet.closing .pp-panel{animation:none;transform:translateY(100%) !important" in PAGE,
+           'if (tdy > 90) { ppOpen = false; ppSheetDraw(); } else panel.style.transform = "";' in PAGE), (True, True, True, True))
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
