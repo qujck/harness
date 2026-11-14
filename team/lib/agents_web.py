@@ -4901,8 +4901,8 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .pp-seg i.qon{background:var(--pq)}
 #phone .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
 #phone .pp-sheet{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end}
-#phone .pp-scrim{position:absolute;inset:0;background:#0009}
-#phone .pp-panel{position:relative;display:flex;flex-direction:column;max-height:92vh;background:var(--box);color:var(--text);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom);transition:transform .12s}
+#phone .pp-scrim{position:absolute;inset:0;background:#0007}
+#phone .pp-panel{position:relative;display:flex;flex-direction:column;max-height:85vh;max-height:85dvh;background:var(--box);color:var(--text);border-radius:20px 20px 0 0;box-shadow:0 -10px 30px #0004;padding-bottom:env(safe-area-inset-bottom);transition:transform .12s;animation:phup .22s cubic-bezier(.2,.8,.2,1)}
 #phone .pp-shead{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:18px 8px 8px 16px;border-bottom:1px solid var(--line2);touch-action:none}
 #phone .pp-grab{position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--faint)}
 #phone .pp-stitle h2{margin:0;font:650 1.35em var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
