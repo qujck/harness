@@ -9554,10 +9554,31 @@ function ppSheetDraw() {
       if (e.target.closest("[data-ppclose]")) { ppOpen = false; ppSheetDraw(); }
       else if (e.target.closest("[data-ppall]")) { ppAll = !ppAll; ppSheetDraw(); }
     });
-    // swiped down by its top: the panel follows the finger and closes past 90px
-    const top = sh.querySelector(".pp-shead"), panel = sh.querySelector(".pp-panel");
+    // Swiped down, the panel follows the finger and closes past 90px. A mouse drags it by its top. A finger drags it
+    // from anywhere once the list is at its top (owner, 2026-11-14: "a finger slide down from anywhere either, scroll to
+    // the top and stop, or when scrolled to the top, slide the sheet down"): a swipe that starts scrolled down only
+    // scrolls, and stops at the top; the next one, starting at the top, moves the sheet.
+    const top = sh.querySelector(".pp-shead"), panel = sh.querySelector(".pp-panel"), body = sh.querySelector(".pp-sbody");
+    let ty0 = 0, tdy = 0, tdrag = false, tfree = false;
+    panel.addEventListener("touchstart", e => {
+      ty0 = e.touches[0].clientY; tdy = 0; tdrag = false;
+      tfree = e.touches.length === 1 && !e.target.closest(".pp-x") && body.scrollTop <= 0;
+    }, {passive: true});
+    panel.addEventListener("touchmove", e => {
+      if (!tfree) return;
+      const dy = e.touches[0].clientY - ty0;
+      if (!tdrag) { if (dy <= 0) { tfree = false; return; } if (dy < 6) return; tdrag = true; panel.style.transition = "none"; }
+      e.preventDefault();
+      tdy = Math.max(0, dy); panel.style.transform = tdy ? `translateY(${tdy}px)` : "";
+    }, {passive: false});
+    const tend = () => {
+      if (!tdrag) return;
+      tdrag = tfree = false; panel.style.transition = ""; panel.style.transform = "";
+      if (tdy > 90) { ppOpen = false; ppSheetDraw(); }
+    };
+    panel.addEventListener("touchend", tend); panel.addEventListener("touchcancel", tend);
     top.onpointerdown = e => {
-      if (e.target.closest(".pp-x")) return;
+      if (e.pointerType === "touch" || e.target.closest(".pp-x")) return;
       const y0 = e.clientY; let dy = 0; top.setPointerCapture(e.pointerId);
       top.onpointermove = ev => { dy = Math.max(0, ev.clientY - y0); panel.style.transform = dy ? `translateY(${dy}px)` : ""; };
       top.onpointerup = top.onpointercancel = () => { top.onpointermove = top.onpointerup = top.onpointercancel = null; panel.style.transform = ""; if (dy > 90) { ppOpen = false; ppSheetDraw(); } };
@@ -10856,6 +10877,8 @@ def self_test():
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
+        t("  the Pipeline sheet moves under a finger from anywhere only when its list starts at the top",
+          ('tfree = e.touches.length === 1 && !e.target.closest(".pp-x") && body.scrollTop <= 0;' in PAGE, "}, {passive: false});" in PAGE), (True, True))
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
