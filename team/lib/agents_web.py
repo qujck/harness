@@ -1381,6 +1381,20 @@ def perf_json():
 #   icon                one of the page's bar icons, shown in place of the label, which stays in its title: week, day,
 #                       disk, cpu, mem, net, gpu, tok, heat or fan
 #   place               "header" or "footer": the only one of the two it can be put in (else either)
+#   pipe                work on its way to done, drawn by the phone Dashboard as a Pipeline tile and its sheet (at most
+#                       100 kB). The page knows no tracker or code host: a project's own plug-in fills it from GitHub,
+#                       Jira, Bitbucket or another. Every field is optional; text is shown as given, links only if https.
+#       stages          [{"key", "name", "note", "queue"}], in order towards done; the one with queue true is the
+#                       queue the tile lists (its items ordered by place)
+#       tickets         [{"stage", "id" ("#6449", "PROJ-12"), "ref" ("PR 12321"), "title", "who" (an agent's name, for
+#                       its portrait), "href", "place" (in the queue: 0 running, then 1, 2 ...), "state" {"text"} (the
+#                       queue row's word: "CI 6m", "next"), "short" (its name on the half tile: "12321"), "fail" (its run failed), "back" (it went back a stage), "stuck"
+#                       (days in its stage), "tags" [{"text", "tone"}]}]; a tone is blue, green, amber, red or grey
+#       waiting         [{"who", "text" ("to approve #6452"), "href", "tag" {"text", "tone"}}], in the order to show
+#       merged          [{"at", "who", "title", "id", "href"}] newest first, and merged_n their count; merged_word
+#                       ("merged today") and merged_title ("Merged today") name them
+#       warnings        [{"text", "href"}], each a row above the merges and counted in the tile's footer
+#       updated, last   when it was read ("HH:MMZ"), and the last one done ("merge 11:52Z", shown after "Last")
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
 # the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
 SHIPPED_BAR = os.path.join(ROOT, "team", "bar")
@@ -1440,6 +1454,9 @@ def plug_item(j, name):
         item["icon"] = j["icon"]
     if j.get("place") in ("header", "footer"):
         item["place"] = j["place"]
+    # a pipeline in full, for the phone Dashboard's Pipeline tile and its sheet; the page escapes every field it draws
+    if isinstance(j.get("pipe"), dict) and len(json.dumps(j["pipe"])) <= 100000:
+        item["pipe"] = j["pipe"]
     return item
 
 
@@ -4818,6 +4835,95 @@ html.phone #menu .mpor:hover img{transform:none;box-shadow:none}
 #phone .ph-dash .dedit button:disabled{opacity:.35;cursor:default}
 #phone .ph-dash .dadd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
 #phone .ph-dash .dadd span{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;margin-right:2px}
+/* the Pipeline tile and its sheet: blue is the queue, amber something gone back or stuck, red a failed run */
+#phone{--pq:#7aa2ff;--pqbg:#7aa2ff24;--pw:#f0b429;--pwbg:#f0b42924;--pr:#ff7b72;--prbg:#ff7b7224;--pg:#56d364;--pgbg:#56d36420;--pn:#6e7681}
+:root.light #phone{--pq:#1d4ed8;--pqbg:#e8eefc;--pw:#8a4b00;--pwbg:#fdf0c4;--pr:#b42318;--prbg:#fbe9e9;--pg:#1a7f37;--pgbg:#e6f4ea;--pn:#8c959f}
+#phone .ph-dash .dtile.pipe{display:block;padding:0;overflow:hidden}
+#phone .pp-hit{display:block;width:100%;padding:12px 12px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+#phone .pp-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
+#phone .pp-m{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
+#phone .pp-m b{color:var(--pg);font:650 1.25em var(--mono)}
+#phone .pp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+#phone .pp-c{display:block;min-width:0;padding:6px 6px 8px;border-radius:8px}
+#phone .pp-c .n{display:block;font:650 1.3em var(--mono);color:var(--text);white-space:nowrap}
+#phone .pp-c .n small{font:650 .62em var(--sans);color:var(--pw);margin-left:3px}
+#phone .pp-c .l{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .pp-c .bar{display:block;height:3px;border-radius:2px;margin-top:6px;background:var(--pn)}
+#phone .pp-c.z .n{color:var(--mute)}
+#phone .pp-c.z .bar{background:var(--track)}
+#phone .pp-c.warn .bar{background:var(--pw)}
+#phone .pp-c.qon{background:var(--pqbg)}
+#phone .pp-c.qon .n,#phone .pp-c.qon .l{color:var(--pq)}
+#phone .pp-c.qon .bar{background:var(--pq)}
+#phone .pp-sec{border-top:1px solid var(--line2);padding:8px 12px}
+#phone .pp-sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--mute);font-size:11px}
+#phone .pp-sh b{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+#phone .pp-sh em{font:650 1.15em var(--mono);color:var(--pq);margin-left:4px}
+#phone .pp-sh em.g{color:var(--pg)}
+#phone .pp-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;color:var(--text);text-decoration:none}
+#phone .pp-row.fail{background:var(--prbg);margin:0 -12px;padding:4px 12px}
+#phone .pp-mid{flex:1;min-width:0}
+#phone .pp-mid .id{font:650 .92em var(--mono);color:var(--pq)}
+#phone .pp-mid .id span{color:var(--mute);font-weight:400}
+#phone .pp-mid .tt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .pp-end{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;font:650 .85em var(--mono);color:var(--mute)}
+#phone .pp-end.run{color:var(--pq)}
+#phone .pp-end.fail{color:var(--pr)}
+#phone .pp-b{display:grid;place-items:center;flex:none;width:30px;height:30px;box-sizing:border-box;border-radius:50%;font:650 13px var(--sans)}
+#phone .pp-b.run{background:var(--pq);color:var(--card1)}
+#phone .pp-b.q{border:2px solid var(--pq);color:var(--pq)}
+#phone .pp-b.fail{background:var(--pr);color:#fff}
+#phone .pp-b.back{background:var(--pwbg);color:var(--pw)}
+#phone .pp-b.st{background:var(--track);color:var(--mute)}
+#phone .ph-por.pp{width:28px;height:28px}
+#phone .ph-por.pp > .fr{border-radius:50%;border-width:2px}
+#phone .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
+#phone .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
+#phone .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
+#phone .pp-tag.red{background:var(--prbg);color:var(--pr)}
+#phone .pp-tag.green{background:var(--pgbg);color:var(--pg)}
+#phone .pp-tag.blue{background:var(--pqbg);color:var(--pq)}
+#phone .pp-empty{color:var(--mute);padding:10px 0}
+#phone .pp-mute{color:var(--mute)}
+#phone .pp-blue{color:var(--pq)}
+#phone .pp-red{color:var(--pr)}
+#phone .pp-warn-t{color:var(--pw);font-weight:650}
+#phone .pp-dot::before{content:"● "}
+#phone .pp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line2);padding:8px 12px;color:var(--mute);font-size:11px}
+#phone .pp-half .pp-hrow{display:flex;align-items:center;gap:8px;margin-top:6px;font:650 1em var(--mono)}
+#phone .pp-half .pp-hrow small{font-weight:400;color:var(--mute);white-space:nowrap}
+#phone .pp-half .pp-hrow > span:not(.pp-b){min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .pp-half .pp-b{width:24px;height:24px;font-size:11px}
+#phone .pp-seg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px}
+#phone .pp-seg i{height:4px;border-radius:2px;background:var(--pn)}
+#phone .pp-seg i.z{background:var(--track)}
+#phone .pp-seg i.warn{background:var(--pw)}
+#phone .pp-seg i.qon{background:var(--pq)}
+#phone .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
+#phone .pp-sheet{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end}
+#phone .pp-scrim{position:absolute;inset:0;background:#0009}
+#phone .pp-panel{position:relative;display:flex;flex-direction:column;max-height:92vh;background:var(--box);color:var(--text);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom);transition:transform .12s}
+#phone .pp-shead{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:18px 8px 8px 16px;border-bottom:1px solid var(--line2);touch-action:none}
+#phone .pp-grab{position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--faint)}
+#phone .pp-stitle h2{margin:0;font:650 1.35em var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
+#phone .pp-stitle small{color:var(--mute)}
+#phone .pp-x{display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:var(--text);cursor:pointer}
+#phone .pp-sbody{overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px}
+#phone .pp-ss{padding-top:10px;border-top:1px solid var(--line2)}
+#phone .pp-ss:first-child{border-top:0}
+#phone .pp-card{display:flex;gap:10px;min-height:44px;padding:10px 0;color:var(--text);text-decoration:none}
+#phone .pp-card + .pp-card{border-top:1px solid var(--line)}
+#phone .pp-ctop{display:flex;align-items:center;gap:8px}
+#phone .pp-who{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mute);font-size:.9em;white-space:nowrap}
+#phone .pp-who .ph-por.pp,#phone .pp-who .pp-ini{width:22px;height:22px;font-size:9px}
+#phone .pp-card .tt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;white-space:normal}
+#phone .pp-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+#phone .pp-warnrow{display:flex;gap:8px;align-items:center;min-height:44px;box-sizing:border-box;padding:8px 12px;margin:6px 0;border-radius:10px;background:var(--pwbg);color:var(--pw);text-decoration:none}
+#phone .pp-mrow{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px solid var(--line);color:var(--text);text-decoration:none}
+#phone .pp-mrow time{font:400 .9em var(--mono);color:var(--mute)}
+#phone .pp-mrow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone .pp-mrow .ref{color:var(--mute);font:.85em var(--mono)}
+#phone .pp-all{width:100%;height:44px;margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:none;color:var(--text);font:650 1em var(--sans);cursor:pointer}
 #phsheet .tbhead{display:flex;align-items:center;gap:6px}
 #phsheet .tbhead h2{margin:0}
 #phsheet .tbback{display:grid;place-items:center;width:34px;height:34px;margin-left:-8px;border:0;background:none;color:var(--text);cursor:pointer}
@@ -5980,7 +6086,7 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
-const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", pipeline: "Pipeline", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
   controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help", search: "Search"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
@@ -6126,7 +6232,7 @@ function placeBar() {
 // its items do not fit, the least wanted goes, one at a time, into the » at its right end, whose panel shows them under
 // it; the Add button stays. BAR_SHED is the order they go in; a plug-in not named in it goes before any that is, and the
 // logo, the padlock and Waiting never go. The items are put back where they belong before every placement and measured again.
-const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "pipeline", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
+const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
 let barMoreOpen = false;
 function unfitHeader() {
   const h = $("header"), more = h.querySelector(":scope > .barmore");
@@ -6186,13 +6292,12 @@ document.addEventListener("click", e => {
 });
 // Each item's group in the sheet's Add, and what it shows: the words of its tooltip where it has one that says so
 const BAR_GROUPS = [["Team controls", ["controls"]], ["Usage", ["week", "weekbar", "session", "team", "tokbar", "day", "dayfull"]],
-  ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active", "pipeline"]],
+  ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active"]],
   ["Layout", ["view", "viewbar", "lanes", "search", "theme", "settings", "help", "new:div", "new:gap"]]];
 const BAR_TIP = {brand: "The logo: it flashes while an agent waits, and a click opens the one waiting longest", lock: "Locks and unlocks the panes and the bars",
   week: "The account's week against the budget (agents-budget)", weekbar: "How much of the account's weekly allowance is used; the mark is where the plan has it by now",
   session: "The account's five-hour session", team: "Tokens a minute, every running agent together", tokbar: "The tokens a minute every running agent is using together, over the last while",
   day: "How far through the working week it is", dayfull: "How far through the working week it is, over a full-width meter",
-  pipeline: "Where the tickets in flight are on their way to main: claimed, PR, signed off, approved, queued for the runner, merged today; click a stage for its tickets",
   disk: "The space free on the disk the agents work on", diskbar: "How full the disk the agents work on is",
   cpubar: "How busy the machine's processors are", membar: "How much of the machine's memory is in use",
   netbar: "The machine's network traffic; the meter is its busiest connection against that connection's top speed",
@@ -9351,12 +9456,114 @@ function phDash() {
   let mine; try { mine = JSON.parse(localStorage.getItem("phonedash")); } catch (e) {}
   const have = phDashItems().map(x => x.key);
   if (Array.isArray(mine)) return mine.filter(t => t && have.includes(t.k)).map(t => ({k: t.k, w: t.w === 2 ? 2 : 1}));
-  return barOf().head.filter(k => have.includes(k)).map(k => ({k, w: 1}));
+  return barOf().head.filter(k => have.includes(k)).map(k => ({k, w: phDashItems().find(x => x.key === k)?.pipe ? 2 : 1}));
 }
+// The Pipeline tile (owner's design, 2026-11-14): full width, a strip of the stages, the queue and who the work waits
+// on; half width, the running and next item and a stage bar. Its top, or the half tile, opens the sheet: every item in
+// flight, nearest to done first, and today's merges. Its data is any plug-in's "pipe" (the contract above
+// plug_item): the page knows no tracker or code host, so a project's own plug-in fills it from GitHub, Jira or another.
+const PP_TONES = ["blue", "green", "amber", "red", "grey"];
+const PP_CHEV = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
+let ppOpen = false, ppAll = false;
+const ppData = () => plugs().find(x => x.pipe && !x.hidden)?.pipe;
+const ppAgent = n => n && (S.agents.find(a => a.name === n) || (S.bench || []).find(a => a.name === n));
+const ppFace = n => { const a = ppAgent(n); return a ? phPor({...a, live: undefined}, " pp") : `<span class="pp-ini" aria-hidden="true">${esc(String(shown(n || "?") || "?").slice(0, 2).toUpperCase())}</span>`; };
+const ppA = (href, cls, label, inner) => /^https:\/\//.test(href || "") ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}">${inner}</a>` : `<div class="${cls}" aria-label="${esc(label)}">${inner}</div>`;
+const ppTag = g => g && g.text ? `<span class="pp-tag ${PP_TONES.includes(g.tone) ? g.tone : "grey"}">${esc(g.text)}</span>` : "";
+const ppQueue = p => (p.stages || []).find(s => s.queue)?.key;
+const ppBadge = (t, p) => t.fail ? `<span class="pp-b fail" aria-hidden="true">✕</span>`
+  : t.stage === ppQueue(p) && t.place === 0 ? `<span class="pp-b run" aria-hidden="true">▶</span>`
+  : t.stage === ppQueue(p) ? `<span class="pp-b q" aria-hidden="true">${esc(t.place)}</span>`
+  : t.back ? `<span class="pp-b back" aria-hidden="true">↩</span>`
+  : `<span class="pp-b st" aria-hidden="true">${(p.stages || []).findIndex(s => s.key === t.stage) + 1}</span>`;
+const ppIdLine = t => `<span class="id">${esc(t.ref || "")}${t.ref && t.id ? " <span>· " : t.id ? "<span>" : ""}${t.id ? esc(t.id) + "</span>" : ""}</span>`;
+function ppCells(p) {
+  const ts = p.tickets || [];
+  return (p.stages || []).map(s => {
+    const at = ts.filter(t => t.stage === s.key), back = at.filter(t => t.back).length, stuck = Math.max(0, ...at.map(t => +t.stuck || 0));
+    return {...s, n: at.length, back, stuck, cls: !at.length ? " z" : s.queue ? " qon" : back || stuck ? " warn" : ""};
+  });
+}
+function ppTile(p, wide) {
+  const ts = p.tickets || [], qk = ppQueue(p), q = ts.filter(t => t.stage === qk).sort((a, b) => a.place - b.place), cells = ppCells(p);
+  const waits = p.waiting || [], backs = ts.filter(t => t.back).length, n = ts.length;
+  if (!wide) {
+    const run = q.find(t => t.place === 0 || t.fail), next = q.find(t => t !== run);
+    return `<button class="pp-hit pp-half" data-pipesheet aria-label="${esc(`Pipeline: ${n} in flight, ${p.merged_n || 0} done today. Open the list`)}">` +
+      `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m"><b>${+p.merged_n || 0}</b>✓</span></span>` +
+      (run ? `<span class="pp-hrow">${ppBadge(run, p)}<span class="${run.fail ? "pp-red" : "pp-blue"}">${esc(run.short || run.ref || run.id)}</span><small>${esc(run.state?.text || "")}</small></span>` : "") +
+      (next ? `<span class="pp-hrow">${ppBadge(next, p)}<span>${esc(next.short || next.ref || next.id)}</span></span>` : "") +
+      (q.length ? "" : `<span class="pp-hrow pp-mute">Queue empty</span>`) +
+      `<span class="pp-seg" style="grid-template-columns:repeat(${cells.length || 1},1fr)">${cells.map(c => `<i class="${c.cls}"></i>`).join("")}</span>` +
+      `<span class="pp-hsum">${waits.length} waiting${backs ? ` · <b class="pp-warn-t">${backs} gone back</b>` : ""}</span></button>`;
+  }
+  const strip = cells.map(c => `<span class="pp-c${c.cls}"><span class="n">${c.n}${c.back ? `<small>↩${c.back}</small>` : ""}${c.stuck ? `<small>${c.stuck}d</small>` : ""}</span><span class="l">${esc(c.name)}</span><span class="bar"></span></span>`).join("");
+  const fail = q.some(t => t.fail), running = q.filter(t => t.place === 0 && !t.fail).length;
+  const qname = (p.stages || []).find(s => s.queue)?.name || "Queue";
+  const qsum = fail ? "failed" : !q.length ? "empty" : `${running} running · ${q.length - running} waiting`;
+  const qrows = q.map(t => ppA(t.href, `pp-row${t.fail ? " fail" : ""}`, `${t.ref || ""} ${t.id || ""}, ${t.title}, ${shown(t.who) || "nobody"}, ${t.state?.text || ""}`,
+    `${ppBadge(t, p)}<span class="pp-mid">${ppIdLine(t)}<span class="tt">${esc(t.title)}</span></span>` +
+    `<span class="pp-end ${t.fail ? "fail" : t.place === 0 ? "run" : ""}">${ppFace(t.who)}<span>${esc(t.state?.text || "")}</span></span>`)).join("");
+  const wrows = waits.map(w => ppA(w.href, "pp-row", `${shown(w.who) || "Someone"} ${w.text}${w.tag?.text ? ", " + w.tag.text : ""}`,
+    `${ppFace(w.who)}<span class="pp-mid"><span class="tt"><b>${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}`)).join("");
+  const warn = (p.warnings || []).length;
+  return `<button class="pp-hit" data-pipesheet aria-label="${esc(`Pipeline: ${n} in flight, ${p.merged_n || 0} done today. Open the list`)}">` +
+    `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m"><b>${+p.merged_n || 0}</b> ${esc(p.merged_word || "merged today")}${PP_CHEV}</span></span><span class="pp-strip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${strip}</span></button>` +
+    `<div class="pp-sec"><div class="pp-sh"><b>${esc(qname)}</b><span>${esc(qsum)}</span></div>${qrows || `<div class="pp-empty">Nothing queued</div>`}</div>` +
+    `<div class="pp-sec"><div class="pp-sh"><b>Waiting on</b></div>${wrows || `<div class="pp-empty">Nobody · everything is moving</div>`}</div>` +
+    `<div class="pp-foot"><span>${p.last ? `Last ${esc(p.last)} · ` : ""}${esc(p.updated || "")}</span>${warn ? `<span class="pp-warn-t pp-dot">${warn} to check</span>` : ""}</div>`;
+}
+function ppSheetHtml(p) {
+  const ts = p.tickets || [], qk = ppQueue(p);
+  const card = t => ppA(t.href, "pp-card", `${t.ref || ""} ${t.id || ""}, ${t.title}, ${shown(t.who) || "nobody"}`,
+    `${ppBadge(t, p)}<span class="pp-mid"><span class="pp-ctop">${ppIdLine(t)}<span class="pp-who">${t.who ? ppFace(t.who) + esc(shown(t.who)) : ""}</span></span>` +
+    `<span class="tt">${esc(t.title)}</span><span class="pp-tags">${(t.tags || []).map(ppTag).join("")}</span></span>`);
+  const secs = [...(p.stages || [])].reverse().map(s => {
+    const at = ts.filter(t => t.stage === s.key).sort((a, b) => s.key === qk ? a.place - b.place : 0);
+    return at.length ? `<section class="pp-ss"><div class="pp-sh"><b>${esc(s.name)} <em>${at.length}</em></b><span>${esc(s.note || "")}</span></div>${at.map(card).join("")}</section>` : "";
+  }).join("");
+  const ms = p.merged || [], few = ppAll ? ms : ms.slice(0, 5);
+  const warn = (p.warnings || []).map(w => ppA(w.href, "pp-warnrow", w.text, `<span aria-hidden="true">⚠</span><span>${esc(w.text)}</span>`)).join("");
+  const mrows = few.map(m => ppA(m.href, "pp-mrow", `${m.title}, ${m.at}`,
+    `<time>${esc(m.at)}</time>${ppFace(m.who)}<span class="tt">${esc(m.title)}</span><span class="ref">${esc(m.id || "")}</span>`)).join("");
+  return (secs || `<div class="pp-empty">Nothing in flight</div>`) +
+    `<section class="pp-ss"><div class="pp-sh"><b>${esc(p.merged_title || "Merged today")} <em class="g">${+p.merged_n || 0}</em></b><span>newest first</span></div>${warn}${mrows}` +
+    (ms.length > 5 ? `<button class="pp-all" data-ppall>${ppAll ? "Show the latest 5" : `Show all ${ms.length}`}</button>` : "") + `</section>`;
+}
+// The sheet sits in #phone, outside the tab's body, so a redraw of the Dashboard leaves it open; each redraw refills it.
+function ppSheetDraw() {
+  const ph = $("#phone"), p = ppData();
+  let sh = ph && ph.querySelector(":scope > .pp-sheet");
+  if (!ppOpen || !p || !ph) { if (sh) sh.remove(); return; }
+  if (!sh) {
+    sh = document.createElement("div"); sh.className = "pp-sheet";
+    sh.innerHTML = `<div class="pp-scrim" data-ppclose></div><div class="pp-panel" role="dialog" aria-modal="true" aria-labelledby="pp-title">` +
+      `<div class="pp-shead"><span class="pp-grab" aria-hidden="true"></span><div class="pp-stitle"><h2 id="pp-title">Pipeline</h2><small></small></div>` +
+      `<button class="pp-x" data-ppclose aria-label="Close" title="Close">${PH_CROSS}</button></div><div class="pp-sbody"></div></div>`;
+    ph.appendChild(sh);
+    sh.addEventListener("click", e => {
+      if (e.target.closest("[data-ppclose]")) { ppOpen = false; ppSheetDraw(); }
+      else if (e.target.closest("[data-ppall]")) { ppAll = !ppAll; ppSheetDraw(); }
+    });
+    // swiped down by its top: the panel follows the finger and closes past 90px
+    const top = sh.querySelector(".pp-shead"), panel = sh.querySelector(".pp-panel");
+    top.onpointerdown = e => {
+      if (e.target.closest(".pp-x")) return;
+      const y0 = e.clientY; let dy = 0; top.setPointerCapture(e.pointerId);
+      top.onpointermove = ev => { dy = Math.max(0, ev.clientY - y0); panel.style.transform = dy ? `translateY(${dy}px)` : ""; };
+      top.onpointerup = top.onpointercancel = () => { top.onpointermove = top.onpointerup = top.onpointercancel = null; panel.style.transform = ""; if (dy > 90) { ppOpen = false; ppSheetDraw(); } };
+    };
+    sh.querySelector(".pp-x").focus({preventScroll: true});
+  }
+  sh.querySelector(".pp-stitle small").textContent = `${(p.tickets || []).length} in flight · ${+p.merged_n || 0} ${p.merged_word || "merged today"} · updated ${p.updated || ""}`;
+  patch(sh.querySelector(".pp-sbody"), ppSheetHtml(p));
+}
+document.addEventListener("keydown", e => { if (ppOpen && e.key === "Escape") { e.preventDefault(); ppOpen = false; ppSheetDraw(); } });
 const phDashSave = d => localStorage.setItem("phonedash", JSON.stringify(d));
 function phDashHtml() {
   const d = phDash(), by = Object.fromEntries(phDashItems().map(x => [x.key, x]));
   const tile = (t, i) => {
+    if (!phDashEdit && by[t.k]?.pipe) return `<div class="dtile pipe${t.w === 2 ? " wide" : ""}" data-k="${esc(t.k)}">${ppTile(by[t.k].pipe, t.w === 2)}</div>`;
     const x = by[t.k], m = !x.own && x.meter, parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
     const val = parts.map(p => `<${p.bold ? "b" : "span"} style="color:${plugColour(p.colour || (x.parts ? "" : x.colour))}">${esc(p.text)}</${p.bold ? "b" : "span"}>`).join("");
     return `<div class="dtile${t.w === 2 ? " wide" : ""}" data-k="${esc(t.k)}" title="${esc(x.title || "")}"><div class="dlab">${phDashEdit ? `<span class="dgrip" aria-label="Drag ${esc(phGaugeName(x))} to move it">${PH_GRIP}</span>${esc(phGaugeName(x))}` : phGaugeLabel(x)}</div>${x.own ? phDashOwn(t.k) : `<div class="dval">${val || "–"}</div>`}` +
@@ -9404,7 +9611,7 @@ function phDashAct(go) {
   if (what === "edit") phDashEdit = !phDashEdit;
   else if (what === "wide") d[i].w = d[i].w === 2 ? 1 : 2;
   else if (what === "out") d.splice(i, 1);
-  else if (what === "add") d.push({k: arg, w: 1});
+  else if (what === "add") d.push({k: arg, w: phDashItems().find(x => x.key === arg)?.pipe ? 2 : 1});   // a Pipeline tile is drawn for full width first
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
@@ -9690,6 +9897,7 @@ function phoneDraw() {
     ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     const body = ph.querySelector(".ph-body");
     body.addEventListener("click", e => {
+      if (e.target.closest("[data-pipesheet]")) { ppOpen = true; try { ppSheetDraw(); } catch (err) { phError(err); } return; }
       const dash = e.target.closest("[data-dash]");
       if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
       if (body.dataset.tab === "tokens" && phTokAct(e.target)) return;
@@ -9763,7 +9971,7 @@ function phoneDraw() {
     phLoad(tab);
   }
   else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "machine", machine: "dials", phone: true, open: phPerfOpen?.name})}</div>`); phLoad(tab); }
-  else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } }
+  else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } ppSheetDraw(); }
   else if (tab === "team") {
     const n = phTeamNode();
     phKeepChips(body, () => patch(body, `<div class="ph-pane ph-team">${phRoleChips(n.roles, !n.roles.length)}${teamHtml("phone", n, true, false)}</div>`));
@@ -11109,47 +11317,14 @@ def self_test():
                                "z": {"rows": [{"text": "unnamed"}]}}}, "n")["lists"],
           {"a": {"head": "H", "rows": [{"text": "r", "sub": "s", "href": ""}, {"text": "q", "sub": "", "href": "https://x.test/1"}] + [{"text": "", "sub": "", "href": ""}] * 28}})
         t("  and with no part naming one there are no lists", "lists" in plug_item({"value": ["a"], "lists": {"a": {"rows": []}}}, "n"), False)
-        fb = os.path.join(T, "pipebin")   # team/bar/pipeline against a fake gh and a fake ledger
-        os.makedirs(fb, exist_ok=True)
-        h40 = lambda c: c * 40
-        prs = [{"number": 11, "isDraft": True, "headRefName": "t_draft-pt1", "headRefOid": h40("a"), "autoMergeRequest": None, "title": "x"},
-               {"number": 12, "isDraft": True, "headRefName": "t_signed_old-pt1", "headRefOid": h40("b"), "autoMergeRequest": None, "title": "x"},
-               {"number": 13, "isDraft": True, "headRefName": "t_approved-pt2", "headRefOid": h40("c"), "autoMergeRequest": None, "title": "x"},
-               {"number": 14, "isDraft": False, "headRefName": "t_q_waiting-pt1", "headRefOid": h40("d"), "autoMergeRequest": {}, "title": "x"},
-               {"number": 15, "isDraft": False, "headRefName": "t_q_running-pt1", "headRefOid": h40("e"), "autoMergeRequest": {}, "title": "x"}]
-        runs = {"workflow_runs": [{"name": "ci", "event": "pull_request", "head_sha": h40("e"), "status": "in_progress", "created_at": "2026-01-01T10:05:00Z"},
-                                  {"name": "ci", "event": "pull_request", "head_sha": h40("d"), "status": "queued", "created_at": "2026-01-01T10:00:00Z"}]}
-        merged = [{"number": 9, "headRefName": "t_done-pt1", "title": "Done PR", "mergedAt": "2026-01-01T09:00:00Z"}]
-        for n, v in (("prs", prs), ("runs", runs), ("merged", merged)):
-            with open(os.path.join(fb, n + ".json"), "w") as fh:
-                json.dump(v, fh)
-        with open(os.path.join(fb, "gh"), "w") as fh:
-            fh.write(f'#!/bin/sh\n[ -e {fb}/gh-fails ] && {{ echo "gh: down" >&2; exit 1; }}\n'
-                     f'case "$*" in *"--state open"*) cat {fb}/prs.json;; *"--state merged"*) cat {fb}/merged.json;; api*) cat {fb}/runs.json;; esac\n')
-        with open(os.path.join(fb, "ledger"), "w") as fh:
-            fh.write("#!/bin/sh\necho \"$*\" > " + fb + "/ledger-args\ncat <<'X'\n"
-                     "T|t_claimed|101|501|Ada|in_progress|Claimed one\nT|fx_fixture|102||Vera|in_progress|fixture\n"
-                     "T|t_draft|103||Bo|in_progress|Draft one\nT|t_signed_old|104||Cy|in_progress|Signed at an old commit\n"
-                     "T|t_approved|105||Di|in_progress|Approved | with a bar\nT|t_done|99||Ed|archived|Done ticket\n"
-                     f"V|t_approved|{h40('c')}|sign-off|Tess|\nV|t_approved|{h40('c')}|approval|Rev|13|\nV|t_signed_old|{h40('f')}|sign-off|Old|\nX\n")
-        for f in ("gh", "ledger"):
-            os.chmod(os.path.join(fb, f), 0o755)
-        pipe = lambda **env: subprocess.run([os.path.join(bar, "pipeline")], input="{}", capture_output=True, text=True,
-                                            env={**os.environ, "PATH": fb + ":" + os.environ["PATH"], "AGENTS_DASH_LEDGER": os.path.join(fb, "ledger"), **env})
-        pj = json.loads(pipe(AGENTS_PR_REPO="o/r").stdout)
-        t("team/bar/pipeline: each stage counted, the queue running-first then by when its CI queued",
-          "".join(p["text"] for p in pj["value"]), "Claimed 1 › PR 2 › Signed 0 › Approved 1 › Queue ▶15 ①14 › Merged 1")
-        t("  a stage's list names the ticket by its number, and its PR, who holds it and who signed",
-          [(r["text"], r["sub"], r["href"]) for r in pj["lists"]["approved"]["rows"] + pj["lists"]["claimed"]["rows"] + pj["lists"]["merged"]["rows"]],
-          [("#105 Approved | with a bar", "PR 13 (draft) · Di · Tess ✓ Rev ✓", "https://github.com/o/r/pull/13"),
-           ("#101 Claimed one", "Ada", "https://github.com/o/r/issues/501"), ("#99 Done ticket", "PR 9 · merged 09:00Z", "https://github.com/o/r/pull/9")])
-        t("  a verdict counts only at the PR's head commit, and the ledger is asked for each PR's ticket and head",
-          ([r["sub"] for r in pj["lists"]["pr"]["rows"]], sorted(open(os.path.join(fb, "ledger-args")).read().split()[1:])),
-          (["PR 11 (draft) · Bo", "PR 12 (draft) · Cy"], sorted([h40(c) for c in "abcde"] + ["t_approved", "t_done", "t_draft", "t_q_running", "t_q_waiting", "t_signed_old"])))
-        open(os.path.join(fb, "gh-fails"), "w").close()
-        bad = pipe(AGENTS_PR_REPO="o/r")
-        t("  hidden with no PR repo, and a failing gh is a failed run the page shows as ?, saying why",
-          (json.loads(pipe(AGENTS_PR_REPO="").stdout).get("hidden"), bad.returncode, bad.stderr.strip()[-8:]), (True, 1, "gh: down"))
+        # a pipeline for the phone's Pipeline tile is the plug-in's own (no tracker or host is the page's): kept whole, within a size
+        pd = {"stages": [{"key": "dev", "name": "Dev"}, {"key": "q", "name": "Queue", "queue": True}],
+              "tickets": [{"stage": "q", "id": "PROJ-1", "title": "T", "href": "https://x.test/1", "place": 0}]}
+        t("a plug-in's pipe is kept whole for the phone tile, from any plug-in; one over 100 kB, or not an object, is dropped",
+          (plug_item({"value": "v", "pipe": pd}, "anything").get("pipe"), "pipe" in plug_item({"pipe": {"x": "y" * 100001}}, "n"),
+           "pipe" in plug_item({"pipe": ["a"]}, "n")), (pd, False, False))
+        t("  the page draws it with no code host's words or links of its own: they come with the data",
+          [w for w in ("github.com", "PR ", "ledger") if w in PAGE[PAGE.index("// The Pipeline tile"):PAGE.index("function ppSheetDraw")]], [])
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
         hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one

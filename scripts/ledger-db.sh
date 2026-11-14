@@ -2633,11 +2633,16 @@ case "${1:-}" in
               if [[ "$_pl_a" =~ ^[0-9a-f]{40}$ ]]; then _pl_shas+="${_pl_shas:+,}$(_sql_lit "$_pl_a")"
               else _pl_ids+="${_pl_ids:+,}$(_sql_lit "$_pl_a")"; fi
             done
-            _as_me "select 'T', id, coalesce(ref::text,''), coalesce(issue::text,''), coalesce(claimed_by,''), status, replace(title, E'\n', ' ')
-                      from ledger.v_ticket_detail where status = 'in_progress' ${_pl_ids:+or id in ($_pl_ids)}
+            # T: a ticket, its claim's time before its title (which can hold a |); V: a live verdict at a head commit
+            # named, or on a ticket named at any commit (an older one is how a push that undid it is seen), with its time
+            _as_me "select 'T', d.id, coalesce(d.ref::text,''), coalesce(d.issue::text,''), coalesce(d.claimed_by,''), d.status,
+                           coalesce((select to_char(max(c.claimed_at) at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from ledger.v_claims c where c.id = d.id), ''),
+                           replace(d.title, E'\n', ' ')
+                      from ledger.v_ticket_detail d where d.status = 'in_progress' ${_pl_ids:+or d.id in ($_pl_ids)}
                     union all
-                    select 'V', ticket_id, sha, kind, coalesce(by_agent,''), coalesce(pr::text,''), ''
-                      from ledger.v_verdict where live and sha in (${_pl_shas:-null})" ;;
+                    select 'V', ticket_id, sha, kind, coalesce(by_agent,''), coalesce(pr::text,''),
+                           coalesce(to_char(at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), ''), ''
+                      from ledger.v_verdict where live and (sha in (${_pl_shas:-null}) or ticket_id in (${_pl_ids:-null}))" ;;
   ticket-row) shift
             _tr_id="${1-}"
             if [[ -z "$_tr_id" ]]; then
