@@ -4892,70 +4892,83 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 #phone .ph-dash .dadd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
 #phone .ph-dash .dadd span{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;margin-right:2px}
 /* the Pipeline tile and its sheet: blue is the queue, amber something gone back or stuck, red a failed run */
-#phone{--pq:#7aa2ff;--pqbg:#7aa2ff24;--pw:#f0b429;--pwbg:#f0b42924;--pr:#ff7b72;--prbg:#ff7b7224;--pg:#56d364;--pgbg:#56d36420;--pn:#6e7681}
-:root.light #phone{--pq:#1d4ed8;--pqbg:#e8eefc;--pw:#8a4b00;--pwbg:#fdf0c4;--pr:#b42318;--prbg:#fbe9e9;--pg:#1a7f37;--pgbg:#e6f4ea;--pn:#8c959f}
+#phone,.ppdesk{--pq:#7aa2ff;--pqbg:#7aa2ff24;--pw:#f0b429;--pwbg:#f0b42924;--pr:#ff7b72;--prbg:#ff7b7224;--pg:#56d364;--pgbg:#56d36420;--pn:#6e7681}
+:root.light :is(#phone,.ppdesk){--pq:#1d4ed8;--pqbg:#e8eefc;--pw:#8a4b00;--pwbg:#fdf0c4;--pr:#b42318;--prbg:#fbe9e9;--pg:#1a7f37;--pgbg:#e6f4ea;--pn:#8c959f}
 #phone .ph-dash .dtile.pipe{display:block;padding:0;overflow:hidden}
-#phone .pp-hit{display:block;width:100%;padding:12px 12px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-#phone .pp-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
-#phone .pp-m{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
-#phone .pp-m b{color:var(--pg);font:650 1.25em var(--mono)}
-#phone .pp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
-#phone .pp-c{display:block;min-width:0;padding:6px 6px 8px;border-radius:8px}
-#phone .pp-c .n{display:block;font:650 1.3em var(--mono);color:var(--text);white-space:nowrap}
-#phone .pp-c .n small{font:650 .62em var(--sans);color:var(--pw);margin-left:3px}
-#phone .pp-c .l{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#phone .pp-c .bar{display:block;height:3px;border-radius:2px;margin-top:6px;background:var(--pn)}
-#phone .pp-c.z .n{color:var(--mute)}
-#phone .pp-c.z .bar{background:var(--track)}
-#phone .pp-c.warn .bar{background:var(--pw)}
-#phone .pp-c.qon{background:var(--pqbg)}
-#phone .pp-c.qon .n,#phone .pp-c.qon .l{color:var(--pq)}
-#phone .pp-c.qon .bar{background:var(--pq)}
-#phone .pp-sec{border-top:1px solid var(--line2);padding:8px 12px}
-#phone .pp-sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--mute);font-size:11px}
-#phone .pp-sh b{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-#phone .pp-sh em{font:650 1.15em var(--mono);color:var(--pq);margin-left:4px}
-#phone .pp-sh em.g{color:var(--pg)}
-#phone .pp-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;color:var(--text);text-decoration:none}
-#phone .pp-row.fail{background:var(--prbg);margin:0 -12px;padding:4px 12px}
-#phone .pp-mid{flex:1;min-width:0}
-#phone .pp-mid .id{font:650 .92em var(--mono);color:var(--pq)}
-#phone .pp-mid .id span{color:var(--mute);font-weight:400}
-#phone .pp-mid .tt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#phone .pp-end{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;font:650 .85em var(--mono);color:var(--mute)}
-#phone .pp-end.run{color:var(--pq)}
-#phone .pp-end.fail{color:var(--pr)}
-#phone .pp-b{display:grid;place-items:center;flex:none;width:30px;height:30px;box-sizing:border-box;border-radius:50%;font:650 13px var(--sans)}
-#phone .pp-b.run{background:var(--pq);color:var(--card1)}
-#phone .pp-b.q{border:2px solid var(--pq);color:var(--pq)}
-#phone .pp-b.fail{background:var(--pr);color:#fff}
-#phone .pp-b.back{background:var(--pwbg);color:var(--pw)}
-#phone .pp-b.st{background:var(--track);color:var(--mute)}
-#phone .ph-por.pp{width:28px;height:28px}
-#phone .ph-por.pp > .fr{border-radius:50%;border-width:2px}
-#phone .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
-#phone .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
-#phone .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
-#phone .pp-tag.red{background:var(--prbg);color:var(--pr)}
-#phone .pp-tag.green{background:var(--pgbg);color:var(--pg)}
-#phone .pp-tag.blue{background:var(--pqbg);color:var(--pq)}
-#phone .pp-empty{color:var(--mute);padding:10px 0}
-#phone .pp-mute{color:var(--mute)}
-#phone .pp-blue{color:var(--pq)}
-#phone .pp-red{color:var(--pr)}
-#phone .pp-warn-t{color:var(--pw);font-weight:650}
-#phone .pp-dot::before{content:"● "}
-#phone .pp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line2);padding:8px 12px;color:var(--mute);font-size:11px}
-#phone .pp-half .pp-hrow{display:flex;align-items:center;gap:8px;margin-top:6px;font:650 1em var(--mono)}
-#phone .pp-half .pp-hrow small{font-weight:400;color:var(--mute);white-space:nowrap}
-#phone .pp-half .pp-hrow > span:not(.pp-b){min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#phone .pp-half .pp-b{width:24px;height:24px;font-size:11px}
-#phone .pp-seg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px}
-#phone .pp-seg i{height:4px;border-radius:2px;background:var(--pn)}
-#phone .pp-seg i.z{background:var(--track)}
-#phone .pp-seg i.warn{background:var(--pw)}
-#phone .pp-seg i.qon{background:var(--pq)}
-#phone .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
+/* the desktop's Pipeline pane: the phone's tile and its sheet's list side by side, one under the other when narrow */
+.pplog{container-type:inline-size}
+.ppdesk{flex:1;min-height:0;display:grid;grid-template-columns:minmax(300px,2fr) minmax(0,3fr);align-items:start;gap:12px;padding:10px;font-size:14px}
+.ppdesk .pp-dcol{min-width:0;max-height:100%;box-sizing:border-box;border:1px solid var(--line2);border-radius:12px;background:var(--card1);overflow-y:auto}
+@container (max-width:640px){.ppdesk{display:block;overflow-y:auto}.ppdesk .pp-dcol{max-height:none;overflow:visible}.ppdesk .pp-dcol + .pp-dcol{margin-top:12px}}
+.ppdesk .pp-dlist{padding:0 14px 12px}
+.ppdesk .pp-hit{cursor:default}
+.ppdesk .pp-hit svg{display:none}
+.ppdesk .dlab{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.ppdesk .ph-por{position:relative;flex:none;display:block}
+.ppdesk .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
+.ppdesk .ph-por img,.ppdesk .ph-por svg{display:block;width:100%;height:100%;object-fit:cover}
+.ppdesk a.pp-row:hover,.ppdesk a.pp-card:hover,.ppdesk a.pp-mrow:hover{background:var(--track)}
+:is(#phone,.ppdesk) .pp-hit{display:block;width:100%;padding:12px 12px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+:is(#phone,.ppdesk) .pp-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
+:is(#phone,.ppdesk) .pp-m{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk) .pp-m b{color:var(--pg);font:650 1.25em var(--mono)}
+:is(#phone,.ppdesk) .pp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+:is(#phone,.ppdesk) .pp-c{display:block;min-width:0;padding:6px 6px 8px;border-radius:8px}
+:is(#phone,.ppdesk) .pp-c .n{display:block;font:650 1.3em var(--mono);color:var(--text);white-space:nowrap}
+:is(#phone,.ppdesk) .pp-c .n small{font:650 .62em var(--sans);color:var(--pw);margin-left:3px}
+:is(#phone,.ppdesk) .pp-c .l{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk) .pp-c .bar{display:block;height:3px;border-radius:2px;margin-top:6px;background:var(--pn)}
+:is(#phone,.ppdesk) .pp-c.z .n{color:var(--mute)}
+:is(#phone,.ppdesk) .pp-c.z .bar{background:var(--track)}
+:is(#phone,.ppdesk) .pp-c.warn .bar{background:var(--pw)}
+:is(#phone,.ppdesk) .pp-c.qon{background:var(--pqbg)}
+:is(#phone,.ppdesk) .pp-c.qon .n,:is(#phone,.ppdesk) .pp-c.qon .l{color:var(--pq)}
+:is(#phone,.ppdesk) .pp-c.qon .bar{background:var(--pq)}
+:is(#phone,.ppdesk) .pp-sec{border-top:1px solid var(--line2);padding:8px 12px}
+:is(#phone,.ppdesk) .pp-sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--mute);font-size:11px}
+:is(#phone,.ppdesk) .pp-sh b{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+:is(#phone,.ppdesk) .pp-sh em{font:650 1.15em var(--mono);color:var(--pq);margin-left:4px}
+:is(#phone,.ppdesk) .pp-sh em.g{color:var(--pg)}
+:is(#phone,.ppdesk) .pp-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk) .pp-row.fail{background:var(--prbg);margin:0 -12px;padding:4px 12px}
+:is(#phone,.ppdesk) .pp-mid{flex:1;min-width:0}
+:is(#phone,.ppdesk) .pp-mid .id{font:650 .92em var(--mono);color:var(--pq)}
+:is(#phone,.ppdesk) .pp-mid .id span{color:var(--mute);font-weight:400}
+:is(#phone,.ppdesk) .pp-mid .tt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk) .pp-end{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;font:650 .85em var(--mono);color:var(--mute)}
+:is(#phone,.ppdesk) .pp-end.run{color:var(--pq)}
+:is(#phone,.ppdesk) .pp-end.fail{color:var(--pr)}
+:is(#phone,.ppdesk) .pp-b{display:grid;place-items:center;flex:none;width:30px;height:30px;box-sizing:border-box;border-radius:50%;font:650 13px var(--sans)}
+:is(#phone,.ppdesk) .pp-b.run{background:var(--pq);color:var(--card1)}
+:is(#phone,.ppdesk) .pp-b.q{border:2px solid var(--pq);color:var(--pq)}
+:is(#phone,.ppdesk) .pp-b.fail{background:var(--pr);color:#fff}
+:is(#phone,.ppdesk) .pp-b.back{background:var(--pwbg);color:var(--pw)}
+:is(#phone,.ppdesk) .pp-b.st{background:var(--track);color:var(--mute)}
+:is(#phone,.ppdesk) .ph-por.pp{width:28px;height:28px}
+:is(#phone,.ppdesk) .ph-por.pp > .fr{border-radius:50%;border-width:2px}
+:is(#phone,.ppdesk) .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
+:is(#phone,.ppdesk) .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk) .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
+:is(#phone,.ppdesk) .pp-tag.red{background:var(--prbg);color:var(--pr)}
+:is(#phone,.ppdesk) .pp-tag.green{background:var(--pgbg);color:var(--pg)}
+:is(#phone,.ppdesk) .pp-tag.blue{background:var(--pqbg);color:var(--pq)}
+:is(#phone,.ppdesk) .pp-empty{color:var(--mute);padding:10px 0}
+:is(#phone,.ppdesk) .pp-mute{color:var(--mute)}
+:is(#phone,.ppdesk) .pp-blue{color:var(--pq)}
+:is(#phone,.ppdesk) .pp-red{color:var(--pr)}
+:is(#phone,.ppdesk) .pp-warn-t{color:var(--pw);font-weight:650}
+:is(#phone,.ppdesk) .pp-dot::before{content:"● "}
+:is(#phone,.ppdesk) .pp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line2);padding:8px 12px;color:var(--mute);font-size:11px}
+:is(#phone,.ppdesk) .pp-half .pp-hrow{display:flex;align-items:center;gap:8px;margin-top:6px;font:650 1em var(--mono)}
+:is(#phone,.ppdesk) .pp-half .pp-hrow small{font-weight:400;color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk) .pp-half .pp-hrow > span:not(.pp-b){min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk) .pp-half .pp-b{width:24px;height:24px;font-size:11px}
+:is(#phone,.ppdesk) .pp-seg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px}
+:is(#phone,.ppdesk) .pp-seg i{height:4px;border-radius:2px;background:var(--pn)}
+:is(#phone,.ppdesk) .pp-seg i.z{background:var(--track)}
+:is(#phone,.ppdesk) .pp-seg i.warn{background:var(--pw)}
+:is(#phone,.ppdesk) .pp-seg i.qon{background:var(--pq)}
+:is(#phone,.ppdesk) .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
 #phone .pp-sheet{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end}
 #phone .pp-scrim{position:absolute;inset:0;background:#0007}
 #phone .pp-panel{position:relative;display:flex;flex-direction:column;max-height:85vh;max-height:85dvh;background:var(--box);color:var(--text);border-radius:20px 20px 0 0;box-shadow:0 -10px 30px #0004;padding-bottom:env(safe-area-inset-bottom);transition:transform .12s;animation:phup .22s cubic-bezier(.2,.8,.2,1)}
@@ -4963,23 +4976,23 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 #phone .pp-grab{position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--faint)}
 #phone .pp-stitle h2{margin:0;font:650 1.35em var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
 #phone .pp-stitle small{color:var(--mute)}
-#phone .pp-x{display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:var(--text);cursor:pointer}
+:is(#phone,.ppdesk) .pp-x{display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:var(--text);cursor:pointer}
 #phone .pp-sbody{overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px}
-#phone .pp-ss{padding-top:10px;border-top:1px solid var(--line2)}
-#phone .pp-ss:first-child{border-top:0}
-#phone .pp-card{display:flex;gap:10px;min-height:44px;padding:10px 0;color:var(--text);text-decoration:none}
-#phone .pp-card + .pp-card{border-top:1px solid var(--line)}
-#phone .pp-ctop{display:flex;align-items:center;gap:8px}
-#phone .pp-who{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mute);font-size:.9em;white-space:nowrap}
-#phone .pp-who .ph-por.pp,#phone .pp-who .pp-ini{width:22px;height:22px;font-size:9px}
-#phone .pp-card .tt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;white-space:normal}
-#phone .pp-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-#phone .pp-warnrow{display:flex;gap:8px;align-items:center;min-height:44px;box-sizing:border-box;padding:8px 12px;margin:6px 0;border-radius:10px;background:var(--pwbg);color:var(--pw);text-decoration:none}
-#phone .pp-mrow{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px solid var(--line);color:var(--text);text-decoration:none}
-#phone .pp-mrow time{font:400 .9em var(--mono);color:var(--mute)}
-#phone .pp-mrow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#phone .pp-mrow .ref{color:var(--mute);font:.85em var(--mono)}
-#phone .pp-all{width:100%;height:44px;margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:none;color:var(--text);font:650 1em var(--sans);cursor:pointer}
+:is(#phone,.ppdesk) .pp-ss{padding-top:10px;border-top:1px solid var(--line2)}
+:is(#phone,.ppdesk) .pp-ss:first-child{border-top:0}
+:is(#phone,.ppdesk) .pp-card{display:flex;gap:10px;min-height:44px;padding:10px 0;color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk) .pp-card + .pp-card{border-top:1px solid var(--line)}
+:is(#phone,.ppdesk) .pp-ctop{display:flex;align-items:center;gap:8px}
+:is(#phone,.ppdesk) .pp-who{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mute);font-size:.9em;white-space:nowrap}
+:is(#phone,.ppdesk) .pp-who .ph-por.pp,:is(#phone,.ppdesk) .pp-who .pp-ini{width:22px;height:22px;font-size:9px}
+:is(#phone,.ppdesk) .pp-card .tt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;white-space:normal}
+:is(#phone,.ppdesk) .pp-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+:is(#phone,.ppdesk) .pp-warnrow{display:flex;gap:8px;align-items:center;min-height:44px;box-sizing:border-box;padding:8px 12px;margin:6px 0;border-radius:10px;background:var(--pwbg);color:var(--pw);text-decoration:none}
+:is(#phone,.ppdesk) .pp-mrow{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px solid var(--line);color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk) .pp-mrow time{font:400 .9em var(--mono);color:var(--mute)}
+:is(#phone,.ppdesk) .pp-mrow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk) .pp-mrow .ref{color:var(--mute);font:.85em var(--mono)}
+:is(#phone,.ppdesk) .pp-all{width:100%;height:44px;margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:none;color:var(--text);font:650 1em var(--sans);cursor:pointer}
 #phsheet .tbhead{display:flex;align-items:center;gap:6px}
 #phsheet .tbhead h2{margin:0}
 #phsheet .tbback{display:grid;place-items:center;width:34px;height:34px;margin-left:-8px;border:0;background:none;color:var(--text);cursor:pointer}
@@ -6059,13 +6072,13 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", tokens: "Token usage"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", pipeline: "Pipeline", tokens: "Token usage"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
     ["tabs", "One agent at a time, picked from a row"], ["characters", "The agents as portrait tiles"], ["team", "The messages between agents"],
     ["combined", "Several agents' conversations as one feed"]]],
-  ["Work", [["workqueue", "Doing and Done, a box per section"], ["daylog", "What happened, day by day"], ["meeting", "A meeting with the agents invited"],
+  ["Work", [["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["daylog", "What happened, day by day"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
   ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
 ];
@@ -6078,6 +6091,7 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
   combined: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
   workqueue: '<path d="M2.3 4.3l1.3 1.3 2.2-2.4M2.3 10.3l1.3 1.3 2.2-2.4M8 4.5h6M8 10.5h6"/>',
+  pipeline: '<path d="M1.5 5h4l2 3-2 3h-4l2-3zM8.5 5h4l2 3-2 3h-4l2-3z"/>',
   daylog: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
   meeting: '<rect x="4" y="6" width="8" height="4" rx="2"/><circle cx="8" cy="2.8" r="1.3"/><circle cx="8" cy="13.2" r="1.3"/><circle cx="2.2" cy="8" r="1.3"/><circle cx="13.8" cy="8" r="1.3"/>',
   file: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6.2 8.5h4.6M6.2 11h4.6"/>',
@@ -7212,6 +7226,8 @@ function customHtml(ceil, tabRow) {
       body = tokensHtml(path === maxed, n, path);
     } else if (n.show === "workqueue") {
       body = workQueueHtml(path === maxed, n);
+    } else if (n.show === "pipeline") {
+      body = ppPaneHtml();
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -7233,7 +7249,7 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "workqueue", "tokens"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "workqueue", "pipeline", "tokens"].includes(n.show);
     const own = [
       CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
@@ -9601,6 +9617,16 @@ function ppSheetHtml(p) {
     `<section class="pp-ss"><div class="pp-sh"><b>${esc(p.merged_title || "Merged today")} <em class="g">${+p.merged_n || 0}</em></b><span>newest first</span></div>${warn}${mrows}` +
     (ms.length > 5 ? `<button class="pp-all" data-ppall>${ppAll ? "Show the latest 5" : `Show all ${ms.length}`}</button>` : "") + `</section>`;
 }
+// The desktop's Pipeline pane (owner, 2026-11-14: "yes please" to a desktop view): the phone's full-width tile, its
+// stages, queue and who the work waits on, beside the list its sheet shows, every item in flight and today's merges.
+function ppPaneHtml() {
+  const p = ppData();
+  if (!p) return `<div class="blank">No plug-in gives a pipeline: a project's bar plug-in fills one with "pipe"</div>`;
+  const sum = `${(p.tickets || []).length} in flight · ${+p.merged_n || 0} ${p.merged_word || "merged today"}${p.updated ? ` · updated ${p.updated}` : ""}`;
+  return `<div class="teamlog pplog" data-name="~pipeline"><div class="thead"><span>Pipeline</span><span>${esc(sum)}</span></div>` +
+    `<div class="ppdesk"><div class="pp-dcol">${ppTile(p, true)}</div><div class="pp-dcol pp-dlist">${ppSheetHtml(p)}</div></div></div>`;
+}
+document.addEventListener("click", e => { if (e.target.closest(".ppdesk [data-ppall]")) { ppAll = !ppAll; draw(); } });
 // The sheet sits in #phone, outside the tab's body, so a redraw of the Dashboard leaves it open; each redraw refills it.
 function ppSheetDraw() {
   const ph = $("#phone"), p = ppData();
@@ -10952,6 +10978,11 @@ def self_test():
            'sh.classList.add("closing"); setTimeout(() => sh.remove(), 210)' in PAGE,
            "html.phone #menu.on.closing,#phone .pp-sheet.closing .pp-panel{animation:none;transform:translateY(100%) !important" in PAGE,
            'if (tdy > 90) { ppOpen = false; ppSheetDraw(); } else panel.style.transform = "";' in PAGE), (True, True, True, True))
+        t("  the desktop has a Pipeline pane: the phone's tile beside its sheet's list, styled by the same rules, its Show all working",
+          ('pipeline: "Pipeline"' in PAGE, '["pipeline", "Work on its way to done' in PAGE, "body = ppPaneHtml();" in PAGE,
+           "<div class=\"ppdesk\"><div class=\"pp-dcol\">${ppTile(p, true)}</div><div class=\"pp-dcol pp-dlist\">${ppSheetHtml(p)}</div>" in PAGE,
+           ":is(#phone,.ppdesk) .pp-card{" in PAGE and "#phone,.ppdesk{--pq:" in PAGE,
+           'if (e.target.closest(".ppdesk [data-ppall]")) { ppAll = !ppAll; draw(); }' in PAGE), (True, True, True, True, True, True))
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
