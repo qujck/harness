@@ -33,7 +33,7 @@ ROSTER = os.environ.get("ROSTER_FILE", "/home/peter/dev/strength/agents/roster.j
 SESSION = "Delivery"
 PREFIX = "strength-"
 # Roles that live in other tabs (Delivery Lead, Project, Ops), never in Delivery.
-ELSEWHERE = {"delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations"}
+ELSEWHERE = {"delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "project-office"}
 MIN_PANES = 8
 # The owner's /color for each role that is spawned.
 COLOURS = {"developer": "blue", "tester": "yellow"}

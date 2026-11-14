@@ -31,6 +31,18 @@ roster. Run it to bring back any single missing session. Sessions and who is in 
 | `Project` | Process improvement on the left (an empty slot when the role is vacant), the house assistant on the right |
 | `Ops` | The head of testing on the left, the head of operations on the right |
 
+## Who comes back
+
+Only the agents that were running. The team page keeps a record of who is up and the session each one is in
+(`~/.local/state/strength/live-agents.json`, or `LIVE_AGENTS_FILE`). It takes an agent off only after it has
+watched that agent stop, which is what a bench does; a reboot or a crash stops the page too, so the record stays
+as it was. The restore resumes each agent in the record by its session ID, so a spawned agent's unnamed
+conversation comes back. Every other slot is empty, including a benched agent's. With no record (the page never
+ran), it falls back to every active agent's newest conversation with that `/rename` title.
+
+The house assistant is the roster's active `project-office` agent (before that role existed, the first of
+`.assistants`).
+
 The house assistant runs from its own folder, `~/dev/<name>` (`~/dev/boozer`), which isn't a
 project. Claude Code never remembers trust for your home folder, so running it from `~` asked
 every restart. Its memory folder is a link to the one in `~`, so it keeps its memories.

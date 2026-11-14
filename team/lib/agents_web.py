@@ -434,6 +434,55 @@ def live_sessions():
     return {n: r for n, (_, r) in best.items()}
 
 
+# Who is up, kept on disk for box/restore-claude.sh, which after a reboot resumes exactly these sessions (2026-11-14:
+# the restore picked conversations by their /rename title, so the seven agents spawned that day, whose conversations
+# are unnamed, stayed down and seven benched agents with old named ones came back in their place). Every agent seen
+# running is written with its session; one is taken off only after this page has watched it gone for UP_GONE_S, so a
+# bench (one agent stops, the page goes on) takes it off and a reboot or a crash (everything stops at once, the page
+# with it) leaves the record as it was. A name this page never saw running is never taken off.
+UP_FILE = os.environ.get("LIVE_AGENTS_FILE") or os.path.join(STATE_DIR, "live-agents.json")
+UP_GONE_S = 60
+_up = {"seen": set(), "gone": {}, "wrote": 0, "last": None}
+
+
+def note_up(live, names, now=None):
+    """Brings the record of who is up in line with `live` (name -> session record), for the roster `names`."""
+    now = time.time() if now is None else now
+    try:
+        with open(UP_FILE) as f:
+            was = json.load(f).get("agents") or {}
+    except (OSError, ValueError, AttributeError):
+        was = {}
+    up = dict(was)
+    for n, rec in live.items():
+        if n in names and rec.get("sessionId"):
+            up[n] = {"sessionId": rec["sessionId"], "cwd": rec.get("cwd") or "", "seen": int(now)}
+            _up["seen"].add(n)
+            _up["gone"].pop(n, None)
+    for n in list(up):
+        if n not in names:
+            del up[n]
+        elif n in live:
+            continue
+        elif n in _up["seen"]:
+            first = _up["gone"].setdefault(n, now)
+            if now - first >= UP_GONE_S:
+                del up[n]
+    shape = {n: v["sessionId"] for n, v in up.items()}
+    if shape == _up["last"] and now - _up["wrote"] < 300:
+        return up
+    try:
+        os.makedirs(os.path.dirname(UP_FILE), exist_ok=True)
+        tmp = UP_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "agents": up}, f, indent=1, sort_keys=True)
+        os.replace(tmp, UP_FILE)
+        _up["last"], _up["wrote"] = shape, now
+    except OSError:
+        pass
+    return up
+
+
 _last = {}   # session record path -> (mtime, name, session id, when it last changed)
 
 
@@ -2864,6 +2913,7 @@ def colour(role):
 def state():
     now = time.time()
     live, rows, burns, last = live_sessions(), context_rows(), burn(), last_sessions()
+    note_up(live, {r["name"] for r in roster()})
     where, held = panes(), claims()
     tfacts = ticket_facts(list(held.values()))
     agents, bench = [], []
@@ -10409,6 +10459,7 @@ def self_test():
             fails.append(what)
 
     T = tempfile.mkdtemp()
+    globals()["UP_FILE"] = T + "/live-agents.json"   # never the real record of who is up
     try:
         for d in ("sessions", "projects/p", "context", "dash", "bin", "socks"):
             os.makedirs(os.path.join(T, d))
@@ -11485,6 +11536,24 @@ def self_test():
         finally:
             g["SCRATCH"] = was
             shutil.rmtree(sc, ignore_errors=True)
+        _up.update(seen=set(), gone={}, wrote=0, last=None)
+        up_rec = lambda: json.load(open(UP_FILE))["agents"]
+        rec = lambda sid: {"sessionId": sid, "cwd": "/w/" + sid}
+        note_up({"Ada": rec("a1"), "Bo": rec("b1")}, {"Ada", "Bo", "Cy"}, 1000)
+        t("who is up: every running agent is recorded with its session and folder",
+          {n: (v["sessionId"], v["cwd"]) for n, v in up_rec().items()}, {"Ada": ("a1", "/w/a1"), "Bo": ("b1", "/w/b1")})
+        note_up({"Ada": rec("a1")}, {"Ada", "Bo", "Cy"}, 1030)
+        t("  one gone for less than a minute stays", sorted(up_rec()), ["Ada", "Bo"])
+        note_up({"Ada": rec("a1")}, {"Ada", "Bo", "Cy"}, 1090)
+        t("  and after a minute watched gone (a bench), it is taken off", sorted(up_rec()), ["Ada"])
+        _up.update(seen=set(), gone={}, wrote=0, last=None)   # the page restarted after a reboot: it has seen nobody yet
+        note_up({}, {"Ada", "Bo", "Cy"}, 5000)
+        note_up({}, {"Ada", "Bo", "Cy"}, 9000)
+        t("  one this page never saw running is never taken off, so a reboot keeps the record", sorted(up_rec()), ["Ada"])
+        note_up({"Ada": rec("a2")}, {"Bo"}, 9100)
+        t("  a name off the roster is dropped", up_rec(), {})
+        note_up({"Ada": rec("a2")}, {"Ada"}, 9200)
+        t("  a new session replaces the old", up_rec()["Ada"]["sessionId"], "a2")
         wd, was_w = tempfile.mkdtemp(), g["WANTED"]
         g["WANTED"] = wd
         try:

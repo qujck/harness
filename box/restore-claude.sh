@@ -18,7 +18,18 @@ exists() {
 # The ID is the newest conversation whose latest /rename is exactly <name>.
 TITLES=$(command grep -oH '"customTitle":"[^"]*"' /home/peter/.claude/projects/*/*.jsonl 2>/dev/null |
   awk -F'"customTitle":"' '{sub(/"$/,"",$2); last[$1]=$2} END {for (f in last) print f "\t" last[f]}')
-transcript() { # transcript <claude-name> -> newest .jsonl named <name>, or nothing
+# WHO WAS UP. The team page (harness team/lib/agents_web.py, note_up) keeps a record of every agent running and its
+# session, and takes one off only after watching it stop (a bench); a reboot or a crash leaves it as it was. With that
+# record, exactly the agents in it come back, each in the session it had, and every other slot is empty. Without
+# it (no page ran) the old way: every active agent, by its newest /rename title. (2026-11-14: by title alone, the
+# seven agents spawned that day, in unnamed conversations, stayed down and seven benched agents came back instead.)
+LIVE=${LIVE_AGENTS_FILE:-/home/peter/.local/state/strength/live-agents.json}
+UP=$(jq -c '.agents // empty' "$LIVE" 2>/dev/null || true)
+was_up() { [ -z "$UP" ] || jq -e --arg n "$1" 'has($n)' <<<"$UP" >/dev/null 2>&1; }
+transcript() { # transcript <claude-name> -> the recorded session's .jsonl, else the newest .jsonl named <name>, or nothing
+  local sid
+  sid=$([ -n "$UP" ] && jq -r --arg n "$1" '.[$n].sessionId // empty' <<<"$UP" 2>/dev/null)
+  if [ -n "$sid" ]; then ls -t /home/peter/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1; return; fi
   printf '%s\n' "$TITLES" | awk -F'\t' -v n="$1" '$2==n {print $1}' | sed 's/:$//' | xargs -r ls -t | head -1
 }
 
@@ -59,10 +70,13 @@ by_role() {
   jq -r '[.agents[]? | select(.status == "active" and (.role | IN($ARGS.positional[]))) | .name] | first // empty' \
     --args "$@" <<<"$ROSTER" 2>/dev/null
 }
-# The house assistant: the first one the roster records (it holds no role, so it is not in .agents).
-assistant() { jq -r '.assistants[0].name // empty' <<<"$ROSTER" 2>/dev/null; }
+# The house assistant: the active project-office agent; before it held that role (strength c0b00a8a4, 2026-11) it
+# was the first of .assistants, kept as the fallback. Reading only .assistants left the Project pane empty after the
+# 2026-11-14 restore, because that list is empty now.
+assistant() { local n; n=$(by_role project-office); [ -n "$n" ] && echo "$n" || jq -r '.assistants[0].name // empty' <<<"$ROSTER" 2>/dev/null; }
 # slot <name> -> the name, or "-" (an empty slot) when the role is vacant
-slot() { printf '%s\n' "${1:--}"; }
+# A name not in the record of who was up is an empty slot too.
+slot() { if [ -n "$1" ] && was_up "$1"; then printf '%s\n' "$1"; else printf '%s\n' -; fi; }
 
 resume() { # resume <claude-name> -> the command that resumes it as itself
   local f; f=$(transcript "$1")
@@ -131,14 +145,15 @@ columns() {
 delivery_slots() {
   local g names out=() rev
   for g in developer tester other; do
-    mapfile -t names < <(jq -r --arg g "$g" '.agents[]? | select(.status == "active")
-      | select(if $g == "other" then (.role | IN("developer", "tester", "delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "code-reviewer", "test-reviewer") | not)
+    mapfile -t names < <(jq -r --arg g "$g" --argjson up "${UP:-null}" '.agents[]? | select(.status == "active" and (.name as $n | $up == null or ($up | has($n))))
+      | select(if $g == "other" then (.role | IN("developer", "tester", "delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "project-office", "code-reviewer", "test-reviewer") | not)
                else .role == $g end) | .name' <<<"$ROSTER")
     if [ $g != other ] && [ $(( ${#names[@]} % 2 )) = 1 ]; then names+=(-); fi
     out+=("${names[@]}")
   done
-  mapfile -t rev < <(jq -r '(.agents[]? | select(.status == "active" and .role == "test-reviewer") | .name),
-    (.agents[]? | select(.status == "active" and .role == "code-reviewer") | .name)' <<<"$ROSTER")
+  mapfile -t rev < <(jq -r --argjson up "${UP:-null}" '.agents[]? | select(.status == "active" and (.name as $n | $up == null or ($up | has($n))))
+    | select(.role == "test-reviewer") | .name' <<<"$ROSTER"; jq -r --argjson up "${UP:-null}" '.agents[]?
+    | select(.status == "active" and (.name as $n | $up == null or ($up | has($n)))) | select(.role == "code-reviewer") | .name' <<<"$ROSTER")
   # The reviewer(s) end the grid, the last one bottom right; a gap goes before them if needed.
   if [ $(( (${#out[@]} + ${#rev[@]}) % 2 )) = 1 ]; then out+=(-); fi
   out+=("${rev[@]}")
