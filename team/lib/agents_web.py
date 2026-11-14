@@ -3836,6 +3836,7 @@ body.moving-pane,body.moving-pane *{cursor:grabbing !important;user-select:none}
 html.phone #dhead .role .rwith > span,#phone .ph-tile .ph-role .rwith > span{display:none}
 html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 #phone .ph-tile .ph-role .rwith .ricon{width:15px;height:15px}
+#phone .ph-tile .ph-role .ph-rtk{margin-left:.45em;vertical-align:bottom}
 .chip svg{width:12px;height:12px}
 .teamlog .thead > span.tsum{font-weight:400;color:var(--mute)}
 .workq .wqwho{display:contents;cursor:pointer}
@@ -9881,7 +9882,7 @@ function phFacesHtml() {
   const tile = (a, byRole) => { const st = stOf(a), n = unseen(a);
     return `<button class="ph-tile ${st}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, ${STATE[st] || st}">` +
       `<span class="ph-por" style="--c:${a.colour}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span><span class="ph-st">${STATE[st] || esc(st)}</span>${n ? `<span class="ph-un">${unseenBadge(n)}</span>` : ""}</span>` +
-      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role"${byRole && a.ticket ? ` title="${esc(tkTip(a))}"` : ""}>${byRole || !tk(a) ? roleWith(a) : esc(tk(a))}</span></button>`; };
+      `<span class="ph-name">${esc(shown(a.name))}</span><span class="ph-role">${roleWith(a)}${tk(a) ? `<span class="ph-rtk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}</span></button>`; };   // every tile its role icon, the ticket beside it (owner, 2026-11-14)
   const offTile = a => `<button class="ph-tile off${switching(a)}" data-menu-name="${esc(a.name)}" aria-label="${esc(shown(a.name))}, stopped">${phPor({...a, live: undefined}, " bench")}<span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-role">${roleWith(a)}</span></button>`;   // the grey says stopped; the line says the role (owner, 2026-11-09)
   // favourites first, as in the Agents tab, and not again under their role
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
@@ -11087,12 +11088,13 @@ def self_test():
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
            'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
            'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 6)
-        t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles)",
+        t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles, where every tile has its icon and the ticket beside it)",
           ('const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";' in PAGE,
            '<span class="role">${roleWith(a)}</span><span class="cctl">' in PAGE, '<span class="role">${roleWith(a)}</span>${a.ticket ?' in PAGE,
            "html.phone #dhead .role .rwith > span,#phone .ph-tile .ph-role .rwith > span{display:none}" in PAGE,
+           '<span class="ph-role">${roleWith(a)}${tk(a) ? `<span class="ph-rtk"' in PAGE,
            PAGE.count("${roleMark(r)}${esc(r.name)}</b>") == 3, '<h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}' in PAGE,
-           "esc(a.roleName" not in PAGE), (True,) * 7)
+           "esc(a.roleName" not in PAGE), (True,) * 8)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
