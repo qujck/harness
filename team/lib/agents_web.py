@@ -4902,6 +4902,10 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 @container (max-width:640px){.ppdesk{display:block;overflow-y:auto}.ppdesk .pp-dcol{max-height:none;overflow:visible}.ppdesk .pp-dcol + .pp-dcol{margin-top:12px}}
 .ppdesk .pp-dlist{padding:0 14px 12px}
 .ppdesk .pp-hit{cursor:default}
+.ppdesk [data-ppgo]{cursor:pointer;border-radius:8px}
+.ppdesk .pp-c[data-ppgo]:hover,.ppdesk .pp-m[data-ppgo]:hover{background:var(--track)}
+.ppdesk .pp-ss.pp-lit{animation:pplit 1.4s ease-out}
+@keyframes pplit{from{background:var(--track)}to{background:transparent}}
 .ppdesk .pp-hit svg{display:none}
 .ppdesk .dlab{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .ppdesk .ph-por{position:relative;flex:none;display:block}
@@ -9584,7 +9588,7 @@ function ppTile(p, wide) {
       `<span class="pp-seg" style="grid-template-columns:repeat(${cells.length || 1},1fr)">${cells.map(c => `<i class="${c.cls}"></i>`).join("")}</span>` +
       `<span class="pp-hsum">${waits.length} waiting${backs ? ` · <b class="pp-warn-t">${backs} gone back</b>` : ""}</span></button>`;
   }
-  const strip = cells.map(c => `<span class="pp-c${c.cls}"><span class="n">${c.n}${c.back ? `<small>↩${c.back}</small>` : ""}${c.stuck ? `<small>${c.stuck}d</small>` : ""}</span><span class="l">${esc(c.name)}</span><span class="bar"></span></span>`).join("");
+  const strip = cells.map(c => `<span class="pp-c${c.cls}"${c.n ? ` data-ppgo="${esc(c.key)}" title="${esc(`Show the ${c.n} at ${c.name}`)}"` : ""}><span class="n">${c.n}${c.back ? `<small>↩${c.back}</small>` : ""}${c.stuck ? `<small>${c.stuck}d</small>` : ""}</span><span class="l">${esc(c.name)}</span><span class="bar"></span></span>`).join("");
   const fail = q.some(t => t.fail), running = q.filter(t => t.place === 0 && !t.fail).length;
   const qname = (p.stages || []).find(s => s.queue)?.name || "Queue";
   const qsum = fail ? "failed" : !q.length ? "empty" : `${running} running · ${q.length - running} waiting`;
@@ -9595,7 +9599,7 @@ function ppTile(p, wide) {
     `${ppFace(w.who)}<span class="pp-mid"><span class="tt"><b>${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}`)).join("");
   const warn = (p.warnings || []).length;
   return `<button class="pp-hit" data-pipesheet aria-label="${esc(`Pipeline: ${n} in flight, ${p.merged_n || 0} done today. Open the list`)}">` +
-    `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m"><b>${+p.merged_n || 0}</b> ${esc(p.merged_word || "merged today")}${PP_CHEV}</span></span><span class="pp-strip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${strip}</span></button>` +
+    `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m" data-ppgo="~merged" title="Show today's merges"><b>${+p.merged_n || 0}</b> ${esc(p.merged_word || "merged today")}${PP_CHEV}</span></span><span class="pp-strip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${strip}</span></button>` +
     `<div class="pp-sec"><div class="pp-sh"><b>${esc(qname)}</b><span>${esc(qsum)}</span></div>${qrows || `<div class="pp-empty">Nothing queued</div>`}</div>` +
     `<div class="pp-sec"><div class="pp-sh"><b>Waiting on</b></div>${wrows || `<div class="pp-empty">Nobody · everything is moving</div>`}</div>` +
     `<div class="pp-foot"><span>${p.last ? `Last ${esc(p.last)} · ` : ""}${esc(p.updated || "")}</span>${warn ? `<span class="pp-warn-t pp-dot">${warn} to check</span>` : ""}</div>`;
@@ -9607,14 +9611,14 @@ function ppSheetHtml(p) {
     `<span class="tt">${esc(t.title)}</span><span class="pp-tags">${(t.tags || []).map(ppTag).join("")}</span></span>`);
   const secs = [...(p.stages || [])].reverse().map(s => {
     const at = ts.filter(t => t.stage === s.key).sort((a, b) => s.key === qk ? a.place - b.place : 0);
-    return at.length ? `<section class="pp-ss"><div class="pp-sh"><b>${esc(s.name)} <em>${at.length}</em></b><span>${esc(s.note || "")}</span></div>${at.map(card).join("")}</section>` : "";
+    return at.length ? `<section class="pp-ss" data-ppsec="${esc(s.key)}"><div class="pp-sh"><b>${esc(s.name)} <em>${at.length}</em></b><span>${esc(s.note || "")}</span></div>${at.map(card).join("")}</section>` : "";
   }).join("");
   const ms = p.merged || [], few = ppAll ? ms : ms.slice(0, 5);
   const warn = (p.warnings || []).map(w => ppA(w.href, "pp-warnrow", w.text, `<span aria-hidden="true">⚠</span><span>${esc(w.text)}</span>`)).join("");
   const mrows = few.map(m => ppA(m.href, "pp-mrow", `${m.title}, ${m.at}`,
     `<time>${esc(m.at)}</time>${ppFace(m.who)}<span class="tt">${esc(m.title)}</span><span class="ref">${esc(m.id || "")}</span>`)).join("");
   return (secs || `<div class="pp-empty">Nothing in flight</div>`) +
-    `<section class="pp-ss"><div class="pp-sh"><b>${esc(p.merged_title || "Merged today")} <em class="g">${+p.merged_n || 0}</em></b><span>newest first</span></div>${warn}${mrows}` +
+    `<section class="pp-ss" data-ppsec="~merged"><div class="pp-sh"><b>${esc(p.merged_title || "Merged today")} <em class="g">${+p.merged_n || 0}</em></b><span>newest first</span></div>${warn}${mrows}` +
     (ms.length > 5 ? `<button class="pp-all" data-ppall>${ppAll ? "Show the latest 5" : `Show all ${ms.length}`}</button>` : "") + `</section>`;
 }
 // The desktop's Pipeline pane (owner, 2026-11-14: "yes please" to a desktop view): the phone's full-width tile, its
@@ -9627,6 +9631,17 @@ function ppPaneHtml() {
     `<div class="ppdesk"><div class="pp-dcol">${ppTile(p, true)}</div><div class="pp-dcol pp-dlist">${ppSheetHtml(p)}</div></div></div>`;
 }
 document.addEventListener("click", e => { if (e.target.closest(".ppdesk [data-ppall]")) { ppAll = !ppAll; draw(); } });
+// a count on the left takes the list on the right to its entries (owner, 2026-11-14: "when I click them the right hand
+// side could navigate to the related entries"): the stage's section, or today's merges, scrolled to the top of its
+// column (of the whole pane, once the columns stack) and lit for a moment
+document.addEventListener("click", e => {
+  const go = e.target.closest(".ppdesk [data-ppgo]"), desk = go?.closest(".ppdesk");
+  const sec = desk && [...desk.querySelectorAll(".pp-dlist [data-ppsec]")].find(x => x.dataset.ppsec === go.dataset.ppgo);
+  if (!sec) return;
+  const col = sec.closest(".pp-dcol"), box = col.scrollHeight > col.clientHeight ? col : desk;
+  box.scrollTo({top: box.scrollTop + sec.getBoundingClientRect().top - box.getBoundingClientRect().top, behavior: "smooth"});
+  sec.classList.remove("pp-lit"); void sec.offsetWidth; sec.classList.add("pp-lit");
+});
 // The sheet sits in #phone, outside the tab's body, so a redraw of the Dashboard leaves it open; each redraw refills it.
 function ppSheetDraw() {
   const ph = $("#phone"), p = ppData();
@@ -10992,6 +11007,10 @@ def self_test():
           ('const dashPerf = tab === "dash" && phDash().some(t => PERF_BARS.includes(t.k));' in PAGE,
            'if (dashPerf && Date.now() - phPerfAt > 10000) { phPerfAt = Date.now(); try { await fetch("/api/perf"' in PAGE,
            'ppSheetDraw(); phLoad(tab); }' in PAGE), (True, True, True))
+        t("  on the desktop a Pipeline count takes the list to its entries: each stage with tickets and the merged count point at their section",
+          ('data-ppgo="${esc(c.key)}"' in PAGE, '<section class="pp-ss" data-ppsec="${esc(s.key)}">' in PAGE,
+           'data-ppgo="~merged"' in PAGE and 'data-ppsec="~merged"' in PAGE,
+           'const go = e.target.closest(".ppdesk [data-ppgo]"), desk = go?.closest(".ppdesk");' in PAGE), (True,) * 4)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
