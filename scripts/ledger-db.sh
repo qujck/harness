@@ -2623,6 +2623,21 @@ case "${1:-}" in
             _ti_list=""
             for _ti_id in "$@"; do _ti_list+="${_ti_list:+,}$(_sql_lit "$_ti_id")"; done
             _as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id" ;;
+  # ── THE PIPELINE, FOR THE TEAM PAGE'S PR BAR: `pipeline [<id>|<sha>...]` prints one row per in-flight ticket,
+  # `T|id|ref|issue|claimed_by|status|title` (every in_progress ticket and every id named), then one row per live
+  # verdict at a named 40-hex sha, `V|ticket|sha|kind|by_agent|pr|`. team/bar/pipeline names each open PR's ticket and
+  # head sha, so a sign-off or approval counts only at the commit the PR is at now. Read-only.
+  pipeline) shift
+            _pl_ids=""; _pl_shas=""
+            for _pl_a in "$@"; do
+              if [[ "$_pl_a" =~ ^[0-9a-f]{40}$ ]]; then _pl_shas+="${_pl_shas:+,}$(_sql_lit "$_pl_a")"
+              else _pl_ids+="${_pl_ids:+,}$(_sql_lit "$_pl_a")"; fi
+            done
+            _as_me "select 'T', id, coalesce(ref::text,''), coalesce(issue::text,''), coalesce(claimed_by,''), status, replace(title, E'\n', ' ')
+                      from ledger.v_ticket_detail where status = 'in_progress' ${_pl_ids:+or id in ($_pl_ids)}
+                    union all
+                    select 'V', ticket_id, sha, kind, coalesce(by_agent,''), coalesce(pr::text,''), ''
+                      from ledger.v_verdict where live and sha in (${_pl_shas:-null})" ;;
   ticket-row) shift
             _tr_id="${1-}"
             if [[ -z "$_tr_id" ]]; then
