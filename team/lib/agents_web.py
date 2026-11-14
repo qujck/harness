@@ -10053,6 +10053,10 @@ function phoneDraw() {
   const on = phoneOn(), html = document.documentElement;
   html.classList.toggle("phone", on); html.classList.toggle("phoneoff", PHONE_MQ.matches && !ONLY && !on);
   if (!on) return;
+  // a header gauge that is a machine plug-in (CPU, Memory, Network, GPU, Heat, Fans) reads the page's sampling, which only
+  // a read of /api/perf starts: read it every 10s whatever tab shows, from the first draw, or after a restart the gauge
+  // says "…" until something else asks
+  if (PERF_BARS.includes(localStorage.getItem("phonegauge")) && Date.now() - phPerfAt > 10000) { phPerfAt = Date.now(); fetch("/api/perf", {cache: "no-store"}).catch(() => {}); }
   const ph = $("#phone");
   if (!S) { if (!ph.firstChild) ph.innerHTML = `<div class="ph-loading">Loading…</div>`; return; }
   if (ph.querySelector(":scope > .ph-loading")) ph.innerHTML = "";
@@ -10196,8 +10200,9 @@ const phGaugeName = x => x.name || x.label || barName(x.key);
 // "we have icons for them they don't need to use up a load of space saying day bar and week bar").
 const phGaugeLabel = x => { const i = BAR_ICON[x.icon] || ADD_ICON[x.key]; return i ? `<span class="gico" role="img" aria-label="${esc(phGaugeName(x))}">${i}</span>` : esc(phGaugeName(x)); };
 function phGauge() {
+  // the chosen gauge stays while it is still "…", its first reading on its way, rather than the day bar standing in
   const all = phGauges(), want = localStorage.getItem("phonegauge");
-  return all.find(x => x.key === want) || all.find(x => x.key === "daybar") || all.find(x => x.key === "weekbar") || all.find(x => x.key === "week") || null;
+  return all.find(x => x.key === want) || plugs().find(x => x.key === want && !x.hidden && x.value === "…") || all.find(x => x.key === "daybar") || all.find(x => x.key === "weekbar") || all.find(x => x.key === "week") || null;
 }
 // The team menu: the team's state and its start and stop, the nudger, the theme, text size, and the desktop layout.
 let phStopAsk = null;
