@@ -9455,7 +9455,16 @@ function phDashOwn(k) {
 function phDash() {
   let mine; try { mine = JSON.parse(localStorage.getItem("phonedash")); } catch (e) {}
   const have = phDashItems().map(x => x.key);
-  if (Array.isArray(mine)) return mine.filter(t => t && have.includes(t.k)).map(t => ({k: t.k, w: t.w === 2 ? 2 : 1}));
+  // A pipe tile that arrives after the Dashboard was arranged joins it once, full width at the top (owner, 2026-11-14:
+  // "Where is it?"); its key is then remembered as offered, so taking it out sticks.
+  if (Array.isArray(mine)) {
+    let seen = []; try { seen = JSON.parse(localStorage.getItem("phonedashpipe")) || []; } catch (e) {}
+    const pipes = phDashItems().filter(x => x.pipe && !seen.includes(x.key)).map(x => x.key);
+    const fresh = pipes.filter(k => !mine.some(t => t && t.k === k));
+    if (fresh.length) mine = [...fresh.map(k => ({k, w: 2})), ...mine];
+    if (pipes.length) try { localStorage.setItem("phonedash", JSON.stringify(mine)); localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes])); } catch (e) {}
+    return mine.filter(t => t && have.includes(t.k)).map(t => ({k: t.k, w: t.w === 2 ? 2 : 1}));
+  }
   return barOf().head.filter(k => have.includes(k)).map(k => ({k, w: phDashItems().find(x => x.key === k)?.pipe ? 2 : 1}));
 }
 // The Pipeline tile (owner's design, 2026-11-14): full width, a strip of the stages, the queue and who the work waits
@@ -10847,6 +10856,9 @@ def self_test():
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
+        t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
+          ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
+           'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
         t("  the Dashboard holds the bar's readings, the Agents count, the Bench, the Favourites and the Active, half or wide, dragged by grip in Edit",
           ('const PH_DASH_OWN = ["tally", "bench", "favs", "active"]' in PAGE, 'localStorage.setItem("phonedash"' in PAGE, 'data-dash="wide:${i}"' in PAGE,
            'class="dgrip"' in PAGE, "#phone.dashedit .ph-top,#phone.dashedit .ph-nav{display:none}" in PAGE, 'class="dbtn dtune dclose"' in PAGE), (True,) * 6)
