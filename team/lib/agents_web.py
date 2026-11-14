@@ -848,29 +848,30 @@ def claims():
     return held
 
 
-# A ticket's GitHub issue number and title, so the page can show "#12130" in place of a hundred-character id. Read
-# through the ledger's `regenerate --out <dir> <id>` (one JSON per ticket, ~0.1 s) on a background thread and kept:
-# a number, once set, never changes. An id with no number yet is asked again after TICKET_RETRY seconds; a project
+# A ticket's short number, so the page can show "#6466" in place of a hundred-character id: the ledger's own `ref`
+# (the address the admin ledger shows), with its GitHub issue and title for the link and the hover text. Read with one
+# `ledger-db.sh ticket-refs <id>...` (id|ref|issue|title per known id) on a background thread and kept: a ref never
+# changes. An id with no ref, or one the read did not answer, is asked again after TICKET_RETRY seconds; a project
 # whose ledger has no such verb just keeps showing ids.
 TICKET_RETRY = 600
-_tickets = {}            # id -> {"issue": int|None, "title": str, "at": when read}
+_tickets = {}            # id -> {"ref": int|None, "issue": int|None, "title": str, "at": when read}
 _tickets_busy = set()
 
 
+def _num(s):
+    return int(s) if s.isdigit() and int(s) > 0 else None
+
+
 def _read_tickets(ids):
-    with tempfile.TemporaryDirectory() as d:
-        for tid in ids:
-            run("bash", LEDGER, "regenerate", "--out", d, tid, timeout=15)
-            fact = {"issue": None, "title": "", "at": time.time()}
-            try:
-                with open(os.path.join(d, tid + ".json")) as f:
-                    j = json.load(f)
-                n = j.get("issue")
-                fact = {**fact, "issue": n if isinstance(n, int) and n > 0 else None, "title": str(j.get("title") or "")}
-            except (OSError, ValueError, AttributeError):
-                pass
-            _tickets[tid] = fact
-            _tickets_busy.discard(tid)
+    got = {}
+    for line in run("bash", LEDGER, "ticket-refs", *ids, timeout=15).splitlines():
+        parts = line.split("|", 3)
+        if len(parts) == 4 and parts[0] in ids:
+            got[parts[0]] = {"ref": _num(parts[1]), "issue": _num(parts[2]), "title": parts[3]}
+    now = time.time()
+    for tid in ids:
+        _tickets[tid] = {"ref": None, "issue": None, "title": "", **got.get(tid, {}), "at": now}
+        _tickets_busy.discard(tid)
 
 
 def ticket_facts(ids):
@@ -878,7 +879,7 @@ def ticket_facts(ids):
     now, want = time.time(), []
     for tid in {i for i in ids if i and re.fullmatch(r"[a-z][a-z0-9_-]{1,200}", i)}:
         got = _tickets.get(tid)
-        if tid not in _tickets_busy and (got is None or (got["issue"] is None and now - got["at"] >= TICKET_RETRY)):
+        if tid not in _tickets_busy and (got is None or (got["ref"] is None and now - got["at"] >= TICKET_RETRY)):
             want.append(tid)
     if want and os.path.exists(LEDGER):
         _tickets_busy.update(want)
@@ -2837,7 +2838,8 @@ def state():
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""),
             "ticket": held.get(name.lower(), ""),
-            "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
+            "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("ref"),
+            "ticketIssue": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
             "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
@@ -4980,12 +4982,13 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 // How the page writes an agent's name: the roster's spelling unless the server says otherwise. Attributes that name
 // an agent for the code (data-name, data-tab) keep the roster's, as everything sent back to the server must.
 const shown = name => S?.shownNames?.[name] || name;
-// How the page writes an agent's ticket: its issue number ("#12130") when the ledger has one, else the id; the
-// title and the id stay in the hover text. tkLink() makes the number a link to its issue when the repo is known.
+// How the page writes an agent's ticket: the ledger's short number ("#6466", as the admin ledger writes it) when it
+// has one, else the id; the title and the id stay in the hover text. tkLink() makes it a link to the ticket's GitHub
+// issue when there is one and the repo is known.
 const tk = a => a.ticketNo ? `#${a.ticketNo}` : a.ticket || "";
 const tkTip = a => a.ticketNo ? `${a.ticketTitle ? a.ticketTitle + "\n" : ""}${a.ticket}` : a.ticket || "";
-const tkLink = a => a.ticketNo && S?.prRepo
-  ? `<a href="https://github.com/${esc(S.prRepo)}/issues/${a.ticketNo}" target="_blank" rel="noopener" title="${esc(tkTip(a))}" style="color:inherit;text-decoration:none">${esc(tk(a))}</a>`
+const tkLink = a => a.ticketNo && a.ticketIssue && S?.prRepo
+  ? `<a href="https://github.com/${esc(S.prRepo)}/issues/${a.ticketIssue}" target="_blank" rel="noopener" title="${esc(tkTip(a))}" style="color:inherit;text-decoration:none">${esc(tk(a))}</a>`
   : esc(tk(a));
 // A Characters card is labelled with the agent's full name; the conversation and everything else write shown() (owner,
 // 2026-11-12: "I want his card to show James Weaver and conversation to show Weaver").
@@ -10206,23 +10209,22 @@ def self_test():
         global LEDGER
         was_ledger, LEDGER = LEDGER, f"{T}/fake-ledger.sh"
         with open(LEDGER, "w") as f:
-            f.write('echo "$*" >> "%s/ledger-calls"\n'
-                    'case "$4" in feat_x) echo \'{"id":"feat_x","title":"The X ticket","issue":12130}\' > "$3/$4.json";;\n'
-                    '  feat_w) echo \'{"id":"feat_w","title":"W","issue":null}\' > "$3/$4.json";; esac\n' % T)
+            f.write('[ "$1" = ticket-refs ] || exit 64; shift; printf "%%s\\n" "$@" >> "%s/ledger-calls"\n'
+                    'for i; do case "$i" in feat_x) echo "feat_x|6466|12130|The X ticket | with a bar";; feat_w) echo "feat_w|||W";; esac; done\n' % T)
         _tickets.clear(); _tickets_busy.clear()
         ticket_facts(["feat_x", "feat_w", "x;rm -rf /", ""])
         for _ in range(50):
             if not _tickets_busy:
                 break
             time.sleep(0.05)
-        t("ticket numbers: an issue and title where the ledger has one, none where it has not",
-          ticket_facts(["feat_x", "feat_w"]), {"feat_x": {"issue": 12130, "title": "The X ticket", "at": _tickets["feat_x"]["at"]},
-                                                "feat_w": {"issue": None, "title": "W", "at": _tickets["feat_w"]["at"]}})
+        t("ticket numbers: a ref, issue and title where the ledger has them, none where it has not",
+          ticket_facts(["feat_x", "feat_w"]), {"feat_x": {"ref": 6466, "issue": 12130, "title": "The X ticket | with a bar", "at": _tickets["feat_x"]["at"]},
+                                                "feat_w": {"ref": None, "issue": None, "title": "W", "at": _tickets["feat_w"]["at"]}})
         ticket_facts(["feat_x", "feat_w"])
         time.sleep(0.2)
         with open(f"{T}/ledger-calls") as f:
             t("  each id is read once, a numberless one not again inside TICKET_RETRY, and a non-id never",
-              sorted(l.split()[-1] for l in f), ["feat_w", "feat_x"])
+              sorted(l.strip() for l in f), ["feat_w", "feat_x"])
         LEDGER = was_ledger
         _tickets.clear()
 
