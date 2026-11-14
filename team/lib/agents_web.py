@@ -9993,6 +9993,11 @@ async function phLoad(tab) {
     // the Work queue and Performance are read while their tab shows, as often as their panes are
     if (tab === "queue" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now(); workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); phoneDraw(); }
     if (tab === "tokens" && Date.now() - phTokAt > (tokens?.state === "reading" ? 3000 : 30000)) { phTokAt = Date.now(); tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); phoneDraw(); }
+    // the Dashboard's CPU, Memory, Network, GPU, Heat and Fans tiles are the bar's plug-ins, which read the page's
+    // sampling, and only a read of /api/perf starts that: read it while one of them is on the Dashboard, as the
+    // desktop does for them in its bar, or after a restart they say "Reading…" until something else asks
+    const dashPerf = tab === "dash" && phDash().some(t => PERF_BARS.includes(t.k));
+    if (dashPerf && Date.now() - phPerfAt > 10000) { phPerfAt = Date.now(); try { await fetch("/api/perf", {cache: "no-store"}); } catch (e) {} }
     if (tab === "perf" && Date.now() - phPerfAt > 1500) { phPerfAt = Date.now(); perfNow = await (await fetch("/api/perf", {cache: "no-store"})).json(); phoneDraw(); }
     const o = phPerfOpen;
     if (tab === "perf" && o?.sk && Date.now() - o.at > 10000) {
@@ -10094,7 +10099,7 @@ function phoneDraw() {
     phLoad(tab);
   }
   else if (tab === "perf") { patch(body, `<div class="ph-pane ph-perf">${perfHtml({show: "machine", machine: "dials", phone: true, open: phPerfOpen?.name})}</div>`); phLoad(tab); }
-  else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } ppSheetDraw(); }
+  else if (tab === "dash") { if (!phDashDrag) { patch(body, phDashHtml()); phDashWire(body); } ppSheetDraw(); phLoad(tab); }
   else if (tab === "team") {
     const n = phTeamNode();
     phKeepChips(body, () => patch(body, `<div class="ph-pane ph-team">${phRoleChips(n.roles, !n.roles.length)}${teamHtml("phone", n, true, false)}</div>`));
@@ -10983,6 +10988,10 @@ def self_test():
            "<div class=\"ppdesk\"><div class=\"pp-dcol\">${ppTile(p, true)}</div><div class=\"pp-dcol pp-dlist\">${ppSheetHtml(p)}</div>" in PAGE,
            ":is(#phone,.ppdesk) .pp-card{" in PAGE and "#phone,.ppdesk{--pq:" in PAGE,
            'if (e.target.closest(".ppdesk [data-ppall]")) { ppAll = !ppAll; draw(); }' in PAGE), (True, True, True, True, True, True))
+        t("  the phone's Dashboard reads /api/perf while it holds a CPU, Memory, Network, GPU, Heat or Fans tile, so a fresh page's sampling starts for them",
+          ('const dashPerf = tab === "dash" && phDash().some(t => PERF_BARS.includes(t.k));' in PAGE,
+           'if (dashPerf && Date.now() - phPerfAt > 10000) { phPerfAt = Date.now(); try { await fetch("/api/perf"' in PAGE,
+           'ppSheetDraw(); phLoad(tab); }' in PAGE), (True, True, True))
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
