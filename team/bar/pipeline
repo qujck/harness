@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Pipeline: where the team's in-flight tickets are on their way to main, a bar item for the team page
+(team/lib/agents_web.py runs it). Owner, 2026-11-14: "a new PR or merge queue bar ... tracking tickets in various stages".
+
+  Claimed n › PR n › Signed n › Approved n › Queue ▶12320 12233 › Merged n
+
+Each stage is clicked for its tickets. A ticket is at the furthest stage it has reached:
+  Claimed   in progress in the ledger, no open PR
+  PR        an open PR, no live tester sign-off at its head commit
+  Signed    a live tester sign-off at the PR's head commit, no approval there
+  Approved  a live code-review approval at the head commit, the PR still a draft or not armed
+  Queue     not a draft and auto-merge armed: waiting for the runner, ▶ the one whose CI is running now,
+            then in the order their CI runs were queued
+  Merged    PRs merged today (UTC)
+A verdict counts only at the commit the PR is at now, so a push after a sign-off moves it back to PR.
+Reads AGENTS_PR_REPO (hidden without it) through gh, and the ledger through ledger-db.sh pipeline (AGENTS_DASH_LEDGER,
+else the harness's own). Fixture tickets (fx_) are left out."""
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(HERE, "..", "..", "scripts", "ledger-db.sh")
+REPO = os.environ.get("AGENTS_PR_REPO", "")
+CIRCLED = "①②③④⑤⑥⑦⑧⑨"
+
+
+def sh(*cmd):
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=4)
+    if p.returncode:
+        raise RuntimeError(f"{os.path.basename(cmd[0]) if cmd[0] != 'bash' else os.path.basename(cmd[1])}: " +
+                           ((p.stderr.strip().splitlines() or [f"exit {p.returncode}"])[-1])[:120])
+    return p.stdout
+
+
+def gh_json(*args):
+    return json.loads(sh("gh", *args) or "null")
+
+
+def ticket_of(branch):
+    return re.sub(r"-pt\d+$", "", branch or "")
+
+
+def stages(prs, merged, runs, ledger_rows):
+    """The pure part: (open PRs, merged-today PRs, CI runs, ledger rows) -> {stage: [row]} and the queue's order."""
+    tickets, verdicts = {}, {}
+    for r in ledger_rows:
+        f = r.split("|")
+        if f[0] == "T" and len(f) >= 7:
+            tickets[f[1]] = {"ref": f[2], "issue": f[3], "who": f[4], "status": f[5], "title": "|".join(f[6:])}
+        elif f[0] == "V" and len(f) >= 5:
+            verdicts.setdefault(f[2], {}).setdefault(f[3], []).append(f[4])
+    run_of = {}
+    for r in runs:   # newest first from the API: the first run seen for a head commit is its latest
+        if r.get("name") == "ci" and r.get("event") == "pull_request":
+            run_of.setdefault(r.get("head_sha"), r)
+    url = lambda kind, n: f"https://github.com/{REPO}/{kind}/{n}" if REPO and n else ""
+    tname = lambda tid, t: (f"#{t['ref']} " if t and t["ref"] else "") + (t["title"] if t else tid)
+    out = {k: [] for k in ("claimed", "pr", "signed", "approved", "queue", "merged")}
+    with_pr = set()
+    for p in prs:
+        tid, t = ticket_of(p["headRefName"]), None
+        t = tickets.get(tid)
+        with_pr.add(tid)
+        v = verdicts.get(p["headRefOid"], {})
+        signed, approved = v.get("sign-off", []), v.get("approval", [])
+        armed = not p["isDraft"] and p.get("autoMergeRequest") is not None
+        run = run_of.get(p["headRefOid"]) or {}
+        stage = "queue" if armed else "approved" if approved else "signed" if signed else "pr"
+        marks = [f"{n} ✓" for n in signed] + [f"{n} ✓" for n in approved]
+        # a draft's CI is red by design (route refuses a draft), so its run says nothing about the change
+        state = "" if p["isDraft"] else ("CI running" if run.get("status") == "in_progress" else "CI queued" if run.get("status") in ("queued", "waiting", "pending")
+                                         else f"CI {run.get('conclusion')}" if run.get("conclusion") else "")
+        sub = " · ".join(x for x in [f"PR {p['number']}" + (" (draft)" if p["isDraft"] else ""), t and t["who"], " ".join(marks), state] if x)
+        out[stage].append({"text": tname(tid, t), "sub": sub, "href": url("pull", p["number"]),
+                           "_n": p["number"], "_running": run.get("status") == "in_progress", "_at": run.get("created_at") or "~"})
+    landed = {ticket_of(p.get("headRefName")): p["number"] for p in merged}
+    for tid, t in tickets.items():
+        if t["status"] == "in_progress" and tid not in with_pr and not tid.startswith("fx_"):
+            sub = t["who"] + (f" · PR {landed[tid]} merged today, still open in the ledger" if tid in landed else "")
+            out["claimed"].append({"text": tname(tid, t), "sub": sub, "href": url("issues", t["issue"]), "_n": int(t["ref"] or 0)})
+    for p in merged:
+        tid = ticket_of(p.get("headRefName"))
+        out["merged"].append({"text": tname(tid, tickets.get(tid)) if tid in tickets else p["title"],
+                              "sub": f"PR {p['number']} · merged {p['mergedAt'][11:16]}Z", "href": url("pull", p["number"]), "_n": p["number"]})
+    out["queue"].sort(key=lambda r: (not r["_running"], r["_at"], r["_n"]))
+    for k in ("claimed", "pr", "signed", "approved"):
+        out[k].sort(key=lambda r: r["_n"])
+    out["merged"].sort(key=lambda r: r["sub"][-6:], reverse=True)
+    return out
+
+
+def item(out):
+    q = out["queue"]
+    qtext = "Queue " + (" ".join(("▶" if r["_running"] else CIRCLED[i - (1 if q[0]["_running"] else 0)] if i - (1 if q[0]["_running"] else 0) < 9 else "")
+                                 + str(r["_n"]) for i, r in enumerate(q[:4])) + (" …" if len(q) > 4 else "") if q else "0")
+    names = [("claimed", "Claimed", "Claimed: in progress, no open PR"), ("pr", "PR", "Open PR, no tester sign-off at its head"),
+             ("signed", "Signed", "Signed off by a tester, no approval yet"), ("approved", "Approved", "Approved, not yet in the queue"),
+             ("queue", None, "Waiting for the runner: ▶ running now, then in order"), ("merged", "Merged", "Merged today (UTC)")]
+    parts, lists = [], {}
+    for i, (k, label, head) in enumerate(names):
+        rows = out[k]
+        text = (" › " if i else "") + (qtext if k == "queue" else f"{label} {len(rows)}")
+        parts.append({"text": text, "list": k, "colour": "text" if rows else "faint", "bold": k == "queue" and bool(rows)})
+        lists[k] = {"head": head, "rows": [{x: r[x] for x in ("text", "sub", "href")} for r in rows]}
+    total = sum(len(out[k]) for k in ("claimed", "pr", "signed", "approved", "queue"))
+    return {"place": "header", "label": "Pipeline", "every": 60, "value": parts, "lists": lists,
+            "title": f"{total} tickets on their way to main, {len(out['merged'])} merged today. Click a stage for its tickets."}
+
+
+def main():
+    json.load(sys.stdin)
+    if not REPO:
+        print(json.dumps({"place": "header", "hidden": True}))
+        return
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    with ThreadPoolExecutor(4) as ex:
+        f_prs = ex.submit(gh_json, "pr", "list", "-R", REPO, "--state", "open", "--limit", "60",
+                          "--json", "number,isDraft,headRefName,headRefOid,autoMergeRequest,title")
+        f_merged = ex.submit(gh_json, "pr", "list", "-R", REPO, "--state", "merged", "--limit", "60", "--search", f"merged:>={today}",
+                             "--json", "number,headRefName,title,mergedAt")
+        f_runs = ex.submit(gh_json, "api", f"repos/{REPO}/actions/runs?event=pull_request&per_page=60")
+        prs, merged = f_prs.result(), f_merged.result()
+        f_ledger = ex.submit(sh, "bash", LEDGER, "pipeline", *sorted({ticket_of(p["headRefName"]) for p in prs + merged} | {p["headRefOid"] for p in prs}))
+        out = stages(prs, merged, (f_runs.result() or {}).get("workflow_runs", []), f_ledger.result().splitlines())
+    print(json.dumps(item(out)))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:   # the page shows "?" and says why on a rest
+        print(f"Pipeline: {e}", file=sys.stderr)
+        sys.exit(1)

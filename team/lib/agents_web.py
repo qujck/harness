@@ -1368,7 +1368,10 @@ def perf_json():
 #   label, title        the name it shows and what a rest on it says
 #   value, colour       its value as text in one colour, or value as a list of parts, each text or
 #                       {"text", "colour", "bold", "drop"}; a colour is any CSS colour, or green, amber, red, text or
-#                       faint; a part with drop true is left out while the value does not fit
+#                       faint; a part with drop true is left out while the value does not fit; a part with
+#                       list "<key>" opens lists[<key>] in a menu under it when clicked
+#   lists               {"<key>": {"head", "rows": [{"text", "sub", "href"}]}}: the rows a part's list names, at most
+#                       30, each a line and a fainter one under it, a click on it opening href (https only)
 #   meter               {"pct", "mark", "colour"}: a bar filled to pct, a mark at mark, in colour (else green)
 #   spark               a list of numbers, drawn as a sparkline
 #   every               seconds between runs, 2 to 3600 (60)
@@ -1406,8 +1409,18 @@ def plug_item(j, name):
     item = {"label": str(name if j.get("label") is None else j["label"])[:40], "title": str(j.get("title") or "")[:300], "colour": col(j.get("colour"))}
     v = j.get("value", "")
     if isinstance(v, list):
-        item["parts"] = [{"text": str(x.get("text", ""))[:40], "colour": col(x.get("colour")), "bold": bool(x.get("bold")), "drop": x.get("drop") is True}
+        item["parts"] = [{"text": str(x.get("text", ""))[:40], "colour": col(x.get("colour")), "bold": bool(x.get("bold")), "drop": x.get("drop") is True,
+                          **({"list": x["list"]} if isinstance(x.get("list"), str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,19}", x["list"]) else {})}
                          if isinstance(x, dict) else {"text": str(x)[:40], "colour": "", "bold": False} for x in v[:8]]
+        named = {p["list"] for p in item["parts"] if "list" in p}
+        lists = j.get("lists") if isinstance(j.get("lists"), dict) else {}
+        link = lambda h: h if isinstance(h, str) and re.fullmatch(r"https://[^\s\"'<>]{1,290}", h) else ""
+        item["lists"] = {k: {"head": str(lists[k].get("head") or "")[:80],
+                             "rows": [{"text": str(r.get("text") or "")[:120], "sub": str(r.get("sub") or "")[:160], "href": link(r.get("href"))}
+                                      for r in (lists[k].get("rows") or [])[:30] if isinstance(r, dict)]}
+                         for k in sorted(named) if isinstance(lists.get(k), dict)}
+        if not item["lists"]:
+            del item["lists"]
         v = "".join(x["text"] for x in item["parts"])
     item["value"] = str(v)[:80]
     m = j.get("meter")
@@ -4297,6 +4310,11 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap}
 #menu .mi:hover,#menu .mi.at{background:var(--on)}
 #menu[data-key="help"]{width:340px}
+#menu .plr{white-space:normal;max-width:520px;align-items:flex-start}
+#menu .plr.off{cursor:default;color:var(--faint)}
+#menu .plsub{color:var(--faint);font-size:.9em;margin-top:2px}
+.bi.plug .plk{cursor:pointer;border-radius:4px}
+.bi.plug .plk:hover{background:var(--on)}
 .it .tx{zoom:var(--conv,1)}
 #menu .set{display:flex;align-items:center;gap:12px;padding:3px 8px;font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute)}
 #menu[data-key=theme]{max-height:calc(100vh - 12px);overflow:auto}
@@ -5928,7 +5946,7 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // padlock have no ✕ (owner, 2026-11-01: "Icon is not optional"), so the page can always be locked and unlocked again,
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
-const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
+const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", pipeline: "Pipeline", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
   controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help", search: "Search"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
@@ -6020,7 +6038,9 @@ function drawPlugs() {
     const icon = x.slim && BAR_ICON[x.icon];
     st.classList.toggle("slim", !!x.slim); st.classList.toggle("ico", !!icon);
     const parts = (x.parts || [{text: x.value, colour: x.colour}]).filter(p => p.text !== "");
-    const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); if (p.drop) b.className = "drop"; return b; });
+    const els = parts.map(p => { const b = document.createElement(p.bold ? "b" : "span"); b.textContent = p.text; b.style.color = plugColour(p.colour || (x.parts ? "" : x.colour)); if (p.drop) b.className = "drop";
+      if (p.list && x.lists?.[p.list]) { b.classList.add("plk"); b.dataset.plist = p.list; b.dataset.menu = `plist:${x.key}:${p.list}`; }
+      return b; });
     const lab = e.querySelector(".lab");
     if (icon) { if (lab.dataset.icon !== x.icon) { lab.dataset.icon = x.icon; lab.innerHTML = icon; } }
     else { delete lab.dataset.icon; lab.textContent = x.label; }
@@ -6072,7 +6092,7 @@ function placeBar() {
 // its items do not fit, the least wanted goes, one at a time, into the » at its right end, whose panel shows them under
 // it; the Add button stays. BAR_SHED is the order they go in; a plug-in not named in it goes before any that is, and the
 // logo, the padlock and Waiting never go. The items are put back where they belong before every placement and measured again.
-const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
+const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "pipeline", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
 let barMoreOpen = false;
 function unfitHeader() {
   const h = $("header"), more = h.querySelector(":scope > .barmore");
@@ -6132,12 +6152,13 @@ document.addEventListener("click", e => {
 });
 // Each item's group in the sheet's Add, and what it shows: the words of its tooltip where it has one that says so
 const BAR_GROUPS = [["Team controls", ["controls"]], ["Usage", ["week", "weekbar", "session", "team", "tokbar", "day", "dayfull"]],
-  ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active"]],
+  ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active", "pipeline"]],
   ["Layout", ["view", "viewbar", "lanes", "search", "theme", "settings", "help", "new:div", "new:gap"]]];
 const BAR_TIP = {brand: "The logo: it flashes while an agent waits, and a click opens the one waiting longest", lock: "Locks and unlocks the panes and the bars",
   week: "The account's week against the budget (agents-budget)", weekbar: "How much of the account's weekly allowance is used; the mark is where the plan has it by now",
   session: "The account's five-hour session", team: "Tokens a minute, every running agent together", tokbar: "The tokens a minute every running agent is using together, over the last while",
   day: "How far through the working week it is", dayfull: "How far through the working week it is, over a full-width meter",
+  pipeline: "Where the tickets in flight are on their way to main: claimed, PR, signed off, approved, queued for the runner, merged today; click a stage for its tickets",
   disk: "The space free on the disk the agents work on", diskbar: "How full the disk the agents work on is",
   cpubar: "How busy the machine's processors are", membar: "How much of the machine's memory is in use",
   netbar: "The machine's network traffic; the meter is its busiest connection against that connection's top speed",
@@ -7440,6 +7461,25 @@ const BAR_GRAPH = {
   gpubar: () => { const g = (perfNow?.gpus || []).reduce((a, b) => !a || b.pct > a.pct ? b : a, null); return g && ["gpu:" + g.id, "GPU", "gpu", "%"]; },
   netbar: () => { const n = (perfNow?.net || []).reduce((a, b) => !a || b.in + b.out > a.in + a.out ? b : a, null); return n && ["net:" + n.name, n.name, "net", "b"]; },
 };
+// A plug-in part that names one of its lists (the Pipeline's stages) opens that list under it; a click on a row
+// opens its link, and a second click on the part closes it. The list is the one the last refresh brought.
+function plugListHtml(l) {
+  return (l.head ? `<div class="hd"><div>${esc(l.head)}</div></div>` : "") + (l.rows.length ? l.rows.map(r =>
+    `<div class="mi plr"${r.href ? ` data-href="${esc(r.href)}"` : ""}><div><div>${esc(r.text)}</div>${r.sub ? `<div class="plsub">${esc(r.sub)}</div>` : ""}</div></div>`).join("")
+    : `<div class="mi plr off"><div>None</div></div>`);
+}
+addEventListener("click", e => {
+  const r = e.target.closest?.("#menu .plr[data-href]");
+  if (r) { menuOff(true); window.open(r.dataset.href, "_blank", "noopener"); return; }
+  const b = e.target.closest?.(".bi.plug [data-plist]");
+  if (!b || barEditing()) return;
+  e.stopPropagation();
+  const key = b.dataset.menu, x = plugs().find(p => p.key === b.closest(".bi.plug").dataset.item), l = x?.lists?.[b.dataset.plist];
+  if (menuOn(key)) { menuOff(true); return; }
+  if (!l) return;
+  menuAt(b, key, plugListHtml(l));
+  menu.refresh = () => { const y = plugs().find(p => p.key === x.key)?.lists?.[b.dataset.plist]; if (y) menuAt(b, key, plugListHtml(y), false, true); };
+}, true);
 addEventListener("click", async e => {
   const bar = e.target.closest(".bi.plug"), of = bar && !barEditing() && BAR_GRAPH[bar.dataset.item];
   if (!of) return;
@@ -10997,6 +11037,53 @@ def self_test():
         t("team/bar/heatbar: says the fans are not reported only where they are not",
           [("standing in" in sh("heatbar", {"perf": {"temps": [{"name": "CPU", "c": 40}], "fans": f}})["title"]) for f in (fans, [], None)],
           [False, True, True])
+        t("a plug-in part may name a list: kept when the key is a plain name, its rows bounded, a link kept only if https",
+          plug_item({"value": [{"text": "A 1", "list": "a"}, {"text": "B", "list": "<b>"}],
+                     "lists": {"a": {"head": "H", "rows": [{"text": "r", "sub": "s", "href": "javascript:x"}, {"text": "q", "href": "https://x.test/1"}] + [{}] * 40},
+                               "z": {"rows": [{"text": "unnamed"}]}}}, "n")["lists"],
+          {"a": {"head": "H", "rows": [{"text": "r", "sub": "s", "href": ""}, {"text": "q", "sub": "", "href": "https://x.test/1"}] + [{"text": "", "sub": "", "href": ""}] * 28}})
+        t("  and with no part naming one there are no lists", "lists" in plug_item({"value": ["a"], "lists": {"a": {"rows": []}}}, "n"), False)
+        fb = os.path.join(T, "pipebin")   # team/bar/pipeline against a fake gh and a fake ledger
+        os.makedirs(fb, exist_ok=True)
+        h40 = lambda c: c * 40
+        prs = [{"number": 11, "isDraft": True, "headRefName": "t_draft-pt1", "headRefOid": h40("a"), "autoMergeRequest": None, "title": "x"},
+               {"number": 12, "isDraft": True, "headRefName": "t_signed_old-pt1", "headRefOid": h40("b"), "autoMergeRequest": None, "title": "x"},
+               {"number": 13, "isDraft": True, "headRefName": "t_approved-pt2", "headRefOid": h40("c"), "autoMergeRequest": None, "title": "x"},
+               {"number": 14, "isDraft": False, "headRefName": "t_q_waiting-pt1", "headRefOid": h40("d"), "autoMergeRequest": {}, "title": "x"},
+               {"number": 15, "isDraft": False, "headRefName": "t_q_running-pt1", "headRefOid": h40("e"), "autoMergeRequest": {}, "title": "x"}]
+        runs = {"workflow_runs": [{"name": "ci", "event": "pull_request", "head_sha": h40("e"), "status": "in_progress", "created_at": "2026-01-01T10:05:00Z"},
+                                  {"name": "ci", "event": "pull_request", "head_sha": h40("d"), "status": "queued", "created_at": "2026-01-01T10:00:00Z"}]}
+        merged = [{"number": 9, "headRefName": "t_done-pt1", "title": "Done PR", "mergedAt": "2026-01-01T09:00:00Z"}]
+        for n, v in (("prs", prs), ("runs", runs), ("merged", merged)):
+            with open(os.path.join(fb, n + ".json"), "w") as fh:
+                json.dump(v, fh)
+        with open(os.path.join(fb, "gh"), "w") as fh:
+            fh.write(f'#!/bin/sh\n[ -e {fb}/gh-fails ] && {{ echo "gh: down" >&2; exit 1; }}\n'
+                     f'case "$*" in *"--state open"*) cat {fb}/prs.json;; *"--state merged"*) cat {fb}/merged.json;; api*) cat {fb}/runs.json;; esac\n')
+        with open(os.path.join(fb, "ledger"), "w") as fh:
+            fh.write("#!/bin/sh\necho \"$*\" > " + fb + "/ledger-args\ncat <<'X'\n"
+                     "T|t_claimed|101|501|Ada|in_progress|Claimed one\nT|fx_fixture|102||Vera|in_progress|fixture\n"
+                     "T|t_draft|103||Bo|in_progress|Draft one\nT|t_signed_old|104||Cy|in_progress|Signed at an old commit\n"
+                     "T|t_approved|105||Di|in_progress|Approved | with a bar\nT|t_done|99||Ed|archived|Done ticket\n"
+                     f"V|t_approved|{h40('c')}|sign-off|Tess|\nV|t_approved|{h40('c')}|approval|Rev|13|\nV|t_signed_old|{h40('f')}|sign-off|Old|\nX\n")
+        for f in ("gh", "ledger"):
+            os.chmod(os.path.join(fb, f), 0o755)
+        pipe = lambda **env: subprocess.run([os.path.join(bar, "pipeline")], input="{}", capture_output=True, text=True,
+                                            env={**os.environ, "PATH": fb + ":" + os.environ["PATH"], "AGENTS_DASH_LEDGER": os.path.join(fb, "ledger"), **env})
+        pj = json.loads(pipe(AGENTS_PR_REPO="o/r").stdout)
+        t("team/bar/pipeline: each stage counted, the queue running-first then by when its CI queued",
+          "".join(p["text"] for p in pj["value"]), "Claimed 1 › PR 2 › Signed 0 › Approved 1 › Queue ▶15 ①14 › Merged 1")
+        t("  a stage's list names the ticket by its number, and its PR, who holds it and who signed",
+          [(r["text"], r["sub"], r["href"]) for r in pj["lists"]["approved"]["rows"] + pj["lists"]["claimed"]["rows"] + pj["lists"]["merged"]["rows"]],
+          [("#105 Approved | with a bar", "PR 13 (draft) · Di · Tess ✓ Rev ✓", "https://github.com/o/r/pull/13"),
+           ("#101 Claimed one", "Ada", "https://github.com/o/r/issues/501"), ("#99 Done ticket", "PR 9 · merged 09:00Z", "https://github.com/o/r/pull/9")])
+        t("  a verdict counts only at the PR's head commit, and the ledger is asked for each PR's ticket and head",
+          ([r["sub"] for r in pj["lists"]["pr"]["rows"]], sorted(open(os.path.join(fb, "ledger-args")).read().split()[1:])),
+          (["PR 11 (draft) · Bo", "PR 12 (draft) · Cy"], sorted([h40(c) for c in "abcde"] + ["t_approved", "t_done", "t_draft", "t_q_running", "t_q_waiting", "t_signed_old"])))
+        open(os.path.join(fb, "gh-fails"), "w").close()
+        bad = pipe(AGENTS_PR_REPO="o/r")
+        t("  hidden with no PR repo, and a failing gh is a failed run the page shows as ?, saying why",
+          (json.loads(pipe(AGENTS_PR_REPO="").stdout).get("hidden"), bad.returncode, bad.stderr.strip()[-8:]), (True, 1, "gh: down"))
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
         hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one
