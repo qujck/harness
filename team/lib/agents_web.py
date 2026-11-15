@@ -6829,6 +6829,7 @@ function dayLogHtml(n) {
 // days' total. A week folds under its ^ as a Work queue section does (its key "tokens:<Monday>"). The role chips sit in
 // the pane, locked or not, and narrow every layout; a role's name on a chart works as its chip.
 // - Table: a row per role, opening on its people, Monday to Sunday the columns, with each row's and each day's total.
+//   A role row shows only its role, never a person's name, even for a role of one (owner, 2026-11-15).
 //   A person's cell's title has its calls, the messages it sent and the four token counts; days are shaded on one scale
 //   across every week shown, so weeks compare by eye, and today, a part day, is boxed and not shaded. The Total header
 //   sorts roles, and the people in each, by total (n.tksort). A weekday in the Total row over a fifth of the weekly
@@ -6927,7 +6928,7 @@ function tokensHtml(big, n, path, phone = false) {
       const one = g.them.length === 1, open = !one && (alone || (n?.tkopen || []).includes(g.role));
       const icon = phone && roleIcon(g.role), badge = icon ? `<span class="who icon" style="--pc:${esc(g.colour)}" title="${esc(g.name)}" aria-label="${esc(g.name)}">${icon}</span>`
         : `<span class="who" style="--pc:${esc(g.colour)}">${esc(g.name)}</span>`;   // a phone shows the role's icon in its badge
-      const name = one ? `${badge}${icon ? " " : " · "}${esc(shown(g.them[0].name))}`
+      const name = one ? badge   // a role row names no one (owner, 2026-11-15); its cells' titles still do
         : `${badge}<span class="chev">${open ? "▾" : "▸"}</span><span class="cnt">${g.them.length}</span>`;
       const head = `<tr class="trole${one ? "" : " opens"}"${one || alone ? "" : ` data-tkrole="${esc(g.role)}" title="${open ? "Hide" : "Show"} the ${esc(g.name)}s"`}><td>${name}</td>` +
         days.map(d => { const v = one ? w(g.them[0], d) : roleDay(g, d);
