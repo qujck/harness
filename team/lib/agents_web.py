@@ -8381,7 +8381,21 @@ $("#dconv").addEventListener("click", e => {
   if (!getSelection().isCollapsed || e.target.closest("a, button, img, .thumbs, [data-run]") || !ds.offsetParent) return;
   if (document.activeElement !== ds) aim(ds);
 });
-$("#dconv").addEventListener("scroll", () => { const c = $("#dconv"); pinned = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; $("#dbottom").classList.toggle("on", !pinned); });
+// Opening or switching to an agent lands on its newest turn and stays there while the turns settle (owner, 2026-11-15:
+// "when switching between agents ... can it always scroll to the bottom of the incoming conversation"): for a moment
+// after it is drawn, every frame puts it back at the end, so a swipe's leftover momentum or a late image cannot leave it
+// short; the reader's own touch, wheel or press on it ends that at once. Later, an image that loads while pinned keeps
+// it at the end too.
+let arriving = 0;
+const convEnd = () => { const c = $("#dconv"); c.scrollTop = c.scrollHeight; };
+function arrive() {
+  arriving = Date.now() + 1500;
+  const step = () => { if (Date.now() > arriving || !pinned) return; if (!holding($("#dconv"))) convEnd(); requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+for (const ev of ["touchstart", "wheel", "pointerdown"]) $("#dconv").addEventListener(ev, () => { arriving = 0; }, {passive: true});
+$("#dconv").addEventListener("load", () => { if (open && pinned && !holding($("#dconv"))) convEnd(); }, true);
+$("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return; const c = $("#dconv"); pinned = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; $("#dbottom").classList.toggle("on", !pinned); });
 $("#dbottom").onclick = () => { const c = $("#dconv"); pinned = true; $("#dbottom").classList.remove("on"); c.scrollTo({top: c.scrollHeight, behavior: "smooth"}); };
 let convFeed = [];
 function renderConv() {
@@ -8406,6 +8420,7 @@ async function refreshDetail(first) {
     else seekGone(conv);
   }
   if (pinned && !holding(conv)) { conv.scrollTop = conv.scrollHeight; requestAnimationFrame(() => { conv.scrollTop = conv.scrollHeight; }); }
+  if (first && pinned) arrive();
   if (!holding($("#dscreen"))) $("#dscreen").innerHTML = d.screen || `<span style="color:var(--faint)">not on screen</span>`;
   term = {cols: d.cols || 80, rows: d.rows || 24};
   $("#dtitle").textContent = `${open} — ${term.cols}×${term.rows}`;
@@ -11088,6 +11103,11 @@ def self_test():
           ('data-ppgo="${esc(c.key)}"' in PAGE, '<section class="pp-ss" data-ppsec="${esc(s.key)}">' in PAGE,
            'data-ppgo="~merged"' in PAGE and 'data-ppsec="~merged"' in PAGE,
            'const go = e.target.closest(".ppdesk [data-ppgo]"), desk = go?.closest(".ppdesk");' in PAGE), (True,) * 4)
+        t("  opening or switching to an agent lands on its newest turn and holds there while it settles, until the reader touches it; a late image keeps a pinned view at the end",
+          ("  if (first && pinned) arrive();" in PAGE, "const step = () => { if (Date.now() > arriving || !pinned) return;" in PAGE,
+           'for (const ev of ["touchstart", "wheel", "pointerdown"]) $("#dconv").addEventListener(ev, () => { arriving = 0; }, {passive: true});' in PAGE,
+           '$("#dconv").addEventListener("load", () => { if (open && pinned && !holding($("#dconv"))) convEnd(); }, true);' in PAGE,
+           '$("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return;' in PAGE), (True,) * 5)
         t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
           ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE,
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
