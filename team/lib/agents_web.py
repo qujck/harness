@@ -5238,8 +5238,9 @@ html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 
 html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
   background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
 html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
-html.phone :is(#dconv, .ph-pane).phin-r{animation:phinr .22s ease-out}
-html.phone :is(#dconv, .ph-pane).phin-l{animation:phinl .22s ease-out}
+html.phone :is(#dconv, .ph-pane, .workq, .teamlog > .blank).phin-r{animation:phinr .22s ease-out}
+html.phone :is(#dconv, .ph-pane, .workq, .teamlog > .blank).phin-l{animation:phinl .22s ease-out}
+html.phone .ph-pane .teamlog[data-name="~workqueue"]{overflow-x:clip}   /* the sliding list never widens the pane */
 @keyframes phinr{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
 @keyframes phinl{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
@@ -10717,7 +10718,8 @@ function phQueueSwipe(body) {
     const to = dx < 0 ? "done" : "work";
     if (to === wqTab()) return;
     localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw();
-    const p = body.querySelector(".ph-pane");
+    // only the list moves: the pane's head, its Doing/Done tabs and the chips stay put (owner, 2026-11-15)
+    const p = body.querySelector(".ph-pane .workq") || body.querySelector(".ph-pane .teamlog > .blank");
     if (p) { p.classList.remove("phin-l", "phin-r"); void p.offsetWidth; p.classList.add(to === "done" ? "phin-r" : "phin-l"); }
   }, {passive: true});
   body.addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
