@@ -10693,12 +10693,6 @@ function phMove(el, to, op, ms, ease) {
     el.addEventListener("transitionend", fin, {once: true}); setTimeout(fin, ms + 80);
   });
 }
-// el jumps to translateX(from px) at opacity op, then eases to rest
-async function phIn(el, from, op, ms) {
-  if (!el) return;
-  el.style.transition = "none"; el.style.transform = `translateX(${from}px)`; el.style.opacity = op; void el.offsetWidth;
-  await phMove(el, 0, "1", ms, "ease-out"); phRest(el);
-}
 // A still copy of what is on screen, laid over it to slide off while the real one redraws: of el, or of the host a
 // redraw rebuilds it inside (the Work queue's list, inside the panel), whose other parts are hidden in the copy. It sits
 // next to the real one, after it, so its ids and the page's styles reach it and a lookup by id still finds the real one;
@@ -10718,11 +10712,14 @@ function phSnap(el, host, from) {
   return {c, part};
 }
 function phSwiper(root, ok, plan) {
-  let x0 = null, y0 = 0, t0 = 0, lock = 0, p = null, at = 0, busy = false;   // lock: 0 undecided, 1 ours, -1 the scroll's
+  let x0 = null, y0 = 0, t0 = 0, lock = 0, p = null, at = 0, cut = null, gen = 0;   // lock: 0 undecided, 1 ours, -1 the scroll's
   const drop = () => { x0 = null; lock = 0; p = null; at = 0; };
   root.addEventListener("touchstart", e => {
     drop();
-    if (busy || !phoneOn() || e.touches.length !== 1 || !ok(e)) return;
+    // a finger that comes down while the last swipe's pages are still moving ends that move where it was going, and
+    // swipes on at once (owner, 2026-11-15: "You now can't immediately swipe again, you need to wait a moment")
+    if (cut) cut();
+    if (!phoneOn() || e.touches.length !== 1 || !ok(e)) return;
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
   }, {passive: true});
   root.addEventListener("touchmove", e => {
@@ -10750,25 +10747,32 @@ function phSwiper(root, ok, plan) {
     const el = q.el;
     if (!q.go || (Math.abs(mx) <= 70 && !(Math.abs(mx) > 30 && v > 0.4)) || (mx < 0 ? 1 : -1) !== q.dir) {
       if (phCalm()) return phRest(el);
-      return phIn(el, from, el.style.opacity || "1", 180);
+      const my = ++gen; cut = () => { cut = null; gen++; phRest(el); };
+      await phMove(el, 0, "1", 180, "ease-out");
+      if (my === gen) { cut = null; phRest(el); }
+      return;
     }
-    busy = true;
+    // each await below checks it is still this swipe's: a finger that came down since has ended it (cut), and the
+    // pages it left are the next swipe's to move
+    const my = ++gen;
     let snap = null;
+    cut = () => { cut = null; gen++; snap?.c.remove(); const n = (q.after && q.after()) || el; if (n !== el) phRest(el); phRest(n); };
     try {
       const w = Math.min(el.clientWidth || innerWidth, innerWidth), gone = Promise.resolve().then(q.go).catch(() => {});
-      if (phCalm()) { await Promise.race([gone, new Promise(r => setTimeout(r, 500))]); return phRest((q.after && q.after()) || el); }
+      if (phCalm()) { await Promise.race([gone, new Promise(r => setTimeout(r, 500))]); if (my === gen) phRest((q.after && q.after()) || el); return; }
       // both pages move together, edge to edge (owner, 2026-11-15: "show the incoming page in addition to the outgoing
       // one"): a still copy of the outgoing one slides off while the real one, redrawn, comes in right behind it. A draw
       // that is quick (a home panel's) is in before the move; a slower one (an agent's turns) lands in the page as it comes.
       snap = phSnap(el, q.host, from);
       el.style.transition = "none"; el.style.transform = `translateX(${from + q.dir * w}px)`; el.style.opacity = "1";
       await Promise.race([gone, new Promise(r => setTimeout(r, 150))]);
+      if (my !== gen) return;
       const nx = (q.after && q.after()) || el;
       if (nx !== el) phRest(el);
       nx.style.transition = "none"; nx.style.transform = `translateX(${from + q.dir * w}px)`; nx.style.opacity = "1"; void nx.offsetWidth;
       await Promise.all([phMove(snap.part, -q.dir * w, ".6", 240, "ease-out"), phMove(nx, 0, "1", 240, "ease-out")]);
-      phRest(nx);
-    } finally { snap?.c.remove(); busy = false; }
+      if (my === gen) phRest(nx);
+    } finally { if (my === gen) { cut = null; snap?.c.remove(); } }
   };
   root.addEventListener("touchend", end, {passive: true});
   root.addEventListener("touchcancel", end, {passive: true});
@@ -11454,8 +11458,8 @@ def self_test():
            "at = p.go ? mx : mx * 0.25;" in PAGE, "}, {passive: false});" in PAGE and "if (e.cancelable) e.preventDefault();" in PAGE,
            "(Math.abs(mx) <= 70 && !(Math.abs(mx) > 30 && v > 0.4))" in PAGE, "snap = phSnap(el, q.host, from);" in PAGE,
            "await Promise.all([phMove(snap.part, -q.dir * w, \".6\", 240, \"ease-out\"), phMove(nx, 0, \"1\", 240, \"ease-out\")]);" in PAGE,
-           "const nx = (q.after && q.after()) || el;" in PAGE, "} finally { snap?.c.remove(); busy = false; }" in PAGE,
-           "html.phone :is(#phone, #detail .left){overflow-x:clip}" in PAGE), (True,) * 10)
+           "const nx = (q.after && q.after()) || el;" in PAGE, "} finally { if (my === gen) { cut = null; snap?.c.remove(); } }" in PAGE, "    if (cut) cut();\n    if (!phoneOn() || e.touches.length !== 1 || !ok(e)) return;" in PAGE,
+           "html.phone :is(#phone, #detail .left){overflow-x:clip}" in PAGE), (True,) * 11)
         t("  a sideways swipe on the phone's home page shows the next or previous toolbar panel, Work queue's Doing/Done first",
           ("phBodySwipe(body);" in PAGE, 'const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + dir];' in PAGE,
            'if (to !== wqTab()) {' in PAGE, "phQueueSwipe" not in PAGE, "phin-r" not in PAGE), (True,) * 5)
