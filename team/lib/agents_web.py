@@ -10451,10 +10451,14 @@ function phCurInView() {
   if (phRailFor === open || !b || !rail.clientWidth) return;
   const smooth = phRailFor !== null;
   phRailFor = open;
-  const l = b.offsetLeft - rail.offsetLeft, r = l + b.offsetWidth, pad = 12;
-  if (l >= rail.scrollLeft && r <= rail.scrollLeft + rail.clientWidth) return;
+  // the open portrait as near the middle as the strip allows (owner, 2026-11-15: "the active icon box remain as close to
+  // the middle as possible, moving the icons rather than the box ... the box moves at both ends"): the target is clamped
+  // to the strip's scroll range, so the row always fills the screen and only near an end does the box leave the middle
+  const l = b.offsetLeft - rail.offsetLeft, mid = l + b.offsetWidth / 2 - rail.clientWidth / 2;
+  const left = Math.round(Math.max(0, Math.min(rail.scrollWidth - rail.clientWidth, mid)));
+  if (Math.abs(left - rail.scrollLeft) < 2) return;
   phRailAuto = true; setTimeout(() => { phRailAuto = false; }, 800);
-  rail.scrollTo({left: Math.max(0, l < rail.scrollLeft ? l - pad : r - rail.clientWidth + pad), behavior: smooth ? "smooth" : "auto"});
+  rail.scrollTo({left, behavior: smooth ? "smooth" : "auto"});
 }
 // A swipe left or right across the agent view opens the next or the previous agent in the strip's order (owner,
 // 2026-11-14: "can I have swipe left and right on the page to move between them?"). Not from the strip, the message
@@ -11109,10 +11113,10 @@ def self_test():
            '$("#dconv").addEventListener("load", () => { if (open && pinned && !holding($("#dconv"))) convEnd(); }, true);' in PAGE,
            '$("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return;' in PAGE), (True,) * 5)
         t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
-          ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE,
+          ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE, "const left = Math.round(Math.max(0, Math.min(rail.scrollWidth - rail.clientWidth, mid)));" in PAGE,
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
            'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
-           'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 6)
+           'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 7)
         t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles, where every tile has its icon and the ticket beside it)",
           ('const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";' in PAGE,
            '<span class="role">${roleWith(a)}</span><span class="cctl">' in PAGE, '<span class="role">${roleWith(a)}</span>${a.ticket ?' in PAGE,
