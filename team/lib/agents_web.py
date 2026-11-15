@@ -26,7 +26,7 @@
   POST /api/agent/NAME/compact  /compact typed into the agent's pane once it is not working
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
-  /api/search?q=     the running agents' conversations (the turns the page holds) and the Day log, searched for q, by agent
+  /api/search?q=     every agent's conversation (a benched one's last) and the Day log, searched for q, by agent
   /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, Parked, and Done, as the delivery lead keeps it
   /api/tokens        the Token usage pane: each agent's tokens by day, this week and the two before (see "token usage")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
@@ -483,6 +483,72 @@ def note_up(live, names, now=None):
     return up
 
 
+# A benched or stopped agent's conversation (owner, 2026-11-15: "yes search benched too. That would also let me read
+# their output even when benched"): its last session as this page saw it running, kept on disk and never taken off
+# (only a name off the roster is); for one not seen running since that record began, the newest conversation in its
+# own folder, which agent-spawn.sh's `claude --worktree <project>-<name>` gives it (Claude Code's folder for it ends
+# "-<project>-<name>", the name in lower case and letters only).
+LAST_FILE = os.environ.get("AGENT_LAST_SESSIONS_FILE") or os.path.join(STATE_DIR, "last-agent-sessions.json")
+_seen = {"data": None}
+
+
+def seen_sessions():
+    if _seen["data"] is None:
+        try:
+            with open(LAST_FILE) as f:
+                _seen["data"] = {n: v for n, v in (json.load(f).get("agents") or {}).items() if isinstance(v, dict) and v.get("sessionId")}
+        except (OSError, ValueError, AttributeError):
+            _seen["data"] = {}
+    return _seen["data"]
+
+
+def note_seen(live, names):
+    """Records each running agent's session as its last, for when it is benched; names off the roster are dropped."""
+    data, changed = seen_sessions(), False
+    for n, rec in live.items():
+        if n in names and rec.get("sessionId") and (data.get(n) or {}).get("sessionId") != rec["sessionId"]:
+            data[n] = {"sessionId": rec["sessionId"], "cwd": rec.get("cwd") or ""}
+            changed = True
+    for n in [n for n in data if n not in names]:
+        del data[n]
+        changed = True
+    if changed:
+        try:
+            os.makedirs(os.path.dirname(LAST_FILE), exist_ok=True)
+            tmp = LAST_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"agents": data}, f, indent=1, sort_keys=True)
+            os.replace(tmp, LAST_FILE)
+        except OSError:
+            pass
+
+
+def resting_session(name):
+    """The session id of the last conversation of an agent that is not running, or None."""
+    sid = (seen_sessions().get(name) or {}).get("sessionId")
+    if sid and transcript(sid):
+        return sid
+    tail, best = "-" + re.sub(r"[^a-z0-9]", "", name.lower()), (0, None)
+    for d in glob.glob(os.path.join(PROJECTS, "*")):
+        if os.path.basename(d).lower().endswith(tail):
+            for f in glob.glob(os.path.join(d, "*.jsonl")):
+                try:
+                    best = max(best, (os.stat(f).st_mtime, f))
+                except OSError:
+                    continue
+    return os.path.basename(best[1])[:-6] if best[1] else None
+
+
+def conversations():
+    """Name -> session id for every agent on the roster with a conversation: a running one's session, else its last."""
+    live, out = live_sessions(), {}
+    for r in roster():
+        sid = (live.get(r["name"]) or {}).get("sessionId") or resting_session(r["name"])
+        if sid:
+            out[r["name"]] = sid
+    return out
+
+
 _last = {}   # session record path -> (mtime, name, session id, when it last changed)
 
 
@@ -639,8 +705,9 @@ def daylog_json():
     return json.dumps({**data, "rows": rows, "state": state, "error": _daylog["error"]}).encode()
 
 # ── search ──────────────────────────────────────────────────────────────────────────────────────────────────────
-# The page's search (owner, 2026-11-13): q, case aside, in what the page already holds: each running agent's last 300
-# turns (the same cached read as the state's) and the Day log's rows. Hits come back grouped by agent, newest first,
+# The page's search (owner, 2026-11-13): q, case aside, in each agent's last 300 turns (a running agent's the same
+# cached read as the state's; a benched or stopped one's from its last conversation, see resting_session) and the Day
+# log's rows. Hits come back grouped by agent, newest first,
 # each cut to the words around the match, as plain text (no markdown's markers), with who it was from and to; a Day log
 # row signed by no agent goes under "Day log". A hit carries what the page needs to find it again: its turn's time and
 # kind, or the Day log row's time.
@@ -681,9 +748,8 @@ def search_json(q):
         a, b = max(0, i - 70), i + len(q) + 110
         return ("…" if a else "") + flat[a:b] + ("…" if b < len(flat) else "")
 
-    for name, rec in live_sessions().items():
-        sid = rec.get("sessionId")
-        for it in reversed(feed(sid, 300) if sid else []):
+    for name, sid in conversations().items():
+        for it in reversed(feed(sid, 300)):
             t = it.get("text")
             if isinstance(t, str) and low in " ".join(t.split()).lower():
                 frm, to = from_to(it, name)
@@ -710,14 +776,41 @@ def search_json(q):
 TOKENS_WEEKS = 3   # this week and the two before it, Monday to Sunday
 TOKENS_EVERY = 60
 TOKEN_TITLE = re.compile(r'"customTitle":"/?([^"]*)"')
-_tokens = {"at": 0, "busy": False, "data": None, "files": {}}
+_tokens = {"at": 0, "busy": False, "data": None, "files": {}, "loaded": False}
+# What has been read of each transcript is kept on disk (owner, 2026-11-15: "a cache in front of token usage"), so a
+# restarted page reads only what was written since, not every transcript again (33s for 360 of them, on 2026-11-15).
+# A file's request ids are not kept, only its last: a response's lines follow one another, so the one that can straddle
+# where the read stopped is the last one counted.
+TOKEN_CACHE = os.environ.get("AGENT_TOKEN_CACHE") or os.path.join(STATE_DIR, "token-usage-cache.json")
+
+
+def tokens_load():
+    _tokens["loaded"] = True
+    try:
+        with open(TOKEN_CACHE) as f:
+            files = json.load(f)["files"]
+        _tokens["files"] = {p: {"title": k["title"], "off": int(k["off"]), "last": k.get("last"), "seen": {k.get("last")},
+                                "days": {d: list(v) for d, v in k["days"].items()}} for p, k in files.items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        _tokens["files"] = {}
+
+
+def tokens_save(files):
+    try:
+        os.makedirs(os.path.dirname(TOKEN_CACHE), exist_ok=True)
+        tmp = TOKEN_CACHE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"files": {p: {"title": k["title"], "off": k["off"], "last": k.get("last"), "days": k["days"]} for p, k in files.items()}}, f)
+        os.replace(tmp, TOKEN_CACHE)
+    except OSError:
+        pass
 
 
 def token_file(path, size, known):
     """A transcript's totals so far, read on from where `known` stopped: {title, off, seen, days: {day: [fresh in,
     cache write, cache read, out, calls, sent]}}. A file that shrank is read again from the start."""
     if not known or size < known["off"]:
-        known = {"title": "", "off": 0, "seen": set(), "days": {}}
+        known = {"title": "", "off": 0, "seen": set(), "last": None, "days": {}}
     with open(path, "rb") as f:
         f.seek(known["off"])
         data = f.read(size - known["off"])
@@ -742,6 +835,7 @@ def token_file(path, size, known):
         if not u or key in known["seen"]:
             continue
         known["seen"].add(key)
+        known["last"] = key
         d[0] += u.get("input_tokens") or 0; d[1] += u.get("cache_creation_input_tokens") or 0
         d[2] += u.get("cache_read_input_tokens") or 0; d[3] += u.get("output_tokens") or 0; d[4] += 1
     known["off"] += end
@@ -754,18 +848,27 @@ def refresh_tokens():
         first = today - datetime.timedelta(days=today.weekday() + 7 * (TOKENS_WEEKS - 1))
         days = [(first + datetime.timedelta(days=i)).isoformat() for i in range((today - first).days + 1)]
         start = time.time() - (len(days) + 1) * 86400
-        files = _tokens["files"]
+        if not _tokens["loaded"]:
+            tokens_load()
+        files, changed, there = _tokens["files"], False, set()
         for path in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")):
             try:
                 st = os.stat(path)
             except OSError:
                 continue
+            there.add(path)
             if st.st_mtime < start or (path in files and files[path]["off"] == st.st_size):
                 continue
             try:
                 files[path] = token_file(path, st.st_size, files.get(path))
+                changed = True
             except OSError:
                 pass
+        for path in set(files) - there:   # a transcript deleted
+            del files[path]
+            changed = True
+        if changed:
+            tokens_save(files)
         # By role, then name (owner, 2026-11-12: "the SMT, then devs, tests, reviewers, assistant").
         team = [r["name"] for r in sorted(roster(), key=lambda r: (TOKEN_RANK.get(r["role"], 5), r["name"].casefold()))]
         per = {n: {} for n in team}
@@ -2914,6 +3017,7 @@ def state():
     now = time.time()
     live, rows, burns, last = live_sessions(), context_rows(), burn(), last_sessions()
     note_up(live, {r["name"] for r in roster()})
+    note_seen(live, {r["name"] for r in roster()})
     where, held = panes(), claims()
     tfacts = ticket_facts(list(held.values()))
     agents, bench = [], []
@@ -3032,14 +3136,18 @@ def state_json():
 
 def agent_json(name, every=False):
     """name's conversation, the newest 60 turns of each lane of its last 300 (all 300 with every, as the page asks while
-    it shows a search's hit, which may be older than a lane's 60), and its pane as it is on screen now."""
+    it shows a search's hit, which may be older than a lane's 60), and its pane as it is on screen now. An agent not
+    running gives its last conversation (resting_session)."""
     rec = live_sessions().get(name)
     where = panes().get(name)
     screen = ""
     if where:
         screen = ansi_html(run("tmux", "capture-pane", "-p", "-e", "-t", where["pane"]).rstrip("\n"), shown_names())
-    turns = feed(rec.get("sessionId"), 300) if rec else []
-    conv = with_ask(turns if every else by_lane(turns, 60), rec.get("status"), where) if rec else []
+    # one not running shows its last conversation, to read (a name off the roster, nothing)
+    sid = rec.get("sessionId") if rec else resting_session(name) if any(r["name"] == name for r in roster()) else None
+    turns = feed(sid, 300) if sid else []
+    conv = turns if every else by_lane(turns, 60)
+    conv = with_ask(conv, rec.get("status"), where) if rec else conv
     return json.dumps({"name": name, "feed": conv, "screen": screen,
                        "cols": (where or {}).get("cols", 0), "rows": (where or {}).get("rows", 0)}).encode()
 
@@ -4860,6 +4968,10 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 #phone .pp-sheet.closing{pointer-events:none}
 #phone .ph-pane .teamlog{flex:1;min-height:0;border-radius:14px;display:flex;flex-direction:column}
 #phone .ph-pane .teamlog .feed{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+/* a Summary feed sits at its foot through its first line's margin, not by flex-end, which puts what overflows above
+   the top, where nothing can scroll to it (owner, 2026-11-15: "the combined view isn't scrolling") */
+#phone .ph-pane .teamlog.summary .feed{justify-content:flex-start}
+#phone .ph-pane .teamlog.summary .feed > :first-child{margin-top:auto}
 #phone .ph-pane .teamlog .thead{flex-wrap:wrap;row-gap:4px}
 #phone .ph-tokens .thead .tsum{white-space:normal}
 #phone .ph-tokens .tkgraph{font-size:13px}
@@ -5126,8 +5238,8 @@ html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 
 html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
   background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
 html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
-html.phone #dconv.phin-r{animation:phinr .22s ease-out}
-html.phone #dconv.phin-l{animation:phinl .22s ease-out}
+html.phone :is(#dconv, .ph-pane).phin-r{animation:phinr .22s ease-out}
+html.phone :is(#dconv, .ph-pane).phin-l{animation:phinl .22s ease-out}
 @keyframes phinr{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
 @keyframes phinl{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
@@ -8341,6 +8453,7 @@ function rail() {
 // where it sits and works. Redrawn with the page.
 function facts() {
   const a = open && S && S.agents.find(x => x.name === open), el = $("#dfacts");
+  if (el && !a && open && S?.bench.some(x => x.name === open)) return patch(el, `<span class="state bench"><span class="dot"></span>On the bench · its last conversation</span>`);
   if (!a || !el) return;
   const st = stOf(a);
   const ctx = a.ctxUsed == null ? "" : `<span title="Context used of the window">${k(a.ctxUsed)} / ${k(a.ctxWindow)} <b style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</b></span>`;
@@ -8369,7 +8482,7 @@ async function openDetail(name) {
   open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = ""; $("#dscreen").innerHTML = ""; $("#dterm").classList.remove("big"); $("#dzoom").textContent = "⤢";
   history.replaceState(null, "", "#" + encodeURIComponent(name));
   if (ONLY) document.title = shown(name);
-  const a = S.agents.find(x => x.name === name) || {};
+  const a = S.agents.find(x => x.name === name) || S.bench.find(x => x.name === name) || {};   // a benched agent's last conversation is there to read
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
   $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
@@ -9219,7 +9332,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${roleWith(a)}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
-    (bench ? (bench.standing ? power : "") : !a.live ? power :   // a benched developer or tester has only its details, a benched standing agent its Start; one that is not running has nothing to open
+    (bench || !a.live ? (name === open ? "" : `<div class="mi" data-go="read">${MENU_ICON.open}Read its last conversation</div>`) + (bench && !bench.standing ? "" : power) :   // one not running has its last conversation to read, and a benched standing agent or a stopped one its Start
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
@@ -9235,6 +9348,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
     else if (go === "fav") phFavToggle(name);
     else if (go === "start") post(`/api/agent/${encodeURIComponent(name)}/start`);
     else if (go === "halt" || go === "compact") post(`/api/agent/${encodeURIComponent(name)}/${go}`);
+    else if (go === "read") openDetail(name);
     else if (go !== "cancel") ({tab: inNewTab, window: inWindow}[go] || (open || phoneOn() ? openDetail : x => menuGo(x, anchor)))(name);   // with a view open, or on the phone (no panes), Open shows the agent's view
   });
 }
@@ -9305,14 +9419,14 @@ function searchHtml(d) {
 function searchGo(mi, q) {
   const name = mi.dataset.hit;
   if (mi.dataset.src === "daylog") return void seekDayLog(+mi.dataset.at, q);
-  if (S.agents.some(a => a.name === name && a.live)) { seek = {src: "conversation", name, ts: mi.dataset.ts, q, fresh: true}; openDetail(name); }
+  if ([...S.agents, ...S.bench].some(a => a.name === name)) { seek = {src: "conversation", name, ts: mi.dataset.ts, q, fresh: true}; openDetail(name); }   // a benched agent's last conversation too
 }
 // The Search panel (owner, 2026-11-15: "can I have a search panel then please. With filters for role and agent by name.
 // If the panel is in the view the icon should focus the panel. Otherwise work as it does today"): the search box and an
 // agent picker, the role chips (in a desktop pane's bar; over the phone panel), and the hits the Search menu would show,
 // left to the roles and the agent picked. A desktop pane keeps its words and filters in the layout, the phone panel in
-// this browser. What /api/search answers is the running agents' conversations and the whole Day log, so a benched agent
-// is found by its Day log rows. The Search button, Ctrl+K, / and the menus' Search focus a panel the screen shows, and
+// this browser. What /api/search answers is every agent's conversation (a benched or stopped one's last, owner
+// 2026-11-15) and the whole Day log. The Search button, Ctrl+K, / and the menus' Search focus a panel the screen shows, and
 // open the Search menu only when none is (openSearch).
 const searchRes = {}, searchAsk = {}, searchWait = {};   // by panel: what it last found {q, d}, the words in flight, the typing timer
 const searchKey = el => el.closest(".spanel")?.dataset.skey;
@@ -9971,7 +10085,7 @@ function phListHtml() {
       (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
   // by role (owner, 2026-11-08): each role's agents in the roster's order, running or not, a stopped one greyed
-  const rrow = a => { if (!a.live) return `<button class="ph-row off" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
+  const rrow = a => { if (!a.live) return `<button class="ph-row off" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " s bench")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name" style="color:var(--mute)">${esc(shown(a.name))}</span><span class="ph-right">stopped</span></span></span></button>`;
       const st = stOf(a), last = phLast(a), n = unseen(a), busy = st === "busy" || st === "compacting" || st === "waiting";
       return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
         (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : "") +
@@ -9983,7 +10097,7 @@ function phListHtml() {
       (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
   }
   return fav + wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
-    (off.length ? `<section><h2>Stopped · ${off.length}</h2><div class="ph-chips">${off.map(a => `<button class="ph-chip${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
+    (off.length ? `<section><h2>Stopped · ${off.length}</h2><div class="ph-chips">${off.map(a => `<button class="ph-chip${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
 }
 function phFacesHtml() {
@@ -10201,6 +10315,7 @@ function phoneDraw() {
     // here from the touch, because a phone's browser may send no contextmenu for it (Safari on an iPhone never does);
     // one that does is the same hold, and opens nothing twice.
     phHoldWire();
+    phQueueSwipe(body);
   }
   // the logo flashes, and opens the agent waiting longest, as the header's does; beside the title, how many wait, whose tap lists them
   const logo = ph.querySelector(".ph-logo"), waits = needing(), wb = ph.querySelector(".ph-waitbtn");
@@ -10580,6 +10695,32 @@ function phCurInView() {
   }, {passive: true});
   $("#detail").addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
 })();
+// On the Work queue tab a swipe left shows Done, and right shows Doing (owner, 2026-11-15: "swipe left and right
+// between doing and done"), as a tap on its tabs does: a mostly-sideways move of 70px or more, quickly, not from the
+// screen's edges (the phone's back gesture) nor from anything that scrolls sideways itself.
+function phQueueSwipe(body) {
+  let x0 = null, y0 = 0, t0 = 0;
+  const sideways = el => { for (; el && el !== body; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
+  body.addEventListener("touchstart", e => {
+    x0 = null;
+    if (body.dataset.tab !== "queue" || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (t.clientX < 24 || t.clientX > innerWidth - 24 || sideways(e.target)) return;
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
+  }, {passive: true});
+  body.addEventListener("touchend", e => {
+    if (x0 === null) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || Date.now() - t0 > 700) return;
+    const to = dx < 0 ? "done" : "work";
+    if (to === wqTab()) return;
+    localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw();
+    const p = body.querySelector(".ph-pane");
+    if (p) { p.classList.remove("phin-l", "phin-r"); void p.offsetWidth; p.classList.add(to === "done" ? "phin-r" : "phin-l"); }
+  }, {passive: true});
+  body.addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
+}
 function phSwipeTo(step) {
   const names = [...$("#drail").querySelectorAll(".phf[data-name]")].map(b => b.dataset.name), i = names.indexOf(open), to = names[i + step];
   if (i < 0 || !to) return;
@@ -10716,6 +10857,8 @@ def self_test():
 
     T = tempfile.mkdtemp()
     globals()["UP_FILE"] = T + "/live-agents.json"   # never the real record of who is up
+    g.update(LAST_FILE=T + "/last-agent-sessions.json", TOKEN_CACHE=T + "/token-usage-cache.json")   # nor its last sessions or token cache
+    _seen["data"] = None
     try:
         for d in ("sessions", "projects/p", "context", "dash", "bin", "socks"):
             os.makedirs(os.path.join(T, d))
@@ -10911,6 +11054,24 @@ def self_test():
           [("Lea", "Work", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
         t("  developers and testers with no session are on the bench, and so is a stopped standing agent",
           [(b["name"], b["standing"]) for b in st["bench"]], [("Ben", False), ("Tess", False), ("Max", True)])
+        t("last sessions: each running agent's session is kept on disk as its last",
+          {n: v["sessionId"] for n, v in json.load(open(LAST_FILE))["agents"].items()}, {"Ada": "s0", "Lea": "s1"})
+        # Ben, benched, has two conversations in his own folder (spawn's worktree), the newer his last; Old, retired, has one
+        for d, sid, at in (("-w-proj-ben", "b1", 1000), ("-w-proj-ben", "b2", 2000), ("-w-proj-old", "o1", 2000), ("-w-proj-benny", "x1", 3000)):
+            os.makedirs(f"{T}/projects/{d}", exist_ok=True)
+            with open(f"{T}/projects/{d}/{sid}.jsonl", "w") as f:
+                f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+            os.utime(f"{T}/projects/{d}/{sid}.jsonl", (at, at))
+        _seen["data"] = None   # read back from disk, as after a restart
+        t("benched: an agent's last conversation is its recorded session, else the newest in its own folder (not a namesake's)",
+          (resting_session("Ada"), resting_session("Ben"), resting_session("Tess")), ("s0", "b2", None))
+        t("  its view reads that conversation; a name off the roster reads nothing",
+          ([it["kind"] for it in json.loads(agent_json("Ben"))["feed"]][:2], json.loads(agent_json("Old"))["feed"], json.loads(agent_json("Zed"))["feed"]),
+          (["owner", "said"], [], []))
+        t("  and search finds its words, as a running agent's",
+          sorted(gr["name"] for gr in json.loads(search_json("on it"))["groups"]), ["Ada", "Ben"])
+        note_seen({}, {"Ada", "Ben"})
+        t("  a name off the roster is dropped from the record", sorted(json.load(open(LAST_FILE))["agents"]), ["Ada"])
         t("full names: reach the page, on a running agent and on the bench",
           ([a["fullName"] for a in st["agents"] if a["name"] == "Ada"], [b["fullName"] for b in st["bench"]]),
           (["Ada O’Tucker"], ["Ben", "Tess", "Captain Max"]))
@@ -11881,6 +12042,21 @@ def self_test():
         t("token usage: a response counts once by its request id, its messages sent count, and a file is read on from where it stopped",
           (k1["title"], k1["days"]["2026-11-09"], k2["days"].get("2026-11-10"), k2["off"] < os.path.getsize(tf)),
           ("Ann", [1, 10, 100, 2, 1, 1], [0, 0, 0, 5, 1, 0], True))
+        # the cache on disk: a restarted page reads on from where the last one stopped, and a response whose lines
+        # straddle that point still counts once
+        tf2 = os.path.join(T, "tokens2.jsonl")
+        with open(tf2, "w") as f:
+            f.write('{"type":"custom-title","customTitle":"Ann"}\n' + line("q1", "2026-11-09T10:00:00Z", {"output_tokens": 3}))
+        _tokens["files"] = {tf2: token_file(tf2, os.path.getsize(tf2), None)}
+        tokens_save(_tokens["files"])
+        _tokens.update(files={}, loaded=False)
+        tokens_load()
+        with open(tf2, "a") as f:
+            f.write(line("q1", "2026-11-09T10:00:01Z", {"output_tokens": 3}) + line("q2", "2026-11-09T10:00:02Z", {"output_tokens": 4}))
+        on = token_file(tf2, os.path.getsize(tf2), _tokens["files"][tf2])
+        t("token usage: the cache on disk is read on from where it stopped, a straddling response counted once, as a fresh read counts",
+          (on["title"], on["days"], _tokens["files"][tf2]["off"] > 0), ("Ann", token_file(tf2, os.path.getsize(tf2), None)["days"], True))
+        _tokens.update(files={}, loaded=False, data=None)
         t("token usage: the pane draws a box per week as a table of roles opening on their people, a stacked chart or a line graph, with its own role chips and a snapping tooltip, and any pane's tabs hold a whole pane",
           ('Week of ${dayName(mon)}' in PAGE, '[["", "Table"], ["stack", "Stacked"], ["line", "Line graph"]]' in PAGE, '<div class="tkchips pown">' in PAGE,
            "function tkHover(svg, e)" in PAGE, "tokens: \"Token usage\"" in PAGE, "function showTab(n, i)" in PAGE,
