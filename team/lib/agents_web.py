@@ -127,6 +127,10 @@ STANDING = {"lead", "hot", "ops", "support", "review", "testrev", "process", "pa
 SPARK_MINS = 15
 TAIL_BYTES = 2_000_000    # how much of a transcript's end is read first for its conversation
 TAIL_MAX = 64_000_000     # how far back it is read, four times further each time, while turns are short
+TAIL_TURNS = 300          # the most turns any view asks a conversation for; a transcript is first read back to this many
+TAIL_KEEP = 400           # turns kept of a followed transcript, whole tool runs, so the newest TAIL_TURNS never lose one
+TAIL_IDLE = 3600          # seconds a transcript nobody asks about goes on being followed
+TAIL_CHUNK = 16_000_000   # the most of a transcript read into memory at once
 # The roster's roles as the page knows them: a short key, the name shown, the section it sits in, and the
 # AGENT_COLOUR_<ROLE> default (team/agents-dash.sh role_colour).
 ROLES = {"delivery-lead": ("lead", "Delivery Lead", "Lead", "red"),
@@ -813,9 +817,22 @@ def token_file(path, size, known):
         known = {"title": "", "off": 0, "seen": set(), "last": None, "days": {}}
     with open(path, "rb") as f:
         f.seek(known["off"])
-        data = f.read(size - known["off"])
-    end = data.rfind(b"\n") + 1   # a line still being written is read next time
-    for raw in data[:end].splitlines():
+        rest = b""
+        while known["off"] + len(rest) < size:   # a chunk at a time, so a long transcript is never in memory whole
+            more = f.read(min(TAIL_CHUNK, size - known["off"] - len(rest)))
+            if not more:
+                break
+            data = rest + more
+            end = data.rfind(b"\n") + 1   # a line still being written is read next time
+            token_lines(data[:end], known)
+            known["off"] += end
+            rest = data[end:]
+    known["seen"] = {known["last"]}   # a response's lines follow one another, so only the last can come round again
+    return known
+
+
+def token_lines(data, known):
+    for raw in data.splitlines():
         line = raw.decode("utf-8", "replace")
         t = TOKEN_TITLE.findall(line)
         if t:
@@ -838,8 +855,6 @@ def token_file(path, size, known):
         known["last"] = key
         d[0] += u.get("input_tokens") or 0; d[1] += u.get("cache_creation_input_tokens") or 0
         d[2] += u.get("cache_read_input_tokens") or 0; d[3] += u.get("output_tokens") or 0; d[4] += 1
-    known["off"] += end
-    return known
 
 
 def refresh_tokens():
@@ -2258,7 +2273,7 @@ def meetings_json():
 
 
 # ── the conversation ──────────────────────────────────────────────────────────
-_paths, _feeds = {}, {}
+_paths = {}
 _lock = threading.Lock()
 
 
@@ -2280,78 +2295,40 @@ def hook_compacting(sid, now):
         return False
 
 
-_models = {}   # transcript path -> ((size, mtime), the model it last answered with)
 MODEL_ID = re.compile(rb'"model":"claude-([a-z]+)-(\d+)-(\d+)')
+BOUNDARY = b'"subtype":"compact_boundary"'
+
+
+def model_name(ids):
+    return f"{ids[-1][0].decode().title()} {int(ids[-1][1])}.{int(ids[-1][2])}" if ids else ""
+
+
+def compaction(line):
+    """The compaction a transcript line records, or None when it records none."""
+    if BOUNDARY not in line:
+        return None
+    try:
+        e = json.loads(line)
+    except ValueError:   # malformed, or bytes that are not text: a crash can leave a line of NULs
+        return None
+    if e.get("subtype") != "compact_boundary":
+        return None
+    m = e.get("compactMetadata") or {}
+    return {"ts": e.get("timestamp"), "trigger": m.get("trigger"), "pre": m.get("preTokens"),
+            "post": m.get("postTokens"), "ms": m.get("durationMs")}
 
 
 def transcript_model(sid):
     """The model a session last answered with, from the end of its transcript, as "Opus 5.5"; "" when none is found."""
-    path = transcript(sid) if sid else None
-    try:
-        st = os.stat(path) if path else None
-    except OSError:
-        st = None
-    if not st:
-        return ""
-    key = (st.st_size, st.st_mtime)
-    with _lock:
-        hit = _models.get(path)
-    if hit and hit[0] == key:
-        return hit[1]
-    with open(path, "rb") as f:
-        f.seek(max(0, st.st_size - 2_000_000))
-        ids = MODEL_ID.findall(f.read())
-    name = f"{ids[-1][0].decode().title()} {int(ids[-1][1])}.{int(ids[-1][2])}" if ids else ""
-    with _lock:
-        _models[path] = (key, name)
-    return name
-
-
-_compacts = {}   # transcript path -> ((size, mtime), its last compaction)
-BOUNDARY = b'"subtype":"compact_boundary"'
+    t = followed(sid)
+    return t.ask("model", "") if t else ""
 
 
 def last_compact(sid):
     """The session's last compaction, from the compact_boundary entry it left in the transcript: when, manual or auto,
-    the tokens before it and how long it took; None for none. The transcript is read backwards from its end until one
-    is found, and the answer kept until the file changes."""
-    path = transcript(sid) if sid else None
-    try:
-        st = os.stat(path) if path else None
-    except OSError:
-        st = None
-    if not st:
-        return None
-    key = (st.st_size, st.st_mtime)
-    with _lock:
-        hit = _compacts.get(path)
-    if hit and hit[0] == key:
-        return hit[1]
-    found, end, chunk = None, st.st_size, 4_000_000
-    with open(path, "rb") as f:
-        while end > 0 and not found:
-            start = max(0, end - chunk)
-            f.seek(start)
-            lines = f.read(end - start).split(b"\n")
-            # a chunk's first line may be cut short, so it is read whole as the end of the next chunk back; a line
-            # longer than a chunk is a tool result or an image, never a compaction, and is stepped over
-            first = lines.pop(0) if start else b""
-            end = start + len(first) if len(first) < end - start else start
-            for line in reversed(lines):
-                if BOUNDARY not in line:
-                    continue
-                try:
-                    e = json.loads(line)
-                except ValueError:   # malformed, or bytes that are not text: a crash can leave a line of NULs
-                    continue
-                if e.get("subtype") == "compact_boundary":
-                    m = e.get("compactMetadata") or {}
-                    found = {"ts": e.get("timestamp"), "trigger": m.get("trigger"), "pre": m.get("preTokens"),
-                             "post": m.get("postTokens"), "ms": m.get("durationMs")}
-                    break
-    with _lock:
-        _compacts[path] = (key, found)
-    return found
+    the tokens before it and how long it took; None for none."""
+    t = followed(sid)
+    return t.ask("compact", None) if t else None
 
 
 def short(s, n):
@@ -2488,6 +2465,12 @@ def turns(lines, limit):
     """The last `limit` turns in some transcript lines, oldest first, tool runs folded, then the owner's messages
     still queued for the agent, as pending turns."""
     items, queue = [], []
+    parse_into(lines, items, queue)
+    return finish(items, queue, limit)
+
+
+def parse_into(lines, items, queue):
+    """Adds the turns in some transcript lines to `items`, unfolded, and applies their queue records to `queue`."""
     for raw in lines:
         if not raw.strip():
             continue
@@ -2534,6 +2517,8 @@ def turns(lines, limit):
             it["ts"] = ts
             it["text"] = it["text"][:6000]
         items += new
+def finish(items, queue, limit):
+    """The last `limit` of some parsed turns, tool runs folded, then the queued messages still waiting, as pending."""
     # Each turn's lane is who it belongs to: the owner (their messages, and the agent's words, which are written to
     # the owner's screen), the team (messages between agents) or automation (tools, plugins, tasks, commands).
     for it in items:
@@ -2557,33 +2542,178 @@ def turns(lines, limit):
     return folded[-limit:] + pending
 
 
-def feed(sid, limit):
-    """The last `limit` turns of a session's conversation, oldest first, from the end of its transcript."""
+def trim_turns(items, keep):
+    """Drops all but the newest `keep` turns from parsed turns, at the start of a tool run, so no kept run loses a call."""
+    groups, i = 0, len(items)
+    while i > 0:
+        i -= 1
+        if items[i]["kind"] != "tool" or i == 0 or items[i - 1]["kind"] != "tool":
+            groups += 1
+            if groups == keep:
+                del items[:i]
+                return
+
+
+class Tail:
+    """A transcript followed from its end. Each thing asked of it - its last turns, the model it last answered with, its
+    last compaction - is found once by reading back from where reading stopped, as far as it takes; after that only the
+    bytes written since are read, `off` marking how far, a line still being written left for the next read. A file that
+    shrinks or is replaced is started again. Only the newest TAIL_KEEP turns are kept, so memory does not grow."""
+
+    def __init__(self, path):
+        self.path, self.lock, self.used = path, threading.Lock(), time.time()
+        self.ino, self.off, self.has, self.made = None, None, {}, {}
+
+    def sync(self):
+        st = os.stat(self.path)
+        if st.st_ino != self.ino or (self.off is not None and st.st_size < self.off):
+            self.ino, self.off, self.has, self.made = st.st_ino, None, {}, {}
+        if self.off is None:
+            self.off = self.line_end(st.st_size)
+        elif st.st_size > self.off:
+            self.read_on(st.st_size)
+
+    def line_end(self, size):
+        """Where the last whole line before `size` ends: the file's end, or the start of a line still being written."""
+        with open(self.path, "rb") as f:
+            back = 0
+            while back < size:
+                n = min(65536, size - back)
+                f.seek(size - back - n)
+                k = f.read(n).rfind(b"\n")
+                if k >= 0:
+                    return size - back - n + k + 1
+                back += n
+        return 0
+
+    def read_on(self, size):
+        """Reads what was written after `off`, a chunk at a time, into each thing already found."""
+        with open(self.path, "rb") as f:
+            f.seek(self.off)
+            rest = b""
+            while self.off + len(rest) < size:
+                more = f.read(min(TAIL_CHUNK, size - self.off - len(rest)))
+                if not more:   # the file was cut short while being read: the next look starts it again
+                    break
+                data = rest + more
+                end = data.rfind(b"\n") + 1
+                if not end:
+                    rest = data
+                    if len(rest) > TAIL_CHUNK * 4:   # a line this long is an image or a tool's output: stepped over
+                        self.off, rest = self.off + len(rest), b""
+                    continue
+                self.take(data[:end])
+                self.off, rest = self.off + end, data[end:]
+        self.made = {}
+
+    def take(self, data):
+        lines = data.split(b"\n")
+        if "turns" in self.has:
+            items, queue = self.has["turns"]
+            parse_into(lines, items, queue)
+            if len(items) > TAIL_KEEP * 3:
+                trim_turns(items, TAIL_KEEP)
+                del items[:-TAIL_KEEP * 20]   # a tool run with no end in sight is still not kept whole
+        if "model" in self.has:
+            ids = MODEL_ID.findall(data)
+            if ids:
+                self.has["model"] = model_name(ids)
+        if "compact" in self.has:
+            for line in lines:
+                found = compaction(line)
+                if found:
+                    self.has["compact"] = found
+
+    def ask(self, what, none):
+        """The thing asked for, found first if it has not been."""
+        with self.lock:
+            try:
+                self.sync()
+                if what not in self.has:
+                    self.has[what] = getattr(self, "find_" + what)()
+            except OSError:
+                return none
+            return self.has[what]
+
+    def find_model(self):
+        with open(self.path, "rb") as f:
+            f.seek(max(0, self.off - 2_000_000))
+            return model_name(MODEL_ID.findall(f.read(self.off - f.tell())))
+
+    def find_compact(self):
+        """Reads back from `off` until a compaction is found. A chunk's first line may be cut short, so it is read whole
+        as the end of the next chunk back; a line longer than a chunk is a tool result or an image, never a compaction,
+        and is stepped over."""
+        end, chunk = self.off, 4_000_000
+        with open(self.path, "rb") as f:
+            while end > 0:
+                start = max(0, end - chunk)
+                f.seek(start)
+                lines = f.read(end - start).split(b"\n")
+                first = lines.pop(0) if start else b""
+                end = start + len(first) if len(first) < end - start else start
+                for line in reversed(lines):
+                    found = compaction(line)
+                    if found:
+                        return found
+        return None
+
+    def find_turns(self):
+        """Tool output and images can fill the end of a transcript, so it is read further back until it holds
+        TAIL_TURNS turns."""
+        span = TAIL_BYTES
+        while True:
+            with open(self.path, "rb") as f:
+                f.seek(max(0, self.off - span))
+                lines = f.read(min(span, self.off)).split(b"\n")
+            if self.off > span:
+                lines = lines[1:]
+            items, queue = [], []
+            parse_into(lines, items, queue)
+            del lines
+            if len(finish(items, queue, TAIL_TURNS)) >= TAIL_TURNS or span >= self.off or span >= TAIL_MAX:
+                break
+            span *= 4
+        trim_turns(items, TAIL_KEEP)
+        return items, queue
+
+    def turns(self, limit):
+        with self.lock:
+            try:
+                self.sync()
+                if "turns" not in self.has:
+                    self.has["turns"] = self.find_turns()
+            except OSError:
+                return []
+            if limit not in self.made:
+                self.made[limit] = finish(*self.has["turns"], limit)
+            return self.made[limit]
+
+
+_tails, _swept = {}, [0]
+
+
+def followed(sid):
+    """The followed transcript of a session, or None when it has none. Transcripts nobody has asked about for
+    TAIL_IDLE seconds stop being followed."""
     path = transcript(sid) if sid else None
     if not path:
-        return []
-    try:
-        st = os.stat(path)
-    except OSError:
-        return []
-    key = (path, limit)
+        return None
+    now = time.time()
     with _lock:
-        hit = _feeds.get(key)
-        if hit and hit[0] == (st.st_size, st.st_mtime):
-            return hit[1]
-    # Tool output and images can fill the end of a transcript, so it is read further back until it holds `limit` turns.
-    span = TAIL_BYTES
-    while True:
-        with open(path, "rb") as f:
-            f.seek(max(0, st.st_size - span))
-            lines = f.read().split(b"\n")[1:] if st.st_size > span else f.read().split(b"\n")
-        out = turns(lines, limit)
-        if len(out) >= limit or span >= st.st_size or span >= TAIL_MAX:
-            break
-        span *= 4
-    with _lock:
-        _feeds[key] = ((st.st_size, st.st_mtime), out)
-    return out
+        t = _tails.get(path) or _tails.setdefault(path, Tail(path))
+        t.used = now
+        if now - _swept[0] > 300:
+            _swept[0] = now
+            for p in [p for p, x in _tails.items() if now - x.used > TAIL_IDLE]:
+                del _tails[p]
+    return t
+
+
+def feed(sid, limit):
+    """The last `limit` turns of a session's conversation, oldest first, from the end of its transcript."""
+    t = followed(sid)
+    return t.turns(limit) if t else []
 
 
 # ── a prompt waiting on the owner ─────────────────────────────────────────────
