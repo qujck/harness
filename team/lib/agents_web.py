@@ -5082,14 +5082,14 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 /* the agent view on the phone: a back arrow, its name and menus, one line of facts, the others' portraits to swipe
    along, the conversation, a suggested prompt to tap, the box, and Stop on a row of its own, away from Send */
 html.phone #detail .head{flex-wrap:wrap;gap:0 4px;padding:4px 4px 0;border-top-width:3px}
-html.phone #detail .head .x{order:-1;margin:0;width:44px;height:44px;display:grid;place-items:center;color:var(--text)}
+html.phone #detail .head .x{order:-2;margin:0;width:44px;height:44px;display:grid;place-items:center;color:var(--text)}
 html.phone #detail .head .x svg{width:22px;height:22px}
 html.phone #detail .head :is(.lanes,#dmore){width:44px;height:44px;display:grid;place-items:center;margin-left:0}
 /* the filter and the ⋯ at the right (owner, 2026-11-09); the rule above, through :is(#dmore), outranked a plain .lanes rule */
 html.phone #detail #dhead .lanes.fbtn{margin-left:auto}
 html.phone #detail #dhead #dmore svg{width:22px;height:22px}   /* the ⋯ at the standard size, as the team menu's */
 html.phone #detail .head .ticket{min-width:0;overflow:hidden;text-overflow:ellipsis}
-html.phone #detail .head .role{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+html.phone #detail .head .role{order:-1;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}   /* the role icon before the name (owner, 2026-11-15), the back arrow still first */
 html.phone #detail .head .facts{display:flex;order:10;flex:1 1 100%;height:32px;margin:4px -4px 0;padding:0 14px;align-items:center;gap:14px;flex-wrap:nowrap;overflow-x:auto;
   background:var(--codebg);border-top:1px solid var(--line);scrollbar-width:none}
 html.phone #detail .head .facts > :last-child{display:none}
@@ -11099,7 +11099,7 @@ def self_test():
            "html.phone #dhead .role .rwith > span,#phone .ph-tile .ph-role .rwith > span{display:none}" in PAGE,
            '<span class="ph-role">${roleWith(a)}${tk(a) ? `<span class="ph-rtk"' in PAGE,
            PAGE.count("${roleMark(r)}${esc(r.name)}</b>") == 3, '<h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}' in PAGE,
-           "esc(a.roleName" not in PAGE), (True,) * 8)
+           "esc(a.roleName" not in PAGE, "html.phone #detail .head .x{order:-2;" in PAGE, "html.phone #detail .head .role{order:-1;" in PAGE), (True,) * 10)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
