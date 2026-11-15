@@ -3713,15 +3713,26 @@ header > .bi.div.orph{display:none}
 /* search: the box, then the hits by agent */
 #menu .srch{display:block;width:min(480px,calc(100vw - 40px));margin:2px 4px 6px;padding:7px 10px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--text);font:inherit}
 #menu .sres{max-height:min(60vh,520px);overflow:auto;width:min(488px,calc(100vw - 32px))}
-#menu .sgrp{display:flex;align-items:center;gap:8px;padding:8px 8px 4px;font-size:calc(var(--t-m)*var(--fs,1))}
-#menu .sgrp span:last-child{margin-left:auto;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
-#menu .sgrp .face{width:20px;height:20px}
-#menu .sglyph svg{width:16px;height:16px;color:var(--mute)}
-#menu .mi.shit{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding-left:36px}
-#menu .shit .swhere{display:flex;gap:8px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
-#menu .shit .swhere i{font-style:normal;margin-left:auto;font-family:var(--mono)}
-#menu .shit .stext{white-space:normal;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-#menu .shit mark{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inherit;border-radius:2px}
+:is(#menu, .spanel) .sgrp{display:flex;align-items:center;gap:8px;padding:8px 8px 4px;font-size:calc(var(--t-m)*var(--fs,1))}
+:is(#menu, .spanel) .sgrp span:last-child{margin-left:auto;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#menu, .spanel) .sgrp .face{width:20px;height:20px}
+:is(#menu, .spanel) .sglyph svg{width:16px;height:16px;color:var(--mute)}
+:is(#menu, .spanel) .mi.shit{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding-left:36px}
+:is(#menu, .spanel) .shit .swhere{display:flex;gap:8px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#menu, .spanel) .shit .swhere i{font-style:normal;margin-left:auto;font-family:var(--mono)}
+:is(#menu, .spanel) .shit .stext{white-space:normal;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.spanel{display:flex;flex-direction:column;min-height:0;height:100%}
+.spanel .shead{display:flex;gap:8px;align-items:center;padding:8px 10px}
+.spanel .srch{flex:1 1 auto;min-width:0;padding:7px 10px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--text);font:inherit}
+.spanel .sagent{flex:0 1 auto;min-width:0;max-width:45%;align-self:stretch;padding:0 8px;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);color-scheme:dark}
+html.light .spanel :is(.sagent, .srch){color-scheme:light}
+.spanel .sres{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 10px}
+.spanel .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--r-s);cursor:pointer}
+.spanel .mi:hover{background:var(--on)}
+.spanel .mi.off{cursor:default;color:var(--mute)}
+.spanel .mi.off:hover{background:none}
+#phone .ph-search .spanel{height:auto}
+:is(#menu, .spanel) .shit mark{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inherit;border-radius:2px}
 #menu .shit .swhere b{font-weight:650}
 /* a search's hit in its conversation or the Day log: outlined for a few seconds, its words marked while it is shown */
 .seek{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px;animation:seekfade 10s ease-in forwards}
@@ -6096,13 +6107,13 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", workqueue: "Work queue", pipeline: "Pipeline", tokens: "Token usage"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", search: "Search", workqueue: "Work queue", pipeline: "Pipeline", tokens: "Token usage"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
     ["tabs", "One agent at a time, picked from a row"], ["characters", "The agents as portrait tiles"], ["team", "The messages between agents"],
     ["combined", "Several agents' conversations as one feed"]]],
-  ["Work", [["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["daylog", "What happened, day by day"], ["meeting", "A meeting with the agents invited"],
+  ["Work", [["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
   ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
 ];
@@ -6117,6 +6128,7 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   workqueue: '<path d="M2.3 4.3l1.3 1.3 2.2-2.4M2.3 10.3l1.3 1.3 2.2-2.4M8 4.5h6M8 10.5h6"/>',
   pipeline: '<path d="M1.5 5h4l2 3-2 3h-4l2-3zM8.5 5h4l2 3-2 3h-4l2-3z"/>',
   daylog: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
+  search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4l3.6 3.6"/>',
   meeting: '<rect x="4" y="6" width="8" height="4" rx="2"/><circle cx="8" cy="2.8" r="1.3"/><circle cx="8" cy="13.2" r="1.3"/><circle cx="2.2" cy="8" r="1.3"/><circle cx="13.8" cy="8" r="1.3"/>',
   file: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6.2 8.5h4.6M6.2 11h4.6"/>',
   gauges: '<path d="M2.5 12a5.5 5.5 0 1 1 11 0"/><path d="M8 12l2.6-3.6"/>',
@@ -7080,7 +7092,7 @@ const rolesPicked = n => Array.isArray(n.roles) ? n.roles : [];
 const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);
 // The views that list people or what they did, each filtered by the same role chips. A row by someone in no picked
 // role (the owner, or nobody) is left out while roles are picked.
-const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens"];
+const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens", "search"];
 const roleOf = name => [...S.agents, ...S.bench].find(a => a.name === name)?.role;
 const byRoles = (n, name) => !rolesPicked(n || {}).length || n.roles.includes(roleOf(name));
 const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" style="--c:${r.colour}"></span>`]);
@@ -7253,6 +7265,8 @@ function customHtml(ceil, tabRow) {
       body = perfHtml(n);
     } else if (n.show === "daylog") {
       body = dayLogHtml(n);
+    } else if (n.show === "search") {
+      body = searchPanelHtml("pane:" + path, n);
     } else if (n.show === "tokens") {
       body = tokensHtml(path === maxed, n, path);
     } else if (n.show === "workqueue") {
@@ -7280,7 +7294,7 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "workqueue", "pipeline", "tokens"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "pipeline", "tokens"].includes(n.show);
     const own = [
       CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
@@ -9044,7 +9058,7 @@ function settingsMenu(redraw) {
   });
   menu.querySelector("[data-reset]").onclick = () => { localStorage.removeItem("settings"); applySettings(); settingsMenu(true); };
   menu.querySelector("[data-bars]").onclick = () => barSheet();
-  menu.querySelector("[data-search]").onclick = () => searchMenu($("#settings"));
+  menu.querySelector("[data-search]").onclick = () => openSearch($("#settings"));
   const edit = menu.querySelector("[data-edit-theme]");
   if (edit) edit.onclick = () => themeMenu();
 }
@@ -9124,7 +9138,7 @@ addEventListener("keydown", e => {
   // Ctrl+K (Cmd+K on a Mac) anywhere, or / outside a text box: search
   if (!phoneOn() && ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyK" || !e.altKey && !e.ctrlKey && !e.metaKey && e.key === "/" && !typing && !e.target.closest?.("[contenteditable]"))) {
     e.preventDefault(); e.stopPropagation();
-    if (!menuOn("search")) searchMenu(searchAnchor()); else menu.querySelector(".srch")?.focus();
+    if (!menuOn("search")) openSearch(searchAnchor()); else menu.querySelector(".srch")?.focus();
     return;
   }
   const digit = /^Digit([1-9])$/.exec(e.code);
@@ -9252,7 +9266,7 @@ function meetMenu(anchor, name, beside, rested) {
 const SEARCH_HINT = `<div class="mi off">Type two or more letters</div>`;
 // What the search opens beside: the bar's Search button where it shows, else the Settings button, else the logo
 const searchAnchor = () => [$("#search"), $("#settings"), $(".brand")].find(e => e?.offsetParent && !e.closest(".barmorep")) || $(".brand");
-$("#search").onclick = e => { e.stopPropagation(); menuOn("search") ? menuOff(true) : searchMenu(searchAnchor()); };
+$("#search").onclick = e => { e.stopPropagation(); menuOn("search") ? menuOff(true) : openSearch(searchAnchor()); };
 function searchMenu(anchor) {
   menuAt(anchor, "search", `<div class="hd"><div>Search conversations and the Day log</div></div>` +
     `<input class="srch" type="search" placeholder="Words to find" aria-label="Words to find" autocomplete="off"><div class="sres">${SEARCH_HINT}</div>`, false);
@@ -9268,9 +9282,8 @@ function searchMenu(anchor) {
     if (my !== seq || !menuOn("search")) return;
     res.innerHTML = searchHtml(d);
     res.querySelectorAll(".mi[data-hit]").forEach(mi => mi.onclick = () => {
-      const name = mi.dataset.hit;
-      if (mi.dataset.src === "daylog") { menuOff(true); return void seekDayLog(+mi.dataset.at, d.q); }
-      if (S.agents.some(a => a.name === name && a.live)) { seek = {src: "conversation", name, ts: mi.dataset.ts, q: d.q, fresh: true}; menuOff(true); openDetail(name); }
+      if (mi.dataset.src === "daylog" || S.agents.some(a => a.name === mi.dataset.hit && a.live)) menuOff(true);
+      searchGo(mi, d.q);
     });
   };
   box.oninput = () => { clearTimeout(wait); wait = setTimeout(run, 250); };
@@ -9287,6 +9300,87 @@ function searchHtml(d) {
       g.hits.map(h => `<div class="mi shit" data-hit="${esc(g.name)}" data-src="${esc(h.src)}"${h.src === "daylog" ? ` data-at="${esc(h.at)}"` : ` data-ts="${esc(h.ts || "")}"`}>` +
         `<span class="swhere">${h.src === "daylog" ? "Day log" : hitFrom(h)}<i>${when(h)}</i></span><span class="stext">${mark(h.text)}</span></div>`).join("");
   }).join("");
+}
+// a hit opened: a Day log row in the Day log, a running agent's turn in that agent's view (a stopped agent's opens nothing)
+function searchGo(mi, q) {
+  const name = mi.dataset.hit;
+  if (mi.dataset.src === "daylog") return void seekDayLog(+mi.dataset.at, q);
+  if (S.agents.some(a => a.name === name && a.live)) { seek = {src: "conversation", name, ts: mi.dataset.ts, q, fresh: true}; openDetail(name); }
+}
+// The Search panel (owner, 2026-11-15: "can I have a search panel then please. With filters for role and agent by name.
+// If the panel is in the view the icon should focus the panel. Otherwise work as it does today"): the search box and an
+// agent picker, the role chips (in a desktop pane's bar; over the phone panel), and the hits the Search menu would show,
+// left to the roles and the agent picked. A desktop pane keeps its words and filters in the layout, the phone panel in
+// this browser. What /api/search answers is the running agents' conversations and the whole Day log, so a benched agent
+// is found by its Day log rows. The Search button, Ctrl+K, / and the menus' Search focus a panel the screen shows, and
+// open the Search menu only when none is (openSearch).
+const searchRes = {}, searchAsk = {}, searchWait = {};   // by panel: what it last found {q, d}, the words in flight, the typing timer
+const searchKey = el => el.closest(".spanel")?.dataset.skey;
+// a panel's settings {roles, agent, q}: a pane's from the layout, the phone's from this browser
+function searchNode(key) {
+  if (key === "phone") return phSearchNode();
+  return nodeAt(layout().root, key.slice(5)) || {};
+}
+function searchSet(key, ch, redraw) {
+  const put = n => { for (const [k, v] of Object.entries(ch)) { if (v) n[k] = v; else delete n[k]; } };
+  if (key === "phone") { const n = phSearchNode(); put(n); localStorage.setItem("phonesearch", JSON.stringify(n)); if (redraw) phoneDraw(); return; }
+  const l = layout(), n = nodeAt(l.root, key.slice(5)); if (!n) return;
+  put(n); saveLayout(l); if (redraw) draw();
+}
+// the groups a panel's agent or roles leave in: the agent's alone, else the picked roles' (the Day log's own rows only
+// while no role is picked), else every group
+function searchKeep(d, n) {
+  const roles = rolesPicked(n);
+  return {...d, groups: d.groups.filter(g => n.agent ? g.name === n.agent : !roles.length || roles.includes(roleOf(g.name)))};
+}
+const searchResHtml = (r, n) => { const q = (n.q || "").trim();
+  return q.length < 2 ? SEARCH_HINT : !r || r.q !== q ? `<div class="mi off">Searching…</div>`
+    : r.d.error ? `<div class="mi off">The search failed: ${esc(r.d.error)}</div>` : searchHtml(searchKeep(r.d, n)); };
+function searchShow(key) {
+  const r = searchRes[key], n = searchNode(key);
+  document.querySelectorAll(`.spanel[data-skey="${CSS.escape(key)}"] .sres`).forEach(el => { el.innerHTML = searchResHtml(r, n); });
+}
+async function searchRun(key) {
+  const q = (searchNode(key).q || "").trim();
+  if (q.length < 2 || searchAsk[key] === q) return;
+  searchAsk[key] = q;
+  let d;
+  try { d = await (await fetch("/api/search?q=" + encodeURIComponent(q), {cache: "no-store"})).json(); }
+  catch (e) { d = {q, groups: [], error: e.message}; }
+  if (searchAsk[key] !== q) return;   // other words were typed meanwhile
+  delete searchAsk[key];
+  searchRes[key] = {q, d}; searchShow(key);
+}
+function searchPanelHtml(key, n) {
+  const roles = rolesPicked(n), q = n.q || "", r = searchRes[key];
+  const them = [...S.agents, ...S.bench].filter((a, i, l) => l.findIndex(b => b.name === a.name) === i)
+    .filter(a => a.name === n.agent || !roles.length || roles.includes(a.role)).sort((a, b) => shown(a.name).localeCompare(shown(b.name)));
+  if (q.trim().length >= 2 && (!r || r.q !== q.trim())) setTimeout(() => searchRun(key));   // opened, or words not asked yet
+  return `<div class="spanel" data-skey="${esc(key)}"><div class="shead"><input class="srch" type="search" placeholder="Words to find" aria-label="Words to find" autocomplete="off" value="${esc(q)}">` +
+    `<select class="sagent" aria-label="Agent" title="Only this agent's hits"><option value="">Every agent</option>${them.map(a =>
+      `<option value="${esc(a.name)}"${a.name === n.agent ? " selected" : ""}>${esc(shown(a.name))}${S.agents.some(x => x.name === a.name && x.live) ? "" : " (benched)"}</option>`).join("")}</select></div>` +
+    `<div class="sres">${searchResHtml(r, n)}</div></div>`;
+}
+document.addEventListener("input", e => {
+  const box = e.target.closest?.(".spanel .srch"); if (!box) return;
+  const key = searchKey(box);
+  searchSet(key, {q: box.value}, false); searchShow(key);
+  clearTimeout(searchWait[key]); searchWait[key] = setTimeout(() => searchRun(key), 250);
+});
+document.addEventListener("keydown", e => {
+  const box = e.target.closest?.(".spanel .srch"); if (!box) return;
+  if (e.key === "Enter") { const key = searchKey(box); clearTimeout(searchWait[key]); searchRun(key); }
+  else if (e.key === "Escape") { e.stopPropagation(); box.blur(); }
+});
+document.addEventListener("change", e => { const s = e.target.closest?.(".spanel .sagent"); if (s) searchSet(searchKey(s), {agent: s.value}, true); });
+document.addEventListener("click", e => { const mi = e.target.closest?.(".spanel .mi[data-hit]"); if (mi) searchGo(mi, searchRes[searchKey(mi)]?.d.q); });
+// the Search button, Ctrl+K, / and the menus' Search: a Search panel the screen shows is focused (the phone's switched to,
+// when its toolbar has it), else the Search menu opens beside anchor, as before
+function openSearch(anchor) {
+  const focus = sel => { const box = [...document.querySelectorAll(sel)].find(e => e.offsetParent); if (!box) return false; menuOff(true); box.focus(); box.select(); return true; };
+  if (phoneOn()) { if (phToolbar().includes("search")) { localStorage.setItem("phonetab", "search"); phoneDraw(); if (focus("#phone .spanel .srch")) return; } }
+  else if (focus("#main .spanel .srch")) return;
+  searchMenu(anchor);
 }
 // Who a conversation's hit is from and to, as Combined names them: an agent or the owner in their colour, "→" the one
 // it went to; a tool call, an event or output by its kind.
@@ -9538,6 +9632,7 @@ function phToolbarMenu(slide) {
 }
 const phoneTab = () => { const on = phToolbar(), t = localStorage.getItem("phonetab"); return on.includes(t) ? t : on[0]; };
 const PH_ICON = {
+  search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/></svg>`,
   more: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`,
   list: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>`,
   faces: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>`,
@@ -9795,7 +9890,7 @@ function phDashAct(go) {
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
 // what each shows, in the toolbar's add list: the desktop view it stands for where it has another name there
 const PH_TAB_TIP = {list: "Every agent and what it is doing: the desktop's Grid and List", faces: "The team as portraits: the desktop's Characters",
   mix: "Every running agent's conversation as one", team: "The messages between agents", day: "What the team did, day by day",
@@ -9959,6 +10054,7 @@ function phRoleChips(on, all) {
 const phNode = k => { let v; try { v = JSON.parse(localStorage.getItem(k)); } catch (e) {} return v && typeof v === "object" ? v : {}; };
 const phDayNode = () => { const v = phNode("phoneday"); return {show: "daylog", roles: Array.isArray(v.roles) ? v.roles : [], kinds: Array.isArray(v.kinds) ? v.kinds : []}; };
 const phTeamNode = () => { const v = phNode("phoneteam"); return {show: "team", roles: Array.isArray(v.roles) ? v.roles : []}; };
+const phSearchNode = () => { const v = phNode("phonesearch"); return {show: "search", roles: Array.isArray(v.roles) ? v.roles : [], agent: typeof v.agent === "string" ? v.agent : "", q: typeof v.q === "string" ? v.q : ""}; };
 // a chip tapped: All shows every role (or kind); a role picked from All shows it alone; one picked again leaves it out
 function phChipAct(tab, chip) {
   const flip = (on, x) => on.includes(x) ? on.filter(y => y !== x) : [...on, x];
@@ -9967,7 +10063,7 @@ function phChipAct(tab, chip) {
     const n = phMixNode(), every = roleList().map(r => r.role), all = every.every(r => n.roles.includes(r)), r = chip.dataset.role;
     const next = !r ? every : all ? [r] : flip(n.roles, r);
     localStorage.setItem("phonemix", JSON.stringify({roles: next.length ? next : every, clanes: n.clanes, full: n.full})); phMixAt = 0;
-  } else { const key = tab === "day" ? "phoneday" : "phoneteam", n = tab === "day" ? phDayNode() : phTeamNode();
+  } else { const key = tab === "day" ? "phoneday" : tab === "search" ? "phonesearch" : "phoneteam", n = tab === "day" ? phDayNode() : tab === "search" ? phSearchNode() : phTeamNode();
     localStorage.setItem(key, JSON.stringify({...n, roles: chip.dataset.role ? flip(n.roles, chip.dataset.role) : []})); }
   phoneDraw();
 }
@@ -10167,6 +10263,7 @@ function phoneDraw() {
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
     phLoad(tab);
   }
+  else if (tab === "search") { const n = phSearchNode(); phKeepChips(body, () => patch(body, `<div class="ph-pane ph-search">${phRoleChips(n.roles, !n.roles.length)}${searchPanelHtml("phone", n)}</div>`)); }
   else { const n = phDayNode(); phKeepChips(body, () => patch(body, `<div class="ph-pane">${phRoleChips(n.roles, !n.roles.length)}${phKindChips(n)}${dayLogHtml(n)}</div>`)); phLoad(tab); }
   if (tab === "list" || tab === "faces") markSeen([]);
   // while the Dashboard is being arranged the rest of the phone is locked: the header and toolbar dimmed and deaf to taps
@@ -10268,7 +10365,7 @@ function phoneMenu(again, slide) {
     }
     else if (go === "pause" || go === "resume") { const pause = go === "pause"; nudgerTo = pause; setTimeout(() => { nudgerTo = null; if ($("#phsheet")?.classList.contains("on") && phMenuAt === "team") phoneMenu(); }, 10000); post(pause ? "/api/nudger/pause" : "/api/nudger/resume"); phoneMenu(); }
     else if (go === "close") phoneMenuOff();
-    else if (go === "search") { phoneMenuOff(); searchMenu($("#phmore")); }
+    else if (go === "search") { phoneMenuOff(); openSearch($("#phmore")); }
     else if (go === "light" || go === "dark") { retheme(go); phoneMenu(); }
     else if (go === "by-state" || go === "by-role") { localStorage.setItem("phoneorder", go.slice(3)); phoneDraw(); phoneMenu(); }
     else if (go === "fs") { const steps = [90, 100, 115, 130], next = steps[(steps.indexOf(fs) + 1) % steps.length] || 100; const s = settings(); s.fs = next; localStorage.setItem("settings", JSON.stringify(s)); applySettings(); phoneMenu(); }
@@ -11083,7 +11180,7 @@ def self_test():
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Confirm" : "Stop…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
         t("  its panels are Agents, Portraits, Combined, Team, the Day log, the Work queue, Machine, Token usage and the Dashboard",
-          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
@@ -11124,6 +11221,12 @@ def self_test():
            '<span class="ph-role">${roleWith(a)}${tk(a) ? `<span class="ph-rtk"' in PAGE,
            PAGE.count("${roleMark(r)}${esc(r.name)}</b>") == 3, '<h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}' in PAGE,
            "esc(a.roleName" not in PAGE, "html.phone #detail .head .x{order:-2;" in PAGE, "html.phone #detail .head .role{order:-1;" in PAGE), (True,) * 10)
+        t("  a Search panel, a desktop pane and a phone panel, searches with role chips and an agent picker, and the Search icon focuses one the screen shows, else opens the menu",
+          ('search: "Search"' in PAGE, 'body = searchPanelHtml("pane:" + path, n);' in PAGE, '["search", "Search"]' in PAGE,
+           'searchPanelHtml("phone", n)' in PAGE, "n.agent ? g.name === n.agent : !roles.length || roles.includes(roleOf(g.name))" in PAGE,
+           '$("#search").onclick = e => { e.stopPropagation(); menuOn("search") ? menuOff(true) : openSearch(searchAnchor()); };' in PAGE,
+           'else if (focus("#main .spanel .srch")) return;' in PAGE, 'if (phoneOn()) { if (phToolbar().includes("search"))' in PAGE,
+           PAGE.count("searchMenu(") == 2), (True,) * 9)
         t("  a pipe tile that arrives after the Dashboard was arranged joins it once, wide at the top, and taking it out sticks",
           ('localStorage.getItem("phonedashpipe")' in PAGE, "mine = [...fresh.map(k => ({k, w: 2})), ...mine]" in PAGE,
            'localStorage.setItem("phonedashpipe", JSON.stringify([...seen, ...pipes]))' in PAGE), (True, True, True))
@@ -11787,7 +11890,7 @@ def self_test():
           (("testrev", "Test Reviewer", "Reviewer"), True, True, True))
         t("views: Gauges and Performance open as Machine, people views share the role chips, same-named tabs are numbered, and the Team pane draws",
           ('t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine";' in PAGE,
-           'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens"];' in PAGE,
+           'const CHIP_VIEWS = ["grid", "others", "tabs", "combined", "characters", "meeting", "team", "daylog", "workqueue", "tokens", "search"];' in PAGE,
            "out[path + \":\" + i] = c > 1 ? `${name} ${c}` : name;" in PAGE, "kept.length} message" in PAGE and "const kept = teamLog" in PAGE), (True, True, True, True))
         t("pane tabs: each picks its view from the grouped picker, names itself, and filters by role chips with no roles meaning All",
           ("function viewPicker(btn, path, picked)" in PAGE, "function autoName(p)" in PAGE, "const roleChips = " in PAGE,
