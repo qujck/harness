@@ -5238,8 +5238,8 @@ html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 
 html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
   background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
 html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
-html.phone :is(#dconv, .ph-pane, .workq, .teamlog > .blank).phin-r{animation:phinr .22s ease-out}
-html.phone :is(#dconv, .ph-pane, .workq, .teamlog > .blank).phin-l{animation:phinl .22s ease-out}
+html.phone :is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-r{animation:phinr .22s ease-out}
+html.phone :is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-l{animation:phinl .22s ease-out}
 html.phone .ph-pane .teamlog[data-name="~workqueue"]{overflow-x:clip}   /* the sliding list never widens the pane */
 @keyframes phinr{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
 @keyframes phinl{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
@@ -10317,7 +10317,7 @@ function phoneDraw() {
     // here from the touch, because a phone's browser may send no contextmenu for it (Safari on an iPhone never does);
     // one that does is the same hold, and opens nothing twice.
     phHoldWire();
-    phQueueSwipe(body);
+    phBodySwipe(body);
   }
   // the logo flashes, and opens the agent waiting longest, as the header's does; beside the title, how many wait, whose tap lists them
   const logo = ph.querySelector(".ph-logo"), waits = needing(), wb = ph.querySelector(".ph-waitbtn");
@@ -10697,17 +10697,20 @@ function phCurInView() {
   }, {passive: true});
   $("#detail").addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
 })();
-// On the Work queue tab a swipe left shows Done, and right shows Doing (owner, 2026-11-15: "swipe left and right
-// between doing and done"), as a tap on its tabs does: a mostly-sideways move of 70px or more, quickly, not from the
-// screen's edges (the phone's back gesture) nor from anything that scrolls sideways itself.
-function phQueueSwipe(body) {
+// A swipe left or right across the home page shows the next or the previous panel of the toolbar, in its order
+// (owner, 2026-11-15: "On the mobile app, the home page, can I swipe left and right here too?"). On the Work queue
+// tab it moves between Doing and Done first, as a tap on its tabs does (owner, 2026-11-15: "swipe left and right
+// between doing and done"): left from Done, or right from Doing, goes on to the next panel. A mostly-sideways move of
+// 70px or more, quickly, is a swipe; not from the screen's edges (the phone's back gesture), a box being typed in, nor
+// anything that scrolls sideways itself (a chip row, a wide table).
+function phBodySwipe(body) {
   let x0 = null, y0 = 0, t0 = 0;
   const sideways = el => { for (; el && el !== body; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
   body.addEventListener("touchstart", e => {
     x0 = null;
-    if (body.dataset.tab !== "queue" || e.touches.length !== 1) return;
+    if (!phoneOn() || e.touches.length !== 1) return;
     const t = e.touches[0];
-    if (t.clientX < 24 || t.clientX > innerWidth - 24 || sideways(e.target)) return;
+    if (t.clientX < 24 || t.clientX > innerWidth - 24 || e.target.closest?.("textarea, input, select, .lightbox") || sideways(e.target)) return;
     x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
   }, {passive: true});
   body.addEventListener("touchend", e => {
@@ -10715,12 +10718,20 @@ function phQueueSwipe(body) {
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
     x0 = null;
     if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || Date.now() - t0 > 700) return;
-    const to = dx < 0 ? "done" : "work";
-    if (to === wqTab()) return;
-    localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw();
-    // only the list moves: the pane's head, its Doing/Done tabs and the chips stay put (owner, 2026-11-15)
-    const p = body.querySelector(".ph-pane .workq") || body.querySelector(".ph-pane .teamlog > .blank");
-    if (p) { p.classList.remove("phin-l", "phin-r"); void p.offsetWidth; p.classList.add(to === "done" ? "phin-r" : "phin-l"); }
+    const slide = (el, fwd) => { if (el) { el.classList.remove("phin-l", "phin-r"); void el.offsetWidth; el.classList.add(fwd ? "phin-r" : "phin-l"); } };
+    if (body.dataset.tab === "queue") {
+      const to = dx < 0 ? "done" : "work";
+      if (to !== wqTab()) {
+        localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw();
+        // only the list moves: the pane's head, its Doing/Done tabs and the chips stay put (owner, 2026-11-15)
+        return slide(body.querySelector(".ph-pane .workq") || body.querySelector(".ph-pane .teamlog > .blank"), to === "done");
+      }
+    }
+    const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + (dx < 0 ? 1 : -1)];
+    if (!to) return;
+    localStorage.setItem("phonetab", to); body.scrollTop = 0;
+    try { phoneDraw(); } catch (err) { return phError(err); }
+    slide(body, dx < 0);
   }, {passive: true});
   body.addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
 }
@@ -11378,6 +11389,9 @@ def self_test():
            "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
            'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
            'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 7)
+        t("  a sideways swipe on the phone's home page shows the next or previous toolbar panel, Work queue's Doing/Done first",
+          ("phBodySwipe(body);" in PAGE, 'const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + (dx < 0 ? 1 : -1)];' in PAGE,
+           'if (to !== wqTab()) {' in PAGE, "phQueueSwipe" not in PAGE, ":is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-r" in PAGE), (True,) * 5)
         t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles, where every tile has its icon and the ticket beside it)",
           ('const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";' in PAGE,
            '<span class="role">${roleWith(a)}</span><span class="cctl">' in PAGE, '<span class="role">${roleWith(a)}</span>${a.ticket ?' in PAGE,
