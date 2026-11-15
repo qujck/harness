@@ -5238,11 +5238,8 @@ html.phone #drail .phf:is(.waiting,.wanted) > span:not(.unseen){animation:alarm 
 html.phone #detail #dhead .phwait:not([hidden]){display:flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border-radius:15px;border:2px solid #ffb020;
   background:#ffc94d;color:#1a1200;font:650 13px var(--sans);white-space:nowrap;cursor:pointer;animation:alarm 1s ease-in-out infinite}
 html.phone #detail #dhead .phwait:not([hidden]) ~ .lanes.fbtn{margin-left:0}
-html.phone :is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-r{animation:phinr .22s ease-out}
-html.phone :is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-l{animation:phinl .22s ease-out}
+html.phone :is(#phone, #detail .left){overflow-x:clip}   /* a swipe's sliding content (phSwiper) never widens the page */
 html.phone .ph-pane .teamlog[data-name="~workqueue"]{overflow-x:clip}   /* the sliding list never widens the pane */
-@keyframes phinr{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
-@keyframes phinl{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
 html.phone #drail .phf.cur{box-shadow:0 0 0 2px var(--box),0 0 0 4.5px var(--text)}
 html.phone #drail .phf .unseen{position:absolute;top:-4px;right:-4px}   /* the frame's rule is the portrait span's alone: the badge, a span too, once took it and covered the face (owner, 2026-11-09) */
 html.phone #drail .phf .unseen[hidden]{display:none}
@@ -10674,73 +10671,110 @@ function phCurInView() {
   phRailAuto = true; setTimeout(() => { phRailAuto = false; }, 800);
   rail.scrollTo({left, behavior: smooth ? "smooth" : "auto"});
 }
-// A swipe left or right across the agent view opens the next or the previous agent in the strip's order (owner,
-// 2026-11-14: "can I have swipe left and right on the page to move between them?"). Not from the strip, the message
-// box or anything that scrolls sideways itself (a wide code block, a table), and not from the screen's edges, where the
-// phone's own back gesture starts. A mostly-sideways move of 70px or more, quickly, is a swipe; anything else scrolls.
-(function phSwipe() {
-  let x0 = null, y0 = 0, t0 = 0;
-  const sideways = el => { for (; el && el.id !== "detail"; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
-  $("#detail").addEventListener("touchstart", e => {
-    x0 = null;
-    if (!phoneOn() || !open || e.touches.length !== 1) return;
-    const t = e.touches[0], el = e.target;
-    if (t.clientX < 24 || t.clientX > innerWidth - 24 || el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)) return;
-    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
-  }, {passive: true});
-  $("#detail").addEventListener("touchend", e => {
-    if (x0 === null) return;
-    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    x0 = null;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || Date.now() - t0 > 700) return;
-    phSwipeTo(dx < 0 ? 1 : -1);
-  }, {passive: true});
-  $("#detail").addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
-})();
-// A swipe left or right across the home page shows the next or the previous panel of the toolbar, in its order
-// (owner, 2026-11-15: "On the mobile app, the home page, can I swipe left and right here too?"). On the Work queue
-// tab it moves between Doing and Done first, as a tap on its tabs does (owner, 2026-11-15: "swipe left and right
-// between doing and done"): left from Done, or right from Doing, goes on to the next panel. A mostly-sideways move of
-// 70px or more, quickly, is a swipe; not from the screen's edges (the phone's back gesture), a box being typed in, nor
-// anything that scrolls sideways itself (a chip row, a wide table).
-function phBodySwipe(body) {
-  let x0 = null, y0 = 0, t0 = 0;
-  const sideways = el => { for (; el && el !== body; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; };
-  body.addEventListener("touchstart", e => {
-    x0 = null;
-    if (!phoneOn() || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    if (t.clientX < 24 || t.clientX > innerWidth - 24 || e.target.closest?.("textarea, input, select, .lightbox") || sideways(e.target)) return;
-    x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
-  }, {passive: true});
-  body.addEventListener("touchend", e => {
-    if (x0 === null) return;
-    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    x0 = null;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || Date.now() - t0 > 700) return;
-    const slide = (el, fwd) => { if (el) { el.classList.remove("phin-l", "phin-r"); void el.offsetWidth; el.classList.add(fwd ? "phin-r" : "phin-l"); } };
-    if (body.dataset.tab === "queue") {
-      const to = dx < 0 ? "done" : "work";
-      if (to !== wqTab()) {
-        localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw();
-        // only the list moves: the pane's head, its Doing/Done tabs and the chips stay put (owner, 2026-11-15)
-        return slide(body.querySelector(".ph-pane .workq") || body.querySelector(".ph-pane .teamlog > .blank"), to === "done");
-      }
-    }
-    const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + (dx < 0 ? 1 : -1)];
-    if (!to) return;
-    localStorage.setItem("phonetab", to); body.scrollTop = 0;
-    try { phoneDraw(); } catch (err) { return phError(err); }
-    slide(body, dx < 0);
-  }, {passive: true});
-  body.addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
+// A sideways swipe on the phone moves the content with the finger (owner, 2026-11-15: "Swiping left and right doesn't
+// currently animate the main content, you swipe, and the next on simply appears … Please animate the swipe"). One
+// helper serves the agent view, the home page's panels and the Work queue's Doing/Done. root takes the touches; ok(e)
+// says whether this touch may swipe at all (not from the screen's edges, where the phone's back gesture starts, a box
+// being typed in, or anything that scrolls sideways itself); plan(dir), dir 1 for the next (the finger moving left),
+// names the element that moves, el, and, when there is somewhere to go, go() switches (a promise is awaited for at most
+// half a second, as an agent's turns load) and after() names the element to bring in, read after go because a redraw
+// can replace it. A move past 10px that is mostly sideways takes the gesture; one mostly up or down is left to the
+// scroll. On release, 70px or a quick flick goes: the content slides off, the next slides in from the other side; less,
+// or nowhere to go (it stretches only a little), springs back. Reduced motion switches with no slide.
+function phCalm() { return matchMedia("(prefers-reduced-motion: reduce)").matches; }
+function phSideways(el, top) { for (; el && el !== top; el = el.parentElement) { const o = getComputedStyle(el).overflowX; if ((o === "auto" || o === "scroll") && el.scrollWidth > el.clientWidth + 2) return true; } return false; }
+function phRest(el) { if (el) el.style.transition = el.style.transform = el.style.opacity = el.style.willChange = ""; }
+// el moves to translateX(to px) at opacity op over ms, and stays there; settles when the move ends
+function phMove(el, to, op, ms, ease) {
+  return new Promise(res => {
+    if (!el) return res();
+    let done = false; const fin = () => { if (!done) { done = true; res(); } };
+    el.style.transition = `transform ${ms}ms ${ease}, opacity ${ms}ms ${ease}`; el.style.transform = `translateX(${to}px)`; el.style.opacity = op;
+    el.addEventListener("transitionend", fin, {once: true}); setTimeout(fin, ms + 80);
+  });
 }
-function phSwipeTo(step) {
-  const names = [...$("#drail").querySelectorAll(".phf[data-name]")].map(b => b.dataset.name), i = names.indexOf(open), to = names[i + step];
-  if (i < 0 || !to) return;
-  const c = $("#dconv");
-  openDetail(to);
-  c.classList.remove("phin-l", "phin-r"); void c.offsetWidth; c.classList.add(step > 0 ? "phin-r" : "phin-l");
+// el jumps to translateX(from px) at opacity op, then eases to rest
+async function phIn(el, from, op, ms) {
+  if (!el) return;
+  el.style.transition = "none"; el.style.transform = `translateX(${from}px)`; el.style.opacity = op; void el.offsetWidth;
+  await phMove(el, 0, "1", ms, "ease-out"); phRest(el);
+}
+function phSwiper(root, ok, plan) {
+  let x0 = null, y0 = 0, t0 = 0, lock = 0, p = null, at = 0, busy = false;   // lock: 0 undecided, 1 ours, -1 the scroll's
+  const drop = () => { x0 = null; lock = 0; p = null; at = 0; };
+  root.addEventListener("touchstart", e => {
+    drop();
+    if (busy || !phoneOn() || e.touches.length !== 1 || !ok(e)) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, {passive: true});
+  root.addEventListener("touchmove", e => {
+    if (x0 === null || lock < 0 || e.touches.length !== 1) return;
+    const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0, dir = mx < 0 ? 1 : -1;
+    if (!lock) {
+      if (Math.abs(my) > 10 && Math.abs(my) >= Math.abs(mx)) { lock = -1; return; }
+      if (Math.abs(mx) <= 10 || Math.abs(mx) <= 1.5 * Math.abs(my)) return;
+      lock = 1;
+    }
+    if (!p || p.dir !== dir) {   // the finger crossed back over where it started: the other neighbour
+      const q = plan(dir);
+      if (p && p.el !== q?.el) phRest(p.el);
+      if (!q?.el) { if (p) phRest(p.el); lock = -1; return; }
+      p = {...q, dir}; p.el.style.transition = "none"; p.el.style.willChange = "transform, opacity";
+    }
+    if (e.cancelable) e.preventDefault();
+    at = p.go ? mx : mx * 0.25;
+    p.el.style.transform = `translateX(${at}px)`; p.el.style.opacity = String(1 - Math.min(0.5, Math.abs(at) / innerWidth * 0.6));
+  }, {passive: false});
+  const end = async e => {
+    if (lock !== 1 || !p) return drop();
+    const q = p, from = at, mx = e.type === "touchend" ? e.changedTouches[0].clientX - x0 : 0, v = Math.abs(mx) / Math.max(1, Date.now() - t0);
+    drop();
+    const el = q.el;
+    if (!q.go || (Math.abs(mx) <= 70 && !(Math.abs(mx) > 30 && v > 0.4)) || (mx < 0 ? 1 : -1) !== q.dir) {
+      if (phCalm()) return phRest(el);
+      return phIn(el, from, el.style.opacity || "1", 180);
+    }
+    busy = true;
+    try {
+      const w = Math.min(el.clientWidth || innerWidth, innerWidth);
+      if (!phCalm()) await phMove(el, -q.dir * w, ".2", 140, "ease-in");
+      await Promise.race([Promise.resolve().then(q.go).catch(() => {}), new Promise(r => setTimeout(r, 500))]);
+      const nx = (q.after && q.after()) || el;
+      if (nx !== el) phRest(el);
+      if (phCalm()) phRest(nx); else await phIn(nx, q.dir * w * 0.35, ".4", 200);
+    } finally { busy = false; }
+  };
+  root.addEventListener("touchend", end, {passive: true});
+  root.addEventListener("touchcancel", end, {passive: true});
+}
+// The agent view: a swipe opens the next or the previous agent in the strip's order (owner, 2026-11-14: "can I have
+// swipe left and right on the page to move between them?"). Not from the strip, the message box or the terminal.
+function phNeighbour(step) {
+  const names = [...$("#drail").querySelectorAll(".phf[data-name]")].map(b => b.dataset.name), i = names.indexOf(open);
+  return i < 0 ? null : names[i + step] || null;
+}
+phSwiper($("#detail"),
+  e => { const t = e.touches[0], el = e.target; return !!open && t.clientX >= 24 && t.clientX <= innerWidth - 24 && !el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") && !phSideways(el, $("#detail")); },
+  dir => { const to = phNeighbour(dir); return {el: $("#dconv"), go: to && (() => openDetail(to)), after: () => $("#dconv")}; });
+// The home page: a swipe shows the next or the previous panel of the toolbar, in its order (owner, 2026-11-15: "On the
+// mobile app, the home page, can I swipe left and right here too?"). On the Work queue tab it moves between Doing and
+// Done first, as a tap on its tabs does (owner, 2026-11-15: "swipe left and right between doing and done"): left from
+// Done, or right from Doing, goes on to the next panel, and only the list moves, the pane's head, its Doing/Done tabs
+// and the chips stay put.
+function phBodySwipe(body) {
+  phSwiper(body,
+    e => { const t = e.touches[0]; return t.clientX >= 24 && t.clientX <= innerWidth - 24 && !e.target.closest?.("textarea, input, select, .lightbox") && !phSideways(e.target, body); },
+    dir => {
+      if (body.dataset.tab === "queue") {
+        const to = dir > 0 ? "done" : "work";
+        if (to !== wqTab()) {
+          const list = () => body.querySelector(".ph-pane .workq") || body.querySelector(".ph-pane .teamlog > .blank") || body;
+          return {el: list(), go: () => { localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw(); }, after: list};
+        }
+      }
+      const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + dir];
+      return {el: body, go: to && (() => { localStorage.setItem("phonetab", to); body.scrollTop = 0; try { phoneDraw(); } catch (err) { phError(err); } }), after: () => body};
+    });
 }
 function phWaitInView(list) {
   const rail = $("#drail"), now = new Set(list.filter(a => a.name !== open && ["waiting", "wanted"].includes(stOf(a))).map(a => a.name));
@@ -11386,12 +11420,19 @@ def self_test():
            '$("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return;' in PAGE), (True,) * 5)
         t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
           ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE, "const left = Math.round(Math.max(0, Math.min(rail.scrollWidth - rail.clientWidth, mid)));" in PAGE,
-           "open = null; phRailFor = null;" in PAGE, "phSwipeTo(dx < 0 ? 1 : -1);" in PAGE,
-           'el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") || sideways(el)' in PAGE,
+           "open = null; phRailFor = null;" in PAGE, 'dir => { const to = phNeighbour(dir); return {el: $("#dconv"), go: to && (() => openDetail(to)), after: () => $("#dconv")}; });' in PAGE,
+           '!el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") && !phSideways(el, $("#detail"))' in PAGE,
            'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 7)
+        t("  a phone swipe moves the content with the finger, one helper for all three: it takes only a mostly-sideways move, follows it (stretching a little with nowhere to go), and on release slides off and the next in, or springs back; reduced motion only switches",
+          (PAGE.count("phSwiper(") == 3, "if (Math.abs(mx) <= 10 || Math.abs(mx) <= 1.5 * Math.abs(my)) return;" in PAGE,
+           "at = p.go ? mx : mx * 0.25;" in PAGE, "}, {passive: false});" in PAGE and "if (e.cancelable) e.preventDefault();" in PAGE,
+           "(Math.abs(mx) <= 70 && !(Math.abs(mx) > 30 && v > 0.4))" in PAGE, "await phMove(el, -q.dir * w, \".2\", 140, \"ease-in\");" in PAGE,
+           "await Promise.race([Promise.resolve().then(q.go).catch(() => {}), new Promise(r => setTimeout(r, 500))]);" in PAGE,
+           "const nx = (q.after && q.after()) || el;" in PAGE, "if (phCalm()) phRest(nx); else await phIn(nx, q.dir * w * 0.35, \".4\", 200);" in PAGE,
+           "html.phone :is(#phone, #detail .left){overflow-x:clip}" in PAGE), (True,) * 10)
         t("  a sideways swipe on the phone's home page shows the next or previous toolbar panel, Work queue's Doing/Done first",
-          ("phBodySwipe(body);" in PAGE, 'const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + (dx < 0 ? 1 : -1)];' in PAGE,
-           'if (to !== wqTab()) {' in PAGE, "phQueueSwipe" not in PAGE, ":is(#dconv, .ph-body, .ph-pane, .workq, .teamlog > .blank).phin-r" in PAGE), (True,) * 5)
+          ("phBodySwipe(body);" in PAGE, 'const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + dir];' in PAGE,
+           'if (to !== wqTab()) {' in PAGE, "phQueueSwipe" not in PAGE, "phin-r" not in PAGE), (True,) * 5)
         t("  a role shows its icon in the role's colour beside its name, and the icon alone where space is tight (the phone's agent header and portrait tiles, where every tile has its icon and the ticket beside it)",
           ('const roleWith = a => { const ic = roleIcon(a.role), nm = a.roleName || a.role || "";' in PAGE,
            '<span class="role">${roleWith(a)}</span><span class="cctl">' in PAGE, '<span class="role">${roleWith(a)}</span>${a.ticket ?' in PAGE,
