@@ -9461,7 +9461,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${roleWith(a)}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
-    (bench || !a.live ? (name === open ? "" : `<div class="mi" data-go="read">${MENU_ICON.open}Read its last conversation</div>`) + (bench && !bench.standing ? "" : power) :   // one not running has its last conversation to read, and a benched standing agent or a stopped one its Start
+    (bench || !a.live ? (name === open ? "" : `<div class="mi" data-go="read">${MENU_ICON.open}Conversation history</div>`) + (bench && !bench.standing ? "" : power) :   // one not running has its last conversation to read, and a benched standing agent or a stopped one its Start
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
       `<div class="mi" data-go="window">${MENU_ICON.window}Open in new window</div>` +
