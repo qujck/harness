@@ -1,5 +1,7 @@
 # Role: Personal assistant — terms of reference (template)
 
+If `.claude/local/personal-assistant.md` exists, read it straight after this document; where the two differ, it wins.
+
 > Replace the `{{PLACEHOLDERS}}`, then delete this line. This document is for a project that has a
 > personal or house assistant beside its team. Keep the rules; fill in the person.
 

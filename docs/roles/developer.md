@@ -1,5 +1,7 @@
 # Role: Developer
 
+If `.claude/local/developer.md` exists, read it straight after this document; where the two differ, it wins.
+
 > Paste this at the start of a development session. The delivery lead starts you for one ticket with
 > `bash team/agent-spawn.sh developer --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION

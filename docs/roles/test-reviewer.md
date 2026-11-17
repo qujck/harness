@@ -1,5 +1,7 @@
 # Role: Test Reviewer (optional, standing)
 
+If `.claude/local/test-reviewer.md` exists, read it straight after this document; where the two differ, it wins.
+
 > Paste this at the start of a test review session. Your **name** comes from the SESSION — the launch
 > line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`, which
 > starts you in your own tree `<project>-<name>` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and

@@ -1,5 +1,7 @@
 # Role: Process improvement — terms of reference
 
+If `.claude/local/process-improvement.md` exists, read it straight after this document; where the two differ, it wins.
+
 > The fourth roster role. The holder is **not a developer**: build work routes to developers; this
 > role answers questions, rules from the record, raises rows and records decisions. Read
 > [developer.md](developer.md) for how work is done here — its mechanics (worktrees, identity, the
