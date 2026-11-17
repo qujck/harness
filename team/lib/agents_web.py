@@ -2367,6 +2367,8 @@ def tool_line(block):
     else:
         what = ""
     line = {"kind": "tool", "who": name.replace("mcp__", "").split("__")[-1], "text": short(str(what), 140)}
+    if name == "Bash" and block.get("id"):
+        line["tid"] = str(block["id"])   # the page opens the command and its output by it (/api/tool)
     if name == "AskUserQuestion" and isinstance(inp.get("questions"), list):
         line["asked"] = [q for q in inp["questions"] if isinstance(q, dict)]   # the pane cuts a question's previews; this has them whole
     return line
@@ -2719,6 +2721,122 @@ def feed(sid, limit):
     """The last `limit` turns of a session's conversation, oldest first, from the end of its transcript."""
     t = followed(sid)
     return t.turns(limit) if t else []
+
+
+# ── one shell command and its output ──────────────────────────────────────────
+# Claude Code writes a running Bash call's output to /tmp/claude-<uid>/<project dir>/<session>/tasks/<id>.output: a
+# foreground call's file goes when the call returns, a background call's stays, and its result names the file.
+TOOL_OUT_MAX = 64 * 1024
+BG_RESULT = re.compile(r"running in background with ID: (\w+)\. Output is being written to: (\S+?\.output)")
+_tool_at = {}   # (transcript, tool-use id): the byte offset of the line that made the call
+
+
+def _tool_text(c):
+    """A tool_result's content as text: a string, or a list of blocks of which the text ones count."""
+    if isinstance(c, list):
+        return "\n".join(str(b.get("text", "")) for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return str(c or "")
+
+
+def _tail(path):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - TOOL_OUT_MAX))
+            return f.read().decode("utf-8", "replace"), size > TOOL_OUT_MAX
+    except OSError:
+        return None, False
+
+
+def _find_back(path, needle, block=1 << 20):
+    """The offset of the start of the last line of path holding needle, searching from the end (a transcript can run to
+    hundreds of megabytes, and the calls the page shows are near its end); None when no line does."""
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        end, tail = f.tell(), b""
+        while end > 0:
+            start = max(0, end - block)
+            f.seek(start)
+            buf = f.read(end - start) + tail
+            i = buf.rfind(needle)
+            if i >= 0:
+                j = buf.rfind(b"\n", 0, i)
+                if j >= 0 or start == 0:
+                    return start + j + 1
+                tail, end = buf[:i + len(needle)], start   # the line starts in an earlier block
+                continue
+            tail, end = buf[:len(needle)], start
+    return None
+
+
+def tool_json(name, tid):
+    """The Bash call `tid` of name's conversation: its command, its description and its output, with whether it is still
+    running. Finished, the output is the call's result; running, the task output file Claude Code is writing."""
+    rec = live_sessions().get(name)
+    sid = rec.get("sessionId") if rec else resting_session(name) if any(r["name"] == name for r in roster()) else None
+    path = transcript(sid) if sid else None
+    if not path or not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
+        return None
+    key, call, result, started, notes = (path, tid), None, None, None, []
+    if key not in _tool_at:
+        _tool_at[key] = _find_back(path, b'"id":"' + tid.encode() + b'"')
+    if _tool_at[key] is None:
+        del _tool_at[key]
+        return None
+    with open(path, "rb") as f:
+        f.seek(_tool_at[key])
+        for raw in iter(f.readline, b""):
+            at = f.tell() - len(raw)
+            if tid.encode() not in raw and not (call and b"<task-notification>" in raw):
+                continue
+            try:
+                o = json.loads(raw)
+            except ValueError:
+                continue
+            for b in (o.get("message") or {}).get("content") or []:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use" and b.get("id") == tid:
+                    call, started = b.get("input") or {}, o.get("timestamp")
+                    _tool_at[key] = at
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") == tid:
+                    result = b
+            if call and b"<task-notification>" in raw:
+                notes.append(raw.decode("utf-8", "replace"))
+            if result and not BG_RESULT.search(_tool_text(result.get("content"))):
+                break   # finished in the foreground: nothing later in the transcript changes it
+    if call is None:
+        return None
+    out, cut, running = "", False, False
+    tasks = os.path.join(os.path.dirname(path).replace(PROJECTS, f"/tmp/claude-{os.getuid()}", 1), sid, "tasks")
+    bg = BG_RESULT.search(_tool_text(result.get("content"))) if result else None
+    if bg:
+        out, cut = _tail(bg[2]) if bg[2].startswith(tasks + "/") else (None, False)
+        running = not any(f"<task-id>{bg[1]}</task-id>" in n for n in notes)
+        out = out if out is not None else "(its output file has gone)"
+    elif result:
+        out = _tool_text(result.get("content"))
+        cut = len(out) > TOOL_OUT_MAX
+        out = out[-TOOL_OUT_MAX:]
+    else:
+        # still running in the foreground: the first output file made since the call began (by its birth time, as a
+        # background command's file is written to all the while)
+        running = True
+        try:
+            t0 = datetime.datetime.fromisoformat(str(started).replace("Z", "+00:00")).timestamp() - 2
+        except ValueError:
+            t0 = 0
+        files = [os.path.join(tasks, n) for n in os.listdir(tasks)] if os.path.isdir(tasks) else []
+        files = [x for x in files if x.endswith(".output") and not os.path.islink(x)]
+        born = [(int(b), f) for b, f in (l.split(" ", 1) for l in run("stat", "-c", "%W %n", *files).splitlines() if " " in l)
+                if b.isdigit() and int(b) >= t0] if files else []
+        if born:
+            out, cut = _tail(min(born)[1])
+        out = out or ""
+    return {"command": str(call.get("command", "")), "description": str(call.get("description", "")),
+            "background": bool(call.get("run_in_background")) or bool(bg), "running": running,
+            "error": bool(result and result.get("is_error")), "cut": cut, "output": ESCAPES.sub("", out)}
 
 
 # ── a prompt waiting on the owner ─────────────────────────────────────────────
@@ -3618,6 +3736,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, tokens_json(), "application/json")
         elif path == "/api/workqueue":
             self.send(200, workqueue_json(), "application/json")
+        elif path == "/api/tool":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            t = tool_json(q.get("name", [""])[0], q.get("id", [""])[0])
+            self.send(200 if t else 404, json.dumps(t).encode() if t else b"no such command\n", "application/json" if t else "text/plain")
         elif path == "/api/commands":
             self.send(200, json.dumps(commands()).encode(), "application/json")
         elif path.startswith("/api/agent/") and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", path[11:]):
@@ -4239,6 +4361,9 @@ html.light .spanel :is(.sagent, .srch){color-scheme:light}
 mark.seekm{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inherit;border-radius:2px}
 .seekgone{margin:6px 0 10px;padding:6px 10px;border-radius:6px;background:var(--soft);color:var(--mute)}
 #docbox.dayview #doccopy,#docbox.dayview #docall,#docbox.dayview #docsave,#docbox.dayview #doctab{display:none}
+#docbox.toolview #doccopy,#docbox.toolview #docsave,#docbox.toolview #doctab{display:none}
+#docbody .shcmd{color:var(--accent,var(--text));font-weight:650}
+#docbody .shnote{color:var(--mute)}
 #docbox.dayview #docbody{padding:0;white-space:normal;font-size:inherit;line-height:inherit}
 #menu .srchbtn svg{width:14px;height:14px;margin-right:6px;vertical-align:-2px}
 /* the waiting list: each agent with its portrait, what it waits on and for how long */
@@ -4778,6 +4903,8 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.tools .tx{font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--faint);-webkit-line-clamp:1}
 .it.tools .tx b{color:var(--mute);font-weight:650}
 .it.tools .call{display:block}
+.it.tools .call[data-tid]{cursor:pointer}
+.it.tools .call[data-tid]:hover{color:var(--text);text-decoration:underline dotted}
 .it.tools .call + .call{padding-left:1.35em}
 .it.tools .call + .call{margin-top:2px}
 .it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(var(--t-s)*var(--fs,1)) var(--mono);padding-left:4px;min-width:calc(3ch + 4px);text-align:right}   /* 9s to 10s does not move the line */
@@ -6017,7 +6144,7 @@ function showDoc(e, a) {
   $("#docsave").href = a.href + "&save=1"; $("#docsave").download = name.split("/").pop();
   $("#docbody").textContent = "Loading…";
   $("#docall").hidden = true;
-  $("#docbox").classList.remove("dayview");
+  $("#docbox").classList.remove("dayview", "toolview");
   $("#docbox").classList.add("on");
   fetch(a.href).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(
     text => { if ($("#docname").textContent === name) { docText = text; $("#docall").hidden = false; }
@@ -6027,6 +6154,34 @@ function showDoc(e, a) {
   return false;
 }
 const closeDoc = () => $("#docbox").classList.remove("on");
+// A shell command an agent ran opens in the document viewer: the command, then its output (the last 64 KB). While it
+// runs it is read again every second, the view staying at the bottom unless scrolled up from it.
+let toolOpen = null;   // [agent, tool-use id] of the command showing
+async function showTool(name, tid) {
+  const me = toolOpen = [name, tid].join(" "), box = $("#docbody");
+  $("#docbox").classList.remove("dayview");
+  $("#docbox").classList.add("on", "toolview");
+  $("#docname").textContent = $("#docname").title = `${shown(name)} · shell`;
+  box.textContent = "Loading…"; $("#docall").hidden = true;
+  for (let first = true; ; first = false) {
+    let t = null;
+    try { const r = await fetch(`/api/tool?name=${encodeURIComponent(name)}&id=${encodeURIComponent(tid)}`, {cache: "no-store"}); t = r.ok ? await r.json() : null; } catch (e) {}
+    if (toolOpen !== me || !$("#docbox").classList.contains("on")) return;
+    if (!t) { box.innerHTML = `<span class="shnote">This command is no longer in ${esc(shown(name))}'s conversation.</span>`; return; }
+    const end = first || box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    const state = t.running ? (t.background ? "running in the background…" : "running…") : t.error ? "failed" : "";
+    $("#docname").textContent = $("#docname").title = `${shown(name)} · ${t.description || "shell"}${state ? " · " + state : ""}`;
+    docText = `$ ${t.command}\n\n${t.output}`; $("#docall").hidden = false;
+    box.innerHTML = `<pre class="code"><span class="shcmd">$ ${esc(t.command)}</span>\n\n${t.cut ? `<span class="shnote">… only the last 64 KB is shown</span>\n` : ""}${esc(t.output) || `<span class="shnote">${t.running ? "no output yet" : "no output"}</span>`}${t.running ? `\n<span class="shnote">${state}</span>` : ""}</pre>`;
+    if (end) box.scrollTop = box.scrollHeight;
+    if (!t.running) return;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+document.addEventListener("click", e => {
+  const c = e.target.closest(".it.tools .call[data-tid]");
+  if (c) { e.stopPropagation(); showTool(c.dataset.agent, c.dataset.tid); }
+}, true);
 $("#docbox").onclick = e => { if (e.target.id === "docbox" || e.target.id === "docx") closeDoc(); };
 // A header button copies, then reads "Copied" for a moment.
 async function docCopy(b, text) {
@@ -6092,7 +6247,7 @@ function item(it, compact, agent, tag) {
   if (it.kind === "tools") {
     // on a card, one line run together; in a conversation shown whole, a line for each call
     const t = compact ? "⚙ " + it.calls.map(c => `<b>${esc(c.who)}</b> ${esc(c.text)}`).join(" · ")
-      : it.calls.map((c, i) => `<span class="call">${i ? "" : "⚙ "}<b>${esc(c.who)}</b> ${esc(c.text)}</span>`).join("");
+      : it.calls.map((c, i) => `<span class="call${c.tid ? `" data-tid="${esc(c.tid)}" data-agent="${esc(agent)}" title="Show the command and its output` : ""}">${i ? "" : "⚙ "}<b>${esc(c.who)}</b> ${esc(c.text)}</span>`).join("");
     const c = colours[it.with], pc = c ? ` style="--pc:${c}"` : "";
     return `<div class="it tools l-${it.lane}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${ag(false)}<span class="tx">${t}</span><span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span></div>`;
   }
@@ -10430,6 +10585,7 @@ async function seekDayLog(at, q) {
   if (pane && !phoneOn()) { draw(); return seekFind(() => pane.isConnected ? pane.querySelector(".row.seek") : $(".daylog .row.seek")); }
   if (!dayLog || dayLog.state === "reading") { try { dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); } catch (e) {} }
   $("#docname").textContent = $("#docname").title = "Day log";
+  $("#docbox").classList.remove("toolview");
   $("#docbox").classList.add("on", "dayview");
   $("#docbody").innerHTML = dayLogHtml({show: "daylog"});
   seekFind(() => $("#docbody .row.seek"), $("#docbody"));
