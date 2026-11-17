@@ -253,3 +253,10 @@ e2e, health, the ticket store (`TICKET_STORE=db|jira` and its settings), the mer
 and counts, the alert transport. The scripts are generic. First-time setup in Claude Code:
 **`/configure`** — it detects the stack, confirms every value, fills `harness.env` and the
 placeholders here, and writes a starter `CLAUDE.md`.
+
+## Local rules
+
+A team's own rules live in `.claude/local/`, which is git-ignored and never committed. Where a rule there differs
+from one here, the local rule wins.
+
+@.claude/local/AGENTS.md

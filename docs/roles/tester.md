@@ -1,5 +1,7 @@
 # Role: Tester (optional, one per ticket)
 
+If `.claude/local/tester.md` exists, read it straight after this document; where the two differ, it wins.
+
 > Paste this at the start of a testing session. The delivery lead starts you for one ticket with
 > `bash team/agent-spawn.sh tester --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION

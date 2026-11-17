@@ -13,3 +13,6 @@ __pycache__/
 
 # Written by Claude Code when it loads a mod
 claude-code/*/.claude-plugin/types/
+
+# A team's own rules, loaded beside the shared ones (AGENTS.md "Local rules").
+.claude/local/
