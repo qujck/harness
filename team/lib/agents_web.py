@@ -17,6 +17,8 @@
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
   POST /api/team/start       team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
+  POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
+  POST /api/standup/summary  {"text": "...", "fresh": true or not} the Work pane's stand-up summary (see "the stand-up summary")
                              delivery lead is told the team is back up to start the day
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
   POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
@@ -53,6 +55,7 @@ the name is refused like any other, so a tunnel route made before its Access log
 import base64
 import calendar
 import datetime
+import fcntl
 import glob
 import hashlib
 import html
@@ -1548,7 +1551,7 @@ def perf_json():
 #   icon                one of the page's bar icons, shown in place of the label, which stays in its title: week, day,
 #                       disk, cpu, mem, net, gpu, tok, heat or fan
 #   place               "header" or "footer": the only one of the two it can be put in (else either)
-#   pipe                work on its way to done, drawn by the phone Dashboard as a Pipeline tile and its sheet (at most
+#   pipe                work on its way to done, drawn by the Work pane and the phone Dashboard's Work tile (at most
 #                       100 kB). The page knows no tracker or code host: a project's own plug-in fills it from GitHub,
 #                       Jira, Bitbucket or another. Every field is optional; text is shown as given, links only if https.
 #       stages          [{"key", "name", "note", "queue"}], in order towards done; the one with queue true is the
@@ -1560,6 +1563,8 @@ def perf_json():
 #       waiting         [{"who", "text" ("to approve #6452"), "href", "tag" {"text", "tone"}}], in the order to show
 #       merged          [{"at", "who", "title", "id", "href"}] newest first, and merged_n their count; merged_word
 #                       ("merged today") and merged_title ("Merged today") name them
+#       history         [{"t" (epoch seconds), "who", "title", "id", "ref" ("api #12"), "href"}] every merge kept, newest
+#                       first, for the Work pane's Done tab and its stand-up; without it Work uses today's merged
 #       warnings        [{"text", "href"}], each a row above the merges and counted in the tile's footer
 #       updated, last   when it was read ("HH:MMZ"), and the last one done ("merge 11:52Z", shown after "Last")
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
@@ -3135,6 +3140,207 @@ def answer(name, n, label, text):
             _state["at"] = 0
 
 
+# ── for you ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# What is waiting on the owner, as the delivery lead keeps it with `team/for-you.py` (see that command for the file's shape): the
+# open items go out with the state, for the bar's count, its list and the For you pane, with the last few cleared. The
+# owner clears one from the page under the command's lock, marked "tell", and the lead is told in its pane once idle
+# (owner, 2026-11-11: "yeah tell him"), so it does not wait on, or ask again about, what the owner has dealt with. It is
+# $AGENT_FOR_YOU, else for-you.json in the state directory, read again only when it changes.
+FOR_YOU = os.environ.get("AGENT_FOR_YOU") or os.path.join(STATE_DIR, "for-you.json")
+_foryou = {"key": None, "data": None}
+
+
+def for_you_file():
+    return os.path.expanduser(FOR_YOU)
+
+
+def for_you():
+    path = for_you_file()
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {"state": "empty", "open": [], "cleared": []}
+    if key != _foryou["key"]:
+        try:
+            with open(path, encoding="utf-8") as f:
+                q = json.load(f)
+            if not isinstance(q, dict):
+                raise ValueError
+            text = lambda v, n=1000: v.strip()[:n] if isinstance(v, str) else ""
+            stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+            def item(i):
+                t = text(i.get("ticket"), 120)
+                t = t if re.match(r"^[\w.#-]+$", t) else ""
+                return {"n": i.get("n") if isinstance(i.get("n"), int) else 0, "text": text(i.get("text")), "ticket": t,
+                        "url": "", "from": text(i.get("from"), 60), "at": stamp(i.get("at")),
+                        "cleared": stamp(i.get("cleared")), "by": text(i.get("by"), 60), "answer": text(i.get("answer"))}
+            lists = {k: [item(i) for i in (q.get(k) if isinstance(q.get(k), list) else []) if isinstance(i, dict)] for k in ("open", "cleared")}
+            data = {"state": "ok", "open": lists["open"][:100], "cleared": lists["cleared"][:300]}   # the Work pane's history
+        except (OSError, ValueError):
+            data = {"state": "bad", "file": path, "open": [], "cleared": []}
+        _foryou.update(key=key, data=data)
+    return _foryou["data"]
+
+
+# The stand-up summary (owner, 2026-11-17: "a summary of all the work done, bulletpointed so that it is easier to read and
+# say out loud during the standup... like a little helper agent"): the Work pane's stand-up write-up, put to a small
+# model by a headless `claude -p` with no tools, settings, MCP servers or session kept, in a folder of its own so no
+# project's CLAUDE.md is read. Each answer is kept by the hash of the text it summarised (with the model and prompt), so the same data never runs twice.
+STANDUP_DIR = os.path.join(STATE_DIR, "standup")
+STANDUP_CACHE = os.path.join(STATE_DIR, "standup-summary.json")
+STANDUP_MAX = 20000
+STANDUP_PROMPT = """You turn a software team's stand-up notes into what is said out loud at stand-up, in the team's usual
+two parts: "Yesterday" (what was finished) and "Today" (what is being worked on now).
+The notes list, per person, tickets they finished (Done, with the pull requests merged) and what they are on now (Now, with its stage).
+Work under Unassigned was merged with nobody named.
+Reply in exactly this shape, UK English, plain spoken words, no Markdown but the bullets and each bullet's bold title:
+Yesterday:
+- ...
+Today:
+- ...
+- Yesterday holds every Done item; Today every Now item. Leave a part out entirely when it would be empty.
+- One bullet per piece of work: a ticket, or several tickets in the same area or feature, whoever worked on them. Combine
+  related work from different people into one bullet.
+- Start each bullet with a short title for the work in bold, then a colon: "**Niffler prompts**: ...". Never name who did
+  the work: the stand-up is about the work, not the people.
+- Then one short sentence: what was finished (Yesterday), or what is being done and where it has got to (Today).
+- Under Today, tickets that have only an id and no title go together in one last bullet: "**Also on**: LFE-12, LFE-14".
+- Name a ticket id only where it helps; leave out pull request numbers.
+- Use only what the notes say. Never invent progress, plans or blockers, and never mention what the notes do not give.
+For example, notes of
+  Kate, today:
+  - Done: AB-12 Export the report as CSV (merged web #40)
+  Tim, today:
+  - Done: AB-13 Report export keeps the column order (merged api #7)
+  - Now: AB-14 Fix the login timeout (PR raised)
+  - Now: AB-15 (In progress)
+become
+Yesterday:
+- **Report export**: CSV export finished, and the export now keeps its column order.
+Today:
+- **Login timeout**: the fix has its PR up for review.
+- **Also on**: AB-15"""
+_standup_lock = threading.Lock()
+
+
+def standup_summary(text, fresh=False):
+    """The spoken summary of a stand-up write-up: (summary, None), or (None, why it could not be made). Fresh, it is
+    written again even if one is kept for this text, and replaces it. A summary is kept for its text, model and prompt
+    together, so a new model or prompt writes a new one."""
+    model = setting("AGENT_STANDUP_MODEL") or "sonnet"
+    key = hashlib.sha256("\0".join((model, STANDUP_PROMPT, text)).encode()).hexdigest()
+    try:
+        kept = json.load(open(STANDUP_CACHE))
+    except (OSError, ValueError):
+        kept = []
+    kept = [k for k in kept if isinstance(k, dict) and not (fresh and k.get("key") == key)]
+    hit = next((k for k in kept if k.get("key") == key), None)
+    if hit:
+        return hit.get("summary", ""), None
+    if not _standup_lock.acquire(blocking=False):
+        return None, "a summary is already being written: try again in a moment"
+    try:
+        exe = shutil.which("claude") or next((p for p in ("/opt/homebrew/bin/claude", "/usr/local/bin/claude", os.path.join(HOME, ".local", "bin", "claude")) if os.access(p, os.X_OK)), None)
+        if not exe:
+            return None, "claude is not installed where the page can find it"
+        os.makedirs(STANDUP_DIR, exist_ok=True)
+        cmd = [exe, "-p", "--model", model, "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+               "--disable-slash-commands", "--no-session-persistence", "--output-format", "json", "--system-prompt", STANDUP_PROMPT]
+        try:
+            r = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=120, cwd=STANDUP_DIR)
+        except subprocess.TimeoutExpired:
+            return None, "the helper took over two minutes"
+        except OSError as e:
+            return None, f"the helper could not start: {e}"
+        try:
+            out = json.loads(r.stdout or "{}")
+        except ValueError:
+            return None, (r.stderr or r.stdout or "the helper gave no answer").strip()[:300]
+        summary = (out.get("result") or "").strip()
+        if out.get("is_error") or not summary:
+            return None, (summary or r.stderr or "the helper gave no answer").strip()[:300]
+        kept = [{"key": key, "at": int(time.time()), "summary": summary}] + kept[:19]
+        tmp = STANDUP_CACHE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(kept, f)
+        os.replace(tmp, STANDUP_CACHE)
+        return summary, None
+    finally:
+        _standup_lock.release()
+
+
+def for_you_clear(n):
+    """Clears open item n as the owner, as `team/for-you.py clear` does: False if it is not open."""
+    path = for_you_file()
+    with open(path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as f:
+                q = json.load(f)
+        except (OSError, ValueError):
+            return False
+        items = q.get("open") if isinstance(q, dict) and isinstance(q.get("open"), list) else []
+        item = next((i for i in items if isinstance(i, dict) and i.get("n") == n), None)
+        if not item:
+            return False
+        now = int(time.time())
+        items.remove(item)
+        q["cleared"] = [{**item, "cleared": now, "by": setting("AGENT_OWNER_NAME") or "Owner", "answer": "", "tell": True}] + \
+            [i for i in (q.get("cleared") if isinstance(q.get("cleared"), list) else []) if isinstance(i, dict)]
+        q.update(at=now, by=setting("AGENT_OWNER_NAME") or "Owner")
+        for_you_write(path, q)
+    return True
+
+
+def for_you_write(path, q):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".for-you.")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(q, f, indent=1, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def for_you_tell_once(lead=None, live=None):
+    """Tells the lead, in one message once its session is idle, which items the owner cleared from the page since it
+    was last told; True if it was told."""
+    path = for_you_file()
+    if not os.path.exists(path):
+        return False
+    lead = lead or lead_name()
+    live = live_sessions() if live is None else live
+    if not lead or (live.get(lead) or {}).get("status") != "idle":
+        return False
+    with open(path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as f:
+                q = json.load(f)
+        except (OSError, ValueError):
+            return False
+        items = [i for i in (q.get("cleared") if isinstance(q, dict) and isinstance(q.get("cleared"), list) else []) if isinstance(i, dict) and i.get("tell")]
+        if not items:
+            return False
+        line = lambda i: "- " + (f"{i['ticket']}: " if i.get("ticket") else "") + str(i.get("text", ""))
+        text = "\n".join(["[For you] The owner cleared these from the For you list, so treat them as dealt with. If you still need an answer on one, ask the owner in chat; do not add it again.", *map(line, reversed(items))])
+        if not type_into(lead, text):
+            return False
+        for i in items:
+            i.pop("tell", None)
+        for_you_write(path, q)
+    return True
+
+
+def for_you_tell():
+    """for_you_tell_once every three seconds, for as long as the page runs."""
+    while True:
+        time.sleep(3)
+        try:
+            for_you_tell_once()
+        except Exception:   # the loop must outlive any one bad file or pane
+            time.sleep(10)
+
+
 # ── the state the page draws ──────────────────────────────────────────────────
 def colour(role):
     """The role's colour: AGENT_COLOUR_<ROLE> in harness.env, one of Claude Code's /color names, else the role's own."""
@@ -3212,7 +3418,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -3502,7 +3708,7 @@ class Handler(BaseHTTPRequestHandler):
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
-        if not m and not team and not nudger and not meet and self.path not in ("/api/paste", "/api/doc"):
+        if not m and not team and not nudger and not meet and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -3514,6 +3720,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.meeting(meet.group(1), meet.group(2))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
+        if self.path == "/api/foryou/clear":
+            return self.foryou_clear()
+        if self.path == "/api/standup/summary":
+            return self.standup()
         if self.path == "/api/doc":
             return self.save_doc()
         if not m:
@@ -3652,6 +3862,38 @@ class Handler(BaseHTTPRequestHandler):
         _starting.update(["team", *(names or [r["name"] for r in team_roster()])])
         threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
         self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
+
+    def foryou_clear(self):
+        """Clears a For you item the owner has dealt with: {"n": 3}."""
+        try:
+            n = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}").get("n")
+        except (ValueError, AttributeError):
+            n = None
+        if not isinstance(n, int) or isinstance(n, bool):
+            return self.send(400, b"needs {\"n\": number}\n", "text/plain")
+        if not for_you_clear(n):
+            return self.send(409, b"that item is not open\n", "text/plain")
+        with _lock:
+            _state["at"] = 0
+        self.send(200, json.dumps({"cleared": n}).encode(), "application/json")
+
+    def standup(self):
+        """The spoken summary of the stand-up write-up the page sends: {"text": "...", "fresh": true to write it again}
+        -> {"summary": "..."}."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > STANDUP_MAX:
+            return self.send(413, b"the stand-up is too long to summarise\n", "text/plain")
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+            text, fresh = body.get("text"), body.get("fresh") is True
+        except (ValueError, AttributeError):
+            text, fresh = None, False
+        if not isinstance(text, str) or not text.strip():
+            return self.send(400, b"needs {\"text\": \"the write-up\"}\n", "text/plain")
+        summary, why = standup_summary(text.strip(), fresh)
+        if why:
+            return self.send(502, (why + "\n").encode(), "text/plain")
+        self.send(200, json.dumps({"summary": summary}).encode(), "application/json")
 
     def nudger(self, pause):
         """Pauses the waiting-agents nudger (its pause file) or resumes it."""
@@ -3939,6 +4181,25 @@ header > .bi.div.orph{display:none}
 .pill.btn{cursor:pointer;color:var(--mute);font-family:var(--sans)}
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
+.pill.fy{cursor:pointer;margin-left:6px;color:var(--mute);white-space:nowrap}
+.pill.fy.on{border:2px solid var(--amber);color:var(--amber);font-weight:650}
+.foryou{padding:6px 10px}
+.foryou .row{display:flex;align-items:baseline;padding:3px 6px;gap:10px}
+.foryou a{color:var(--amber);font-weight:650;text-decoration:none}
+.foryou .row > a,.foryou .key{flex:none;min-width:5.5em;font-variant-numeric:tabular-nums}
+.foryou .tx{flex:1;white-space:normal;overflow-wrap:anywhere}
+.foryou .meta{flex:none;color:var(--mute);font-size:.88em;white-space:nowrap}
+.foryou .ans{display:block;color:var(--mute)}
+.foryou .fyclear{flex:none;cursor:pointer;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r-s);font-size:.88em}
+.foryou .fyclear:hover{border-color:var(--amber);color:var(--amber)}
+/* in the Work pane, a cross before the face, so the faces line up down the right */
+.wk .fyclear{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
+.wk .fyclear:hover{background:var(--on);color:var(--amber)}
+.wk .fyclear svg{width:14px;height:14px}
+.foryou .day{margin:8px 0 2px;padding:0 6px;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.foryou .day:first-child{margin-top:0}
+.foryou .calm{padding:10px 6px;color:var(--mute)}
+#menu .foryou{max-width:min(640px,92vw);padding:4px 2px}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
@@ -4088,6 +4349,134 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 #phone .ph-tile .ph-role .ph-rtk{margin-left:.45em;vertical-align:bottom}
 .chip svg{width:12px;height:12px}
 .teamlog .thead > span.tsum{font-weight:400;color:var(--mute)}
+/* the Work pane: its tabs and Done's range and filter in a bar under the head, its rows a ticket each, opening in place */
+.wk .wkbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:0 12px 8px}
+.wk .seg b em{font-style:normal;color:var(--faint);margin-left:2px}
+.wk .wkcompact{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));cursor:pointer;user-select:none}
+.wk .wkcompact input{margin:0;cursor:pointer}
+.wk .wkfilter{flex:1 1 140px;min-width:0;padding:3px 8px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--box);color:var(--text);font:inherit;font-size:calc(var(--t-s)*var(--fs,1))}
+.wk .wklist{padding-top:0}
+/* the stand-up scrolls as one, its summary with its lists, so a short pane does not squeeze the lists under the summary */
+.wk .wkstand{flex:1;min-height:0;overflow-y:auto}
+.wk .wkstand > .daylog{flex:none;overflow:visible}
+.wk .tsum .wkn{font:650 1.05em var(--mono);color:var(--pq)}
+.wk .tsum .wkn.a{color:var(--pw)}
+.wk .tsum .wkn.g{color:var(--pg)}
+/* a section's heading, as the Pipeline's: its name in small capitals, its count in colour */
+.wkhead{display:flex;align-items:baseline;gap:6px;padding:10px 8px 4px;color:var(--mute);font-size:11px}
+.wkhead b{font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.wkhead em{font:650 1.15em var(--mono);font-style:normal;color:var(--pq)}
+.wkhead em.g{color:var(--pg)}
+.wkpark > summary{cursor:pointer;list-style:none}
+.wkpark > summary::-webkit-details-marker{display:none}
+/* a ticket a line: its badge, its ids (and tags) over its title, whose it is; a click opens what is known of it */
+.wkrow{display:flex;align-items:center;gap:10px;padding:5px 8px;border-top:1px solid var(--line);cursor:pointer}
+.wkhead + .wkrow,.wkstrip + .wkrow{border-top:0}
+.wkrow:hover{background:var(--soft)}
+.wkrow.open{background:var(--track)}
+:is(#phone,.wk) .wkrow .pp-b{width:24px;height:24px;font-size:11px}
+:is(#phone,.wk) .wkrow .pp-mid .id{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;font-size:calc(var(--t-s)*var(--fs,1))}
+.wkrow .pp-mid .id a{color:inherit;text-decoration:none}
+.wkrow .pp-mid .id a:hover{text-decoration:underline}
+:is(#phone,.wk) .wkrow .pp-tag{padding:0 7px;font-size:.8em;font-family:var(--sans)}
+.wkrow .note,.wkrow .ans{color:var(--mute);margin-left:4px}
+.wkrow > time{flex:none;width:3.2em;color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
+.wkface{flex:none;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:.9em;white-space:nowrap}
+:is(#phone,.wk) .wkface :is(.ph-por.pp,.pp-ini){width:22px;height:22px;font-size:9px}
+/* the Work pane at full size (its Compact box cleared, and always on a phone): larger type and faces, more room a row, and in All a
+   ticket's ids over its title rather than beside it. :is(#phone,.wk) matches the specificity of the compact rules */
+:is(#phone,.wk).roomy .wkhead{padding:12px 10px 6px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).roomy .wkrow{gap:12px;padding:8px 10px;font-size:calc(var(--t-l)*var(--fs,1))}
+:is(#phone,.wk).roomy .wkrow .pp-b{width:28px;height:28px;font-size:12px}
+:is(#phone,.wk).roomy .wkrow .pp-mid .id{gap:3px 6px;margin-bottom:2px;font-size:calc(var(--t-m)*var(--fs,1))}
+:is(#phone,.wk).roomy .wkrow .pp-tag{padding:1px 8px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).roomy .wkrow > time{width:3.6em;font-size:calc(var(--t-m)*var(--fs,1))}
+:is(#phone,.wk).roomy .wkface{gap:8px;font-size:.95em}
+:is(#phone,.wk).roomy .wkface :is(.ph-por.pp,.pp-ini){width:28px;height:28px;font-size:10px}
+:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(300px,2fr) minmax(0,3fr);gap:14px;padding:2px 12px 12px}
+:is(#phone,.wk).roomy .wkall .wkrow{padding:7px 10px;gap:10px}
+@container (max-width:700px){:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(0,1fr)}}
+:is(#phone,.wk).roomy .wkall .wkrow .pp-mid{display:block}
+:is(#phone,.wk).roomy .wkall .wkrow .pp-mid .id{max-width:none;flex-wrap:wrap}
+:is(#phone,.wk).roomy .wkall .wkrow :is(.pp-b,.ph-por.pp,.pp-ini){width:26px;height:26px;font-size:11px}
+:is(#phone,.wk).roomy .wkall .wkhead{padding:12px 10px 4px}
+:is(#phone,.wk).roomy .wkperson > .wkface{width:auto}
+:is(#phone,.wk).roomy .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).roomy :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
+:is(#phone,.wk).roomy :is(.wkface > .wkname,.wkpname,.wkwait .wkname){display:none}   /* the face alone, its name on hover */
+:is(#phone,.wk).roomy .workq .wqwho > .wkface{width:auto}
+/* a narrow Stand-up: the face down the left of its row, the ticket and the time on top, the title under them in full */
+@container (max-width:600px){
+  :is(#phone,.wk).roomy .workq .row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center;padding:6px}
+  :is(#phone,.wk).roomy .workq .row > :is(a,.key){grid-column:2;grid-row:1;min-width:0}
+  :is(#phone,.wk).roomy .workq .row > .at{grid-column:3;grid-row:1;margin:0;width:auto}
+  :is(#phone,.wk).roomy .workq .row > :is(.wqwho > .wkface,.wh){grid-column:1;grid-row:1 / span 2;align-self:start;margin:0}
+  :is(#phone,.wk).roomy .workq .row > .tx{grid-column:2 / 4;grid-row:2;white-space:normal;overflow:visible}
+  :is(#phone,.wk).roomy .workq .fix{padding:0 6px 6px 44px}
+}
+.wkfaces{flex:none;display:flex;align-items:center;gap:4px}
+/* the stand-up tab's people, as faces like the other tabs, one width so the times line up */
+.wk .workq .wqwho > .wkface{width:9em;overflow:hidden}
+/* a face whose agent is on the page opens that agent */
+.wkopen{cursor:pointer}
+.wkopen:hover > .wkname{color:var(--text);text-decoration:underline}
+.wkopen:hover .ph-por{filter:brightness(1.08)}
+/* In flight's strip of stages: a stage's count narrows the list to it (the #phone in these selectors outranks the
+   Pipeline's own rules for the same pieces) */
+:is(#phone,.wk) .wkstrip{margin:0 8px 6px}
+:is(#phone,.wk) .wkstrip .pp-c{cursor:pointer}
+:is(#phone,.wk) .wkstrip .pp-c:hover{background:var(--soft)}
+:is(#phone,.wk) .wkstrip .pp-c.on{background:var(--track);box-shadow:inset 0 0 0 1px var(--line2)}
+/* All: two columns as the Pipeline pane's, one above the other when the pane is narrow */
+.wk{container-type:inline-size}
+.wkall{display:grid;grid-template-columns:minmax(280px,2fr) minmax(0,3fr);align-items:start;gap:10px;padding:0 10px 10px}
+.wkall .wkcol{min-width:0;border:1px solid var(--line2);border-radius:10px;background:var(--card1);padding-bottom:4px}
+.wkall .wkcol > .wkhead:first-child{padding-top:8px}
+.wkall .calm{padding:4px 10px 8px}
+@container (max-width:700px){.wkall{grid-template-columns:minmax(0,1fr)}}
+.wkgo{cursor:pointer}
+.wkgo:hover b{color:var(--text)}
+.wkhead em.a{color:var(--pw)}
+.wkmerged{margin-left:auto;text-transform:none;letter-spacing:0}
+.wkwait{cursor:default}
+.wkwait:hover{background:none}
+:is(#phone,.wk) .wkwait :is(.ph-por.pp,.pp-ini){width:22px;height:22px;font-size:9px}
+/* All is dense: a row is one line, its ids beside its title */
+.wkall .wkrow{padding:3px 8px;gap:8px}
+.wkall .wkrow .pp-mid{display:flex;align-items:baseline;gap:8px}
+.wkall .wkrow .pp-mid .id{flex:0 1 auto;max-width:55%;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.wkall .wkrow .pp-mid .tt{flex:1 1 0;min-width:8em}
+:is(#phone,.wk) .wkall .wkrow .pp-b{width:20px;height:20px;font-size:10px}
+:is(#phone,.wk) .wkall .wkrow :is(.ph-por.pp,.pp-ini){width:20px;height:20px;font-size:9px}
+.wkall .wkhead{padding:7px 8px 2px}
+.wkperson{cursor:default;align-items:center}
+.wkperson:hover{background:none}
+.wkperson > .wkface,.wkpname{flex:none;width:7.5em;overflow:hidden;color:var(--text)}
+.wkpname{display:flex;align-items:center;gap:6px;color:var(--mute)}
+.wkpk{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:4px}
+.wkchipk{padding:0 6px;border-radius:8px;font:650 .8em var(--mono);text-transform:none;letter-spacing:0}
+.wkchipk.g{background:var(--pgbg);color:var(--pg)}
+.wkchipk.b{background:var(--pqbg);color:var(--pq)}
+:is(#phone,.wk) .wkask .pp-mid .tt{white-space:normal;overflow:visible}
+.wkall .wkask .pp-mid{display:block}
+.wkall .wkask .pp-mid .id{max-width:none}
+/* the stand-up's summary, over its lists */
+.wksum{flex:none;margin:0 10px 8px;padding:0 4px 8px;border:1px solid var(--line2);border-radius:10px;background:var(--card1)}
+.wksumh{padding:6px 8px 0;font-weight:650}
+.wksum ul{margin:2px 0 0;padding-left:24px;line-height:1.5}
+.wksum li + li{margin-top:3px}
+.wksumgo,.wkhead .wksumgo{font-weight:650;font-size:calc(var(--t-s)*var(--fs,1));color:var(--cyan);cursor:pointer;text-transform:none;letter-spacing:0;margin-left:6px}
+.wkhead .wksumgo.busy{color:var(--mute);cursor:default;animation:stopping .9s ease-in-out infinite}
+.wksumold{padding:2px 8px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+.wksumerr{padding:2px 8px;color:var(--red)}
+.wkmore{padding:6px 8px;color:var(--cyan);cursor:pointer;font-size:calc(var(--t-s)*var(--fs,1))}
+.wkdetail{margin:0 8px 6px 42px;padding:6px 10px;border-left:2px solid var(--line2)}
+.wkd{display:flex;gap:10px;padding:2px 0;font-size:calc(var(--t-s)*var(--fs,1))}
+.wkd > b{flex:none;width:5.5em;font-weight:500;color:var(--mute)}
+.wkd i{color:var(--faint);font-style:normal;margin-left:4px}
+.wkcopy,.wkhead .wkcopy{margin-left:auto;font-weight:400;font-size:calc(var(--t-s)*var(--fs,1));color:var(--cyan);cursor:pointer;text-transform:none;letter-spacing:0}
+.workq .wkcopy + .wqfold{margin-left:6px}
+
 .workq .wqwho{display:contents;cursor:pointer}
 .workq .wqwho .who{cursor:pointer}
 .workq .who.unset{opacity:.45;font-weight:400}
@@ -5159,8 +5548,8 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 #phone .ph-dash .dadd{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
 #phone .ph-dash .dadd span{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;margin-right:2px}
 /* the Pipeline tile and its sheet: blue is the queue, amber something gone back or stuck, red a failed run */
-#phone,.ppdesk{--pq:#7aa2ff;--pqbg:#7aa2ff24;--pw:#f0b429;--pwbg:#f0b42924;--pr:#ff7b72;--prbg:#ff7b7224;--pg:#56d364;--pgbg:#56d36420;--pn:#6e7681}
-:root.light :is(#phone,.ppdesk){--pq:#1d4ed8;--pqbg:#e8eefc;--pw:#8a4b00;--pwbg:#fdf0c4;--pr:#b42318;--prbg:#fbe9e9;--pg:#1a7f37;--pgbg:#e6f4ea;--pn:#8c959f}
+#phone,.ppdesk,.wk{--pq:#7aa2ff;--pqbg:#7aa2ff24;--pw:#f0b429;--pwbg:#f0b42924;--pr:#ff7b72;--prbg:#ff7b7224;--pg:#56d364;--pgbg:#56d36420;--pn:#6e7681}
+:root.light :is(#phone,.ppdesk,.wk){--pq:#1d4ed8;--pqbg:#e8eefc;--pw:#8a4b00;--pwbg:#fdf0c4;--pr:#b42318;--prbg:#fbe9e9;--pg:#1a7f37;--pgbg:#e6f4ea;--pn:#8c959f}
 #phone .ph-dash .dtile.pipe{display:block;padding:0;overflow:hidden}
 /* the desktop's Pipeline pane: the phone's tile and its sheet's list side by side, one under the other when narrow */
 .pplog{container-type:inline-size}
@@ -5175,71 +5564,72 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 @keyframes pplit{from{background:var(--track)}to{background:transparent}}
 .ppdesk .pp-hit svg{display:none}
 .ppdesk .dlab{color:var(--mute);font-size:.8em;font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
-.ppdesk .ph-por{position:relative;flex:none;display:block}
-.ppdesk .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
-.ppdesk .ph-por img,.ppdesk .ph-por svg{display:block;width:100%;height:100%;object-fit:cover}
+:is(.ppdesk,.wk) .ph-por{position:relative;flex:none;display:block}
+:is(.ppdesk,.wk) .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border:2.5px solid var(--c);overflow:hidden;background:var(--chtile)}
+:is(.ppdesk,.wk) .ph-por img,:is(.ppdesk,.wk) .ph-por svg{display:block;width:100%;height:100%;object-fit:cover}
 .ppdesk a.pp-row:hover,.ppdesk a.pp-card:hover,.ppdesk a.pp-mrow:hover{background:var(--track)}
-:is(#phone,.ppdesk) .pp-hit{display:block;width:100%;padding:12px 12px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-:is(#phone,.ppdesk) .pp-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
-:is(#phone,.ppdesk) .pp-m{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
-:is(#phone,.ppdesk) .pp-m b{color:var(--pg);font:650 1.25em var(--mono)}
-:is(#phone,.ppdesk) .pp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
-:is(#phone,.ppdesk) .pp-c{display:block;min-width:0;padding:6px 6px 8px;border-radius:8px}
-:is(#phone,.ppdesk) .pp-c .n{display:block;font:650 1.3em var(--mono);color:var(--text);white-space:nowrap}
-:is(#phone,.ppdesk) .pp-c .n small{font:650 .62em var(--sans);color:var(--pw);margin-left:3px}
-:is(#phone,.ppdesk) .pp-c .l{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#phone,.ppdesk) .pp-c .bar{display:block;height:3px;border-radius:2px;margin-top:6px;background:var(--pn)}
-:is(#phone,.ppdesk) .pp-c.z .n{color:var(--mute)}
-:is(#phone,.ppdesk) .pp-c.z .bar{background:var(--track)}
-:is(#phone,.ppdesk) .pp-c.warn .bar{background:var(--pw)}
-:is(#phone,.ppdesk) .pp-c.qon{background:var(--pqbg)}
-:is(#phone,.ppdesk) .pp-c.qon .n,:is(#phone,.ppdesk) .pp-c.qon .l{color:var(--pq)}
-:is(#phone,.ppdesk) .pp-c.qon .bar{background:var(--pq)}
-:is(#phone,.ppdesk) .pp-sec{border-top:1px solid var(--line2);padding:8px 12px}
-:is(#phone,.ppdesk) .pp-sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--mute);font-size:11px}
-:is(#phone,.ppdesk) .pp-sh b{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-:is(#phone,.ppdesk) .pp-sh em{font:650 1.15em var(--mono);color:var(--pq);margin-left:4px}
-:is(#phone,.ppdesk) .pp-sh em.g{color:var(--pg)}
-:is(#phone,.ppdesk) .pp-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;color:var(--text);text-decoration:none}
-:is(#phone,.ppdesk) .pp-row.fail{background:var(--prbg);margin:0 -12px;padding:4px 12px}
-:is(#phone,.ppdesk) .pp-mid{flex:1;min-width:0}
-:is(#phone,.ppdesk) .pp-mid .id{font:650 .92em var(--mono);color:var(--pq)}
-:is(#phone,.ppdesk) .pp-mid .id span{color:var(--mute);font-weight:400}
-:is(#phone,.ppdesk) .pp-mid .tt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#phone,.ppdesk) .pp-end{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;font:650 .85em var(--mono);color:var(--mute)}
-:is(#phone,.ppdesk) .pp-end.run{color:var(--pq)}
-:is(#phone,.ppdesk) .pp-end.fail{color:var(--pr)}
-:is(#phone,.ppdesk) .pp-b{display:grid;place-items:center;flex:none;width:30px;height:30px;box-sizing:border-box;border-radius:50%;font:650 13px var(--sans)}
-:is(#phone,.ppdesk) .pp-b.run{background:var(--pq);color:var(--card1)}
-:is(#phone,.ppdesk) .pp-b.q{border:2px solid var(--pq);color:var(--pq)}
-:is(#phone,.ppdesk) .pp-b.fail{background:var(--pr);color:#fff}
-:is(#phone,.ppdesk) .pp-b.back{background:var(--pwbg);color:var(--pw)}
-:is(#phone,.ppdesk) .pp-b.st{background:var(--track);color:var(--mute)}
-:is(#phone,.ppdesk) .ph-por.pp{width:28px;height:28px}
-:is(#phone,.ppdesk) .ph-por.pp > .fr{border-radius:50%;border-width:2px}
-:is(#phone,.ppdesk) .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
-:is(#phone,.ppdesk) .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
-:is(#phone,.ppdesk) .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
-:is(#phone,.ppdesk) .pp-tag.red{background:var(--prbg);color:var(--pr)}
-:is(#phone,.ppdesk) .pp-tag.green{background:var(--pgbg);color:var(--pg)}
-:is(#phone,.ppdesk) .pp-tag.blue{background:var(--pqbg);color:var(--pq)}
-:is(#phone,.ppdesk) .pp-empty{color:var(--mute);padding:10px 0}
-:is(#phone,.ppdesk) .pp-mute{color:var(--mute)}
-:is(#phone,.ppdesk) .pp-blue{color:var(--pq)}
-:is(#phone,.ppdesk) .pp-red{color:var(--pr)}
-:is(#phone,.ppdesk) .pp-warn-t{color:var(--pw);font-weight:650}
-:is(#phone,.ppdesk) .pp-dot::before{content:"● "}
-:is(#phone,.ppdesk) .pp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line2);padding:8px 12px;color:var(--mute);font-size:11px}
-:is(#phone,.ppdesk) .pp-half .pp-hrow{display:flex;align-items:center;gap:8px;margin-top:6px;font:650 1em var(--mono)}
-:is(#phone,.ppdesk) .pp-half .pp-hrow small{font-weight:400;color:var(--mute);white-space:nowrap}
-:is(#phone,.ppdesk) .pp-half .pp-hrow > span:not(.pp-b){min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#phone,.ppdesk) .pp-half .pp-b{width:24px;height:24px;font-size:11px}
-:is(#phone,.ppdesk) .pp-seg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px}
-:is(#phone,.ppdesk) .pp-seg i{height:4px;border-radius:2px;background:var(--pn)}
-:is(#phone,.ppdesk) .pp-seg i.z{background:var(--track)}
-:is(#phone,.ppdesk) .pp-seg i.warn{background:var(--pw)}
-:is(#phone,.ppdesk) .pp-seg i.qon{background:var(--pq)}
-:is(#phone,.ppdesk) .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
+:is(#phone,.ppdesk,.wk) .pp-hit{display:block;width:100%;padding:12px 12px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+:is(#phone,.ppdesk,.wk) .pp-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
+:is(#phone,.ppdesk,.wk) .pp-m{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk,.wk) .pp-m b{color:var(--pg);font:650 1.25em var(--mono)}
+:is(#phone,.ppdesk,.wk) .pp-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:8px}
+:is(#phone,.ppdesk,.wk) .pp-c{display:block;min-width:0;padding:6px 6px 8px;border-radius:8px}
+:is(#phone,.ppdesk,.wk) .pp-c .n{display:block;font:650 1.3em var(--mono);color:var(--text);white-space:nowrap}
+:is(#phone,.ppdesk,.wk) .pp-c .n small{font:650 .62em var(--sans);color:var(--pw);margin-left:3px}
+:is(#phone,.ppdesk,.wk) .pp-c .l{display:block;font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk,.wk) .pp-c .bar{display:block;height:3px;border-radius:2px;margin-top:6px;background:var(--pn)}
+:is(#phone,.ppdesk,.wk) .pp-c.z .n{color:var(--mute)}
+:is(#phone,.ppdesk,.wk) .pp-c.z .bar{background:var(--track)}
+:is(#phone,.ppdesk,.wk) .pp-c.warn .bar{background:var(--pw)}
+:is(#phone,.ppdesk,.wk) .pp-c.qon{background:var(--pqbg)}
+:is(#phone,.ppdesk,.wk) .pp-c.qon .n,:is(#phone,.ppdesk,.wk) .pp-c.qon .l{color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-c.qon .bar{background:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-sec{border-top:1px solid var(--line2);padding:8px 12px}
+:is(#phone,.ppdesk,.wk) .pp-sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--mute);font-size:11px}
+:is(#phone,.ppdesk,.wk) .pp-sh b{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+:is(#phone,.ppdesk,.wk) .pp-sh em{font:650 1.15em var(--mono);color:var(--pq);margin-left:4px}
+:is(#phone,.ppdesk,.wk) .pp-sh em.g{color:var(--pg)}
+:is(#phone,.ppdesk,.wk) .pp-row{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk,.wk) .pp-row.fail{background:var(--prbg);margin:0 -12px;padding:4px 12px}
+:is(#phone,.ppdesk,.wk) .pp-mid{flex:1;min-width:0}
+:is(#phone,.ppdesk,.wk) .pp-mid .id{font:650 .92em var(--mono);color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-mid .id span{color:var(--mute);font-weight:400}
+:is(#phone,.ppdesk,.wk) .pp-mid .tt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk,.wk) .pp-end{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;font:650 .85em var(--mono);color:var(--mute)}
+:is(#phone,.ppdesk,.wk) .pp-end.run{color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-end.fail{color:var(--pr)}
+:is(#phone,.ppdesk,.wk) .pp-b{display:grid;place-items:center;flex:none;width:30px;height:30px;box-sizing:border-box;border-radius:50%;font:650 13px var(--sans)}
+:is(#phone,.ppdesk,.wk) .pp-b.run{background:var(--pq);color:var(--card1)}
+:is(#phone,.ppdesk,.wk) .pp-b.q{border:2px solid var(--pq);color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-b.fail{background:var(--pr);color:#fff}
+:is(#phone,.ppdesk,.wk) .pp-b.back{background:var(--pwbg);color:var(--pw)}
+:is(#phone,.ppdesk,.wk) .pp-b.st{background:var(--track);color:var(--mute)}
+:is(#phone,.ppdesk,.wk) .ph-por.pp{width:28px;height:28px}
+:is(#phone,.ppdesk,.wk) .ph-por.pp > .fr{border-radius:50%;border-width:2px}
+:is(#phone,.ppdesk,.wk) .pp-own svg{width:62%;height:62%}
+:is(#phone,.ppdesk,.wk) .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
+:is(#phone,.ppdesk,.wk) .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk,.wk) .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
+:is(#phone,.ppdesk,.wk) .pp-tag.red{background:var(--prbg);color:var(--pr)}
+:is(#phone,.ppdesk,.wk) .pp-tag.green{background:var(--pgbg);color:var(--pg)}
+:is(#phone,.ppdesk,.wk) .pp-tag.blue{background:var(--pqbg);color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-empty{color:var(--mute);padding:10px 0}
+:is(#phone,.ppdesk,.wk) .pp-mute{color:var(--mute)}
+:is(#phone,.ppdesk,.wk) .pp-blue{color:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-red{color:var(--pr)}
+:is(#phone,.ppdesk,.wk) .pp-warn-t{color:var(--pw);font-weight:650}
+:is(#phone,.ppdesk,.wk) .pp-dot::before{content:"● "}
+:is(#phone,.ppdesk,.wk) .pp-foot{display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line2);padding:8px 12px;color:var(--mute);font-size:11px}
+:is(#phone,.ppdesk,.wk) .pp-half .pp-hrow{display:flex;align-items:center;gap:8px;margin-top:6px;font:650 1em var(--mono)}
+:is(#phone,.ppdesk,.wk) .pp-half .pp-hrow small{font-weight:400;color:var(--mute);white-space:nowrap}
+:is(#phone,.ppdesk,.wk) .pp-half .pp-hrow > span:not(.pp-b){min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk,.wk) .pp-half .pp-b{width:24px;height:24px;font-size:11px}
+:is(#phone,.ppdesk,.wk) .pp-seg{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:10px}
+:is(#phone,.ppdesk,.wk) .pp-seg i{height:4px;border-radius:2px;background:var(--pn)}
+:is(#phone,.ppdesk,.wk) .pp-seg i.z{background:var(--track)}
+:is(#phone,.ppdesk,.wk) .pp-seg i.warn{background:var(--pw)}
+:is(#phone,.ppdesk,.wk) .pp-seg i.qon{background:var(--pq)}
+:is(#phone,.ppdesk,.wk) .pp-hsum{display:block;margin-top:6px;color:var(--mute);font-size:.9em}
 #phone .pp-sheet{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end}
 #phone .pp-scrim{position:absolute;inset:0;background:#0007}
 #phone .pp-panel{position:relative;display:flex;flex-direction:column;max-height:85vh;max-height:85dvh;background:var(--box);color:var(--text);border-radius:20px 20px 0 0;box-shadow:0 -10px 30px #0004;padding-bottom:env(safe-area-inset-bottom);transition:transform .12s;animation:phup .22s cubic-bezier(.2,.8,.2,1)}
@@ -5247,23 +5637,23 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 #phone .pp-grab{position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:var(--faint)}
 #phone .pp-stitle h2{margin:0;font:650 1.35em var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
 #phone .pp-stitle small{color:var(--mute)}
-:is(#phone,.ppdesk) .pp-x{display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:var(--text);cursor:pointer}
+:is(#phone,.ppdesk,.wk) .pp-x{display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:var(--text);cursor:pointer}
 #phone .pp-sbody{overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px}
-:is(#phone,.ppdesk) .pp-ss{padding-top:10px;border-top:1px solid var(--line2)}
-:is(#phone,.ppdesk) .pp-ss:first-child{border-top:0}
-:is(#phone,.ppdesk) .pp-card{display:flex;gap:10px;min-height:44px;padding:10px 0;color:var(--text);text-decoration:none}
-:is(#phone,.ppdesk) .pp-card + .pp-card{border-top:1px solid var(--line)}
-:is(#phone,.ppdesk) .pp-ctop{display:flex;align-items:center;gap:8px}
-:is(#phone,.ppdesk) .pp-who{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mute);font-size:.9em;white-space:nowrap}
-:is(#phone,.ppdesk) .pp-who .ph-por.pp,:is(#phone,.ppdesk) .pp-who .pp-ini{width:22px;height:22px;font-size:9px}
-:is(#phone,.ppdesk) .pp-card .tt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;white-space:normal}
-:is(#phone,.ppdesk) .pp-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-:is(#phone,.ppdesk) .pp-warnrow{display:flex;gap:8px;align-items:center;min-height:44px;box-sizing:border-box;padding:8px 12px;margin:6px 0;border-radius:10px;background:var(--pwbg);color:var(--pw);text-decoration:none}
-:is(#phone,.ppdesk) .pp-mrow{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px solid var(--line);color:var(--text);text-decoration:none}
-:is(#phone,.ppdesk) .pp-mrow time{font:400 .9em var(--mono);color:var(--mute)}
-:is(#phone,.ppdesk) .pp-mrow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#phone,.ppdesk) .pp-mrow .ref{color:var(--mute);font:.85em var(--mono)}
-:is(#phone,.ppdesk) .pp-all{width:100%;height:44px;margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:none;color:var(--text);font:650 1em var(--sans);cursor:pointer}
+:is(#phone,.ppdesk,.wk) .pp-ss{padding-top:10px;border-top:1px solid var(--line2)}
+:is(#phone,.ppdesk,.wk) .pp-ss:first-child{border-top:0}
+:is(#phone,.ppdesk,.wk) .pp-card{display:flex;gap:10px;min-height:44px;padding:10px 0;color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk,.wk) .pp-card + .pp-card{border-top:1px solid var(--line)}
+:is(#phone,.ppdesk,.wk) .pp-ctop{display:flex;align-items:center;gap:8px}
+:is(#phone,.ppdesk,.wk) .pp-who{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mute);font-size:.9em;white-space:nowrap}
+:is(#phone,.ppdesk,.wk) .pp-who .ph-por.pp,:is(#phone,.ppdesk,.wk) .pp-who .pp-ini{width:22px;height:22px;font-size:9px}
+:is(#phone,.ppdesk,.wk) .pp-card .tt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;white-space:normal}
+:is(#phone,.ppdesk,.wk) .pp-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+:is(#phone,.ppdesk,.wk) .pp-warnrow{display:flex;gap:8px;align-items:center;min-height:44px;box-sizing:border-box;padding:8px 12px;margin:6px 0;border-radius:10px;background:var(--pwbg);color:var(--pw);text-decoration:none}
+:is(#phone,.ppdesk,.wk) .pp-mrow{display:flex;align-items:center;gap:8px;min-height:44px;border-top:1px solid var(--line);color:var(--text);text-decoration:none}
+:is(#phone,.ppdesk,.wk) .pp-mrow time{font:400 .9em var(--mono);color:var(--mute)}
+:is(#phone,.ppdesk,.wk) .pp-mrow .tt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(#phone,.ppdesk,.wk) .pp-mrow .ref{color:var(--mute);font:.85em var(--mono)}
+:is(#phone,.ppdesk,.wk) .pp-all{width:100%;height:44px;margin-top:8px;border:1px solid var(--line2);border-radius:10px;background:none;color:var(--text);font:650 1em var(--sans);cursor:pointer}
 #phsheet .tbhead{display:flex;align-items:center;gap:6px}
 #phsheet .tbhead h2{margin:0}
 #phsheet .tbback{display:grid;place-items:center;width:34px;height:34px;margin-left:-8px;border:0;background:none;color:var(--text);cursor:pointer}
@@ -6122,7 +6512,8 @@ function patchNode(a, b) {
 }
 
 function draw() {
-  if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")) return;   // nor while a tab is being named
+  if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")
+    || document.activeElement?.classList.contains("wkfilter")) return;   // nor while a tab is being named, or the Work pane filtered
   if (!barDrag) placeBar();
   const n = st => S.agents.filter(a => a.status === st).length;
   // Working and idle as a dot and a number each, with a flashing badge on top when any agent is waiting.
@@ -6135,8 +6526,13 @@ function draw() {
   const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
     `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
     (waiting && !sameBar ? `<span class="wait" data-menu="waiting" title="The agents waiting on you">${waiting} waiting</span>` : "") + `</span>`;
-  if ($("#counts").dataset.html !== tally) { $("#counts").innerHTML = tally; $("#counts").dataset.html = tally; }
-  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); };
+  // beside it, what is waiting on the owner (see "For you")
+  const fyOpen = S.forYou?.open?.length || 0, counts = tally + (fyOpen
+    ? `<span class="pill fy on" title="Waiting on you: the list">${fyOpen} for you</span>`
+    : `<span class="pill fy" title="Nothing is waiting on you: the agents are working on their own">nothing for you</span>`);
+  if ($("#counts").dataset.html !== counts) { $("#counts").innerHTML = counts; $("#counts").dataset.html = counts; }
+  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); else if (e.target.closest(".fy")) forYouMenu(); };
+  if (menuOn("foryou")) menuAt($("#counts .fy"), "foryou", `<div class="foryou">${forYouList(false)}</div>`, false, true);
   // the Waiting item, the same count on its own, which the header keeps whatever else goes into its »
   const wb = waiting ? `<b class="wbadge" data-menu="waiting" title="The agents waiting on you: a click lists them">${waiting} waiting</b>` : "";
   if ($("#waiting").dataset.html !== wb) { $("#waiting").innerHTML = wb; $("#waiting").dataset.html = wb; }
@@ -6348,13 +6744,13 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log", search: "Search", workqueue: "Work queue", pipeline: "Pipeline", tokens: "Token usage"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log (deprecated)", search: "Search", workqueue: "Work queue (deprecated)", foryou: "For you", pipeline: "Pipeline (deprecated)", work: "Work", tokens: "Token usage"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
     ["tabs", "One agent at a time, picked from a row"], ["characters", "The agents as portrait tiles"], ["team", "The messages between agents"],
     ["combined", "Several agents' conversations as one feed"]]],
-  ["Work", [["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
+  ["Work", [["work", "Every ticket by what it needs: you, in flight, next, done, and the stand-up"], ["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["foryou", "What is waiting on you, kept by the delivery lead"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
   ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
 ];
@@ -6366,8 +6762,10 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   characters: '<rect x="2" y="2.5" width="5" height="11" rx="1"/><rect x="9" y="2.5" width="5" height="11" rx="1"/><circle cx="4.5" cy="6.5" r="1.3"/><circle cx="11.5" cy="6.5" r="1.3"/>',
   team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
   combined: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
+  foryou: '<path d="M2 9.5h3.5l1 2h3l1-2H14"/><path d="M4 3h8l2 6.5V13H2V9.5z"/>',
   workqueue: '<path d="M2.3 4.3l1.3 1.3 2.2-2.4M2.3 10.3l1.3 1.3 2.2-2.4M8 4.5h6M8 10.5h6"/>',
   pipeline: '<path d="M1.5 5h4l2 3-2 3h-4l2-3zM8.5 5h4l2 3-2 3h-4l2-3z"/>',
+  work: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6h12M5 9h6M5 11.5h4"/>',
   daylog: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4l3.6 3.6"/>',
   meeting: '<rect x="4" y="6" width="8" height="4" rx="2"/><circle cx="8" cy="2.8" r="1.3"/><circle cx="8" cy="13.2" r="1.3"/><circle cx="2.2" cy="8" r="1.3"/><circle cx="13.8" cy="8" r="1.3"/>',
@@ -6867,7 +7265,7 @@ const inMeeting = (n, a) => n.who === "all" || (Array.isArray(n.who) ? n.who.inc
 const MEET = "~meeting:";
 let dayLog = null;
 async function loadDayLog() {
-  if (!leaves(layout().root).some(([, n]) => n.show === "daylog")) return;
+  if (!leaves(layout().root).some(([, n]) => ["daylog", "work"].includes(n.show))) return;
   try { dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); } catch (e) {}
 }
 const dayLogAt = at => { const d = new Date(at * 1000);
@@ -7169,7 +7567,7 @@ document.addEventListener("click", e => {
   phoneOn() ? phoneDraw() : draw();
 });
 async function loadWorkQueue() {
-  if (!leaves(layout().root).some(([, n]) => n.show === "workqueue")) return;
+  if (!leaves(layout().root).some(([, n]) => ["workqueue", "work"].includes(n.show))) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
 }
 // The id column shows an item's issue number, the "#N " its title starts with, and the title is drawn without it; an
@@ -7201,20 +7599,370 @@ function workQueueHtml(big, n) {
   const owner = n?.owner, mine = items => items.filter(i => (!roleOf(i.who) || byRoles(n, i.who)) && (!owner || i.who === owner));
   const shownLists = (done ? doneByStandup(q.done, q.standups) : [["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]).map(([name, items]) => [name, mine(items)]);
   if (!shownLists.some(([, items]) => items.length)) return pane(head, `<div class="blank">${done ? "Nothing done yet." : "Nothing in the work queue."} The delivery lead keeps it with team/work-queue.py.</div>`);
-  const row = i => { const t = (i.title || "").replace(WQ_NUM, ""); return `<div class="row">${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener" title="${esc(i.key)}">${esc(wqLabel(i))}</a>` : `<span class="key" title="${esc(i.key)}">${esc(wqLabel(i))}</span>`}` +
-    `<span class="tx" title="${esc(t + (i.note ? " — " + i.note : ""))}">${inline(t)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}</span>` +
-    (i.who ? `<span class="wqwho" data-owner="${esc(i.who)}" title="${owner ? "Show everyone's" : `Only ${esc(shown(i.who))}'s`}">${dayLogWho(i.who)}</span>` : `<span class="wh"><span class="who off unset">unassigned</span></span>`) +
-    (done ? `<span class="at">${i.done ? (isToday(i.done) ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>` +
-    (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : ""); };
-  const list = (name, items) => {
-    const k = (done ? "done:" : "work:") + name, fold = wqFolded().includes(k);
-    return `<div class="sect${fold ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>` +
-      `<b class="wqfold" data-sect="${esc(k)}" title="${fold ? "Show this section" : "Hide this section"}">${foldIcon(fold)}</b></div>` +
-      (fold ? "" : items.length ? items.map(row).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
-  };
-  const all = shownLists.flatMap(([, items]) => items);
-  return pane(head, `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.map(wqLabel))}px">${shownLists.map(([name, items]) => list(name, items)).join("")}</div>`);
+  return pane(head, wqLists(shownLists, done ? "done:" : "work:", done, owner));
 }
+// One work queue item's row: its ticket, title and note, its owner's badge (a click narrows the pane to them) and, Done,
+// when it was done, with what the fix did under it. `refs` are the pull requests merged for it, where known.
+function wqRow(i, done, owner, faces) {
+  const hhmm = t => new Date(t * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+  const t = (i.title || "").replace(WQ_NUM, "");
+  const key = !i.key ? `<span class="key"></span>` : i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener" title="${esc(i.key)}">${esc(wqLabel(i))}</a>` : `<span class="key" title="${esc(i.key)}">${esc(wqLabel(i))}</span>`;
+  return `<div class="row">${key}` +
+    `<span class="tx" title="${esc(t + (i.note ? " — " + i.note : ""))}">${inline(t)}${i.note ? `<span class="note">${inline(i.note)}</span>` : ""}` +
+    `${i.refs?.length ? `<span class="note">merged ${i.refs.map(r => r.href ? `<a href="${esc(r.href)}" target="_blank" rel="noopener">${esc(r.ref)}</a>` : esc(r.ref)).join(", ")}</span>` : ""}</span>` +
+    (i.who ? `<span class="wqwho" data-owner="${esc(i.who)}" title="${owner ? "Show everyone's" : `Only ${esc(shown(i.who))}'s`}">${faces ? wkFace(i.who) : dayLogWho(i.who)}</span>` : `<span class="wh"><span class="who off unset">unassigned</span></span>`) +
+    (done ? `<span class="at">${i.done ? (new Date(i.done * 1000).toDateString() === new Date().toDateString() ? hhmm(i.done) : dayLogAt(i.done)) : ""}</span>` : "") + `</div>` +
+    (i.fix ? `<div class="fix">↳ ${inline(i.fix)}</div>` : "");
+}
+// Named lists of work queue items, each folding under its heading (kept under `fold` + its name), with every row's owner
+// badge the same width.
+function wqLists(lists, fold, done, owner, extra = () => "", faces = false) {
+  const list = (name, items) => {
+    const k = fold + name, shut = wqFolded().includes(k);
+    return `<div class="sect${shut ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>${extra(name, items)}` +
+      `<b class="wqfold" data-sect="${esc(k)}" title="${shut ? "Show this section" : "Hide this section"}">${foldIcon(shut)}</b></div>` +
+      (shut ? "" : items.length ? items.map(i => wqRow(i, done, owner, faces)).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
+  };
+  const all = lists.flatMap(([, items]) => items);
+  return `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.filter(i => i.key).map(wqLabel))}px">${lists.map(([name, items]) => list(name, items)).join("")}</div>`;
+}
+// For you (owner, 2026-11-11: "everything that needs me gets written to and I can clear to see when the agents are being
+// autonomous"): what the delivery lead has put to the owner with `team/for-you.py`, each by its ticket or by nothing, and the
+// last few cleared. It comes with the state; the bar's count opens it as a list, and a For you pane shows it too. Clear
+// takes an item off (the owner has dealt with it); answers still go to the lead in words.
+function forYouList(withCleared) {
+  const q = S.forYou || {open: [], cleared: []};
+  if (q.state === "bad") return `<div class="calm">The For you list at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/for-you.py.</div>`;
+  const ago = t => { const m = Math.max(0, Math.floor((Date.now() / 1000 - t) / 60)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
+  const key = i => i.ticket ? (i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.ticket)}</a>` : `<span class="key">${esc(i.ticket)}</span>`) : "";
+  const row = (i, done) => `<div class="row">${key(i)}<span class="tx">${inline(i.text)}${done && i.answer ? `<span class="ans">${inline(i.answer)}</span>` : ""}</span>` +
+    `<span class="meta">${done ? `cleared ${ago(i.cleared)} ago${i.by ? ` by ${esc(shown(i.by))}` : ""}` : `${i.from ? esc(shown(i.from)) + ", " : ""}${ago(i.at)}`}</span>` +
+    (done ? "" : `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list">Clear</b>`) + `</div>`;
+  const open = q.open.length ? `<div class="day">Waiting on you<span class="n"> ${q.open.length}</span></div>` + q.open.map(i => row(i, false)).join("")
+    : `<div class="calm">Nothing needs you. The agents are working on their own.</div>`;
+  return open + (withCleared && q.cleared.length ? `<div class="day">Cleared</div>` + q.cleared.map(i => row(i, true)).join("") : "");
+}
+function forYouHtml(big) {
+  return `<div class="teamlog" data-name="~foryou"><div class="thead"><span>For you</span>${maxButton(big)}</div><div class="daylog foryou">${forYouList(true)}</div></div>`;
+}
+function forYouMenu() {
+  if (menuOn("foryou")) return menuOff(true);
+  menuAt($("#counts .fy"), "foryou", `<div class="foryou">${forYouList(false)}</div>`, false);
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest(".fyclear");
+  if (!b || b.dataset.busy) return;
+  b.dataset.busy = "1"; b.textContent = "…";
+  const r = await fetch("/api/foryou/clear", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+    body: JSON.stringify({n: +b.dataset.n})}).catch(() => null);
+  if (!r || !r.ok) { delete b.dataset.busy; b.textContent = "Clear"; b.title = "Not cleared: " + (r ? await r.text() : "the page did not answer"); return; }
+  // off the list at once; the next state, with it under Cleared, follows
+  if (S.forYou) S.forYou.open = S.forYou.open.filter(i => i.n !== +b.dataset.n);
+  phoneOn() ? phoneDraw() : draw();
+  load();
+});
+// The Work pane (owner, 2026-11-17: the Work queue, Pipeline, For you and Day log "all kinda doing the same job", as
+// one piece of UI with tabs): every ticket the team has in hand, by what it needs, from what the page already reads.
+// - Needs you: For you's open questions (those with no ticket under General), and the tickets waiting for your approval.
+// - In flight: the pipeline's tickets, each with its stage on a track and who it waits on; a stage's chip narrows it.
+// - Up next: the work queue's Next and Later, Parked folded under them.
+// - Done: what happened, by day, over Today, 7 days or all the history kept (the pipe's "history", else today's "merged"): merges, the work
+//   queue's Done, the questions you answered, and the Day log's entries, narrowed by the filter box.
+// - Stand-up: for each person, what they did since the last stand-up, what they are on and what they wait for, as
+//   words to say, each with Copy (owner, 2026-11-17: "so the team members know what to say in standup").
+// A click on a ticket opens what is known of it under it: its PRs and approvals, its questions, its log, its queue note.
+// The tab, range, stage, filter and opened ticket are this browser's, for every Work pane.
+const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["done", "Done"], ["standup", "Stand-up"]];
+const WK_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
+const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; } catch (e) { return d; } };
+const wkSet = (k, v) => { try { v == null || v === "" ? localStorage.removeItem("work:" + k) : localStorage.setItem("work:" + k, v); } catch (e) {} };
+const wkDayStart = t => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
+const wkWhen = t => new Date(t * 1000).toDateString() === new Date().toDateString() ? dayLogTime(t) : dayLogAt(t);
+const wkLink = (href, text) => href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span class="key">${esc(text)}</span>`;
+const wkJira = key => { const fy = [...(S.forYou?.open || []), ...(S.forYou?.cleared || [])].find(i => i.ticket === key && i.url);
+  return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url) || ""; };
+// Everything known, by ticket: the pipeline's row, its questions, its queue entry, its merges and its log entries.
+function wkData() {
+  const p = ppData() || {}, fy = S.forYou || {open: [], cleared: []}, q = workQueue || {}, log = (dayLog?.rows || []).filter(r => r.type === "entry");
+  const keyOf = s => (String(s || "").match(WK_KEY) || [])[0] || "";
+  const queue = ["now", "next", "later", "parked", "done"].flatMap(k => (q[k] || []).map(i => ({...i, list: k})));
+  // every merge the plug-in keeps, else today's merges with their time of day
+  const today = new Date(), at = hm => { const [h, m] = String(hm || "").split(":").map(Number); return new Date(today.getFullYear(), today.getMonth(), today.getDate(), h || 0, m || 0).getTime() / 1000; };
+  const history = (p.history || (p.merged || []).map(m => ({t: at(m.at), who: m.who, title: m.title, id: m.id, ref: m.id, href: m.href}))).map(h => ({...h, key: h.id || keyOf(h.title)}));
+  return {p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []};
+}
+function wkDetail(d, key) {
+  const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
+  const qs = [...d.fy.open.map(i => ({...i, open: true})), ...d.fy.cleared].filter(i => i.ticket === key);
+  const merges = d.history.filter(h => h.key === key), log = d.log.filter(r => d.keyOf(r.label) === key || d.keyOf(r.text) === key);
+  const line = (label, body) => `<div class="wkd"><b>${label}</b><span>${body}</span></div>`;
+  const out = [
+    t && t.ref && line("PRs", (t.tags || []).filter(g => !/^waits on /.test(g.text)).map(g => `<span class="pp-tag ${esc(g.tone || "")}">${esc(g.text)}</span>`).join(" ")),
+    qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
+    ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
+    ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
+    ...log.slice(0, 8).map(r => line("Log", `${esc(r.text)} <i>${esc(wkWhen(r.at))}${r.by ? " · " + esc(shown(r.by)) : ""}</i>`)),
+  ].filter(Boolean);
+  return `<div class="wkdetail">${out.join("") || `<div class="wkd"><span>Nothing more is known of ${esc(key)} yet.</span></div>`}</div>`;
+}
+// One ticket's line, opening its detail under it when it is the opened one: under its first line only, as Done can
+// list a ticket several times (wkOpened is reset for each drawing of a list).
+let wkOpened = false;
+function wkRow(d, key, body, cls = "") {
+  const open = key && wkGet("open") === key, first = open && !wkOpened;
+  if (first) wkOpened = true;
+  return `<div class="wkrow${cls}${open ? " open" : ""}"${key ? ` data-wkkey="${esc(key)}"` : ""}>${body}</div>${first ? wkDetail(d, key) : ""}`;
+}
+// a ticket's title, or nothing where all that is known is its key; its tags, less a "waits on" naming whose it is
+const wkTitle = t => t.title && t.title !== (t.id || t.ref) ? t.title : "";
+const wkTags = t => (t.tags || []).filter(g => g.text !== "waits on " + t.who);
+const wkUntitled = `<span class="note">no title: not in the work queue</span>`;
+// The Pipeline's pieces, compact: a section's heading (its name in capitals, its count in colour), a person's face and
+// name, and a ticket's id line over its title.
+const wkHead = (name, n, tone = "", extra = "") => `<div class="wkhead"><b>${esc(name)}</b>${n != null ? `<em class="${tone}">${n}</em>` : ""}${extra}</div>`;
+// a face and name; where the agent is on the page, a click on it opens that agent
+const wkOpen = n => ppAgent(n) ? ` wkopen" data-wkagent="${esc(n)}" data-menu-name="${esc(n)}" title="Open ${esc(shown(n))}` : "";
+// several people ("Kate, Tim", "Kate & Tim") are a face each, side by side
+const wkNames = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
+const wkFace1 = n => `<span class="wkface${wkOpen(n) || `" title="${esc(shown(n))}`}">${ppFace(n)}<span class="wkname">${esc(shown(n))}</span></span>`;
+const wkFace = n => { const all = wkNames(n); return all.length > 1 ? `<span class="wkfaces">${all.map(wkFace1).join("")}</span>` : all.length ? wkFace1(all[0]) : ""; };
+document.addEventListener("click", e => { const f = e.target.closest(".wk [data-wkagent]");
+  if (f) { e.stopPropagation(); e.preventDefault(); openDetail(f.dataset.wkagent); } }, true);
+// and a right-click on it gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
+document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent]");
+  if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent, true, false); } });
+const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="id">${id}${sub ? ` <span>· ${esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
+// The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
+const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
+  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkFace(t.who));
+// a question is read in full, so its text wraps
+const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid(i.ticket ? wkLink(i.url, i.ticket) : "General", wkWhen(i.at), inline(i.text)) +
+  `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
+const wkQueued = (d, i, n) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
+  wkMid(wkLink(i.url, i.key), "", inline(i.title) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkFace(i.who));
+const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
+  wkMid(e.key ? wkLink(wkJira(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + wkFace(e.who));
+// the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
+const wkOrdered = (d, stage) => { const order = (d.p.stages || []).map(s => s.key);
+  return d.tickets.filter(t => !stage || t.stage === stage).sort((a, b) => order.indexOf(b.stage) - order.indexOf(a.stage) || (a.place ?? 0) - (b.place ?? 0)); };
+function wkStrip(d, stage) {
+  const cells = ppCells(d.p);
+  return `<div class="pp-strip wkstrip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${cells.map(c =>
+    `<span class="pp-c${c.cls}${c.key === stage ? " on" : ""}" data-wkstage="${esc(c.key)}" title="${esc(c.key === stage ? "Show every stage" : `Only ${c.name}`)}"><span class="n">${c.n}${c.back ? `<small>↩${c.back}</small>` : ""}</span><span class="l">${esc(c.short || c.name)}</span><span class="bar"></span></span>`).join("")}</div>`;
+}
+function wkNeeds(d) {
+  const yours = d.tickets.filter(t => t.stage === "lead");
+  const sect = (name, rows, tone) => rows.length ? wkHead(name, rows.length, tone) + rows.join("") : "";
+  const body = sect("For your approval", yours.map(t => wkTicket(d, t)), "") +
+    sect("Questions", d.fy.open.filter(i => i.ticket).map(i => wkAsk(d, i)), "") + sect("General", d.fy.open.filter(i => !i.ticket).map(i => wkAsk(d, i)), "");
+  return body || `<div class="calm">Nothing needs you. The agents are working on their own.</div>`;
+}
+// In flight: the Pipeline's strip of stages, each with its count (a click narrows the list to it), then a line a ticket,
+// nearest to merged first: its stage's badge, its ids and title, its tags, and whose it is.
+// A stage's heading in Work says what its tickets wait for, where a pipeline names a stage after the step reached
+// ("Lead approved", "Your approval", which read as if the owner's approval were still to come): by its key
+const WK_STAGE_NAME = {lead: "For your approval", owner: "Ready to merge"};
+const wkStageName = s => WK_STAGE_NAME[s.key] || s.name;
+function wkFlight(d) {
+  // grouped under each stage's heading, nearest to merged first, as All's right-hand column; a stage or its heading
+  // clicked shows that stage alone, and clicked again every stage
+  const stage = wkGet("stage", "");
+  const groups = [...(d.p.stages || [])].reverse().filter(s => !stage || s.key === stage).map(s => { const at = wkOrdered(d, s.key);
+    return at.length ? `<div class="wkhead wkgo" data-wkstage="${esc(s.key)}" title="${stage ? "Show every stage" : `Only ${esc(wkStageName(s))}`}"><b>${esc(wkStageName(s))}</b><em>${at.length}</em></div>` + at.map(t => wkTicket(d, t)).join("") : ""; }).join("");
+  return wkStrip(d, stage) + (groups || `<div class="calm">${stage ? "No ticket at this stage." : "Nothing in flight."}</div>`);
+}
+function wkNext(d) {
+  if (!workQueue) return `<div class="calm">Reading the work queue…</div>`;
+  const row = (i, n) => wkQueued(d, i, n), q = d.q, list = (name, items) => items?.length ? wkHead(name, items.length) + items.map((i, n) => row(i, n + 1)).join("") : "";
+  const body = list("Next", q.next) + list("Later", q.later) +
+    (q.parked?.length ? `<details class="wkpark"><summary>${wkHead("Parked", q.parked.length)}</summary>${q.parked.map((i, n) => row(i, n + 1)).join("")}</details>` : "");
+  return body || `<div class="calm">Nothing queued. The delivery lead keeps the work queue with work-queue.</div>`;
+}
+// What happened: each event {t, key, kind, who, html}, newest first.
+function wkEvents(d) {
+  return [
+    ...d.history.map(h => ({t: h.t, key: h.key, kind: "merged", who: h.who || d.queue.find(i => i.key && i.key === h.key)?.who, ref: h.ref, href: h.href, title: h.title,
+      text: `${h.ref} ${h.title}`, html: `${esc(h.title)} <span class="note">${wkLink(h.href, h.ref)}</span>`})),
+    ...d.queue.filter(i => i.list === "done" && i.done).map(i => ({t: i.done, key: i.key, url: i.url, kind: "done", who: i.who, title: i.title, note: i.note, fix: i.fix,
+      text: `${i.title} ${i.note || ""}`, html: `${inline(i.title)}${i.note ? ` <span class="note">${inline(i.note)}</span>` : ""}`})),
+    ...d.fy.cleared.filter(i => i.cleared).map(i => ({t: i.cleared, key: i.ticket, kind: "decided", who: "", text: `${i.text} ${i.answer}`, html: `${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}`})),
+    ...d.log.map(r => ({t: r.at, key: d.keyOf(r.label) || d.keyOf(r.text), kind: "log", who: dayLogBy(r), text: r.text, html: esc(r.text)})),
+  ].sort((a, b) => b.t - a.t);
+}
+const WK_KIND = {merged: "green", done: "blue", decided: "amber", log: "grey"};
+function wkDone(d) {
+  const range = wkGet("range", "today"), from = range === "today" ? wkDayStart(Date.now() / 1000) : range === "7" ? Date.now() / 1000 - 7 * 86400 : 0;
+  const words = wkGet("filter", "").toLowerCase().split(/\s+/).filter(Boolean);
+  const ev = wkEvents(d).filter(e => e.t >= from && words.every(w => `${e.key} ${e.text} ${e.who}`.toLowerCase().includes(w)));
+  const days = [];
+  ev.forEach(e => { const dd = new Date(e.t * 1000).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"});
+    (days.at(-1)?.[0] === dd ? days.at(-1)[1] : days[days.push([dd, []]) - 1][1]).push(e); });
+  const rows = days.map(([dd, es]) => wkHead(dd, es.length, "g") + es.map(e => wkEvent(d, e)).join(""));
+  return rows.join("") || `<div class="calm">${words.length ? "Nothing matches." : range === "today" ? "Nothing done yet today." : "Nothing in this range."}</div>`;
+}
+// All (owner, 2026-11-17: "a tab that's 'all' or something, thats far more like the pipeline, that show you stuff from
+// the other tabs maybe apart from standup"): the Pipeline pane's two columns, compact. On the left, the stages with their
+// counts, who the work waits on, and what is up next; on the right, what needs you, every ticket in flight under its
+// stage, nearest to merged first, and what was done today. A section's heading, or a stage, opens its own tab.
+// All's stand-up: a line a person, their face, the tickets they finished (green) and those they are on (blue)
+function wkAllStandup(d) {
+  const {name, people} = wkPeople(d), chip = (t, cls, tip) => `<span class="wkchipk ${cls}" title="${esc(tip)}">${esc(t)}</span>`;
+  const rows = people.map(([n, x]) => `<div class="wkrow wkperson">${n === "Unassigned" ? `<span class="pp-ini" title="Unassigned">?</span><span class="wkpname">Unassigned</span>` : wkFace(n)}<span class="wkpk">` +
+    x.done.map(i => chip(i.key || i.refs?.[0]?.ref || "done", "g", `Done: ${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}`)).join("") +
+    x.now.map(t => chip(t.key, "b", `Now: ${t.title || t.key}${t.stage ? ` (${t.stage})` : ""}`)).join("") + `</span></div>`);
+  return `<div class="wkhead wkgo" data-wktab="standup" title="Open Stand-up"><b>Stand-up</b><em class="g">${people.length}</em><span class="wkmerged">${esc(name)} · <span class="wkchipk g">done</span> <span class="wkchipk b">now</span></span>` +
+    (people.length ? `<b class="wkcopy" data-wkcopy="*" title="Copy as a write-up for the stand-up">Copy</b>` : "") + `</div>` +
+    (rows.join("") || `<div class="calm">Nothing to say yet.</div>`);
+}
+function wkAll(d) {
+  const p = d.p, go = (tab, name, n, tone, more = "") => `<div class="wkhead wkgo" data-wktab="${tab}" title="Open ${esc(name)}"><b>${esc(name)}</b>${n != null ? `<em class="${tone}">${n}</em>` : ""}${more}</div>`;
+  const waits = (p.waiting || []).map(w => `<div class="wkrow wkwait"><span class="wkface${wkOpen(w.who) || `" title="${esc(shown(w.who) || "Someone")}`}">${ppFace(w.who)}</span><span class="pp-mid"><span class="tt"><b class="wkname">${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}</div>`);
+  const next = [...(d.q.next || []), ...(d.q.later || [])], today = wkDayStart(Date.now() / 1000);
+  // done today, a row a ticket: its Done item and its merges together, as the stand-up has them
+  const done = wkStandupItems(d).filter(i => (i.done || 0) >= today).sort((x, y) => y.done - x.done).map(i => ({t: i.done, key: i.key, who: i.who,
+    kind: i.refs.length ? "merged" : "done", html: `${inline(i.title)}${i.refs.length ? ` <span class="note">${i.refs.map(r => wkLink(r.href, r.ref)).join(", ")}</span>` : ""}`}));
+  const left = `<div class="wkhead"><b>Pipeline</b><span class="wkmerged"><em class="g">${d.history.filter(h => h.t >= today).length}</em> merged today</span></div>` +
+    wkStrip(d, "") + go("flight", "Waiting on", null, "") + (waits.join("") || `<div class="calm">Nobody: everything is moving.</div>`) +
+    go("next", "Up next", next.length, "") + (next.slice(0, 5).map((i, n) => wkQueued(d, i, n + 1)).join("") || `<div class="calm">Nothing queued.</div>`) +
+    wkAllStandup(d);
+  const asks = [...d.tickets.filter(t => t.stage === "lead").map(t => wkTicket(d, t)), ...d.fy.open.map(i => wkAsk(d, i))];
+  const stages = [...(p.stages || [])].reverse().map(s => { const at = wkOrdered(d, s.key);
+    return at.length ? `<div class="wkhead wkgo" data-wkstage="${esc(s.key)}" title="Open In flight at ${esc(wkStageName(s))}"><b>${esc(wkStageName(s))}</b><em>${at.length}</em></div>` + at.map(t => wkTicket(d, t)).join("") : ""; }).join("");
+  const right = (asks.length ? go("needs", "Needs you", asks.length, "a") + asks.join("") : "") +
+    (stages || go("flight", "In flight", 0, "") + `<div class="calm">Nothing in flight.</div>`) +
+    go("done", "Done today", done.length, "g") + (done.slice(0, 8).map(e => wkEvent(d, e)).join("") || `<div class="calm">Nothing done yet today.</div>`) +
+    (done.length > 8 ? `<div class="wkmore" data-wktab="done">Show all ${done.length}</div>` : "");
+  return `<div class="wkall"><div class="wkcol">${left}</div><div class="wkcol">${right}</div></div>`;
+}
+// The stand-up (owner, 2026-11-17: as the Work queue's Done tab, which the team reads at stand-up): what was done, split
+// by stand-up as that tab is, from the work queue's Done and the merges. A ticket is one row: its Done item with the PRs
+// merged for it, or, where the queue has no Done for it, its merges alone. With no stand-up in the stand-up log, by day.
+function wkStandupItems(d) {
+  const items = d.queue.filter(i => i.list === "done").map(i => ({...i, refs: []}));
+  d.history.forEach(h => {
+    const it = h.key && items.find(i => i.key === h.key);
+    if (it) { it.refs.push(h); it.done = Math.max(it.done || 0, h.t); return; }
+    const alone = h.key && items.find(i => i.merged && i.key === h.key);
+    if (alone) { alone.refs.push(h); return; }
+    items.push({merged: true, key: h.key, url: wkJira(h.key), title: h.title, who: h.who || "", done: h.t, refs: [h]});
+  });
+  return items;
+}
+function wkStandupLists(d) {
+  const items = wkStandupItems(d), standups = d.q.standups || [];
+  if (standups.length) return doneByStandup(items, standups);
+  // the three newest days with something done
+  const today = wkDayStart(Date.now() / 1000), days = [];
+  [...items].sort((x, y) => (y.done || 0) - (x.done || 0)).forEach(i => { const day = wkDayStart(i.done || 0);
+    (days.at(-1)?.[0] === day ? days.at(-1)[1] : days[days.push([day, []]) - 1][1]).push(i); });
+  return days.slice(0, 3).map(([day, them]) => [day === today ? "Today" : day === wkDayStart(today - 43200) ? "Yesterday"
+    : new Date(day * 1000).toLocaleDateString("en-GB", {weekday: "long"}), them]);
+}
+// The write-up of the newest section, a paragraph a person: what they finished, then what they are on now.
+// Who did what in the newest section, a person each: their finished tickets {key, title, refs, fix} and what they are on
+// now {key, title, stage}, the unassigned last.
+function wkPeople(d) {
+  const [name, items] = wkStandupLists(d)[0] || ["Today", []], people = {};
+  const of = n => (people[n] ||= {done: [], now: []}), names = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
+  items.forEach(i => (names(i.who).length ? names(i.who) : ["Unassigned"]).forEach(n => of(n).done.push(i)));
+  d.queue.filter(i => i.list === "now").forEach(i => names(i.who).forEach(n => of(n).now.push({key: i.key, title: i.title})));
+  d.tickets.forEach(t => names(t.who).forEach(n => { const k = t.id || t.ref, at = of(n).now.find(x => x.key === k), stage = (d.p.stages || []).find(x => x.key === t.stage)?.name || t.stage;
+    at ? at.stage = stage : of(n).now.push({key: k, title: wkTitle(t), stage}); }));
+  // a ticket finished is not also one they are on
+  Object.values(people).forEach(x => x.now = x.now.filter(t => !x.done.some(i => i.key === t.key)));
+  return {name, people: Object.entries(people).sort(([a], [b]) => (a === "Unassigned") - (b === "Unassigned") || a.localeCompare(b))};
+}
+function wkStandupText(d, only) {
+  const {name, people} = wkPeople(d), when = ["Today", "Yesterday"].includes(name) ? name.toLowerCase() : name.replace(/^Since/, "since");
+  return people.filter(([n]) => !only || n === only).map(([n, x]) => [`${shown(n)}, ${when}:`,
+    ...(x.done.length ? x.done.map(i => `- Done: ${i.key ? i.key + " " : ""}${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}${i.fix ? `: ${i.fix}` : ""}`) : ["- Nothing finished"]),
+    ...x.now.map(t => `- Now: ${t.key}${t.title ? " " + t.title : ""}${t.stage ? ` (${t.stage})` : ""}`)].join("\n")).join("\n\n");
+}
+// The summary box over the stand-up: Summarise puts the write-up to the page's helper (a small model, see
+// standup_summary on the server) for one spoken bullet a person. It says when the work has moved on since.
+let wkSum = {text: "", summary: "", busy: false, err: ""};
+// Summarise again writes a new one even for the same work; the first Summarise takes the one kept, if any.
+async function wkSummarise() {
+  const text = wkStandupText(wkData()), fresh = !!wkSum.summary;
+  if (!text || wkSum.busy) return;
+  wkSum = {...wkSum, busy: true, err: ""}; wkRedraw();
+  const r = await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, fresh})}).catch(() => null);
+  if (r?.ok) wkSum = {text, summary: (await r.json()).summary, busy: false, err: ""};
+  else wkSum = {...wkSum, busy: false, err: r ? (await r.text()).trim() : "the page did not answer"};
+  wkRedraw();
+}
+function wkSummaryBox(d) {
+  const text = wkStandupText(d), stale = wkSum.summary && wkSum.text !== text;
+  const lines = wkSum.summary.split("\n").map(l => l.trim()).filter(Boolean);
+  const body = wkSum.err ? `<div class="wksumerr">Not summarised: ${esc(wkSum.err)}</div>` : "";
+  // its parts, Yesterday and Today, each a heading over its bullets
+  const parts = [];
+  lines.forEach(l => {
+    if (!/^[-•*]\s/.test(l)) return parts.push([l.replace(/:$/, ""), []]);
+    if (!parts.length) parts.push(["", []]);
+    parts.at(-1)[1].push(l.replace(/^[-•*]\s*/, ""));
+  });
+  const list = lines.length ? parts.map(([h, items]) => `${h ? `<div class="wksumh">${esc(h)}</div>` : ""}<ul>${items.map(l => `<li>${inline(l)}</li>`).join("")}</ul>`).join("") + (stale ? `<div class="wksumold">The work has moved on since this was written.</div>` : "")
+    : !body ? `<div class="wksumold">Yesterday and Today, a bullet a piece of work, to read out at stand-up.</div>` : "";
+  const go = wkSum.busy ? `<b class="wksumgo busy">Summarising…</b>` : text ? `<b class="wksumgo" data-wksum>${wkSum.summary ? "Summarise again" : "Summarise"}</b>` : "";
+  return `<div class="wksum"><div class="wkhead"><b>Summary</b>${go}${lines.length ? `<b class="wkcopy" data-wkcopysum>Copy</b>` : ""}</div>${body}${list}</div>`;
+}
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-wksum]")) return wkSummarise();
+  const c = e.target.closest("[data-wkcopysum]");
+  if (c) navigator.clipboard?.writeText(wkSum.summary).then(() => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); });
+});
+function wkStandup(d, n) {
+  const owner = n?.owner, lists = wkStandupLists(d).map(([name, items]) => [name, items.filter(i => !owner || String(i.who || "").includes(owner))]);
+  if (!lists.some(([, items]) => items.length)) return `<div class="calm">Nothing done in the last three ${d.q.standups?.length ? "stand-ups" : "days"}: no work queue Done, no merges.</div>`;
+  return wkSummaryBox(d) + wqLists(lists, "standup:", true, owner, (name, items) => name === lists[0][0] && items.length
+    ? `<b class="wkcopy" data-wkcopy="${esc(owner || "*")}" title="Copy as a write-up for the stand-up: what each person finished, and what they are on now">Copy write-up</b>` : "", true);
+}
+function workHtml(big, n) {
+  wkOpened = false;
+  const d = wkData(), tab = WK_TABS.some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
+  const today = wkDayStart(Date.now() / 1000), merged = d.history.filter(h => h.t >= today).length;
+  const needs = d.fy.open.length + d.tickets.filter(t => t.stage === "lead").length;
+  const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0)};
+  const tabs = `<span class="seg wktabs">${WK_TABS.map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
+  const tools = tab === "done" ? `<span class="seg wkrange">${[["today", "Today"], ["7", "7 days"], ["all", "All kept"]].map(([k, l]) =>
+      `<b data-wkrange="${k}" class="${k === wkGet("range", "today") ? "on" : ""}">${l}</b>`).join("")}</span>` +
+      `<input class="wkfilter" placeholder="Filter: a ticket or a word" value="${esc(wkGet("filter", ""))}" autocomplete="off">` : "";
+  const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, done: wkDone, standup: wkStandup}[tab](d, n);
+  const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · <span class="wkn g">${merged}</span> merged today` +
+    (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
+  return `<div class="teamlog wk${wkCompact() ? "" : " roomy"}" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
+    `<div class="wkbar">${tabs}${tools}${phoneOn() ? "" : `<label class="wkcompact" title="Small type and tight rows, to fit the most in">Compact<input type="checkbox" data-wkcompact${wkCompact() ? " checked" : ""}></label>`}</div><div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
+}
+const wkRedraw = () => phoneOn() ? phoneDraw() : draw();
+// Compact (small type, tight rows) is the desktop's alone, kept per browser and on until its box is cleared; the phone
+// always draws the pane full size
+const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";
+document.addEventListener("change", e => { if (e.target.matches?.("[data-wkcompact]")) { wkSet("compact", e.target.checked ? "1" : "0"); wkRedraw(); } });
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-wktab],[data-wkrange],[data-wkstage],[data-wkcopy]");
+  if (t?.dataset.wktab) { wkSet("tab", t.dataset.wktab); return wkRedraw(); }
+  if (t?.dataset.wkrange) { wkSet("range", t.dataset.wkrange); return wkRedraw(); }
+  if (t?.dataset.wkstage) {
+    if (t.closest(".wkall")) { wkSet("tab", "flight"); wkSet("stage", t.dataset.wkstage); return wkRedraw(); }
+    wkSet("stage", wkGet("stage") === t.dataset.wkstage ? "" : t.dataset.wkstage); return wkRedraw();
+  }
+  if (t?.dataset.wkcopy) {
+    e.stopPropagation();
+    const who = t.dataset.wkcopy === "*" ? "" : t.dataset.wkcopy;
+    navigator.clipboard?.writeText(wkStandupText(wkData(), who)).then(() => { t.textContent = "Copied"; setTimeout(() => t.textContent = "Copy write-up", 1500); });
+    return;
+  }
+  const row = e.target.closest(".wkrow[data-wkkey]");
+  if (row && !e.target.closest("a,.fyclear,button,input")) { wkSet("open", wkGet("open") === row.dataset.wkkey ? "" : row.dataset.wkkey); wkRedraw(); }
+});
+// Typing in the filter narrows the list in place; the page does not redraw under the box while it has the focus.
+document.addEventListener("input", e => {
+  if (!e.target.matches?.(".wkfilter")) return;
+  wkSet("filter", e.target.value.trim());
+  const list = e.target.closest(".wk")?.querySelector(".wklist");
+  if (list) { wkOpened = false; list.innerHTML = wkDone(wkData()); }
+});
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
   if (!leaves(layout().root).some(([, n]) => n.show === "meeting")) return;
@@ -7464,7 +8212,7 @@ function customHtml(ceil, tabRow) {
   // or a Team, Combined, Meeting, File or Work queue pane.
   let maxed = localStorage.getItem("custom:max");
   const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
-  const maxName = maxNode && (["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
+  const maxName = maxNode && (["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
@@ -7513,8 +8261,12 @@ function customHtml(ceil, tabRow) {
       body = tokensHtml(path === maxed, n, path);
     } else if (n.show === "workqueue") {
       body = workQueueHtml(path === maxed, n);
+    } else if (n.show === "foryou") {
+      body = forYouHtml(path === maxed);
     } else if (n.show === "pipeline") {
       body = ppPaneHtml();
+    } else if (n.show === "work") {
+      body = workHtml(path === maxed, n);
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -7536,7 +8288,7 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "pipeline", "tokens"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "foryou", "pipeline", "work", "tokens"].includes(n.show);
     const own = [
       CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
@@ -7563,7 +8315,7 @@ function customHtml(ceil, tabRow) {
     const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider drag" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
-  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
+  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
 // A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
@@ -9887,6 +10639,8 @@ const PH_ICON = {
   queue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11"/><circle cx="5" cy="18" r="1.2"/></svg>`,
   perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5a8.5 8.5 0 1 1 17 0"/><path d="M12 17.5l4.2-5.6"/></svg>`,   // the desktop Machine view's gauge
   tokens: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>`,
+  work: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6h12M5 9h6M5 11.5h4"/></svg>`,
+  foryou: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9.5h3.5l1 2h3l1-2H14"/><path d="M4 3h8l2 6.5V13H2V9.5z"/></svg>`,
   dash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="14" y="13" width="7" height="8" rx="2"/></svg>`
 };
 // The Dashboard, the phone's own panel: any of the bar's readings (its plug-ins: Week, Session, Team, Disk and the
@@ -9939,7 +10693,14 @@ const PP_CHEV = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" str
 let ppOpen = false, ppAll = false;
 const ppData = () => plugs().find(x => x.pipe && !x.hidden)?.pipe;
 const ppAgent = n => n && (S.agents.find(a => a.name === n) || (S.bench || []).find(a => a.name === n));
-const ppFace = n => { const a = ppAgent(n); return a ? phPor({...a, live: undefined}, " pp") : `<span class="pp-ini" aria-hidden="true">${esc(String(shown(n || "?") || "?").slice(0, 2).toUpperCase())}</span>`; };
+// Whoever has no portrait of their own: the owner a rook, a role named without an agent ("a tester") its role's shadow,
+// anyone else their initials.
+const PP_ROOK = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.5 2h2v1.5h1.5V2h2v1.5h1.5V2h2v3.5l-1.5 1.5v4.5l1.5 1.5V15h-9v-2l1.5-1.5V7L3.5 5.5z"/></svg>`;
+const ppIsOwner = n => !!n && (n === S.owner || /^(you|owner)$/i.test(n));
+const ppRoleOf = n => { const w = String(n || "").trim().toLowerCase().replace(/^(a|an|the)\s+/, ""); return w ? roleList().find(r => r.name.toLowerCase() === w || r.role === w) : null; };
+const ppFace = n => { const a = ppAgent(n), r = !a && ppRoleOf(n);
+  return a ? phPor({...a, live: undefined}, " pp") : ppIsOwner(n) ? `<span class="pp-ini pp-own" aria-hidden="true">${PP_ROOK}</span>`
+    : r ? phPor({name: n, role: r.role, colour: r.colour}, " pp") : `<span class="pp-ini" aria-hidden="true">${esc(String(shown(n || "?") || "?").slice(0, 2).toUpperCase())}</span>`; };
 const ppA = (href, cls, label, inner) => /^https:\/\//.test(href || "") ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}">${inner}</a>` : `<div class="${cls}" aria-label="${esc(label)}">${inner}</div>`;
 const ppTag = g => g && g.text ? `<span class="pp-tag ${PP_TONES.includes(g.tone) ? g.tone : "grey"}">${esc(g.text)}</span>` : "";
 const ppQueue = p => (p.stages || []).find(s => s.queue)?.key;
@@ -9961,8 +10722,8 @@ function ppTile(p, wide) {
   const waits = p.waiting || [], backs = ts.filter(t => t.back).length, n = ts.length;
   if (!wide) {
     const run = q.find(t => t.place === 0 || t.fail), next = q.find(t => t !== run);
-    return `<button class="pp-hit pp-half" data-pipesheet aria-label="${esc(`Pipeline: ${n} in flight, ${p.merged_n || 0} done today. Open the list`)}">` +
-      `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m"><b>${+p.merged_n || 0}</b>✓</span></span>` +
+    return `<button class="pp-hit pp-half" data-pipesheet aria-label="${esc(`Work: ${n} in flight, ${p.merged_n || 0} merged today. Open Work`)}">` +
+      `<span class="pp-top"><span class="dlab">Work</span><span class="pp-m"><b>${+p.merged_n || 0}</b>✓</span></span>` +
       (run ? `<span class="pp-hrow">${ppBadge(run, p)}<span class="${run.fail ? "pp-red" : "pp-blue"}">${esc(run.short || run.ref || run.id)}</span><small>${esc(run.state?.text || "")}</small></span>` : "") +
       (next ? `<span class="pp-hrow">${ppBadge(next, p)}<span>${esc(next.short || next.ref || next.id)}</span></span>` : "") +
       (q.length ? "" : `<span class="pp-hrow pp-mute">Queue empty</span>`) +
@@ -9979,8 +10740,8 @@ function ppTile(p, wide) {
   const wrows = waits.map(w => ppA(w.href, "pp-row", `${shown(w.who) || "Someone"} ${w.text}${w.tag?.text ? ", " + w.tag.text : ""}`,
     `${ppFace(w.who)}<span class="pp-mid"><span class="tt"><b>${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}`)).join("");
   const warn = (p.warnings || []).length;
-  return `<button class="pp-hit" data-pipesheet aria-label="${esc(`Pipeline: ${n} in flight, ${p.merged_n || 0} done today. Open the list`)}">` +
-    `<span class="pp-top"><span class="dlab">Pipeline</span><span class="pp-m" data-ppgo="~merged" title="Show today's merges"><b>${+p.merged_n || 0}</b> ${esc(p.merged_word || "merged today")}${PP_CHEV}</span></span><span class="pp-strip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${strip}</span></button>` +
+  return `<button class="pp-hit" data-pipesheet aria-label="${esc(`Work: ${n} in flight, ${p.merged_n || 0} merged today. Open Work`)}">` +
+    `<span class="pp-top"><span class="dlab">Work</span><span class="pp-m" data-ppgo="~merged" title="Show today's merges"><b>${+p.merged_n || 0}</b> ${esc(p.merged_word || "merged today")}${PP_CHEV}</span></span><span class="pp-strip" style="grid-template-columns:repeat(${cells.length || 1},minmax(0,1fr))">${strip}</span></button>` +
     `<div class="pp-sec"><div class="pp-sh"><b>${esc(qname)}</b><span>${esc(qsum)}</span></div>${qrows || `<div class="pp-empty">Nothing queued</div>`}</div>` +
     `<div class="pp-sec"><div class="pp-sh"><b>Waiting on</b></div>${wrows || `<div class="pp-empty">Nobody · everything is moving</div>`}</div>` +
     `<div class="pp-foot"><span>${p.last ? `Last ${esc(p.last)} · ` : ""}${esc(p.updated || "")}</span>${warn ? `<span class="pp-warn-t pp-dot">${warn} to check</span>` : ""}</div>`;
@@ -10134,11 +10895,11 @@ function phDashAct(go) {
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["foryou", "For you"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
 // what each shows, in the toolbar's add list: the desktop view it stands for where it has another name there
 const PH_TAB_TIP = {list: "Every agent and what it is doing: the desktop's Grid and List", faces: "The team as portraits: the desktop's Characters",
   mix: "Every running agent's conversation as one", team: "The messages between agents", day: "What the team did, day by day",
-  queue: "Now, next, later and done", perf: "The machine's gauges: CPU, memory, disks, network, GPU, heat", tokens: "Tokens used, by role and agent",
+  work: "Every ticket by what it needs: you, in flight, next, done, and the stand-up", queue: "Now, next, later and done", foryou: "What is waiting on you, kept by the delivery lead", perf: "The machine's gauges: CPU, memory, disks, network, GPU, heat", tokens: "Tokens used, by role and agent",
   dash: "The bar's readings as tiles, arranged as you like: the phone's own"};
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
@@ -10389,6 +11150,9 @@ async function phLoad(tab) {
     if (tab === "day" && Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)) { phDayAt = Date.now(); dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); phoneDraw(); }
     // the Work queue and Performance are read while their tab shows, as often as their panes are
     if (tab === "queue" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now(); workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); phoneDraw(); }
+    // Work reads the work queue and the Day log, as its pane does
+    if (tab === "work" && Date.now() - phQueueAt > 3500) { phQueueAt = Date.now();
+      [workQueue, dayLog] = await Promise.all(["/api/workqueue", "/api/daylog"].map(async u => (await fetch(u, {cache: "no-store"})).json())); phoneDraw(); }
     if (tab === "tokens" && Date.now() - phTokAt > (tokens?.state === "reading" ? 3000 : 30000)) { phTokAt = Date.now(); tokens = await (await fetch("/api/tokens", {cache: "no-store"})).json(); phoneDraw(); }
     // the Dashboard's CPU, Memory, Network, GPU, Heat and Fans tiles are the bar's plug-ins, which read the page's
     // sampling, and only a read of /api/perf starts that: read it while one of them is on the Dashboard, as the
@@ -10426,7 +11190,17 @@ function phoneDraw() {
     ph.querySelector(".ph-week").onclick = () => { try { phoneMenu(); } catch (e) { phError(e); } };
     const body = ph.querySelector(".ph-body");
     body.addEventListener("click", e => {
-      if (e.target.closest("[data-pipesheet]")) { ppOpen = true; try { ppSheetDraw(); } catch (err) { phError(err); } return; }
+      // the Dashboard's Work tile opens the Work tab, at the stage or today's merges tapped; the Pipeline sheet only while
+      // Work is not in the toolbar
+      if (e.target.closest("[data-pipesheet]")) {
+        if (phToolbar().includes("work")) {
+          const go = e.target.closest("[data-ppgo]")?.dataset.ppgo;
+          wkSet("tab", go === "~merged" ? "done" : go ? "flight" : "all");
+          if (go === "~merged") wkSet("range", "today"); else if (go) wkSet("stage", go);
+          localStorage.setItem("phonetab", "work"); body.scrollTop = 0;
+        } else ppOpen = true;
+        try { phoneDraw(); ppSheetDraw(); } catch (err) { phError(err); } return;
+      }
       const dash = e.target.closest("[data-dash]");
       if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
       if (body.dataset.tab === "tokens" && phTokAct(e.target)) return;
@@ -10488,6 +11262,15 @@ function phoneDraw() {
       phMixFilters(body);
       const g = body.querySelector(".feed"); if (g) g.scrollTop = end ? g.scrollHeight : was;
     }
+    phLoad(tab);
+  }
+  else if (tab === "foryou") {
+    patch(body, `<div class="ph-pane">${forYouHtml(false)}</div>`);
+    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
+  }
+  else if (tab === "work") {
+    patch(body, `<div class="ph-pane">${workHtml(false, null)}</div>`);
+    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
     phLoad(tab);
   }
   else if (tab === "queue") {
@@ -10922,10 +11705,18 @@ phSwiper($("#detail"),
 // Done first, as a tap on its tabs does (owner, 2026-11-15: "swipe left and right between doing and done"): left from
 // Done, or right from Doing, goes on to the next panel, and only the list moves, the pane's head, its Doing/Done tabs
 // and the chips stay put.
+// Work does the same through its sections, All to Stand-up (owner, 2026-11-17).
 function phBodySwipe(body) {
   phSwiper(body,
     e => { const t = e.touches[0]; return t.clientX >= 24 && t.clientX <= innerWidth - 24 && !e.target.closest?.("textarea, input, select, .lightbox") && !phSideways(e.target, body); },
     dir => {
+      if (body.dataset.tab === "work") {
+        const keys = WK_TABS.map(([k]) => k), at = keys.indexOf(wkGet("tab", "all")), to = keys[(at < 0 ? 0 : at) + dir];
+        if (to) {
+          const list = () => body.querySelector(".ph-pane .wk > [data-wktab]") || body;
+          return {el: list(), host: body, go: () => { wkSet("tab", to); body.scrollTop = 0; phoneDraw(); }, after: list};
+        }
+      }
       if (body.dataset.tab === "queue") {
         const to = dir > 0 ? "done" : "work";
         if (to !== wqTab()) {
@@ -11361,7 +12152,7 @@ def self_test():
           'Date.now() - phDayAt > (dayLog?.state === "reading" ? 3000 : 30000)' in PAGE, True)
         g["DAY_LOG_PROGRAM"] = os.path.join(ROOT, "team", "day-log.py")
         _daylog.update(at=0, busy=False, data=None, error="", thread=None)
-        t("  and the pane is offered", ('daylog: "Day log"' in PAGE, "body = dayLogHtml(n)" in PAGE), (True, True))
+        t("  and the pane is offered, marked deprecated now that Work brings it in", ('daylog: "Day log (deprecated)"' in PAGE, "body = dayLogHtml(n)" in PAGE), (True, True))
         # the harness's own program: its two logs and a stand-in gh, with the clock's window taken from now
         stamp = lambda ago: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ago))
         ep = lambda ago: int(time.time() - ago)
@@ -11528,11 +12319,59 @@ def self_test():
         finally:
             g["WORK_QUEUE"], g["STANDUPS"] = keep_wq, keep_su
         t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, and a phone panel too",
-          ('workqueue: "Work queue"' in PAGE, "body = workQueueHtml(path === maxed, n)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
+          ('workqueue: "Work queue (deprecated)"' in PAGE, "body = workQueueHtml(path === maxed, n)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue", "Work queue"]' in PAGE), (True, True, True, True))
+        # For you: the lead's list of what waits on the owner, read with the state, cleared from the page under the
+        # command's lock, and the lead told once idle
+        with open(os.path.abspath(__file__), encoding="utf-8") as f:
+            SRC = f.read()
+        keep_fy = g["FOR_YOU"]
+        with tempfile.TemporaryDirectory() as fyd:
+            fyf = g["FOR_YOU"] = os.path.join(fyd, "for-you.json")
+            fy = lambda *a: subprocess.run([sys.executable, os.path.join(ROOT, "team", "for-you.py"), *a], capture_output=True, text=True,
+                                           env={**os.environ, "AGENT_FOR_YOU": fyf, "AGENT_NAME": "Lead"})
+            t("for you: no file is an empty list", (for_you()["state"], for_you()["open"]), ("empty", []))
+            fy("add", "Merge the login fix?", "--ticket", "fix-login")
+            fy("add", "Which disk for the backups?")
+            t("  the lead adds an item with its ticket, or none, and the page reads them",
+              [(i["n"], i["ticket"], i["from"]) for i in for_you()["open"]], [(1, "fix-login", "Lead"), (2, "", "Lead")])
+            t("  the owner clears one from the page, marked for the lead to be told", (for_you_clear(1), for_you_clear(1)), (True, False))
+            with open(fyf) as f:
+                q = json.load(f)
+            t("  and it moves to cleared, by the owner", ([i["n"] for i in q["open"]], q["cleared"][0]["n"], q["cleared"][0].get("tell")), ([2], 1, True))
+            told = []
+            keep_type = g["type_into"]
+            g["type_into"] = lambda name, text, images=(): told.append((name, text)) or True
+            try:
+                t("  the lead is told once idle, and only once", (for_you_tell_once("Lead", {"Lead": {"status": "busy"}}),
+                  for_you_tell_once("Lead", {"Lead": {"status": "idle"}}), for_you_tell_once("Lead", {"Lead": {"status": "idle"}})), (False, True, False))
+                t("  in one message naming the item", (len(told), told[0][1].startswith("[For you]") and "fix-login: Merge the login fix?" in told[0][1]), (1, True))
+            finally:
+                g["type_into"] = keep_type
+            fy("clear", "2", "--answer", "the big one")
+            t("  and the command clears by number with the owner's answer", [i["answer"] for i in json.load(open(fyf))["cleared"]][:1], ["the big one"])
+        g["FOR_YOU"] = keep_fy
+        t("  the state carries it, and it has a pane, a phone tab and a cross to clear in Work",
+          ('"forYou": for_you()' in SRC, 'foryou: "For you"' in PAGE, '["foryou", "For you"]' in PAGE, 'class="fyclear" data-n="${i.n}"' in PAGE), (True,) * 4)
+        t("work: a pane offered first among Work's views, with Pipeline, Work queue and Day log marked deprecated",
+          ('["work", "Every ticket by what it needs' in PAGE, 'work: "Work"' in PAGE, 'pipeline: "Pipeline (deprecated)"' in PAGE), (True,) * 3)
+        t("  its tabs are All, Needs you, In flight, Up next, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
+          ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
+           'const WK_STAGE_NAME = {lead: "For your approval", owner: "Ready to merge"};' in PAGE, "<b>${esc(wkStageName(s))}</b>" in PAGE), (True,) * 3)
+        t("  Compact is a desktop box kept per browser, on until cleared; the phone is always full size",
+          ('const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";' in PAGE, "data-wkcompact" in PAGE, ':is(#phone,.wk).roomy' in PAGE), (True,) * 3)
+        t("  a face opens its agent on a click and gives its menu on a right-click or a held press; several people are a face each",
+          ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
+           'const wkNames = who => String(who || "").split(/,|&| and /)' in PAGE), (True,) * 4)
+        t("  with no portrait, the owner is a rook and a role named with no agent its role's shadow",
+          ("const PP_ROOK =" in PAGE, 'r ? phPor({name: n, role: r.role, colour: r.colour}, " pp")' in PAGE), (True, True))
+        t("  merges come from the pipe's history, else today's merged",
+          ("const history = (p.history || (p.merged || []).map(m => ({t: at(m.at)" in PAGE, '#       history         [{"t" (epoch seconds)' in SRC), (True, True))
+        t("  the phone has a Work tab a swipe moves through, and the Dashboard's tile opens it",
+          ('["work", "Work"]' in PAGE, 'if (body.dataset.tab === "work") {' in PAGE, 'localStorage.setItem("phonetab", "work");' in PAGE), (True,) * 3)
         t("  it can be maximised, and draws titles and notes as Markdown",
-          ('"file", "workqueue"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(t)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
+          ('"file", "workqueue", "foryou"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(t)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
@@ -11549,8 +12388,8 @@ def self_test():
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Confirm" : "Stop…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
-        t("  its panels are Agents, Portraits, Combined, Team, the Day log, the Work queue, Machine, Token usage and the Dashboard",
-          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
+        t("  its panels are Agents, Portraits, Combined, Team, the Day log, Search, Work, the Work queue, For you, Machine, Token usage and the Dashboard",
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["foryou", "For you"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
@@ -11562,9 +12401,9 @@ def self_test():
            "html.phone #menu.on.closing,#phone .pp-sheet.closing .pp-panel{animation:none;transform:translateY(100%) !important" in PAGE,
            'if (tdy > 90) { ppOpen = false; ppSheetDraw(); } else panel.style.transform = "";' in PAGE), (True, True, True, True))
         t("  the desktop has a Pipeline pane: the phone's tile beside its sheet's list, styled by the same rules, its Show all working",
-          ('pipeline: "Pipeline"' in PAGE, '["pipeline", "Work on its way to done' in PAGE, "body = ppPaneHtml();" in PAGE,
+          ('pipeline: "Pipeline (deprecated)"' in PAGE, '["pipeline", "Work on its way to done' in PAGE, "body = ppPaneHtml();" in PAGE,
            "<div class=\"ppdesk\"><div class=\"pp-dcol\">${ppTile(p, true)}</div><div class=\"pp-dcol pp-dlist\">${ppSheetHtml(p)}</div>" in PAGE,
-           ":is(#phone,.ppdesk) .pp-card{" in PAGE and "#phone,.ppdesk{--pq:" in PAGE,
+           ":is(#phone,.ppdesk,.wk) .pp-card{" in PAGE and "#phone,.ppdesk,.wk{--pq:" in PAGE,
            'if (e.target.closest(".ppdesk [data-ppall]")) { ppAll = !ppAll; draw(); }' in PAGE), (True, True, True, True, True, True))
         t("  the phone's Dashboard reads /api/perf while it holds a CPU, Memory, Network, GPU, Heat or Fans tile, so a fresh page's sampling starts for them",
           ('const dashPerf = tab === "dash" && phDash().some(t => PERF_BARS.includes(t.k));' in PAGE,
@@ -11642,7 +12481,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -11852,7 +12691,7 @@ def self_test():
         t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
-           '["team", "combined", "meeting", "file", "workqueue"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+           '["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
           ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
@@ -12304,6 +13143,7 @@ def main():
         self_test()
     load_meetings()
     threading.Thread(target=meeting_deliver, daemon=True).start()
+    threading.Thread(target=for_you_tell, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
