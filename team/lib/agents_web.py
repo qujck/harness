@@ -4114,6 +4114,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
   background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
 .paneover > .cards{flex:1;min-height:0;padding:0;cursor:default}
 .teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
+.pbody:has(> .paneover) > .ctabs{position:relative;z-index:7}   /* the pane's tabs stay clear above the greying */
 .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
 .teamlog:is([data-name="~tokens"],[data-name="~team"]) > .blank{margin:auto;padding:12px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}   /* "Reading the conversations…" in the middle of the pane */
