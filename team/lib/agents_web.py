@@ -4636,6 +4636,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #viewbar .vtb svg{width:15px;height:15px}
 #viewbar .vtmenu{width:18px;height:22px;margin-left:-2px}
 #lock{height:var(--ctl);color:var(--text)}
+#search{color:var(--text)}
 .tabbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 0}
 .tabbar button{--c:#888;display:flex;align-items:center;gap:6px;padding:4px 11px;border-radius:var(--r-s);border:1px solid var(--c);background:var(--c);min-height:28px;   /* min-height: as tall with an unseen count as without */
   color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
