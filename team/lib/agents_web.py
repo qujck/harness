@@ -4807,6 +4807,13 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #lightbox figcaption a{color:#9cf}
 #lightbox .x{position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(var(--t-xxl)*var(--fs,1));line-height:1}
 #lightbox .x:hover{color:#fff}
+#lightbox .lbnav{position:fixed;top:50%;display:none;place-items:center;width:44px;height:64px;margin-top:-32px;border-radius:var(--r-m);color:#ccc;cursor:pointer;font-size:44px;line-height:1;font-weight:300;user-select:none}
+#lightbox .lbnav:hover{background:#fff2;color:#fff}
+#lightbox.many .lbnav:not([hidden]){display:grid}
+#lbprev{left:6px}
+#lbnext{right:6px}
+#lbcount{display:none;color:#aaa}
+#lightbox.many #lbcount{display:inline}
 #graphbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #graphbox.on{display:flex}
 #graphbox .doc{display:flex;flex-direction:column;width:min(1100px,100%);border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 14px 40px #0009}
@@ -5810,7 +5817,7 @@ html.phoneoff #phoneback{display:block}
 <div id="phone"><div class="ph-loading">Loading…</div></div><button id="phoneback">Phone layout</button>
 <div id="barbin" hidden><div class="bi tight" data-item="viewbar"><span id="viewbar"></span><i class="bx" title="Take this out of the bar">✕</i></div></div>
 <div id="pop"></div><div id="menu"></div><div id="copied">Copied</div>
-<div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span></div>
+<div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbcount"></span><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span><b class="lbnav" id="lbprev" title="Previous image (←)">‹</b><b class="lbnav" id="lbnext" title="Next image (→)">›</b></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
 <div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
@@ -5974,16 +5981,30 @@ function thumbs(text, keys, agent) {
     `<a href="${u}" target="_blank" rel="noopener" title="${esc(name)}" onclick="return showImg(event, this)"><img src="${u}" alt="${esc(name.split("/").pop())}" loading="lazy" onerror="lostImg(this)"></a>`).join("")}</div>` : "";
 }
 // An image opens over the page, fitted to the window; the cross, Esc or a click beside it closes it. It zooms with
-// the buttons, the wheel or + / − / 0, and once larger than the window it is dragged to move around it.
+// the buttons, the wheel or + / − / 0, and once larger than the window it is dragged to move around it. Opened from a
+// message with several images, the arrows at its sides, ← / → or a swipe move through that message's images.
 let lbScale = 0;   // 0 is fitted to the window; otherwise the image's own size times this
+let lbSet = [], lbAt = 0;   // the images of the message the open one came from, and which of them is showing
 function showImg(e, a) {
   e.preventDefault(); e.stopPropagation();
-  lbScale = 0;
-  $("#lbimg").onload = lbApply;
-  $("#lbimg").src = a.href; $("#lbtab").href = a.href; $("#lbname").textContent = a.title;
-  $("#lightbox").classList.add("on"); lbApply();
+  const box = a.closest(".thumbs") || a.parentElement?.parentElement;
+  lbSet = box ? [...box.querySelectorAll('a[onclick^="return showImg"]')].map(x => ({href: x.href, title: x.title})) : [];
+  lbAt = Math.max(0, lbSet.findIndex(x => x.href === a.href));
+  if (!lbSet.length) lbSet = [{href: a.href, title: a.title}];
+  lbShow();
   return false;
 }
+function lbShow() {
+  const {href, title} = lbSet[lbAt];
+  lbScale = 0;
+  $("#lbimg").onload = lbApply;
+  $("#lbimg").src = href; $("#lbtab").href = href; $("#lbname").textContent = title;
+  $("#lbcount").textContent = `${lbAt + 1} of ${lbSet.length}`;
+  $("#lightbox").classList.toggle("many", lbSet.length > 1);
+  $("#lbprev").hidden = !lbAt; $("#lbnext").hidden = lbAt === lbSet.length - 1;
+  $("#lightbox").classList.add("on"); lbApply();
+}
+const lbStep = d => { const to = lbAt + d; if (to >= 0 && to < lbSet.length && to !== lbAt) { lbAt = to; lbShow(); } };
 const closeImg = () => $("#lightbox").classList.remove("on");
 // A document opens over the page, Markdown rendered and anything else as it is; the cross, Esc or a click beside it
 // closes it. Its headings are blocks with their own margins, so the blank lines around them go.
@@ -6046,9 +6067,21 @@ $("#lbwrap").onpointerdown = e => {
   w.onpointerup = () => { w.onpointermove = null; w.classList.remove("grab"); };
 };
 $("#lightbox").onclick = e => { if (e.target.id === "lightbox" || e.target.tagName === "FIGURE" || e.target.id === "lbx") closeImg(); };
+$("#lbprev").onclick = e => { e.stopPropagation(); lbStep(-1); };
+$("#lbnext").onclick = e => { e.stopPropagation(); lbStep(1); };
+// a sideways swipe on the image, while it is fitted to the window, moves to the next or previous one
+let lbTouch = null;
+$("#lbwrap").addEventListener("touchstart", e => { lbTouch = !lbScale && e.touches.length === 1 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, {passive: true});
+$("#lbwrap").addEventListener("touchend", e => {
+  if (!lbTouch) return;
+  const dx = e.changedTouches[0].clientX - lbTouch[0], dy = e.changedTouches[0].clientY - lbTouch[1];
+  lbTouch = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) lbStep(dx < 0 ? 1 : -1);
+});
 addEventListener("keydown", e => {
   if (!$("#lightbox").classList.contains("on")) return;
   if (e.key === "+" || e.key === "=") lbZoom(1.25); else if (e.key === "-") lbZoom(0.8); else if (e.key === "0") lbZoom(0);
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); lbStep(e.key === "ArrowLeft" ? -1 : 1); }
 });
 
 // With tag, the item names the agent it came from (a pane mixing several agents): before it, or after the owner's
