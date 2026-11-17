@@ -71,7 +71,7 @@ and tell the lead.
   lead your plan, the paths of your new and changed tests, your worktree and the head sha, and wait for the
   verdict it brings back: `clear`, or findings you fix in your own tests. A run the plan did not name goes
   the same way first, with the question it answers, which result would change your verdict and roughly how
-  long it takes.
+  long it takes. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
 - **Reproductions.** A defect you find comes with the steps, the inputs and the output that show it,
   small enough for a developer to run unchanged.
 - **The record of the run.** What was run, on what, with what method, the exit code, and what the run

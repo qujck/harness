@@ -36,7 +36,7 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
 - **The test reviewer's queue**, where the project has one. Pass the test reviewer each tester's plan, the
   paths of its new and changed tests, the worktree and the head sha before the tester's first run on a
   shared environment, and any request for an extra run; carry the `clear` or the findings back to the
-  tester. The test reviewer talks only to you.
+  tester. The test reviewer talks only to you. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
 - **A red `main`.** One owner, ahead of everything: whoever reads it first owns it until a repair
   PR is armed ([../runbooks/main-is-red.md](../runbooks/main-is-red.md)). You make sure that
   owner exists and that nobody else is also fixing it.
