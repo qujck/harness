@@ -10478,9 +10478,8 @@ function menuSoon(el, wait) {
   // A redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner.
   menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, wait > 0), wait);
 }
-// The team's play, pause and stop buttons, one of them on at a time: stop (red) while nobody runs or the page has wound
-// the team down (team/team-paused.sh says so and nobody is working), pause (amber) while the nudger is paused, play (green) while the
-// team runs. Play starts a stopped team (those running when the page last stopped it, else everyone with a Session) or
+// The team's play, pause and stop buttons, one of them on at a time: stop (red) while no agent on the team is running,
+// pause (amber) while the nudger is paused, play (green) while the team runs. Play starts a stopped team (those running when the page last stopped it, else everyone with a Session) or
 // resumes the nudger; pause pauses the nudger; stop asks the lead to wind the team down (greyed while no lead runs), after a second click to
 // confirm. The button clicked fades in and out in its colour until the page sees the change.
 let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is waiting to see
@@ -10489,8 +10488,7 @@ function teamButton() {
   const team = S.agents.filter(a => a.role !== "pa");   // an assistant is not on the team: it neither holds a wind-down nor makes a team running
   const working = team.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
-  const woundDown = !starting && !stopping && !!S.teamUp && S.teamPaused && !working.length;
-  const down = !starting && !stopping && (woundDown || !team.some(a => a.live));   // no lead alone is not a stopped team
+  const down = !starting && !stopping && !team.some(a => a.live);
   if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
   if (down || stopping || starting) { clearTimeout(teamAsk); teamAsk = null; }
   const on = starting || stopping || nudgerTo != null ? "" : down ? "stop" : S.nudgerPaused ? "pause" : "play";
@@ -10913,9 +10911,9 @@ function phLast(a) {
 }
 // the team's state in a few words, as the team buttons read it
 function phTeamState() {
-  const team = S.agents.filter(a => a.role !== "pa"), busy = team.some(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting));
+  const team = S.agents.filter(a => a.role !== "pa");
   const state = S.starting.includes("team") ? ["Starting", "var(--amber)"] : S.halting.includes("team") ? ["Stopping", "var(--amber)"]
-    : S.teamUp && S.teamPaused && !busy || !team.some(a => a.live) ? ["Stopped", "var(--faint)"] : ["Running", "var(--green)"];
+    : !team.some(a => a.live) ? ["Stopped", "var(--faint)"] : S.nudgerPaused ? ["Paused", "var(--amber)"] : ["Running", "var(--green)"];
   return {word: state[0], colour: state[1], up: S.agents.filter(a => a.live).length, off: S.bench.length + S.agents.filter(a => !a.live).length};
 }
 // How the Agents and Portraits tabs order the team: by status (waiting, working, idle, stopped) or by role.
