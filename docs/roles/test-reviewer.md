@@ -31,6 +31,7 @@ unanswered.
 
 ## What you own
 
+- On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
 - **The verdict on each plan and its tests, before the tester's first run on the shared environment.** The
   delivery lead sends you the ticket, the plan, the paths of the new and changed tests, the tester's
   worktree and the head sha. Read every new or changed test and every step of the plan, and check, by
