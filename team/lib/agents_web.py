@@ -8210,10 +8210,10 @@ function customHtml(ceil, tabRow) {
   const l = layout();
   tabNamesNow = tabNames(l.root);
   // A maximised pane is one agent's card filling the layout (an agent pane's own, or one card of a grid or tabs pane),
-  // or a Team, Combined, Meeting, File or Work queue pane.
+  // or one of MAX_PANES.
   let maxed = localStorage.getItem("custom:max");
   const maxNode = maxed && leaves(l.root).find(([p]) => p === maxed)?.[1];
-  const maxName = maxNode && (["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
+  const maxName = maxNode && (MAX_PANES.includes(maxNode.show) ? "~" + maxNode.show : maxNode.show === "agent" ? maxNode.name
     : paneAgents(maxNode).some(a => a.name === localStorage.getItem("custom:maxname")) && localStorage.getItem("custom:maxname"));
   if (maxed && !maxName) { localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); maxed = null; }
   // A card shows the whole conversation unless its pane is set to the summary (the pane bar's Full/Summary, while the
@@ -8316,7 +8316,7 @@ function customHtml(ceil, tabRow) {
     const grow = s => side ? (s === side ? `flex:0 0 ${size}px` : "flex-grow:1") : `flex-grow:${s === "a" ? n.at : 1 - n.at}`;
     return `<div class="lay ${n.split}" data-path="${path}"><div class="half" style="${grow("a")}">${node(n.a, path + "a")}</div><div class="divider drag" data-path="${path}"></div><div class="half" style="${grow("b")}">${node(n.b, path + "b")}</div></div>`;
   };
-  return !maxed ? node(l.root, "r") : ["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
+  return !maxed ? node(l.root, "r") : MAX_PANES.includes(maxNode.show) ? pane(maxNode, maxed) : pane({...maxNode, show: "agent", name: maxName}, maxed);
 }
 const fullView = n => n.view !== "summary";
 // A Characters pane beside another is a whole number of tiles wide: one, two or three (two unless set) as its divider
@@ -8358,6 +8358,8 @@ function tileZoom(n, path, count, split) {
 }
 // An agent's card, or a Team, Combined, Meeting, File or Work queue pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
+// the panes, other than agents' cards, whose maximise button fills the layout with the pane itself
+const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens"];
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
 // An agent clicked in a Combined pane fills that pane with its card (kept in this browser as "focus:pane:<path>")
@@ -12370,7 +12372,7 @@ def self_test():
         t("  the phone has a Work tab a swipe moves through, and the Dashboard's tile opens it",
           ('["work", "Work"]' in PAGE, 'if (body.dataset.tab === "work") {' in PAGE, 'localStorage.setItem("phonetab", "work");' in PAGE), (True,) * 3)
         t("  it can be maximised, and draws titles and notes as Markdown",
-          ('"file", "workqueue", "foryou"].includes(maxNode.show)' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(t)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
+          ('MAX_PANES.includes(maxNode.show) ? "~" + maxNode.show' in PAGE, 'data-name="~workqueue"' in PAGE, "${inline(t)}" in PAGE and "${inline(i.note)}" in PAGE), (True, True, True))
         t("the logo flashes while an agent waits, and a click opens the one waiting longest",
           ('brand.classList.toggle("waiting", !!waiting)' in PAGE, "brand.onclick = waiting ? () => openDetail(longest) : null" in PAGE,
            ".brand.waiting{cursor:pointer" in PAGE), (True, True, True))
@@ -12690,7 +12692,7 @@ def self_test():
         t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
-           '["team", "combined", "meeting", "file", "workqueue", "foryou"].includes(maxNode.show)' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+           'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
           ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
