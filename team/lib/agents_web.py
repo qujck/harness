@@ -8071,7 +8071,7 @@ function wkPeopleStrip() {
   const them = byRole([...S.agents, ...S.bench].filter(x => x.role !== "pa" && (named.has(x.name) || x.name === a)));
   if (!them.length) return "";
   return `<div class="wkpeople${a ? " on" : ""}">${them.map(x => face(x, `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a
-    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work. Right-click for ${shown(x.name)}'s menu`)}${ppBenched(x.name) ? " (benched)" : ""}"`,
+    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work`)}${ppBenched(x.name) ? " (benched)" : ""}"`,
     (x.name === a ? " sel" : "") + (ppBenched(x.name) ? " benched" : ""))).join("")}</div>`;
 }
 function wkDetail(d, key) {
@@ -8119,6 +8119,17 @@ document.addEventListener("click", e => { const f = e.target.closest(".wk [data-
 // and a right-click on it gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
 document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent], .wkpeople [data-wkfilter]");
   if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false); } });
+// and a moment's rest on it opens that menu too, going again when the pointer leaves both, as a portrait's does elsewhere
+let wkRest = null;
+document.addEventListener("mouseover", e => {
+  const f = e.target.closest?.(".wk [data-wkagent], .wkpeople [data-wkfilter]");
+  if (f === wkRest) return;
+  if (wkRest) { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); }
+  wkRest = f;
+  if (!f || touched || phoneOn()) return;
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuShow = setTimeout(() => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, true), 350);
+});
 const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="id">${id}${sub ? ` <span>· ${esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
