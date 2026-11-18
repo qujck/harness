@@ -4593,6 +4593,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkfaces{flex:none;display:flex;align-items:center;gap:4px}
 .wkface.sup > .wkname{display:none}   /* a supporting agent's face alone, its name on hover; whose it is keeps its name */
 .wkface.sup.gone{opacity:.45}   /* one no longer on the ticket */
+.ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}   /* a benched agent's face greyed, its frame keeping its role colour, as on the bench */
 .wk:not(.roomy) .wkface.sup{display:none}   /* Compact shows whose a ticket is alone */
 /* the agents in the Work pane's tickets, a face each, along its top: a click shows only that agent's, a right-click its menu */
 .wkpeople{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px 6px}
@@ -7968,7 +7969,8 @@ function wkPeopleStrip() {
   const them = byRole([...S.agents, ...S.bench].filter(x => x.role !== "pa" && (named.has(x.name) || x.name === a)));
   if (!them.length) return "";
   return `<div class="wkpeople${a ? " on" : ""}">${them.map(x => face(x, `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a
-    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work. Right-click for ${shown(x.name)}'s menu`)}"`, x.name === a ? " sel" : "")).join("")}</div>`;
+    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work. Right-click for ${shown(x.name)}'s menu`)}${ppBenched(x.name) ? " (benched)" : ""}"`,
+    (x.name === a ? " sel" : "") + (ppBenched(x.name) ? " benched" : ""))).join("")}</div>`;
 }
 function wkDetail(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
@@ -8002,7 +8004,7 @@ const wkUntitled = `<span class="note">no title: not in the work queue</span>`;
 // name, and a ticket's id line over its title.
 const wkHead = (name, n, tone = "", extra = "") => `<div class="wkhead"><b>${esc(name)}</b>${n != null ? `<em class="${tone}">${n}</em>` : ""}${extra}</div>`;
 // a face and name; where the agent is on the page, a click on it opens that agent
-const wkOpen = n => ppAgent(n) ? ` wkopen" data-wkagent="${esc(n)}" data-menu-name="${esc(n)}" title="Open ${esc(shown(n))}` : "";
+const wkOpen = n => ppAgent(n) ? ` wkopen" data-wkagent="${esc(n)}" data-menu-name="${esc(n)}" title="Open ${esc(shown(n))}${ppBenched(n) ? " (benched)" : ""}` : "";
 // several people ("Kate, Tim", "Kate & Tim") are a face each, side by side
 const wkNames = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
 const wkFace1 = (n, cls = "") => `<span class="wkface${cls}${wkOpen(n) || `" title="${esc(shown(n))}`}">${ppFace(n)}<span class="wkname">${esc(shown(n))}</span></span>`;
@@ -10988,8 +10990,9 @@ const ppAgent = n => n && (S.agents.find(a => a.name === n) || (S.bench || []).f
 const PP_ROOK = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.5 2h2v1.5h1.5V2h2v1.5h1.5V2h2v3.5l-1.5 1.5v4.5l1.5 1.5V15h-9v-2l1.5-1.5V7L3.5 5.5z"/></svg>`;
 const ppIsOwner = n => !!n && (n === S.owner || /^(you|owner)$/i.test(n));
 const ppRoleOf = n => { const w = String(n || "").trim().toLowerCase().replace(/^(a|an|the)\s+/, ""); return w ? roleList().find(r => r.name.toLowerCase() === w || r.role === w) : null; };
+const ppBenched = n => !!n && !S.agents.some(a => a.name === n) && (S.bench || []).some(a => a.name === n);
 const ppFace = n => { const a = ppAgent(n), r = !a && ppRoleOf(n);
-  return a ? phPor({...a, live: undefined}, " pp") : ppIsOwner(n) ? `<span class="pp-ini pp-own" aria-hidden="true">${PP_ROOK}</span>`
+  return a ? phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp") : ppIsOwner(n) ? `<span class="pp-ini pp-own" aria-hidden="true">${PP_ROOK}</span>`
     : r ? phPor({name: n, role: r.role, colour: r.colour}, " pp") : `<span class="pp-ini" aria-hidden="true">${esc(String(shown(n || "?") || "?").slice(0, 2).toUpperCase())}</span>`; };
 const ppA = (href, cls, label, inner) => /^https:\/\//.test(href || "") ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}">${inner}</a>` : `<div class="${cls}" aria-label="${esc(label)}">${inner}</div>`;
 const ppTag = g => g && g.text ? `<span class="pp-tag ${PP_TONES.includes(g.tone) ? g.tone : "grey"}">${esc(g.text)}</span>` : "";
@@ -12657,6 +12660,9 @@ def self_test():
         t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; Compact shows whose alone",
           ('sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}' in PAGE,
            ".wk:not(.roomy) .wkface.sup{display:none}" in PAGE), (True, True))
+        t("  a benched agent's face is greyed in the strip and on a ticket, its tip saying so",
+          ('phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp")' in PAGE, '(ppBenched(x.name) ? " benched" : "")' in PAGE,
+           ".ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}" in PAGE), (True, True, True))
         t("  an agent strip by role filters every tab to that agent's work, a click again for everyone's; Compact has neither",
           ("const them = byRole([...S.agents, ...S.bench]" in PAGE, 'wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter)' in PAGE,
            'all || wkCompact() ? "" : wkGet("agent", "")' in PAGE, "if (wkCompact()) return \"\";" in PAGE, '#phone .wkpeople [data-wkfilter]' in PAGE), (True,) * 5)
