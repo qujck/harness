@@ -5538,6 +5538,8 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 10px 10px}
+.pastechip{position:fixed;z-index:60;display:flex;align-items:center;gap:10px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--box);color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));box-shadow:0 4px 14px #0004}
+.pastechip b{padding:2px 9px;border-radius:999px;background:var(--on);color:var(--text);font-weight:500;cursor:pointer}
 .say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);
   color:var(--text);font:calc(var(--t-m)*var(--fs,1)*var(--boxfs,1))/1.4 var(--sans);outline:none;transition:border-color .15s,box-shadow .15s;resize:none;overflow-y:hidden;max-height:120px}
 .say::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--faint)}
@@ -10072,7 +10074,7 @@ function keep(box) {
 }
 async function pasted(e, name) {
   const files = [...e.clipboardData.items].filter(i => i.kind === "file").map(i => i.getAsFile());
-  if (!files.length) return;
+  if (!files.length) return pasteCode(e);
   if (!e.clipboardData.getData("text/plain")) e.preventDefault();
   upload(files, name, e.target);
 }
@@ -10082,6 +10084,68 @@ async function upload(files, name, box) {
     if (!r || !r.ok) { flash(box, "failed"); box.title = r ? await r.text() : "the page could not be reached"; continue; }
     (atts[name] = atts[name] || []).push(await r.json()); showAtt(name);
   }
+}
+// Text pasted into a message box goes in as a fenced code block when it reads as code, a log, a diff, JSON or a shell
+// session (owner, 2026-11-18: "when I paste into the input box can it establish whether the text should be wrapped in
+// code blocks?"), so the agent reads it as it was. Prose, a single line, and text already fenced or pasted inside a
+// fence go in as pasted, as does any paste with Ctrl+Shift+V. Ctrl+Z undoes the wrapping as any typing, and a chip by
+// the box offers Unwrap for a few seconds.
+let pastePlain = false;
+document.addEventListener("keydown", e => { pastePlain = (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v"; }, true);
+const CODE_WORD = /^\s*(def|class|function|const|let|var|import|from|export|return|if|elif|else|for|foreach|while|switch|case|try|catch|finally|public|private|protected|static|async|await|namespace|use|package|func|fn|struct|interface|enum|echo|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|FROM|WHERE|JOIN|GROUP BY|ORDER BY|<\?php)\b/;
+const SHELL_WORD = /^\s*(\$ |# |sudo |cd |ls |git |docker |kubectl |npm |npx |yarn |php |composer |python3? |pip |curl |ssh |cat |grep |sed |awk |echo |export |bash |make |systemctl |journalctl |ansible)/;
+const LOG_LINE = /^\s+at |Traceback \(most recent|^\s*File ".*", line \d+|^\d{4}-\d\d-\d\d[ T]\d\d:\d\d|\b(ERROR|WARN(ING)?|FATAL|DEBUG)\b|Exception\b|^\s*#\d+ \/|^\[\d{4}-|Stack trace:/;
+function pasteKind(text) {
+  const t = text.replace(/\s+$/, ""), lines = t.split(/\r?\n/), full = lines.filter(l => l.trim());
+  if (!t || t.includes("```")) return null;
+  if (/^\s*[\[{]/.test(t) && t.length > 20) { try { JSON.parse(t); return "json"; } catch (e) {} }
+  if (full.length < 2) return null;
+  const share = re => full.filter(l => re.test(l)).length / full.length;
+  if (/^(diff --git|--- \S|@@ )/m.test(t) && share(/^[-+@ ]|^diff |^index /) > .8) return "diff";
+  if (share(LOG_LINE) >= .4) return "";
+  if (share(SHELL_WORD) >= .5) return "bash";
+  // prose: lines of words ending a sentence, few code marks
+  if (share(/^[^{};=<>]*\b\w+ \w+ \w+ \w+\b[^{};=<>]*[.?!:"')]$/) > .5) return null;
+  if (share(/^\s*([-*\u2022]|\d+[.)])\s+[A-Za-z]+( [A-Za-z',]+){2,}/) > .5) return null;   // a list of points in words
+  const codeish = share(/^(\s{2,}|\t)\S|[{;(,]\s*$|^\s*[}\])]|=>|->|::|==|!=|&&|\|\||\$\w+\s*=|^\s*<\/?[a-zA-Z][\w-]*[\s>]|^\s*[\w.-]+:(\s|$)|^\s*- ["'\[{\d]/) + share(CODE_WORD);
+  if (codeish < .6) return null;
+  return /<\?php|\$\w+->|\$this\b/.test(t) ? "php" : share(/^\s*([\w.-]+:(\s|$)|- )/) > .7 && !/^\s*(def|class|import|from) /m.test(t) ? "yaml" : /^\s*(def |from \S+ import |import \w+$|elif )|:\s*$/m.test(t) && !/[{;]\s*$/m.test(t) ? "python"
+    : /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/im.test(t) && /\b(FROM|INTO|TABLE|SET)\b/i.test(t) ? "sql"
+    : /\b(const|let|interface|import .* from)\b|=>/.test(t) ? "ts" : /^\s*</.test(t) ? "html" : "";
+}
+function pasteCode(e) {
+  const box = e.target, text = e.clipboardData.getData("text/plain"), plain = pastePlain;
+  pastePlain = false;
+  if (plain || !text || box.tagName !== "TEXTAREA") return;
+  const at = box.selectionStart, before = box.value.slice(0, at);
+  if ((before.match(/```/g) || []).length % 2) return;   // inside a fence already
+  const lang = pasteKind(text);
+  if (lang == null) return;
+  e.preventDefault();
+  const body = text.replace(/\r\n/g, "\n").replace(/\s+$/, "");
+  const block = (before && !before.endsWith("\n") ? "\n" : "") + "```" + lang + "\n" + body + "\n```" + (box.value.slice(box.selectionEnd).startsWith("\n") ? "" : "\n");
+  box.focus();
+  if (!document.execCommand("insertText", false, block)) {   // execCommand keeps Ctrl+Z, and tells the box as typing does
+    box.setRangeText(block, at, box.selectionEnd, "end"); box.dispatchEvent(new Event("input", {bubbles: true}));
+  }
+  pasteChip(box, at, block, text, lang);
+}
+function pasteChip(box, at, block, text, lang) {
+  document.querySelector(".pastechip")?.remove();
+  const r = box.getBoundingClientRect(), chip = document.createElement("div");
+  chip.className = "pastechip";
+  chip.innerHTML = `Pasted as ${lang ? esc(lang) + " " : ""}code<b>Unwrap</b>`;
+  chip.style.left = Math.max(8, r.right - 220) + "px"; chip.style.top = Math.max(8, r.top - 30) + "px";
+  document.body.append(chip);
+  const gone = setTimeout(() => chip.remove(), 8000);
+  chip.querySelector("b").onpointerdown = ev => {
+    ev.preventDefault(); clearTimeout(gone); chip.remove();
+    if (box.value.slice(at, at + block.length) !== block) return;   // changed since: leave it
+    box.focus(); box.setSelectionRange(at, at + block.length);
+    if (!document.execCommand("insertText", false, text)) {
+      box.setRangeText(text, at, at + block.length, "end"); box.dispatchEvent(new Event("input", {bubbles: true}));
+    }
+  };
 }
 // The + beside a message box, or Ctrl+U in it, picks images or any other files from this computer to go with the message.
 function pick(name, box) {
@@ -13580,6 +13644,10 @@ def self_test():
         t("pane tabs: each picks its view from the grouped picker, names itself, and filters by role chips with no roles meaning All",
           ("function viewPicker(btn, path, picked)" in PAGE, "function autoName(p)" in PAGE, "const roleChips = " in PAGE,
            "const rolesOn = n => rolesPicked(n).length ? n.roles : roleList().map(r => r.role);" in PAGE), (True, True, True, True))
+        t("a paste of code goes in fenced, undoably, with Unwrap beside it, and Ctrl+Shift+V pastes as is",
+          ("if (!files.length) return pasteCode(e);" in PAGE, "function pasteKind(text)" in PAGE,
+           'document.execCommand("insertText", false, block)' in PAGE, "function pasteChip(box, at, block, text, lang)" in PAGE,
+           "pastePlain = (e.ctrlKey || e.metaKey) && e.shiftKey" in PAGE), (True, True, True, True, True))
     finally:
         for k in kids:
             k.kill()
