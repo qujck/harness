@@ -924,7 +924,9 @@ WORK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,254}$")   # as team/work-q
 _workqueue = {"key": None, "data": None}
 # The Done tab splits by stand-up: the times the stand-ups were read, from a stand-up log's day headings
 # ("# Stand-up, Tuesday 10 November 2026 (FINAL, 09:10Z)"; a FINAL with no time counts as 09:15Z). The log is
-# $AGENT_STANDUPS, else standups.md in the state directory, read again only when it changes; with none, Done is one list.
+# $AGENT_STANDUPS, else standups.md in the state directory, read again only when it changes. A working day
+# ($AGENT_WORK_DAYS) of the last fortnight that the log has no stand-up for counts one at 09:15 local time, once that
+# has passed, so the split holds on a day the log was not written; with no working days and no log, Done is one list.
 STANDUPS = os.environ.get("AGENT_STANDUPS") or os.path.join(STATE_DIR, "standups.md")
 STANDUP_LINE = re.compile(r"^# Stand-up, \w+ (\d{1,2} \w+ \d{4}) \(FINAL(?:, (\d{2}:\d{2})Z)?\)", re.M)
 _standups = {"key": None, "times": []}
@@ -946,8 +948,17 @@ def standup_times():
                     continue
             _standups.update(key=key, times=sorted(times, reverse=True))
     except OSError:
-        return []
-    return _standups["times"]
+        _standups.update(key=None, times=[])
+    logged = {datetime.date.fromtimestamp(t) for t in _standups["times"]}
+    days = (setting("AGENT_WORK_DAYS") or "Mon Tue Wed Thu Fri").split()
+    now, today = time.time(), datetime.date.today()
+    usual = []
+    for back in range(14):
+        day = today - datetime.timedelta(days=back)
+        at = datetime.datetime.combine(day, datetime.time(9, 15)).timestamp()
+        if day.strftime("%a") in days and day not in logged and at <= now:
+            usual.append(int(at))
+    return sorted(set(_standups["times"]) | set(usual), reverse=True)
 
 
 def workqueue_json():
@@ -12755,13 +12766,22 @@ def self_test():
         t("  sixteen agents adding at once all land", sorted(wq_keys()[1]), sorted(f"CD-{n}" for n in range(16)))
         keep_wq, keep_su = g["WORK_QUEUE"], g["STANDUPS"]
         g["WORK_QUEUE"], g["STANDUPS"] = wqf, T + "/wq/standups.md"
+        keep_days = os.environ.get("AGENT_WORK_DAYS")
+        os.environ["AGENT_WORK_DAYS"] = "-"
         try:
-            t("work queue pane: with no stand-up log there are no stand-ups, and Done is one list", g["standup_times"](), [])
+            t("work queue pane: with no stand-up log and no working days there are no stand-ups, and Done is one list", g["standup_times"](), [])
             with open(T + "/wq/standups.md", "w") as f:
                 f.write("# Stand-ups\n\n# Stand-up, Wednesday 11 November 2026 (DRAFT)\n\n# Stand-up, Tuesday 10 November 2026 (FINAL, 09:10Z)\n"
                         "\n# Stand-up, Monday 9 November 2026 (FINAL)\n\n# Stand-up, Friday 6 November 2026\n")
             t("  the stand-ups are the log's FINAL days, newest first, 09:15Z where no time is given",
               json.loads(code("/api/workqueue")[1])["standups"], [1794301800, 1794215700])
+            os.environ["AGENT_WORK_DAYS"] = "Mon Tue Wed Thu Fri Sat Sun"
+            today = datetime.date.today()
+            usual = [int(datetime.datetime.combine(today - datetime.timedelta(days=b), datetime.time(9, 15)).timestamp()) for b in range(14)]
+            usual = [a for a in usual if a <= time.time() and datetime.date.fromtimestamp(a) not in (datetime.date(2026, 11, 9), datetime.date(2026, 11, 10))]
+            t("  a working day of the last fortnight the log has no stand-up for counts one at 09:15 local, once passed",
+              g["standup_times"](), sorted(set(usual) | {1794301800, 1794215700}, reverse=True))
+            os.environ["AGENT_WORK_DAYS"] = "-"
             wq("add", "AB-10", "Ten", "--done")
             d = json.loads(code("/api/workqueue")[1])
             t("  Done is served with when each got there", ([i["key"] for i in d["done"]], d["done"][0]["done"] > 0, d["now"][0]["done"]), (["AB-10"], True, 0))
@@ -12789,6 +12809,10 @@ def self_test():
             t("  no file is an empty queue", json.loads(code("/api/workqueue")[1])["state"], "empty")
         finally:
             g["WORK_QUEUE"], g["STANDUPS"] = keep_wq, keep_su
+            if keep_days is None:
+                os.environ.pop("AGENT_WORK_DAYS", None)
+            else:
+                os.environ["AGENT_WORK_DAYS"] = keep_days
         t("  the pane is offered, Doing (Now, Next, Later and Parked) and Done tabs, one line an item, and a phone panel too",
           ('workqueue: "Work queue (deprecated)"' in PAGE, "body = workQueueHtml(path === maxed, n)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
