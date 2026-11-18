@@ -122,7 +122,7 @@ TEAM_START_SH = os.environ.get("TEAM_START") or os.path.join(ROOT, "team/team-st
 TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-paused.sh")   # exits 0 once it is wound down
 TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
-TEAM_UP = os.path.join(STATE_DIR, "team-up")   # who was running when the page last stopped the team, one a line
+TEAM_UP = os.path.join(STATE_DIR, "team-up")   # stop file: "Name<TAB>epoch" a line, from team/agent-stopped.sh
 STOPPED = os.environ.get("AGENTS_STOPPED") or os.path.join(STATE_DIR, "stopped")   # standing agents stopped one by one from the page, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
 STANDING = {"lead", "hot", "ops", "support", "review", "testrev", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
@@ -1762,8 +1762,10 @@ def type_into(name, text, images=()):
 
 
 # ── starting and stopping ─────────────────────────────────────────────────────
-TEAM_STOP = ("Wind down the team for shutdown: ask everyone to stop at a clean point, mark the team paused (as "
-             "team/team-paused.sh reads it), and tell me once all have stopped.")
+TEAM_STOP = ("Wind down the team for shutdown: mark the team paused (as team/team-paused.sh reads it), and ask "
+             "everyone to stop at a clean point, bring their durable record up to date and then run "
+             "team/agent-stopped.sh, which closes their pane once that turn ends. Once every other agent has stopped, "
+             "tell me, then run team/agent-stopped.sh yourself, last.")
 TEAM_START = "The team is back up: start the day."
 AGENT_STOP = ("Finish what you're on at a clean point, bring your durable record up to date, and stop: "
               "the owner is stopping you from the team page, and your pane closes once you are idle.")
@@ -1876,11 +1878,11 @@ def lead_name(live=None):
 
 
 def team_up():
-    """Who the next start brings back, the lead always among them: those running when the page last stopped the team
-    who are still on the roster. With no such record, the roster except the agents stopped one by one; None if that is
+    """Who the next start brings back, the lead always among them: those in the stop file (each agent that ran
+    team/agent-stopped.sh) who are still on the roster. With no stop file, the roster except the agents stopped one by one; None if that is
     the whole team."""
     lead = lambda r: role_of(r["role"])[0] == "lead"
-    names = names_in(TEAM_UP)
+    names = set(stopped_at()) if os.path.exists(TEAM_UP) else None
     if names is not None:
         return [r["name"] for r in team_roster() if r["name"] in names or lead(r)]
     stopped = names_in(STOPPED) or set()
@@ -1891,7 +1893,7 @@ def team_up():
 
 def start_team(lead, names):
     """team/team-start.sh for the named agents (the whole team for None), then, once the lead is up and ready
-    for a message, the lead is told to start the day. The record of who was running is used up."""
+    for a message, the lead is told to start the day. The stop file is used up."""
     started = names or [r["name"] for r in team_roster()]
     try:
         restore(*[a for n in names for a in ("--only", n)]) if names else restore()
@@ -1935,6 +1937,55 @@ def halt_when_idle(name):
         _halting.discard(name)
         with _lock:
             _state["at"] = 0
+
+
+def stopped_at():
+    """Name -> when the agent last ran team/agent-stopped.sh (epoch seconds), from the stop file."""
+    out = {}
+    try:
+        with open(TEAM_UP) as f:
+            for line in f:
+                name, _, at = line.strip().partition("\t")
+                if name:
+                    out[name] = float(at) if re.fullmatch(r"\d+(\.\d+)?", at) else 0.0
+    except OSError:
+        pass
+    return out
+
+
+def stop_pass():
+    """One look at the stop file: closes the pane of each agent that has run team/agent-stopped.sh since its session
+    began, once its turn has ended, however the stop was asked for. The agent leading the team is closed only once no
+    other team agent is running, so it stops last. Those off the team (team_roster) are never closed here."""
+    stopped, live, people = stopped_at(), live_sessions(), [r["name"] for r in team_roster()]
+    team = [n for n in live if n in people]
+    lead = lead_name(set(live))
+    for n in list(team):
+        rec = live[n]
+        if n not in stopped or stopped[n] * 1000 < (rec.get("startedAt") or 0) or rec.get("status") != "idle":
+            continue
+        if n == lead and any(o != n for o in team):
+            continue
+        where = panes().get(n)
+        if where:
+            subprocess.run(["tmux", "kill-pane", "-t", where["pane"]])
+            compact_later([n])
+        team.remove(n)
+        _halting.discard(n)
+        with _lock:
+            _state["at"] = 0
+    if "team" in _halting and (not team or time.time() - _team_stop["at"] > 1800):
+        _halting.difference_update(["team", *people])
+
+
+def stop_watch():
+    """stop_pass every two seconds, outliving any one bad read."""
+    while True:
+        try:
+            stop_pass()
+        except Exception:
+            pass
+        time.sleep(2)
 
 
 # ── meetings ──────────────────────────────────────────────────────────────────
@@ -3520,11 +3571,7 @@ def state():
             "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
             "pfoot": pane_footer(where[name]["pane"]) if rec and name in where else None,
         })
-    # the team has stopped once team/team-paused.sh says so and no running agent on it is busy or waiting; a lead that has
-    # not marked it paused ten minutes after being asked is taken not to be stopping it
     paused = team_paused()
-    if paused and not any(a["live"] and a["role"] != "pa" and (a["status"] in ("busy", "waiting") or a["compacting"]) for a in agents) or not paused and now - _team_stop["at"] > 600:
-        _halting.discard("team")
     # Sections as byobu has them: each agent in the session its pane is in, the sessions in byobu's (name) order; an
     # agent with no pane there (its own spawn session, or none) goes in its role's section, after them.
     sessions = sorted({where[a["name"]]["session"] for a in agents if where.get(a["name"], {}).get("session")})
@@ -3958,9 +4005,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200 if ok else 500, json.dumps({"stopped": ok}).encode(), "application/json")
 
     def team(self, what):
-        """Starts the team (team/team-start.sh for those in TEAM_UP, else the whole team, then the lead is told to start
-        the day once it is up), or asks the lead to wind it down, as the owner asks before a shutdown: the lead stops
-        everyone and marks the team paused, and who was running is kept in TEAM_UP for the next start."""
+        """Starts the team (team/team-start.sh for those in the stop file, else the whole team, then the lead is told
+        to start the day once it is up), or asks the lead to wind it down, as the owner asks before a shutdown: the lead
+        marks the team paused and stops everyone, each agent running team/agent-stopped.sh, which stop_pass acts on.
+        The stop file starts empty, so it ends up holding exactly who stopped, for the next start."""
         # the stop asks whoever leads now; the start brings the delivery lead up and tells them to start the day
         lead = lead_name() if what == "stop" else next((r["name"] for r in roster() if role_of(r["role"])[0] == "lead"), None)
         if not lead:
@@ -3972,10 +4020,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, f"{lead} is not running\n".encode(), "text/plain")
             if ok:
                 os.makedirs(STATE_DIR, exist_ok=True)
-                with open(TEAM_UP, "w") as f:
-                    f.write("".join(n + "\n" for n in running))
-                compact_later(running)
-                _halting.add("team"); _team_stop["at"] = time.time()
+                open(TEAM_UP, "w").close()
+                _halting.update(["team", *running])
+                _team_stop["at"] = time.time()
             return self.send(200 if ok else 500, json.dumps({"asked": lead}).encode(), "application/json")
         if not os.path.isfile(TEAM_START_SH):
             return self.send(500, f"{TEAM_START_SH} is not there\n".encode(), "text/plain")
@@ -10678,7 +10725,6 @@ let teamAsk = null, nudgerTo = null;   // nudgerTo: the nudger state a click is 
 function teamButton() {
   const lead = S.agents.find(a => a.name === S.lead), starting = S.starting.includes("team");   // the first running of delivery lead, head of testing, head of operations, assistant
   const team = S.agents.filter(a => a.role !== "pa");   // an assistant is not on the team: it neither holds a wind-down nor makes a team running
-  const working = team.filter(a => a.live && (a.status === "busy" || a.status === "waiting" || a.compacting)).map(a => a.name);
   const stopping = !starting && S.halting.includes("team");
   const down = !starting && !stopping && !team.some(a => a.live);
   if (nudgerTo != null && nudgerTo === S.nudgerPaused) nudgerTo = null;
@@ -10688,9 +10734,9 @@ function teamButton() {
   const tips = {
     play: starting ? "Starting the team" : nudgerTo === false ? "Resuming the nudger" : on === "play" ? "The team is running"
       : on === "pause" ? "Resume the nudger"
-      : `Start ${S.teamUp ? S.teamUp.map(shown).join(", ") + ", who were running when the team stopped" : "the team: everyone with a Session on the roster"}`,
+      : `Start the team: ${S.teamUp ? S.teamUp.map(shown).join(", ") : "everyone with a Session on the roster"}`,
     pause: nudgerTo ? "Pausing the nudger" : on === "pause" ? "The nudger is paused" : on === "play" ? "Pause the nudger" : "",
-    stop: stopping ? (working.length ? `Stopping: waiting for ${working.join(", ")}` : `Stopping: waiting for ${lead?.name || "the lead"} to pause the nudger`)
+    stop: stopping ? `Stopping: waiting for ${team.filter(a => a.live).map(a => shown(a.name)).join(", ")} to stop`
       : teamAsk ? `Click again to ask ${lead.name} to wind the team down: everyone stops at a clean point and the nudger pauses`
       : on === "stop" ? "The team is stopped" : lead?.live ? `Stop the team: ask ${shown(lead.name)} to wind everyone down` : "",
   };
@@ -12742,7 +12788,7 @@ def self_test():
         t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
         t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
         t("  and finishes", wait_for(lambda: "team" not in _starting, 30, 0.2), True)   # its finally would clear what the next check reads
-        keep = {k: g[k] for k in ("start_team", "type_into", "live_sessions", "compact_when_up", "team_paused")}
+        keep = {k: g[k] for k in ("start_team", "type_into", "live_sessions", "compact_when_up", "team_paused", "panes", "lead_name")}
         ran = []
         g.update(start_team=lambda lead, names: None)
         code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")
@@ -12751,19 +12797,39 @@ def self_test():
         g.update(start_team=keep["start_team"], compact_when_up=lambda n: ran.append(n) or True, type_into=lambda *a: True)
         start_team("Lea", None)
         t("  and waits on the team coming up, not on an assistant", ["Ada" in ran, "Max" in ran], [True, False])
+        with open(TEAM_UP, "w") as f:
+            f.write("Old\t1\n")
         g.update(live_sessions=lambda: {"Lea": {"status": "idle"}, "Max": {"status": "idle"}})
         code("/api/team/stop", "POST", {"X-Team-Say": "1"}, b"")
-        t("a team stop records the team's running agents, and no assistant", names_in(TEAM_UP), {"Lea"})
-        t("  and marks no assistant to compact", sorted(os.listdir(COMPACT_ON_START)), ["Lea"])
-        os.remove(TEAM_UP); os.remove(os.path.join(COMPACT_ON_START, "Lea"))
-        g.update(team_paused=lambda: True, live_sessions=lambda: {"Max": {"status": "busy"}})
-        state()
-        t("a busy assistant does not hold a wound-down team on stopping", "team" in _halting, False)
-        _halting.add("team")
-        g.update(live_sessions=lambda: {"Ada": {"status": "busy"}})
-        state()
-        t("  and a busy agent on the team does", "team" in _halting, True)
-        _halting.discard("team"); _team_stop["at"] = 0
+        t("a team stop empties the stop file", (os.path.exists(TEAM_UP), stopped_at()), (True, {}))
+        t("  and shows the team and its running agents stopping, and no assistant", [n in _halting for n in ("team", "Lea", "Max")], [True, True, False])
+        gone, live = [], {n: {"status": "idle", "startedAt": 1_000_000} for n in ("Lea", "Ada", "Max")}
+        run = subprocess.run
+        g.update(live_sessions=lambda: {n: v for n, v in live.items() if "%" + n not in gone},
+                 panes=lambda: {n: {"pane": "%" + n} for n in live if "%" + n not in gone}, lead_name=lambda live=None: "Lea")
+        subprocess.run = lambda cmd, **k: gone.append(cmd[-1])
+        try:
+            with open(TEAM_UP, "w") as f:
+                f.write("Lea\t2000\nMax\t2000\nAda\t500\n")
+            stop_pass()
+            t("an agent stopped before its session began is not closed, nor the lead before it, nor an assistant", gone, [])
+            with open(TEAM_UP, "a") as f:
+                f.write("Ada\t2000\n")
+            live["Ada"]["status"] = "busy"
+            stop_pass()
+            t("  nor one whose turn has not ended", gone, [])
+            live["Ada"]["status"] = "idle"
+            stop_pass()
+            t("  but once it has, its pane closes", gone, ["%Ada"])
+            stop_pass()
+            t("  then the lead's, last", gone, ["%Ada", "%Lea"])
+            t("  and the team is no longer stopping", [n in _halting for n in ("team", "Lea")], [False, False])
+            t("  and the closed agents compact on their next start", sorted(os.listdir(COMPACT_ON_START)), ["Ada", "Lea"])
+            t("the next start brings back those who stopped, and the lead", team_up(), ["Lea", "Ada"])
+        finally:
+            subprocess.run = run
+        os.remove(TEAM_UP); [os.remove(os.path.join(COMPACT_ON_START, n)) for n in ("Ada", "Lea")]
+        _team_stop["at"] = 0
         g.update(keep)
         t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         os.remove(T + "/started")
@@ -13334,6 +13400,7 @@ def main():
     load_meetings()
     threading.Thread(target=meeting_deliver, daemon=True).start()
     threading.Thread(target=for_you_tell, daemon=True).start()
+    threading.Thread(target=stop_watch, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
