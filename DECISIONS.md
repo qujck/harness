@@ -680,6 +680,16 @@ scripts' contracts and the page's side.
   development day, so other projects are unchanged. A tiny window remains: `start 5` lands before dev-day.sh writes the kind,
   so a poll in those milliseconds still reads a plain `day  on`.
 
+- **2026-11-18 — Start, and a Repositories button, bring the standard branches up to date: `team/repos-update.sh`.** The
+  owner: "as part of pressing start can all the local repositories be updated?", then a button for it, and "refreshes
+  the standard branches ... master/develop/main". Each repository (those under `AGENT_REPOS_ROOT`, else this one) is
+  fetched and its develop, main and master fast-forwarded to their upstreams: one not checked out moves without
+  touching a working tree, the one checked out only when it is clean and nothing works in it. No branch is switched,
+  merged, rebased or reset, and other branches never move, so an agent's ticket branch is never disturbed.
+  `AGENT_REPOS_SKIP` leaves out repositories that are not the team's, by folder or origin account. The page's
+  Repositories item shows how many branches are behind, from a fetch-only check every 15 minutes, and a click updates
+  them.
+
 - **2026-11-18 — the team stop closes each pane on a stop file: `team/agent-stopped.sh`.** The owner: "can each agent
   write to a stop file and that be the trigger - this stopped file then becomes the start roster?" and "delivery lead
   must ensure everyone else is stopped before writing its entry". Before this, Stop asked the lead to wind down and the

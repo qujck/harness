@@ -17,7 +17,9 @@ brings the pipeline, the work queue, For you and the Day log together, by what e
 wires all three into `~/.claude/settings.json` once per box, asking first. The page's team button starts the team
 through `team-start.sh`, a placeholder to wire up on the workstation that runs the team. Its wind-down ends with
 each agent running `agent-stopped.sh`, which puts it in the stop file: the page closes its pane once that turn ends,
-the lead's last, and the next start brings back those in the file.
+the lead's last, and the next start brings back those in the file. Before the team starts, and on the page's
+Repositories button, `repos-update.sh` fast-forwards develop, main and master of the local repositories (`AGENT_REPOS_ROOT`,
+else this one) where that is safe; the button shows how many are behind, checked every 15 minutes.
 
 **Needs.** The process section (`scripts/`: the roster, `harness.env`, the ledger's claims board), tmux, and a
 Claude subscription whose usage the status line can read. Nothing in `scripts/` depends on this section.
