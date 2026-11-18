@@ -16,11 +16,12 @@
                              answered with option n: its digit, or for a typed option the text, then Enter
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
-  POST /api/team/start       team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
+  POST /api/team/start       team/repos-update.sh (develop, main and master of the local repositories fast-forwarded where they safely can be), then team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
   POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
   POST /api/standup/summary  {"text": "...", "fresh": true or not} the Work pane's stand-up summary (see "the stand-up summary")
                              delivery lead is told the team is back up to start the day
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
+  POST /api/repos/update     team/repos-update.sh on its own (the Repositories button); 409 while one is running
   POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
   POST /api/agent/NAME/start team/team-start.sh --only NAME, for an agent outside the developers and testers,
                              compacted once it is up if the page stopped it
@@ -1773,6 +1774,10 @@ AGENT_STOP = ("Finish what you're on at a clean point, bring your durable record
               "the owner is stopping you from the team page, and your pane closes once you are idle.")
 _starting, _halting = set(), set()   # "team" or agent names being started; "team" or agent names being stopped
 _team_stop = {"at": 0}   # when the page last asked the lead to wind the team down
+# repos-update for the page: whether an update runs, the last update's summary line and when it finished, and the
+# standard branches behind their remote as last seen (behind: [{repo, branch, n, why}], checked: when)
+_repos = {"running": False, "last": "", "at": 0, "behind": [], "checked": 0}
+_repos_lock = threading.Lock()
 COMPACT_NOW = ("/compact The owner asked for this compaction from the team page. Keep who you are and your role, "
                "what you are doing and what comes next.")
 _compacting = set()   # agents the page is compacting
@@ -1893,11 +1898,81 @@ def team_up():
     return [r["name"] for r in team_roster() if r["name"] not in stopped or lead(r)]
 
 
+REPOS_UPDATE = os.path.join(ROOT, "team/repos-update.sh")
+REPOS_UPDATE_LOG = os.path.join(STATE_DIR, "repos-update.log")
+
+
+def last_repos_update():
+    """The last update's summary from its log ("2026-11-18 11:01:37 0 branches updated, ..."), so the page shows it
+    after a restart: the _repos fields last and at, or {} for none."""
+    try:
+        with open(REPOS_UPDATE_LOG) as f:
+            tail = f.readlines()[-200:]
+    except OSError:
+        return {}
+    for ln in reversed(tail):
+        m = re.match(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) (\d+ branches updated, .*)", ln.strip())
+        if m:
+            return {"last": m.group(2), "at": time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))}
+    return {}
+
+
+_repos.update(last_repos_update())
+
+
+def behind_branches(out):
+    """The branches team/repos-update.sh's lines show behind their remote: "would update api develop: 3 behind
+    origin/develop" (a check, which moves nothing) or "left web main: checked out with 1 uncommitted changes, 26
+    behind", each as {repo, branch, n, why}, why being what keeps it there ("" for one an update would move), most
+    behind first."""
+    rows = []
+    for ln in out.splitlines():
+        m = re.match(r"(would update|left) (\S+) (\S+): (?:(.*), )?(\d+) behind", ln)
+        if m:
+            rows.append({"repo": m.group(2), "branch": m.group(3), "n": int(m.group(5)),
+                         "why": m.group(4) or "" if m.group(1) == "left" else ""})
+    return sorted(rows, key=lambda r: -r["n"])
+
+
+def update_repos(check=False):
+    """team/repos-update.sh: develop, main and master of the local repositories fast-forwarded where they safely can be,
+    before the team starts and on the Repositories button; with check, only fetched and counted (--dry-run), as
+    repos_watch does to show how far behind they are. One run at a time: a second caller waits for the first. The
+    branches still behind go to _repos for the page, and an update's summary line too, which it returns ("" if it
+    could not run)."""
+    with _repos_lock:
+        if not check:
+            _repos["running"] = True
+            _state["at"] = 0   # the page sees the change at its next poll, not the cached state's
+        try:
+            p = subprocess.run(["bash", REPOS_UPDATE, *(["--dry-run"] if check else [])], stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=240)
+            out = p.stdout.strip() if p.returncode == 0 else ""
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        line = out.splitlines()[-1] if out else ""
+        if out:
+            _repos.update(behind=behind_branches(out), checked=time.time())
+        if not check:
+            _repos.update(running=False, last=line or "the update could not run", at=time.time())
+        _state["at"] = 0
+        return line
+
+
+def repos_watch():
+    """How far behind the standard branches are, checked at the start and every 15 minutes (update_repos with check)."""
+    while True:
+        update_repos(check=True)
+        time.sleep(900)
+
+
 def start_team(lead, names):
-    """team/team-start.sh for the named agents (the whole team for None), then, once the lead is up and ready
-    for a message, the lead is told to start the day. The stop file is used up."""
+    """The local repositories brought up to date (update_repos), then team/team-start.sh for the named agents (the
+    whole team for None), then, once the lead is up and ready for a message, the lead is told to start the day, with
+    what the update did. The stop file is used up."""
     started = names or [r["name"] for r in team_roster()]
     try:
+        repos = update_repos()
         restore(*[a for n in names for a in ("--only", n)]) if names else restore()
         try:
             os.remove(TEAM_UP)
@@ -1907,7 +1982,7 @@ def start_team(lead, names):
             if n != lead:
                 threading.Thread(target=compact_when_up, args=(n,), daemon=True).start()
         if compact_when_up(lead):
-            type_into(lead, TEAM_START)
+            type_into(lead, TEAM_START + (f" Repositories updated first: {repos}." if repos else ""))
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
@@ -3587,7 +3662,7 @@ def state():
         "tabs": tabs,
         "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
-        "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(),
+        "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
         "prRepo": os.environ.get("AGENTS_PR_REPO", ""),
     }
@@ -3877,9 +3952,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         m = re.fullmatch(r"/api/agent/([A-Za-z][A-Za-z0-9_-]*)/(say|answer|stop|start|halt|compact)", self.path)
         team = re.fullmatch(r"/api/team/(start|stop)", self.path)
+        repos = self.path == "/api/repos/update"
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
-        if not m and not team and not nudger and not meet and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
+        if not m and not team and not repos and not nudger and not meet and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -3887,6 +3963,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, b"only the team page can send\n", "text/plain")
         if team:
             return self.team(team.group(1))
+        if repos:
+            if _repos["running"]:
+                return self.send(409, b"the repositories are already being updated\n", "text/plain")
+            _repos["running"] = True   # seen by the page at once; update_repos sets it again under its lock
+            _state["at"] = 0
+            threading.Thread(target=update_repos, daemon=True).start()
+            return self.send(202, b'{"updating": true}', "application/json")
         if meet:
             return self.meeting(meet.group(1), meet.group(2))
         if nudger:
@@ -4801,6 +4884,10 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #settings{display:inline-flex;align-items:center;justify-content:center}
 #settings svg{flex:none;width:calc(var(--t-xl)*var(--fs,1));height:calc(var(--t-xl)*var(--fs,1))}
 #teamctl{display:flex}
+#repos{display:flex}
+#repos .fbtn{gap:4px;height:var(--ctl);border-radius:999px;color:var(--text)}
+#repos .fbtn.going{color:var(--bg);padding:0 4px}
+#repos .rpn{font:600 calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--amber)}
 #teamctl{gap:6px}
 #teamctl .fbtn{gap:6px}
 #teamctl .fbtn svg{flex:none;width:16px;height:16px;stroke-width:1.7}
@@ -4809,8 +4896,8 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 #pagelanes .fbtn,#pagemode .fbtn,#help,#settings{height:var(--ctl);padding:0 12px;border:1px solid var(--line2);border-radius:999px;background:var(--soft);font-size:calc(var(--t-m)*var(--fs,1))}
 #teamctl .fbtn{height:var(--ctl);padding:0 9px;white-space:nowrap;border:1.5px solid var(--text);border-radius:999px;background:none;color:var(--text);font-size:calc(var(--t-m)*var(--fs,1))}
 #teamctl .fbtn:hover{background:var(--on)}
-#teamctl .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
-#teamctl .fbtn.going{animation:switching 1.4s ease-in-out infinite}
+:is(#teamctl,#repos) .fbtn:is(.lit,.going){background:var(--c);border-color:var(--c);color:var(--bg)}
+:is(#teamctl,#repos) .fbtn.going{animation:switching 1.4s ease-in-out infinite}
 #teamctl .fbtn.warn{color:var(--red);border-color:var(--red);padding:0 12px}
 #teamctl .fbtn.idle{cursor:default}
 #pagemode .fbtn{color:var(--text)}
@@ -5991,6 +6078,7 @@ html.phoneoff #phoneback{display:block}
   <div class="bi" data-item="favs"><div class="bench favs" id="favs"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi" data-item="active"><div class="bench favs" id="active"></div><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="controls"><span id="teamctl"></span><i class="bx" title="Take this out of the bar">✕</i></div>
+  <div class="bi tight" data-item="repos"><span id="repos"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lanes"><span id="pagelanes"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="view"><span id="pagemode"></span><i class="bx" title="Take this out of the bar">✕</i></div>
   <div class="bi tight" data-item="lock"><b class="fbtn" id="lock"></b></div>
@@ -6485,6 +6573,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   start: '<path d="M5 3.2v9.6L12.8 8z"/>',
   stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>',
   pause: '<path d="M5.5 3v10M10.5 3v10"/>',
+  refresh: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3"/>',
   grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
   tabs: '<path d="M2 6.5h12v7H2zM2 6.5V3h5.5v3.5"/>',
   custom: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M7 2.5v11M7 8h7"/>',
@@ -6843,7 +6932,7 @@ function draw() {
   menuButton($("#pagemode .viewbtn"), rested => viewMenu($("#pagemode .viewbtn"), rested));
   $("#lock").innerHTML = padlock(pageLocked()); $("#lock").title = pageLocked() ? "Locked: click to change the page" : "Click to lock the page";
   $("#pagelanes").innerHTML = laneSeg(""); laneClicks($("#pagelanes"));
-  teamButton();
+  teamButton(); reposButton();
   const typed = {}, act = document.activeElement, focus = act && act.matches("#main .say") ? [act.dataset.name, act.selectionStart, act.selectionEnd, act.selectionDirection] : null;
   document.querySelectorAll("#main .say").forEach(i => { if (i.value) typed[i.dataset.name] = i.value; });
   // A row of tabs, one per agent; the picked one is remembered under "tab:" + key.
@@ -7088,7 +7177,7 @@ $("#lock").onclick = () => { localStorage.setItem("locked", pageLocked() ? "0" :
 // and anything taken out put back. A shortcut for an item out of the bars still works; a menu it opens opens from the logo.
 // Week, Session, Team and Disk are the harness's own plug-ins (team/bar), drawn as any plug-in is, and in the bar by default.
 const BAR_ITEMS = {brand: "Logo", week: "Week", session: "Session", team: "Team", disk: "Disk", tally: "Agents", waiting: "Waiting", bench: "Bench", favs: "Favourites", active: "Active",
-  controls: "Start and stop", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help", search: "Search"};
+  controls: "Start and stop", repos: "Repositories", lanes: "Lanes", view: "Views", viewbar: "Views toolbar", lock: "Lock", theme: "Theme", settings: "Settings", help: "Help", search: "Search"};
 // Spacers (owner, 2026-11-01, to right-align the footer's items) take the room left, so the items after one sit to
 // the right; two, to centre a group. Dividers are a thin upright line between the items either side, taking no room
 // of their own. Each is its own item, keyed by its kind and a number ("gap-3", "div-k2x"; "gap1" from before), made by
@@ -7137,6 +7226,7 @@ const ICON_ACTIVE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" 
 // Each item's icon in Customise bars: a built-in's own, a plug-in's icon (BAR_ICON), else a chart.
 const ADD_ICON = Object.fromEntries(Object.entries({
   session: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
+  repos: '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3"/>',
   bench: '<path d="M4 3.5h8v3.5M2 7h12M2 10.5h12M3.5 7v6M12.5 7v6"/>',
   viewbar: '<rect x="1.5" y="5" width="3.5" height="6" rx="1"/><rect x="6.25" y="5" width="3.5" height="6" rx="1"/><rect x="11" y="5" width="3.5" height="6" rx="1"/>',
   theme: '<circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor"/>',
@@ -7292,10 +7382,10 @@ document.addEventListener("click", e => {
   e.stopPropagation(); barSheet();
 });
 // Each item's group in the sheet's Add, and what it shows: the words of its tooltip where it has one that says so
-const BAR_GROUPS = [["Team controls", ["controls"]], ["Usage", ["week", "weekbar", "session", "team", "tokbar", "day", "dayfull"]],
+const BAR_GROUPS = [["Team controls", ["controls", "repos"]], ["Usage", ["week", "weekbar", "session", "team", "tokbar", "day", "dayfull"]],
   ["Machine", ["disk", "diskbar", "cpubar", "membar", "netbar", "gpubar", "heatbar", "fanbar"]], ["Agents", ["tally", "waiting", "bench", "favs", "active"]],
   ["Layout", ["view", "viewbar", "lanes", "search", "theme", "settings", "help", "new:div", "new:gap"]]];
-const BAR_TIP = {brand: "The logo: it flashes while an agent waits, and a click opens the one waiting longest", lock: "Locks and unlocks the panes and the bars",
+const BAR_TIP = {repos: "How many local develop, main and master branches are behind their remote; a click updates them", brand: "The logo: it flashes while an agent waits, and a click opens the one waiting longest", lock: "Locks and unlocks the panes and the bars",
   week: "The account's week against the budget (agents-budget)", weekbar: "How much of the account's weekly allowance is used; the mark is where the plan has it by now",
   session: "The account's five-hour session", team: "Tokens a minute, every running agent together", tokbar: "The tokens a minute every running agent is using together, over the last while",
   day: "How far through the working week it is", dayfull: "How far through the working week it is, over a full-width meter",
@@ -10816,6 +10906,28 @@ function teamButton() {
     clearTimeout(teamAsk); teamAsk = null; post("/api/team/stop"); teamButton();
   };
 }
+// The Repositories item: how many of the local repositories' develop, main and master are behind their remote, as the
+// page last checked (every 15 minutes), the tooltip naming them; a click brings them up to date (repos-update, as
+// Start does), the button fading in and out while it runs.
+const reposAt = t => new Date(t * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"});
+function reposTip(rp) {
+  const rows = rp.behind || [];
+  return rp.running ? "Updating develop, main and master in every local repository" : [
+    !rp.checked ? "Not checked yet" : rows.length ? `${rows.length} branch${rows.length === 1 ? "" : "es"} behind their remote (checked ${reposAt(rp.checked)}):`
+      : `develop, main and master are up to date everywhere (checked ${reposAt(rp.checked)})`,
+    ...rows.map(r => `  ${r.repo} ${r.branch}: ${r.n} behind${r.why ? ` (${r.why.replace(/^checked out (with|and) /, "")})` : ""}`),
+    "", "Click to update develop, main and master in every local repository",
+    rp.at ? `Last update, ${reposAt(rp.at)}: ${rp.last}` : "",
+  ].filter((l, i, a) => l || a[i + 1]).join("\n");
+}
+function reposButton() {
+  const rp = S.repos || {}, n = (rp.behind || []).length, tip = reposTip(rp), key = [rp.running, n, tip].join("|");
+  if ($("#repos").dataset.text === key) return;
+  $("#repos").innerHTML = `<b class="fbtn${rp.running ? " going" : ""}" style="--c:var(--cyan)" title="${esc(tip)}">${MENU_ICON.refresh}` +
+    `${n && !rp.running ? `<span class="rpn">${n}</span>` : ""}</b>`;
+  $("#repos").dataset.text = key;
+  $("#repos .fbtn").onclick = () => { if (rp.running) return; S.repos = {...rp, running: true}; reposButton(); post("/api/repos/update"); };
+}
 // A filter button's: each lane, ticked while it is shown; a click shows or hides it and leaves the menu open. It opens
 // after a moment's rest on the button, going again when the pointer has left both, or at once on a click, staying
 // until a click elsewhere; a click on the button while it shows keeps a rested-on menu, else closes it.
@@ -11663,6 +11775,7 @@ function phoneMenu(again, slide) {
         : `<button class="big ${phStopAsk ? "sure" : "warn"}" data-go="stop"${lead?.live ? "" : " disabled"}>${MENU_ICON.stop}${phStopAsk ? "Confirm" : "Stop…"}</button>`) +
     `</div><div class="note">${down ? `Starts ${S.teamUp ? esc(S.teamUp.map(shown).join(", ")) : "everyone with a session on the roster"}.` : stopping ? "Waiting for everyone to reach a clean point." : `Pause stops reminding idle agents that have work waiting. Stop asks ${esc(shown(lead?.name || "the lead"))} to wind everyone down at a clean point.`}</div>` +
     `<div class="rows">` +
+      `<button class="r" data-go="repos"${S.repos?.running ? " disabled" : ""}>${MENU_ICON.refresh}<span>${S.repos?.running ? "Updating repositories…" : "Update repositories"}<small>${esc(S.repos?.behind?.length ? S.repos.behind.map(r => `${r.repo} ${r.branch} ${r.n}`).join(", ") + " behind" : S.repos?.checked ? "Everything up to date" : "develop, main and master in every local repository")}</small></span></button>` +
       `<button class="r srow" data-go="search">${MENU_ICON.search}<span>Search conversations and the Day log</span></button>` +
       (phGauges().length ? `<label class="r" style="cursor:default"><span>Header gauge</span><select class="gsel">${phGauges().map(x => `<option value="${esc(x.key)}"${x.key === phGauge()?.key ? " selected" : ""}>${esc(phGaugeName(x))}</option>`).join("")}</select></label>` : "") +
       `<div class="r" style="cursor:default"><span>Order agents</span><div class="seg2" style="flex:none"><button data-go="by-state" class="${phOrder() === "state" ? "on" : ""}">Status</button><button data-go="by-role" class="${phOrder() === "role" ? "on" : ""}">Role</button></div></div>` +
@@ -11679,6 +11792,7 @@ function phoneMenu(again, slide) {
   sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const go = b.dataset.go;
     if (go === "start") { post("/api/team/start"); phoneMenuOff(); }
+    else if (go === "repos") { S.repos = {...S.repos, running: true}; post("/api/repos/update"); phoneMenu(); }
     else if (go === "open-lead") { phoneMenuOff(); openDetail(lead.name); }
     else if (go === "stop") {
       if (!phStopAsk) { phStopAsk = setTimeout(() => { phStopAsk = null; if ($("#phsheet")?.classList.contains("on")) phoneMenu(); }, 4000); return phoneMenu(); }
@@ -12159,7 +12273,7 @@ def self_test():
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
                  ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
                  TEAM_UP=T + "/state/team-up", STOPPED=T + "/state/stopped", COMPACT_ON_START=T + "/state/compact-on-start", TEAM_START_LOG=T + "/state/team-start.log",
-                 TEAM_START_SH=T + "/bin/team-start", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
+                 TEAM_START_SH=T + "/bin/team-start", REPOS_UPDATE=T + "/bin/repos-update", REPOS_UPDATE_LOG=T + "/state/repos-update.log", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
         with open(T + "/roster.json", "w") as f:
             json.dump({"agents": [
                 {"name": "Lea", "email": "lea@proj.local", "role": "delivery-lead", "status": "active"},
@@ -12786,7 +12900,13 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("the Repositories count: the branches behind, most first, with what keeps one there",
+          behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
+                          "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"
+                          "2 branches to update, 1 up to date, 2 left as they are"),
+          [{"repo": "web", "branch": "main", "n": 26, "why": "checked out with 1 uncommitted changes"},
+           {"repo": "api", "branch": "develop", "n": 3, "why": ""}])
         t("  and the team's transcript", [m["from"] for m in json.loads(code("/api/team")[1])], ["Ada", "Old"])
         say = {"Content-Type": "application/json"}
         t("a message without the page's header is refused", code("/api/agent/Ada/say", "POST", say, b'{"text":"hi"}')[0], 403)
@@ -12827,6 +12947,9 @@ def self_test():
         t("a stop for an agent that is not working is refused", code("/api/agent/Lea/stop", "POST", {"X-Team-Say": "1"}, b"")[0], 409)
         with open(T + "/bin/team-start", "w") as f:
             f.write(f'echo "$*" >> {T}/started\n')
+        with open(T + "/bin/repos-update", "w") as f:
+            f.write(f'[ -e {T}/started ] && echo after >> {T}/repos-ran || echo before >> {T}/repos-ran\n'
+                    'echo "would update api develop: 3 behind origin/develop"; echo "1 branches to update, 0 up to date, 0 left as they are"\n')
         os.makedirs(T + "/state", exist_ok=True)
         with open(T + "/state/team-up", "w") as f:
             f.write("Ada\nGone\nMax\n")
@@ -12854,6 +12977,9 @@ def self_test():
         t("a team start without the page's header is refused", code("/api/team/start", "POST", {}, b"")[0], 403)
         t("a team start is taken", code("/api/team/start", "POST", {"X-Team-Say": "1"}, b"")[0], 202)
         wait_for(lambda: os.path.exists(T + "/started"), 15, 0.2)
+        t("  and brings the repositories up to date before it", open(T + "/repos-ran").read().split()[:1] if os.path.exists(T + "/repos-ran") else [], ["before"])
+        t("  which the Repositories button then shows", (state()["repos"]["last"], state()["repos"]["behind"][0]["n"]),
+          ("1 branches to update, 0 up to date, 0 left as they are", 3))
         t("  and runs team-start.sh for those recorded", open(T + "/started").read().strip() if os.path.exists(T + "/started") else "", "--only Lea --only Ada")
         t("  and uses the record up", wait_for(lambda: not os.path.exists(T + "/state/team-up"), 5, 0.2), True)
         t("  and finishes", wait_for(lambda: "team" not in _starting, 30, 0.2), True)   # its finally would clear what the next check reads
@@ -13470,6 +13596,7 @@ def main():
     threading.Thread(target=meeting_deliver, daemon=True).start()
     threading.Thread(target=for_you_tell, daemon=True).start()
     threading.Thread(target=stop_watch, daemon=True).start()
+    threading.Thread(target=repos_watch, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
