@@ -5563,7 +5563,6 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
   background:none;color:var(--mute);cursor:pointer}   /* inside the box: the row's gap and its own width pulled back over the box's end */
 .send::before{content:"";position:absolute;inset:0;margin:auto;width:60%;height:60%;transform:translateX(-3px) rotate(45deg);background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2.5 11.2 21 3.5l-7.7 18.5-2.6-7.9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M10.7 14.1 21 3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}   /* a paper plane (owner, 2026-11-01) */
 .send:hover{color:var(--text)}
-#detail .say{padding-right:42px}
 #detail .send{width:31px;height:31px;margin:6px 4px 0 calc(-6px - 35px)}
 #detail .sayrow{margin:0 14px 14px}
 .mini .mtop .mstat{flex:0 1 auto;min-width:0;font:calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--mute);overflow:hidden;text-overflow:ellipsis}
@@ -5584,7 +5583,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .att .file{height:48px;display:inline-block;max-width:220px;padding:0 30px 0 10px;border-radius:var(--r-s);border:1px solid var(--line2);
   font:calc(var(--t-m)*var(--fs,1))/46px var(--mono);color:var(--mute);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}   /* a file that is not an image: its name */
 .att .file b{line-height:normal}
-#detail .say{padding:9px 12px;font-size:calc(var(--t-l)*var(--fs,1)*var(--boxfs,1));max-height:35vh}
+#detail .say{padding:9px 42px 9px 12px;font-size:calc(var(--t-l)*var(--fs,1)*var(--boxfs,1));max-height:35vh}
 /* where a card or the agent's own view is tall enough, its box starts three lines tall */
 .card,#detail .left{container:sayroom/size}
 @container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
