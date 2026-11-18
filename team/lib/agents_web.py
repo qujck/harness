@@ -5901,6 +5901,7 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 :is(#phone,.ppdesk,.wk) .ph-por.pp{width:28px;height:28px}
 :is(#phone,.ppdesk,.wk) .ph-por.pp > .fr{border-radius:50%;border-width:2px}
 :is(#phone,.ppdesk,.wk) .pp-own svg{width:62%;height:62%}
+:is(#phone,.ppdesk,.wk) .pp-own{box-sizing:border-box;border:2.5px solid var(--ownerbg)}   /* the owner's frame in the colour of the owner's own messages */
 :is(#phone,.ppdesk,.wk) .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);color:var(--mute);font:650 11px var(--sans)}
 :is(#phone,.ppdesk,.wk) .pp-tag{flex:none;padding:2px 8px;border-radius:10px;font-size:.85em;font-weight:650;background:var(--track);color:var(--mute);white-space:nowrap}
 :is(#phone,.ppdesk,.wk) .pp-tag.amber{background:var(--pwbg);color:var(--pw)}
@@ -8109,7 +8110,8 @@ const wkHead = (name, n, tone = "", extra = "") => `<div class="wkhead"><b>${esc
 const wkOpen = n => ppAgent(n) ? ` wkopen" data-wkagent="${esc(n)}" data-menu-name="${esc(n)}" title="Open ${esc(shown(n))}${ppBenched(n) ? " (benched)" : ""}` : "";
 // several people ("Kate, Tim", "Kate & Tim") are a face each, side by side
 const wkNames = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
-const wkFace1 = (n, cls = "") => `<span class="wkface${cls}${wkOpen(n) || `" title="${esc(shown(n))}`}">${ppFace(n)}<span class="wkname">${esc(shown(n))}</span></span>`;
+const wkFace1 = (n, cls = "") => { const nm = ppIsOwner(n) ? S.owner || "Owner" : shown(n);
+  return `<span class="wkface${cls}${wkOpen(n) || `" title="${esc(nm)}`}">${ppFace(n)}<span class="wkname">${esc(nm)}</span></span>`; };
 const wkFace = n => { const all = wkNames(n); return all.length > 1 ? `<span class="wkfaces">${all.map(x => wkFace1(x)).join("")}</span>` : all.length ? wkFace1(all[0]) : ""; };
 // a ticket's faces, all one size: those who supported it, first seen first (faded once off it), then whose it is, rightmost
 const wkTicketFaces = (d, key, who) => { const {own, sup} = wkOn(d, key, who);
