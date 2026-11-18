@@ -1566,6 +1566,8 @@ def perf_json():
 #       history         [{"t" (epoch seconds), "who", "title", "id", "ref" ("api #12"), "href"}] every merge kept, newest
 #                       first, for the Work pane's Done tab and its stand-up; without it Work uses today's merged
 #       warnings        [{"text", "href"}], each a row above the merges and counted in the tile's footer
+#       people          {"PROJ-12": [{"name", "now"}]}: everyone seen on each ticket, first seen first, "now" while it
+#                       is on it; the Work pane shows them before whose the ticket is, and filters by them
 #       updated, last   when it was read ("HH:MMZ"), and the last one done ("merge 11:52Z", shown after "Last")
 # With a meter or a sparkline the label and value share a line ("Week: 70%") above it; without, the label is over
 # the value. A script that fails, or prints nothing, shows "?" and says why when the pointer rests on it.
@@ -4551,6 +4553,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkrow .pp-mid .id a{color:inherit;text-decoration:none}
 .wkrow .pp-mid .id a:hover{text-decoration:underline}
 :is(#phone,.wk) .wkrow .pp-tag{padding:0 7px;font-size:.8em;font-family:var(--sans)}
+:is(#phone,.wk) .wkrow .pp-mid{min-width:0}
+#phone .wkrow .pp-tag{max-width:100%;white-space:normal}   /* a long tag wraps rather than run under a ticket's faces */
 .wkrow .note,.wkrow .ans{color:var(--mute);margin-left:4px}
 .wkrow > time{flex:none;width:3.2em;color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
 .wkface{flex:none;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:.9em;white-space:nowrap}
@@ -4587,6 +4591,14 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
   :is(#phone,.wk).roomy .workq .fix{padding:0 6px 6px 44px}
 }
 .wkfaces{flex:none;display:flex;align-items:center;gap:4px}
+.wkface.sup > .wkname{display:none}   /* a supporting agent's face alone, its name on hover; whose it is keeps its name */
+.wkface.sup.gone{opacity:.45}   /* one no longer on the ticket */
+.wk:not(.roomy) .wkface.sup{display:none}   /* Compact shows whose a ticket is alone */
+/* the agents in the Work pane's tickets, a face each, along its top: a click shows only that agent's, a right-click its menu */
+.wkpeople{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px 6px}
+.wkpeople .face{cursor:pointer}
+.wkpeople.on .face:not(.sel){opacity:.35}
+.wkpeople .face.sel{outline:2px solid var(--c);outline-offset:2px}
 /* the stand-up tab's people, as faces like the other tabs, one width so the times line up */
 .wk .workq .wqwho > .wkface{width:9em;overflow:hidden}
 /* a face whose agent is on the page opens that agent */
@@ -7563,7 +7575,7 @@ const dayLogWhW = names => {
 // An entry's time, its day being the heading it sits under; who did it, from the log, or the releaser a release names,
 // or else the system.
 const dayLogTime = at => new Date(at * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
-const dayLogBy = r => r.by || r.text?.match(/^Released by ([A-Z][\w-]*)/)?.[1] || "System";
+const dayLogBy = r => r.by || r.text?.match(/^Released by ([A-Z][\w-]*)/)?.[1] || "?";   // ? is a line that names nobody
 // A Day log's own filters beside its role chips: the kinds of entry (n.kinds, every kind while none is picked) as chips
 // with their icons, and a ticket (n.ticket), matched in its link's name or its words.
 const dayLogFilters = n => { const on = Array.isArray(n.kinds) ? n.kinds : [], kinds = [...new Set((dayLog?.rows || []).filter(r => r.type !== "day").map(r => r.kind))];
@@ -7852,9 +7864,9 @@ function wqRow(i, done, owner, faces) {
 }
 // Named lists of work queue items, each folding under its heading (kept under `fold` + its name), with every row's owner
 // badge the same width.
-function wqLists(lists, fold, done, owner, extra = () => "", faces = false) {
+function wqLists(lists, fold, done, owner, extra = () => "", faces = false, shutFirst = []) {
   const list = (name, items) => {
-    const k = fold + name, shut = wqFolded().includes(k);
+    const k = fold + name, shut = wqFolded().includes(k) !== shutFirst.includes(name);   // a shutFirst section starts folded
     return `<div class="sect${shut ? " shut" : ""}"><div class="day">${name}<span class="n">${items.length}</span>${extra(name, items)}` +
       `<b class="wqfold" data-sect="${esc(k)}" title="${shut ? "Show this section" : "Hide this section"}">${foldIcon(shut)}</b></div>` +
       (shut ? "" : items.length ? items.map(i => wqRow(i, done, owner, faces)).join("") : `<div class="row none">Nothing here</div>`) + `</div>`;
@@ -7918,14 +7930,45 @@ const wkLink = (href, text) => href ? `<a href="${esc(href)}" target="_blank" re
 const wkJira = key => { const fy = [...(S.forYou?.open || []), ...(S.forYou?.cleared || [])].find(i => i.ticket === key && i.url);
   return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url) || ""; };
 // Everything known, by ticket: the pipeline's row, its questions, its queue entry, its merges and its log entries.
-function wkData() {
+function wkData(all) {
   const p = ppData() || {}, fy = S.forYou || {open: [], cleared: []}, q = workQueue || {}, log = (dayLog?.rows || []).filter(r => r.type === "entry");
   const keyOf = s => (String(s || "").match(WK_KEY) || [])[0] || "";
   const queue = ["now", "next", "later", "parked", "done"].flatMap(k => (q[k] || []).map(i => ({...i, list: k})));
   // every merge the plug-in keeps, else today's merges with their time of day
   const today = new Date(), at = hm => { const [h, m] = String(hm || "").split(":").map(Number); return new Date(today.getFullYear(), today.getMonth(), today.getDate(), h || 0, m || 0).getTime() / 1000; };
   const history = (p.history || (p.merged || []).map(m => ({t: at(m.at), who: m.who, title: m.title, id: m.id, ref: m.id, href: m.href}))).map(h => ({...h, key: h.id || keyOf(h.title)}));
-  return {p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []};
+  return wkOnly({p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []}, all || wkCompact() ? "" : wkGet("agent", ""));
+}
+// Everyone on a ticket: whose it is (`who`) and those who supported it, from the pipeline's "people" (each agent seen on
+// it: its ticket in hand, an approval), first seen first, each with whether it is on it now
+const wkOn = (d, key, who) => { const own = wkNames(who);
+  return {own, sup: ((d.p.people || {})[key] || []).filter(x => !own.includes(x.name))}; };
+const wkIn = (d, key, who, a) => wkNames(who).includes(a) || ((d.p.people || {})[key] || []).some(x => x.name === a);
+// The data narrowed to one agent's work (the strip of agents along the pane's top): the tickets it is on or supported,
+// its questions, its log entries; with no agent, all of it
+function wkOnly(d, a) {
+  if (!a) return d;
+  const on = (key, who) => wkIn(d, key, who, a);
+  const tickets = d.tickets.filter(t => on(t.id || t.ref, t.who)), ids = tickets.map(t => t.id || t.ref);
+  const q = Object.fromEntries(Object.entries(d.q).map(([k, v]) => [k, k !== "standups" && Array.isArray(v) ? v.filter(i => on(i.key, i.who)) : v]));
+  const fy = {...d.fy, open: d.fy.open.filter(i => i.from === a || on(i.ticket, "")), cleared: d.fy.cleared.filter(i => i.from === a || on(i.ticket, ""))};
+  return {...d, q, fy, tickets, p: {...d.p, tickets, waiting: (d.p.waiting || []).filter(w => w.who === a || ids.some(k => w.text.endsWith(" " + k)))},
+    log: d.log.filter(r => dayLogBy(r) === a || on(d.keyOf(r.label) || d.keyOf(r.text), "")),
+    queue: d.queue.filter(i => on(i.key, i.who)),
+    history: d.history.filter(h => on(h.key, h.who || d.queue.find(i => i.key && i.key === h.key)?.who))};
+}
+// The agents along the pane's top: every agent on the page or benched that the Work data names, and the one chosen
+// even if it no longer appears, in a fixed order: by role (ROLE_ORDER), then by name, running or not. Compact has no strip, and shows everyone's work.
+function wkPeopleStrip() {
+  if (wkCompact()) return "";
+  const a = wkGet("agent", ""), d = wkData(true), named = new Set();
+  const add = (key, who) => { wkNames(who).forEach(n => named.add(n)); ((d.p.people || {})[key] || []).forEach(x => named.add(x.name)); };
+  d.tickets.forEach(t => add(t.id || t.ref, t.who)); d.queue.forEach(i => add(i.key, i.who)); d.history.forEach(h => add(h.key, h.who));
+  d.fy.open.forEach(i => named.add(i.from));
+  const them = byRole([...S.agents, ...S.bench].filter(x => x.role !== "pa" && (named.has(x.name) || x.name === a)));
+  if (!them.length) return "";
+  return `<div class="wkpeople${a ? " on" : ""}">${them.map(x => face(x, `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a
+    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work. Right-click for ${shown(x.name)}'s menu`)}"`, x.name === a ? " sel" : "")).join("")}</div>`;
 }
 function wkDetail(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
@@ -7934,6 +7977,8 @@ function wkDetail(d, key) {
   const line = (label, body) => `<div class="wkd"><b>${label}</b><span>${body}</span></div>`;
   const out = [
     t && t.ref && line("PRs", (t.tags || []).filter(g => !/^waits on /.test(g.text)).map(g => `<span class="pp-tag ${esc(g.tone || "")}">${esc(g.text)}</span>`).join(" ")),
+    (wkOn(d, key, "").sup.length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>its own</i>`)
+      .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
     ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
@@ -7960,24 +8005,27 @@ const wkHead = (name, n, tone = "", extra = "") => `<div class="wkhead"><b>${esc
 const wkOpen = n => ppAgent(n) ? ` wkopen" data-wkagent="${esc(n)}" data-menu-name="${esc(n)}" title="Open ${esc(shown(n))}` : "";
 // several people ("Kate, Tim", "Kate & Tim") are a face each, side by side
 const wkNames = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
-const wkFace1 = n => `<span class="wkface${wkOpen(n) || `" title="${esc(shown(n))}`}">${ppFace(n)}<span class="wkname">${esc(shown(n))}</span></span>`;
-const wkFace = n => { const all = wkNames(n); return all.length > 1 ? `<span class="wkfaces">${all.map(wkFace1).join("")}</span>` : all.length ? wkFace1(all[0]) : ""; };
+const wkFace1 = (n, cls = "") => `<span class="wkface${cls}${wkOpen(n) || `" title="${esc(shown(n))}`}">${ppFace(n)}<span class="wkname">${esc(shown(n))}</span></span>`;
+const wkFace = n => { const all = wkNames(n); return all.length > 1 ? `<span class="wkfaces">${all.map(x => wkFace1(x)).join("")}</span>` : all.length ? wkFace1(all[0]) : ""; };
+// a ticket's faces, all one size: those who supported it, first seen first (faded once off it), then whose it is, rightmost
+const wkTicketFaces = (d, key, who) => { const {own, sup} = wkOn(d, key, who);
+  return sup.length ? `<span class="wkfaces">${sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}</span>` : wkFace(who); };
 document.addEventListener("click", e => { const f = e.target.closest(".wk [data-wkagent]");
   if (f) { e.stopPropagation(); e.preventDefault(); openDetail(f.dataset.wkagent); } }, true);
 // and a right-click on it gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
-document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent]");
-  if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent, true, false); } });
+document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent], .wkpeople [data-wkfilter]");
+  if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false); } });
 const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="id">${id}${sub ? ` <span>· ${esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
-  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkFace(t.who));
+  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkTicketFaces(d, t.id || t.ref, t.who));
 // a question is read in full, so its text wraps
 const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid(i.ticket ? wkLink(i.url, i.ticket) : "General", wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
-  wkMid(wkLink(i.url, i.key), "", inline(i.title) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkFace(i.who));
+  wkMid(wkLink(i.url, i.key), "", inline(i.title) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkTicketFaces(d, i.key, i.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
-  wkMid(e.key ? wkLink(wkJira(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + wkFace(e.who));
+  wkMid(e.key ? wkLink(wkJira(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
 const wkOrdered = (d, stage) => { const order = (d.p.stages || []).map(s => s.key);
   return d.tickets.filter(t => !stage || t.stage === stage).sort((a, b) => order.indexOf(b.stage) - order.indexOf(a.stage) || (a.place ?? 0) - (b.place ?? 0)); };
@@ -8097,8 +8145,10 @@ function wkStandupLists(d) {
 // The write-up of the newest section, a paragraph a person: what they finished, then what they are on now.
 // Who did what in the newest section, a person each: their finished tickets {key, title, refs, fix} and what they are on
 // now {key, title, stage}, the unassigned last.
+// Work with no ticket (the agents' own tooling, say) has its own section of the stand-up, folded until opened
+const WK_NO_TICKET = "Without a ticket";
 function wkPeople(d) {
-  const [name, items] = wkStandupLists(d)[0] || ["Today", []], people = {};
+  const [name, all] = wkStandupLists(d)[0] || ["Today", []], items = all.filter(i => i.key), people = {};
   const of = n => (people[n] ||= {done: [], now: []}), names = who => String(who || "").split(/,|&| and /).map(x => x.trim()).filter(Boolean);
   items.forEach(i => (names(i.who).length ? names(i.who) : ["Unassigned"]).forEach(n => of(n).done.push(i)));
   d.queue.filter(i => i.list === "now").forEach(i => names(i.who).forEach(n => of(n).now.push({key: i.key, title: i.title})));
@@ -8149,10 +8199,12 @@ document.addEventListener("click", e => {
   if (c) navigator.clipboard?.writeText(wkSum.summary).then(() => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); });
 });
 function wkStandup(d, n) {
-  const owner = n?.owner, lists = wkStandupLists(d).map(([name, items]) => [name, items.filter(i => !owner || String(i.who || "").includes(owner))]);
+  const owner = n?.owner, all = wkStandupLists(d).map(([name, items]) => [name, items.filter(i => !owner || String(i.who || "").includes(owner))]);
+  const loose = all.flatMap(([, items]) => items.filter(i => !i.key)), lists = all.map(([name, items]) => [name, items.filter(i => i.key)]);
+  if (loose.length) lists.push([WK_NO_TICKET, loose]);
   if (!lists.some(([, items]) => items.length)) return `<div class="calm">Nothing done in the last three ${d.q.standups?.length ? "stand-ups" : "days"}: no work queue Done, no merges.</div>`;
   return wkSummaryBox(d) + wqLists(lists, "standup:", true, owner, (name, items) => name === lists[0][0] && items.length
-    ? `<b class="wkcopy" data-wkcopy="${esc(owner || "*")}" title="Copy as a write-up for the stand-up: what each person finished, and what they are on now">Copy write-up</b>` : "", true);
+    ? `<b class="wkcopy" data-wkcopy="${esc(owner || "*")}" title="Copy as a write-up for the stand-up: what each person finished, and what they are on now">Copy write-up</b>` : "", true, [WK_NO_TICKET]);
 }
 function workHtml(big, n) {
   wkOpened = false;
@@ -8168,7 +8220,7 @@ function workHtml(big, n) {
   const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · <span class="wkn g">${merged}</span> merged today` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
   return `<div class="teamlog wk${wkCompact() ? "" : " roomy"}" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
-    `<div class="wkbar">${tabs}${tools}${phoneOn() ? "" : `<label class="wkcompact" title="Small type and tight rows, to fit the most in">Compact<input type="checkbox" data-wkcompact${wkCompact() ? " checked" : ""}></label>`}</div><div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
+    `<div class="wkbar">${tabs}${tools}${phoneOn() ? "" : `<label class="wkcompact" title="Small type and tight rows, to fit the most in">Compact<input type="checkbox" data-wkcompact${wkCompact() ? " checked" : ""}></label>`}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
 }
 const wkRedraw = () => phoneOn() ? phoneDraw() : draw();
 // Compact (small type, tight rows) is the desktop's alone, kept per browser and on until its box is cleared; the phone
@@ -8176,6 +8228,8 @@ const wkRedraw = () => phoneOn() ? phoneDraw() : draw();
 const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";
 document.addEventListener("change", e => { if (e.target.matches?.("[data-wkcompact]")) { wkSet("compact", e.target.checked ? "1" : "0"); wkRedraw(); } });
 document.addEventListener("click", e => {
+  const who = e.target.closest(".wkpeople [data-wkfilter]");
+  if (who) { wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter); return wkRedraw(); }
   const t = e.target.closest("[data-wktab],[data-wkrange],[data-wkstage],[data-wkcopy]");
   if (t?.dataset.wktab) { wkSet("tab", t.dataset.wktab); return wkRedraw(); }
   if (t?.dataset.wkrange) { wkSet("range", t.dataset.wkrange); return wkRedraw(); }
@@ -11544,10 +11598,10 @@ function phKeepChips(body, draw) {
 let phHeld = 0;
 // A press held on an agent anywhere on the phone, by a finger or a mouse button (a row, a portrait, the agent view's strip of portraits, a name in
 // Combined) opens its menu, as a sheet. Wired once, on the document.
-const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name]";
+const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name], #phone .wkpeople [data-wkfilter]";
 function phHoldWire() {
   if (phHoldWire.done) return; phHoldWire.done = true;
-  const who = t => { const m = phoneOn() && t.closest?.(PH_HOLD), n = m && (m.dataset.menuName || m.dataset.name); return n && [...S.agents, ...S.bench].some(a => a.name === n) ? [m, n] : null; };   // a benched or stopped agent has its menu too
+  const who = t => { const m = phoneOn() && t.closest?.(PH_HOLD), n = m && (m.dataset.menuName || m.dataset.name || m.dataset.wkfilter); return n && [...S.agents, ...S.bench].some(a => a.name === n) ? [m, n] : null; };   // a benched or stopped agent has its menu too
   const held = ([m, n]) => { if (Date.now() - phHeld < 800) return; phHeld = Date.now(); navigator.vibrate?.(10); agentMenu(m, n, false, false); };
   let hold = 0, at = null;
   document.addEventListener("touchstart", e => {
@@ -12598,8 +12652,17 @@ def self_test():
         t("  Compact is a desktop box kept per browser, on until cleared; the phone is always full size",
           ('const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";' in PAGE, "data-wkcompact" in PAGE, ':is(#phone,.wk).roomy' in PAGE), (True,) * 3)
         t("  a face opens its agent on a click and gives its menu on a right-click or a held press; several people are a face each",
-          ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
+          ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
            'const wkNames = who => String(who || "").split(/,|&| and /)' in PAGE), (True,) * 4)
+        t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; Compact shows whose alone",
+          ('sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}' in PAGE,
+           ".wk:not(.roomy) .wkface.sup{display:none}" in PAGE), (True, True))
+        t("  an agent strip by role filters every tab to that agent's work, a click again for everyone's; Compact has neither",
+          ("const them = byRole([...S.agents, ...S.bench]" in PAGE, 'wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter)' in PAGE,
+           'all || wkCompact() ? "" : wkGet("agent", "")' in PAGE, "if (wkCompact()) return \"\";" in PAGE, '#phone .wkpeople [data-wkfilter]' in PAGE), (True,) * 5)
+        t("  the stand-up keeps work with no ticket in its own section, folded until opened, and out of the write-up",
+          ("if (loose.length) lists.push([WK_NO_TICKET, loose]);" in PAGE, "shut = wqFolded().includes(k) !== shutFirst.includes(name)" in PAGE,
+           "items = all.filter(i => i.key)" in PAGE), (True, True, True))
         t("  with no portrait, the owner is a rook and a role named with no agent its role's shadow",
           ("const PP_ROOK =" in PAGE, 'r ? phPor({name: n, role: r.role, colour: r.colour}, " pp")' in PAGE), (True, True))
         t("  merges come from the pipe's history, else today's merged",
@@ -12711,9 +12774,9 @@ def self_test():
            ".it .tx > .heads{float:left;height:1lh;" in PAGE), (True, True, True))
         t("  every menu is a sheet from the bottom over a dimmed page, which a tap closes",
           ("html.phone #menu.on{left:0 !important;right:0;top:auto !important;bottom:0" in PAGE, 'back.onclick = e => { e.stopPropagation(); if (Date.now() - phHeld > 800) menuOff(true); };' in PAGE), (True, True))
-        t("  each entry starts with who did it (the releaser a release names, else System), its time and its kind's icon; a day's ends with its icon",
+        t("  each entry starts with who did it (the releaser a release names, else ?), its time and its kind's icon; a day's ends with its icon",
           ('${dayLogWho(dayLogBy(r))}<span class="at">${dayLogTime(r.at)}</span>${dayLogIcon(r.kind, "e" + r.at + ":" + i)}' in PAGE, '${dayLogIcon(r.kind, "d" + r.at)}</div>' in PAGE,
-           'r.text?.match(/^Released by ([A-Z][\\w-]*)/)?.[1] || "System"' in PAGE), (True, True, True))
+           'r.text?.match(/^Released by ([A-Z][\\w-]*)/)?.[1] || "?"' in PAGE), (True, True, True))
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
