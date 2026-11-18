@@ -27,9 +27,9 @@
 # chooses it as its number does in the terminal; a Type something option is a box among them, and a multi-select
 # question gets a Submit button. Only the page itself can send (its host and port, an X-Team-Say header another site's page cannot
 # send, its own Origin), and it listens on 127.0.0.1 only. The header's power button asks the delivery lead to wind
-# the team down, recording who was running, and pulses a square until team/team-paused.sh says it is paused and no
-# agent is busy; then it shows ▶, which runs team/team-start.sh for those recorded and tells the lead to start the
-# day. The leads, head of operations, reviewer, process improvement and assistant start and stop one by one from their menus; a stopped
+# the team down: each agent runs team/agent-stopped.sh, which puts it in the stop file, and the page closes its pane
+# once that turn ends, the lead's last; then it shows ▶, which runs team/team-start.sh for those in the stop file and
+# tells the lead to start the day. The leads, head of operations, reviewer, process improvement and assistant start and stop one by one from their menus; a stopped
 # one waits on the bench, and its Start is there. Both
 # scripts are placeholders until wired up on the workstation that runs the team.
 #
