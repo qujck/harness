@@ -2997,7 +2997,37 @@ DIM = re.compile(r"\x1b\[2m.*?\x1b\[(?:0|22)?m")   # a dim run: an empty field's
 ESCAPES = re.compile(r"\x1b\[[0-9;:?]*[A-Za-z]")
 
 
-def ask_of(pane):
+def ask_of(pane, asked=None):
+    """The question open in the pane (screen_ask), or, when the pane cannot draw all of it, the agent's own question
+    from its transcript (asked: the questions of its latest AskUserQuestion call). A pane too short for the question
+    draws only part of the options, with "↑ N more lines" for the rest, and may never draw option 1 at all: Blair's
+    9-row pane showed only "5. Chat about this", so the owner's phone showed no question (2026-11-19). The transcript's
+    question is taken only when every numbered option the pane does show is that question's own (its label, then
+    "Type something.", then "Chat about this"), and it is answered by digit, as ever, which needs no option on screen."""
+    ask = screen_ask(pane)
+    if not asked or ask and not ask.get("select") and any(o["n"] == 1 for o in ask["options"]) and "more lines" not in ask["text"]:
+        return ask
+    lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
+    foot = foot_of(lines)
+    if foot is None or not any(MORE_LINES.match(l) for l in lines[:foot]):
+        return ask
+    seen = [(int(m.group(1)), PREVIEW.sub("", m.group(2))) for m in (OPTION.match(l) for l in lines[:foot]) if m]
+    norm = lambda s: re.sub(r"\s*\(Recommended\)$", "", str(s).strip()).rstrip("…").strip()
+    for q in reversed(asked):
+        opts = [o for o in q.get("options") or [] if isinstance(o, dict)]
+        if q.get("multiSelect") or not opts:
+            continue
+        labels = [str(o.get("label", "")) for o in opts] + ["Type something.", "Chat about this"]
+        if seen and all(n <= len(labels) and norm(labels[n - 1]).startswith(norm(l)) for n, l in seen):
+            out = [str(q.get("question", "")).strip()]
+            for n, o in enumerate(opts, 1):
+                out.append(f"\n{n}. {o.get('label', '')}" + (f"\n   {o['description']}" if o.get("description") else ""))
+            return {"text": "\n".join(out)[:6000],
+                    "options": [{"n": n, "label": l, "typed": l == "Type something."} for n, l in enumerate(labels, 1)]}
+    return ask
+
+
+def screen_ask(pane):
     """The question an agent's pane is waiting on - a permission prompt or a choice - with its options, read
     from the screen: Claude Code writes a prompt to the transcript only once it is answered. Its text runs from just
     after the solid rule that opens the prompt to the end of the options, so a permission prompt keeps its
@@ -3014,9 +3044,7 @@ def ask_of(pane):
     ("select", with "cursor" the option it is on). A prompt with no options at all (signing in again: a web address
     and a field for the code) is its text alone, with none. None when no prompt is on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
-    foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
-    if foot is not None and any(MORE_LINES.match(l) for l in lines[:foot]):
-        lines, foot = scrolled_back(pane, lines, foot)
+    foot = foot_of(lines)
     # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
     # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10). A question
     # with previews draws it unnumbered ("  Chat about this"), and that rule hid the whole question (owner's phone, 2026-11-14).
@@ -3033,7 +3061,7 @@ def ask_of(pane):
     above = range(first - 1, max(-1, first - 400), -1)
     start = next((i + 1 for i in above if TOP_RULE.match(lines[i])),
                  next((i + 1 for i in above if SEPARATOR.match(lines[i])), max(0, first - 12)))
-    end = next((i + 1 for i in range(first, len(lines)) if "Esc to cancel" in lines[i]), len(lines))
+    end = len(lines) if foot is None else foot + 1 + (foot + 1 < len(lines) and "Esc to cancel" not in lines[foot])
     block = ["" if SEPARATOR.match(l) else l for l in lines[start:end] if l.strip() and not MORE_LINES.match(l)]
     block = [l for i, l in enumerate(block) if l or (0 < i < len(block) - 1 and block[i - 1])]
     boxed = re.compile(r"^\s*│ ?")
@@ -3042,7 +3070,7 @@ def ask_of(pane):
     if not text:
         return None
     # a field under the cursor shows what is written in it, not its placeholder, and the footer then offers an editor
-    editing = "ctrl+g to edit" in lines[end - 1]
+    editing = "ctrl+g to edit" in " ".join(l.strip() for l in lines[(foot if foot is not None else end - 1):end])
     options, rows = [], [boxed.sub("", l) for l in lines[first:end]]
     preview = any(PREVIEW.search(l) for l in rows)
     for i, l in enumerate(rows):
@@ -3061,28 +3089,24 @@ def ask_of(pane):
     return {"text": text, "options": options, **({"preview": True} if preview else {})}
 
 
+def foot_of(lines):
+    """The row of the open prompt's footer ("Enter to select · … · Esc to cancel"), the last on screen; None when there
+    is none. A narrow pane wraps it, "Esc to" ending one row and "cancel" starting the next, and that footer hid the
+    question on the owner's phone (Blair's 9-row, 42-column pane, 2026-11-19); the row it starts on is the footer."""
+    for i in range(len(lines) - 1, -1, -1):
+        if "Esc to cancel" in lines[i] or (i + 1 < len(lines) and "Esc to cancel" in lines[i].rstrip() + " " + lines[i + 1].strip()):
+            return i
+    return None
+
+
 MORE_LINES = re.compile(r"^\s*↑ \d+ more lines?$")   # a prompt taller than the pane: its top is above the screen
-
-
-def scrolled_back(pane, lines, foot):
-    """A prompt taller than the pane, read whole: Claude Code draws the bottom of it and says how much is above ("↑ 27
-    more lines"), which the terminal's history still holds. Option 1 is up there, so without it the prompt read as none
-    and the owner's phone showed nothing to answer (Blair's, 2026-11-19). The history is joined to the screen only where
-    its last rows are the screen itself, and the cursor marks (❯) above the screen are dropped: they are not redrawn as
-    the cursor moves, so they are stale. The screen as it was when the history cannot be joined to it."""
-    rows = int(MORE_LINES.match(next(l for l in lines[:foot] if MORE_LINES.match(l))).group(0).split()[1])
-    hist = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-S", str(-(rows + 20)), "-t", pane).splitlines()]
-    k = len(hist) - len(lines)
-    if k <= 0 or hist[k:] != lines:
-        return lines, foot
-    return [l.replace("❯", " ") for l in hist[:k]] + lines, foot + k
 
 
 def text_of(pane):
     """An open prompt with no options, as its text: from its solid rule to its footer, read with wrapped lines joined
     so a long web address stays whole. None when there is no rule above the footer or nothing between."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-J", "-t", pane).splitlines()]
-    foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
+    foot = foot_of(lines)
     top = None if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1) if TOP_RULE.match(lines[i])), None)
     if top is None:
         return None
@@ -3165,7 +3189,7 @@ def with_ask(items, status, pane):
     if not pane or status not in ("waiting", "busy"):
         return items   # a queue lasts only as long as the turn it waits behind
     if status == "waiting":
-        ask = ask_of(pane["pane"])
+        ask = ask_of(pane["pane"], latest_asked(items))
         if ask and ask.get("preview"):
             ask = {**ask, "text": asked_text(items, ask)}
         return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "cursor": ask.get("cursor"), "ts": None,
@@ -3200,7 +3224,16 @@ def asked_text(items, ask):
 def open_ask(name, pane):
     """The prompt open in the agent's pane, only while its session is waiting on one: a numbered list on screen at any
     other time is not a prompt."""
-    return ask_of(pane) if (live_sessions().get(name) or {}).get("status") == "waiting" else None
+    rec = live_sessions().get(name) or {}
+    if rec.get("status") != "waiting":
+        return None
+    return ask_of(pane, latest_asked(feed(rec["sessionId"], 40)) if rec.get("sessionId") else None)
+
+
+def latest_asked(items):
+    """The questions of the conversation's latest AskUserQuestion call; None when it has none."""
+    calls = [c for it in items if it.get("kind") == "tools" for c in it["calls"]]
+    return next((c["asked"] for c in reversed(calls) if c.get("asked")), None)
 
 
 def suggestion(pane):
@@ -13275,32 +13308,31 @@ def self_test():
           "as a choice taken with the cursor, so the owner can decline them all",
           (ask and [(o["label"], bool(o.get("move"))) for o in ask["options"]], ask and ask.get("preview")),
           ([("Compact count", False), ("Segmented status", False), ("Per-author rows", False), ("Chat about this", True)], True))
-        # a question taller than the pane, as Claude Code draws it (captured 2026-11-19): option 1 above the screen and
-        # "↑ 9 more lines" under the options; the history holds the top, with a stale cursor on option 1
-        top = [rule, " ☐ Test", "", "│ Pick one?", "", "❯ 1. A", "     About A.", "     More A.", "  2. B"]
-        screen = ["     About B.", "  3. Type something.", rule, "  4. Chat about this", " ↑ 9 more lines",
-                  "Enter to select · ↑/↓ to navigate · Esc to cancel"]
-        old = ["❯ Ask me", "", "  1. Old question's option"]
-        cap = lambda back: lambda *cmd, **kw: ("\n".join(back + screen) + "\n" if "-S" in cmd else "\n".join(screen) + "\n") \
-            if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
-        g["run"] = cap(old + top)
+        # a question taller than the pane, as Blair's 9-row, 42-column pane drew it (captured 2026-11-19): options 1 to 4
+        # never drawn, "↑ 14 more lines", and even the footer wrapped; the question is the transcript's
+        screen = ["     only; du before and after go to", "     Deacon.", "─" * 42, "  5. Chat about this", " ↑ 14 more lines",
+                  "Enter to select · ↑/↓ to navigate · Esc to", "cancel", "────────────────────────────────── Blair ─"]
+        mine = [{"question": "May I delete it?", "options": [{"label": "Yes, delete it (Recommended)", "description": "rm -rf it."},
+                 {"label": "Keep the notes"}, {"label": "No, leave it"}]}]
+        g["run"] = lambda *cmd, **kw: "\n".join(screen) + "\n" if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
         try:
-            tall = ask_of("%1")
-            g["run"] = cap(["stale"])   # a history that does not end in the screen: the screen alone
-            unjoined = ask_of("%1")
+            tall, bare = ask_of("%1", mine), ask_of("%1")
+            other = ask_of("%1", [{"question": "Two?", "options": [{"label": "A"}, {"label": "B"}]}])
         finally:
             g["run"] = was_run
-        t("a question taller than the pane is read whole from the pane's history: its text, and option 1 above the screen",
-          (tall and tall["text"].splitlines()[:2], tall and [o["label"] for o in tall["options"]],
-           tall and "more lines" in tall["text"], tall and "❯" in tall["text"]),
-          ([" ☐ Test", "Pick one?"], ["A", "B", "Type something.", "Chat about this"], False, False))
-        t("a tall question whose history cannot be joined to the screen is read as before, from the screen alone",
-          unjoined and [o["label"] for o in unjoined["options"]], [])
+        t("a question taller than a narrow pane is read whole from the transcript: its text and every option, numbered as "
+          "the pane numbers them, with the footer wrapped",
+          (tall and tall["text"].splitlines()[:3], tall and [(o["n"], o["label"], o["typed"]) for o in tall["options"]]),
+          (["May I delete it?", "", "1. Yes, delete it (Recommended)"],
+           [(1, "Yes, delete it (Recommended)", False), (2, "Keep the notes", False), (3, "No, leave it", False),
+            (4, "Type something.", True), (5, "Chat about this", False)]))
+        t("without the transcript's question, or with one whose options the pane does not show, the pane alone: no options",
+          (bare and bare["options"], other and other["options"]), ([], []))
         asked = [{"question": "Which shape?", "options": [
             {"label": "Compact count (Recommended)", "description": "One item.", "preview": "PRs ● 7\nhidden line"},
             {"label": "Segmented status", "description": "Two."}, {"label": "Per-author rows", "description": "Three."}]}]
         feed_items = [{"kind": "tools", "calls": [tool_line({"type": "tool_use", "name": "AskUserQuestion", "input": {"questions": asked}})]}]
-        g_ask, g["ask_of"] = g["ask_of"], lambda p: ask
+        g_ask, g["ask_of"] = g["ask_of"], lambda p, *_: ask
         try:
             whole = with_ask(feed_items, "waiting", {"pane": "%1"})[-1]["text"]
             bare = with_ask([], "waiting", {"pane": "%1"})[-1]["text"]
