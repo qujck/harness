@@ -485,10 +485,16 @@ roster_launch_line() { # $1 name
 
 # roster_launch_env <name>  ->  the same four identity variables as roster_launch_line, one
 # NAME=value per line, for a script that starts the session itself (agent-spawn.sh hands them to
-# `env`). Same derivation, so a spawned session and a hand-started one carry the same identity.
+# `env`). Same source as the launch line: the ROW's own address, so a spawned session and a
+# hand-started one carry the same identity.
+# ⚠ NOT roster_email_of_name. That is the address roster_add WRITES for a new row; a row written
+# before ROSTER_DOMAIN was set (strength's rows are @weaversite.co.uk, the default is
+# <project>.local) does not carry it, and a derived address then names nobody: the session's
+# commits, claims and page face resolve to no agent. Refuses rather than guesses.
 roster_launch_env() { # $1 name
   local n="${1:?roster_launch_env <name>}" e
-  e="$(roster_email_of_name "$n")"
+  e="$(roster_lookup_email "$n")"
+  [[ -n "$e" ]] || { printf 'roster: %s has no email on the row in %s: no launch identity without the address the register holds\n' "$n" "$(roster_file)" >&2; return 1; }
   printf 'GIT_AUTHOR_NAME=%s\nGIT_AUTHOR_EMAIL=%s\nGIT_COMMITTER_NAME=%s\nGIT_COMMITTER_EMAIL=%s\n' "$n" "$e" "$n" "$e"
 }
 
@@ -608,6 +614,16 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
     && { printf '  FAIL  a two-line full name was written\n'; fails=1; } \
     || printf '  ok    a full name over one line is refused\n'
   t 2 '…and nothing was written for it'                  "$(jq '.agents | length' "$_fx")"
+  rm -f "$_fx"
+
+  # the launch identity is the ROW's address, not the derived one: a fixture row whose address is
+  # off the configured domain is the only member that can tell the two apart
+  _fx="$(mktemp)"; printf '{"agents":[{"name":"Kai","email":"kai@other.test","role":"developer","status":"active"},{"name":"Nil","role":"developer","status":"active"}]}' > "$_fx"
+  t 'GIT_AUTHOR_EMAIL=kai@other.test GIT_COMMITTER_EMAIL=kai@other.test' 'the launch env carries the row address, not <name>@ROSTER_DOMAIN' \
+    "$(ROSTER_FILE="$_fx" roster_launch_env Kai | /usr/bin/grep EMAIL | paste -sd' ')"
+  ROSTER_FILE="$_fx" roster_launch_env Nil >/dev/null 2>&1 \
+    && { printf '  FAIL  a row with no address got a launch identity\n'; fails=1; } \
+    || printf '  ok    a row with no address gets no launch identity\n'
   rm -f "$_fx"
 
   t ed@example.test    'the derived address lowercases the name'  "$(roster_email_of_name Ed)"
