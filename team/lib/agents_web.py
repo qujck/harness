@@ -3015,6 +3015,8 @@ def ask_of(pane):
     and a field for the code) is its text alone, with none. None when no prompt is on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = next((i for i in range(len(lines) - 1, -1, -1) if "Esc to cancel" in lines[i]), None)
+    if foot is not None and any(MORE_LINES.match(l) for l in lines[:foot]):
+        lines, foot = scrolled_back(pane, lines, foot)
     # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
     # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10). A question
     # with previews draws it unnumbered ("  Chat about this"), and that rule hid the whole question (owner's phone, 2026-11-14).
@@ -3022,17 +3024,17 @@ def ask_of(pane):
         below = next((l for l in lines[i + 1:foot] if l.strip()), "")
         m = OPTION.match(below)
         return bool(m) and int(m.group(1)) > 1 or CHAT_ROW.match(below) is not None
-    top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 80), -1)
+    top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 400), -1)
                                        if TOP_RULE.match(lines[i]) and not splits_options(i)), 0)
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
     if not opts:
         return None if foot is None else select_of(lines, top, foot) or text_of(pane)
     first = opts[-1]
-    above = range(first - 1, max(-1, first - 80), -1)
+    above = range(first - 1, max(-1, first - 400), -1)
     start = next((i + 1 for i in above if TOP_RULE.match(lines[i])),
                  next((i + 1 for i in above if SEPARATOR.match(lines[i])), max(0, first - 12)))
     end = next((i + 1 for i in range(first, len(lines)) if "Esc to cancel" in lines[i]), len(lines))
-    block = ["" if SEPARATOR.match(l) else l for l in lines[start:end] if l.strip()]
+    block = ["" if SEPARATOR.match(l) else l for l in lines[start:end] if l.strip() and not MORE_LINES.match(l)]
     block = [l for i, l in enumerate(block) if l or (0 < i < len(block) - 1 and block[i - 1])]
     boxed = re.compile(r"^\s*│ ?")
     pad = min((len(l) - len(l.lstrip()) for l in block if l and not boxed.match(l)), default=0)
@@ -3057,6 +3059,23 @@ def ask_of(pane):
                      or bool(CHECKBOX.match(label)) and i + 1 < len(rows) and bool(SUBMIT_ROW.match(rows[i + 1])))
             options.append({"n": n, "label": label, "typed": typed})
     return {"text": text, "options": options, **({"preview": True} if preview else {})}
+
+
+MORE_LINES = re.compile(r"^\s*↑ \d+ more lines?$")   # a prompt taller than the pane: its top is above the screen
+
+
+def scrolled_back(pane, lines, foot):
+    """A prompt taller than the pane, read whole: Claude Code draws the bottom of it and says how much is above ("↑ 27
+    more lines"), which the terminal's history still holds. Option 1 is up there, so without it the prompt read as none
+    and the owner's phone showed nothing to answer (Blair's, 2026-11-19). The history is joined to the screen only where
+    its last rows are the screen itself, and the cursor marks (❯) above the screen are dropped: they are not redrawn as
+    the cursor moves, so they are stale. The screen as it was when the history cannot be joined to it."""
+    rows = int(MORE_LINES.match(next(l for l in lines[:foot] if MORE_LINES.match(l))).group(0).split()[1])
+    hist = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-S", str(-(rows + 20)), "-t", pane).splitlines()]
+    k = len(hist) - len(lines)
+    if k <= 0 or hist[k:] != lines:
+        return lines, foot
+    return [l.replace("❯", " ") for l in hist[:k]] + lines, foot + k
 
 
 def text_of(pane):
@@ -13256,6 +13275,27 @@ def self_test():
           "as a choice taken with the cursor, so the owner can decline them all",
           (ask and [(o["label"], bool(o.get("move"))) for o in ask["options"]], ask and ask.get("preview")),
           ([("Compact count", False), ("Segmented status", False), ("Per-author rows", False), ("Chat about this", True)], True))
+        # a question taller than the pane, as Claude Code draws it (captured 2026-11-19): option 1 above the screen and
+        # "↑ 9 more lines" under the options; the history holds the top, with a stale cursor on option 1
+        top = [rule, " ☐ Test", "", "│ Pick one?", "", "❯ 1. A", "     About A.", "     More A.", "  2. B"]
+        screen = ["     About B.", "  3. Type something.", rule, "  4. Chat about this", " ↑ 9 more lines",
+                  "Enter to select · ↑/↓ to navigate · Esc to cancel"]
+        old = ["❯ Ask me", "", "  1. Old question's option"]
+        cap = lambda back: lambda *cmd, **kw: ("\n".join(back + screen) + "\n" if "-S" in cmd else "\n".join(screen) + "\n") \
+            if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        g["run"] = cap(old + top)
+        try:
+            tall = ask_of("%1")
+            g["run"] = cap(["stale"])   # a history that does not end in the screen: the screen alone
+            unjoined = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("a question taller than the pane is read whole from the pane's history: its text, and option 1 above the screen",
+          (tall and tall["text"].splitlines()[:2], tall and [o["label"] for o in tall["options"]],
+           tall and "more lines" in tall["text"], tall and "❯" in tall["text"]),
+          ([" ☐ Test", "Pick one?"], ["A", "B", "Type something.", "Chat about this"], False, False))
+        t("a tall question whose history cannot be joined to the screen is read as before, from the screen alone",
+          unjoined and [o["label"] for o in unjoined["options"]], [])
         asked = [{"question": "Which shape?", "options": [
             {"label": "Compact count (Recommended)", "description": "One item.", "preview": "PRs ● 7\nhidden line"},
             {"label": "Segmented status", "description": "Two."}, {"label": "Per-author rows", "description": "Three."}]}]
