@@ -749,7 +749,9 @@ SESSION="$(agent_session_name "$NAME")"
 OTHER_LEAD=""
 (( LEAD )) && OTHER_LEAD="$(roster_list_active | awk -F'\t' -v me="$NAME" '($2 == "delivery-lead" || $2 == "head-of-testing") && $1 != me { print $1; exit }')"
 PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET" "$OTHER_LEAD")"
-mapfile -t IDENT < <(roster_launch_env "$NAME")
+# the row's own address, or nothing starts (a session under an address no row holds is no agent)
+IDENT_TXT="$(roster_launch_env "$NAME")" || exit 1
+mapfile -t IDENT <<<"$IDENT_TXT"
 CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
 CMD+=(--remote-control "$SESSION" "$PROMPT")
