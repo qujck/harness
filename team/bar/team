@@ -12,5 +12,5 @@ def k(n):
 agents = json.load(sys.stdin).get("agents") or []
 team = [sum(x) for x in zip(*[a["series"] for a in agents if a.get("series")])]
 rate = sum(a.get("rate") or 0 for a in agents)
-print(json.dumps({"place": "header", "label": "Team", "every": 3, "title": "Tokens a minute, every running agent together",
+print(json.dumps({"label": "Team", "every": 3, "title": "Tokens a minute, every running agent together",
                   "value": [{"text": k(rate), "colour": "text", "bold": True}, " tok/min"] if rate else "", "spark": team}))

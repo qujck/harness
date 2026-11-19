@@ -30,5 +30,5 @@ else:
     plan = "" if gap is None else " · on plan" if gap == 0 else f" · {abs(gap)}% {'over' if gap > 0 else 'under'}"
     value = [{"text": f"{w}%", "colour": c, "bold": True}, " used"] + ([{"text": plan, "drop": True}] if plan else [])
     title = f"The account's week against the budget (team/agents-budget.sh): {w}% of the weekly allowance used" + (f", {p}% planned by now" if p is not None else "")
-print(json.dumps({"place": "header", "label": "", "name": "Week", "value": value, "title": title, "every": 5,
+print(json.dumps({"label": "", "name": "Week", "value": value, "title": title, "every": 5,
                   "meter": {"pct": w or 0, "mark": p, "colour": c if over or last else ""}}))

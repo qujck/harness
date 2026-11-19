@@ -4375,6 +4375,7 @@ html:not(.barsplaced) :is(header,footer){display:none}   /* nothing until the ba
   min-width:200px;max-width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 90px);overflow:auto;background:var(--box);border:1px solid var(--line2);border-radius:var(--r-m,10px);
   box-shadow:0 10px 30px -8px #0008}
 .barmore.open > .barmorep{display:flex}
+footer .barmorep{top:auto;bottom:calc(100% + 10px)}   /* the footer's opens upwards, onto the page */
 .barmorep > .bi{margin-left:0!important}
 .barmorep > .bi[data-item=bench]{flex:none;max-width:100%}
 header > .bi.div.orph{display:none}
@@ -4932,6 +4933,10 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .tabbar button:hover{filter:brightness(1.15)}
 .tabbar button.waiting,.tabbar button.wanted{border:2px solid #ffb020;animation:alarm 1s ease-in-out infinite}
 .cards{flex:1;min-height:0;display:grid;gap:10px;padding:10px;grid-auto-rows:minmax(0,1fr)}
+/* an agent's own pane: its card fills the pane, as a Combined view or the Day log does, not inset in a box of its own */
+.pane .cards:has(> .card.full:only-child){padding:0}
+.pane .cards > .card.full:only-child{border-radius:var(--r-l)}
+.pane .chrtabs:has(+ .cards > .card.full:only-child){padding-bottom:10px}   /* the gap the card's padding gave the portraits above it */
 .card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:var(--r-m);border:1px solid var(--line2);
   background:linear-gradient(180deg,var(--card1),var(--card2));overflow:hidden;cursor:pointer;transition:transform .15s,border-color .2s,box-shadow .2s}
 .card:hover{transform:translateY(-1px);border-color:var(--hover)}
@@ -5449,6 +5454,10 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 /* The gauges share the pane's width, all of them on one row where they fit, each between 140px and 320px wide (--gn is
    how many there are); a gauge's arc and figures grow with it, its arc up to 280px, as they were at 150px and under. */
 .others.perfs.dials{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(140px,calc((100% - (var(--gn,8) - 1) * 8px) / var(--gn,8)),320px),1fr));grid-auto-rows:max-content;align-content:start}   /* a short pane scrolls its gauges, never squeezes them */
+.others.perfs.dials:not(#phone *){padding:0;gap:0}
+/* the gauges as one strip: no box each, a line between them (the line above the first row, and before the first in a
+   row, falls outside the pane and is clipped) */
+.others.perfs.dials:not(#phone *) .mini.dial{border:0;border-radius:0;background:none;box-shadow:-1px 0 0 var(--line2),0 -1px 0 var(--line2)}
 .others.perfs.dials .mini.dial{min-height:0;padding:10px 10px 9px;display:flex;flex-direction:column;align-items:center;text-align:center;container-type:inline-size}
 .mini.dial svg.arc{flex:none;width:100%;max-width:280px;height:auto;display:block}
 .mini.dial svg.arc path{fill:none;stroke-width:9;stroke-linecap:round}
@@ -5554,7 +5563,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .teamlog .chead .x svg{width:14px;height:14px}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
 #detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
-.sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 10px 10px}
+.sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 12px 10px}   /* 12px in, as the conversation above it (.feed), so the box lines up with its text */
 .pastechip{position:fixed;z-index:60;display:flex;align-items:center;gap:10px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--box);color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));box-shadow:0 4px 14px #0004}
 .pastechip b{padding:2px 9px;border-radius:999px;background:var(--on);color:var(--text);font-weight:500;cursor:pointer}
 .say{flex:1;min-width:0;display:block;margin:0;padding:6px 10px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);
@@ -5598,6 +5607,21 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);cursor:pointer}
 .stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:var(--r-xs);background:var(--text)}
 .stop:hover{border-color:var(--red)}
+/* while the agent works, Stop sits where Send does, inside the box, until something is typed; then Send is back, so the
+   box keeps its width (owner, 2026-11-17: "these 2 buttons should just toggle between each other, so the text box doesnt
+   keep changing in size"). Every box has a placeholder, so an empty one shows it. The phone keeps its own Stop beside the box. */
+html:not(.phone) .sayrow:has(> .stop:not([style*="none"])) > .say:placeholder-shown ~ .send{display:none}
+html:not(.phone) .sayrow > .say:not(:placeholder-shown) ~ .stop{display:none}
+html:not(.phone) .sayrow > .stop{z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);border:0;border-radius:var(--r-s);background:none}
+html:not(.phone) .sayrow > .stop::before{background:var(--mute)}
+html:not(.phone) .sayrow > .stop:hover::before{background:var(--red)}
+html:not(.phone) #detail .sayrow > .stop{width:31px;height:31px;margin:6px 4px 0 calc(-6px - 35px)}
+/* and + sits inside the box too, at its left, so the box is all one piece (owner, 2026-11-17: "the + button should also be
+   incorporated into the text box so it's all uniform") */
+html:not(.phone) .sayrow > .add{z-index:1;width:25px;height:25px;margin:5px calc(-6px - 28px) 0 3px;border:0;border-radius:var(--r-s);background:none}
+html:not(.phone) .sayrow > .say{padding-left:34px}
+html:not(.phone) #detail .sayrow > .add{width:31px;height:31px;margin:6px calc(-6px - 35px) 0 4px}
+html:not(.phone) #detail .sayrow > .say{padding-left:42px}
 .stop:hover::before{background:var(--red)}
 #detail .stop,#detail .add{width:39px;height:39px}
 #detail .stop::before{width:12px;height:12px}
@@ -7040,7 +7064,7 @@ function draw() {
   });
   main.querySelectorAll(".chat .x").forEach(x => x.onclick = () => chatWith(x.dataset.chat, null));
   main.querySelectorAll(".chat .pick").forEach(b => b.onclick = () => chatPick(b));
-  fitBench(); beat(); fitHeader();
+  fitBench(); beat(); fitBars();
   if (tileGuess) { tileGuess = false; draw(); }   // a Characters pane drawn for the first time is sized again, now it can be measured
 }
 const BENCH_STYLES = [["name", "Name"], ["icon", "Icon"]];
@@ -7265,7 +7289,7 @@ const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,
 // A disk more than 90% full puts an amber mark on the Disk and Disk bar items, wherever they are; more than 95%, red. Its
 // title names each disk and how full it is.
 function diskMark() {
-  const full = S.full || [], top = full[0]?.pct, tip = full.map(d => `${d.label} ${d.pct}% full`).join(", ");
+  const full = S?.full || [], top = full[0]?.pct, tip = full.map(d => `${d.label} ${d.pct}% full`).join(", ");
   document.querySelectorAll('.bi[data-item="disk"], .bi[data-item="diskbar"]').forEach(e => {
     e.classList.toggle("full", top > 90); e.classList.toggle("fuller", top > 95);
     if (top > 90) e.dataset.full = tip; else delete e.dataset.full;
@@ -7316,7 +7340,7 @@ function drawPlugs() {
 const saveBar = b => { try { localStorage.setItem("bar", JSON.stringify(b)); } catch (e) {} };
 const barEditing = () => !pageLocked();
 function placeBar() {
-  unfitHeader();
+  unfitBars();
   drawPlugs();
   diskMark();
   const b = barOf(), edit = barEditing(), free = [...b.head, ...b.foot].filter(k => FREE.test(k));
@@ -7336,50 +7360,57 @@ function placeBar() {
   // bare: nothing in it shows, only spacers, dividers or items hidden for now (Disk with nothing to watch). Read once every
   // item has moved: an item on its way out of a bar would keep it showing, empty, until the next placement.
   for (const box of [$("header"), $("footer")]) box.classList.toggle("bare", ![...box.querySelectorAll(":scope > .bi:not(.gap, .div)")].some(e => e.firstElementChild?.style.display !== "none"));
-  fitHeader(); barSheetPlace();
+  fitBars(); barSheetPlace();
 }
-// The header never runs past the window (owner, 2026-11-13: "The header must never go wider than the window"): while
-// its items do not fit, the least wanted goes, one at a time, into the » at its right end, whose panel shows them under
-// it; the Add button stays. BAR_SHED is the order they go in; a plug-in not named in it goes before any that is, and the
-// logo, the padlock and Waiting never go. The items are put back where they belong before every placement and measured again.
+// Neither bar runs past the window (owner, 2026-11-13: "The header must never go wider than the window"): while a bar's
+// items do not fit, the least wanted goes, one at a time, into the » at its right end, whose panel opens towards the
+// page (under the header, over the footer); the Add button stays. BAR_SHED is the order they go in; a plug-in not named
+// in it goes before any that is, and the logo, the padlock and Waiting never go. The items are put back where they
+// belong before every placement and measured again. barMoreOpen is the bar whose panel is open ("header", "footer" or "").
 const BAR_SHED = ["help", "theme", "viewbar", "active", "lanes", "disk", "session", "week", "team", "settings", "favs", "view", "bench", "controls", "search", "tally"];
-let barMoreOpen = false;
-function unfitHeader() {
-  const h = $("header"), more = h.querySelector(":scope > .barmore");
-  if (!more) return;
-  more.querySelectorAll(".barmorep > .bi").forEach(e => h.insertBefore(e, more));
-  more.remove();
-}
-function fitHeader() {
-  unfitHeader();
-  const h = $("header"), over = () => h.scrollWidth > h.clientWidth + 1;
-  h.querySelectorAll(":scope > .bi.div.orph").forEach(e => e.classList.remove("orph"));
-  if (phoneNow() || !h.offsetParent || !over()) return;
-  h.insertAdjacentHTML("beforeend", `<div class="barmore"><button title="More of the header: the items that do not fit">»</button><div class="barmorep"></div></div>`);
-  const more = h.querySelector(":scope > .barmore"), panel = more.firstElementChild.nextElementSibling;
-  h.insertBefore(more, h.querySelector(":scope > .barplus"));
-  const order = barOf().head, rank = k => BAR_SHED.indexOf(k);
-  const shown = e => e.offsetParent && getComputedStyle(e).display !== "none";
-  while (over()) {
-    const next = [...h.querySelectorAll(":scope > .bi:not(.gap, .div)")].filter(e => shown(e) && !BAR_FIXED.includes(e.dataset.item))
-      .filter(e => e.dataset.item !== "waiting").sort((x, y) => rank(x.dataset.item) - rank(y.dataset.item))[0];
-    if (!next) break;
-    next.dataset.name = barName(next.dataset.item); panel.append(next);
+let barMoreOpen = "";
+const BARS = () => [[$("header"), "header"], [$("footer"), "footer"]];
+function unfitBars() {
+  for (const [h] of BARS()) {
+    const more = h.querySelector(":scope > .barmore");
+    if (!more) continue;
+    more.querySelectorAll(".barmorep > .bi").forEach(e => h.insertBefore(e, more));
+    more.remove();
   }
-  [...panel.children].sort((x, y) => order.indexOf(x.dataset.item) - order.indexOf(y.dataset.item)).forEach(e => panel.append(e));
-  // a divider with nothing beside it on one side, once the items either side have gone, goes too
-  const items = [...h.querySelectorAll(":scope > .bi")].filter(e => e.classList.contains("div") || shown(e));
-  items.forEach((e, i) => { if (e.classList.contains("div") && (!items[i - 1] || items[i - 1].classList.contains("div") || !items[i + 1])) e.classList.add("orph"); });
-  more.firstElementChild.textContent = `» ${panel.children.length}`;
-  more.classList.toggle("open", barMoreOpen);
 }
+function fitBars() {
+  unfitBars();
+  for (const [h, bar] of BARS()) {
+    const over = () => h.scrollWidth > h.clientWidth + 1;
+    h.querySelectorAll(":scope > .bi.div.orph").forEach(e => e.classList.remove("orph"));
+    if (phoneNow() || !h.offsetParent || !over()) continue;
+    h.insertAdjacentHTML("beforeend", `<div class="barmore"><button title="More of the ${bar}: the items that do not fit">»</button><div class="barmorep"></div></div>`);
+    const more = h.querySelector(":scope > .barmore"), panel = more.firstElementChild.nextElementSibling;
+    h.insertBefore(more, h.querySelector(":scope > .barplus"));
+    const order = bar === "footer" ? barOf().foot : barOf().head, rank = k => BAR_SHED.indexOf(k);
+    const shown = e => e.offsetParent && getComputedStyle(e).display !== "none";
+    while (over()) {
+      const next = [...h.querySelectorAll(":scope > .bi:not(.gap, .div)")].filter(e => shown(e) && !BAR_FIXED.includes(e.dataset.item))
+        .filter(e => e.dataset.item !== "waiting").sort((x, y) => rank(x.dataset.item) - rank(y.dataset.item))[0];
+      if (!next) break;
+      next.dataset.name = barName(next.dataset.item); panel.append(next);
+    }
+    [...panel.children].sort((x, y) => order.indexOf(x.dataset.item) - order.indexOf(y.dataset.item)).forEach(e => panel.append(e));
+    // a divider with nothing beside it on one side, once the items either side have gone, goes too
+    const items = [...h.querySelectorAll(":scope > .bi")].filter(e => e.classList.contains("div") || shown(e));
+    items.forEach((e, i) => { if (e.classList.contains("div") && (!items[i - 1] || items[i - 1].classList.contains("div") || !items[i + 1])) e.classList.add("orph"); });
+    more.firstElementChild.textContent = `» ${panel.children.length}`;
+    more.classList.toggle("open", barMoreOpen === bar);
+  }
+}
+const barMoreShut = () => { barMoreOpen = ""; document.querySelectorAll(".barmore.open").forEach(e => e.classList.remove("open")); };
 document.addEventListener("click", e => {
   const b = e.target.closest?.(".barmore > button");
-  if (b) { barMoreOpen = !barMoreOpen; b.parentElement.classList.toggle("open", barMoreOpen); return; }
-  if (barMoreOpen && !e.target.closest?.(".barmorep, #menu")) { barMoreOpen = false; $(".barmore")?.classList.remove("open"); }
+  if (b) { const bar = b.closest("header") ? "header" : "footer", open = barMoreOpen !== bar; barMoreShut(); if (open) { barMoreOpen = bar; b.parentElement.classList.add("open"); } return; }
+  if (barMoreOpen && !e.target.closest?.(".barmorep, #menu")) barMoreShut();
 });
-addEventListener("keydown", e => { if (e.key === "Escape" && barMoreOpen && !menu.classList.contains("on")) { barMoreOpen = false; $(".barmore")?.classList.remove("open"); } });
-addEventListener("resize", () => { if (!phoneNow()) fitHeader(); });
+addEventListener("keydown", e => { if (e.key === "Escape" && barMoreOpen && !menu.classList.contains("on")) barMoreShut(); });
+addEventListener("resize", () => { if (!phoneNow()) fitBars(); });
 // phoneOn is declared further down, and the first placement runs before it is
 const phoneNow = () => { try { return phoneOn(); } catch (e) { return false; } };
 document.addEventListener("click", e => {
@@ -7601,12 +7632,15 @@ const paneAgents = n => PICK_VIEWS.includes(n.show) && Array.isArray(n.pick) ? b
 const PICK_VIEWS = ["tabs", "combined"];
 const inPick = (n, a) => Array.isArray(n.pick) ? n.pick.includes(a.name) : rolesOn(n).includes(a.role);
 const pickedAny = n => Array.isArray(n.pick) || rolesPicked(n).length > 0;
-// a role's chip on Agent tabs or Combined takes in all of that role (that role alone, from All), or leaves them all out
+// a role's chip on Agent tabs or Combined takes in all of that role (that role alone, from All), or leaves them all out.
+// It counts the whole team, benched agents too, so one benched or stopped while the chips change is still picked when
+// it comes back; whether the chip takes in or leaves out goes by whether it is lit (the running agents of its role).
 function pickRole(n, r) {
-  const now = S.agents.filter(a => inPick(n, a)).map(a => a.name), them = S.agents.filter(a => a.role === r).map(a => a.name);
-  const next = !r ? [] : !pickedAny(n) ? them : them.every(x => now.includes(x)) ? now.filter(x => !them.includes(x)) : [...new Set([...now, ...them])];
+  const team = [...S.agents, ...S.bench], now = team.filter(a => inPick(n, a)).map(a => a.name), them = team.filter(a => a.role === r).map(a => a.name);
+  const lit = S.agents.some(a => a.role === r) && S.agents.filter(a => a.role === r).every(a => inPick(n, a));
+  const next = !r ? [] : !pickedAny(n) ? them : lit ? now.filter(x => !them.includes(x)) : [...new Set([...now, ...them])];
   delete n.roles;
-  if (!next.length || S.agents.every(a => next.includes(a.name))) delete n.pick; else n.pick = next;
+  if (!next.length || team.every(a => next.includes(a.name))) delete n.pick; else n.pick = next;
 }
 // A Meeting pane: those in the meeting along its top, role by role and A to Z within each, over what was said and the
 // meeting's message box. Nobody along the top is picked to be talked to alone (owner, 2026-11-01: "I don't want to
@@ -13351,9 +13385,9 @@ def self_test():
         t("team/bar/disk: what is free, amber under the warning", (sh("disk", {"disk": dk})["label"], txt(sh("disk", {"disk": dk})),
           sh("disk", {"disk": dk})["value"][0]["colour"]), ("/ free", "30 GB of 1000", "amber"))
         t("  and hidden with nothing to watch", sh("disk", {"disk": None})["hidden"], True)
-        t("the tall four go in the header only, the slim ones either",
+        t("every bar item goes in either bar: none names a place",
           {f: sh(f, {"week": 1, "disk": dk, "day": day}).get("place") for f in ("week", "session", "team", "disk", "weekbar", "daybar", "tokbar", "diskbar")},
-          {"week": "header", "session": "header", "team": "header", "disk": "header", "weekbar": None, "daybar": None, "tokbar": None, "diskbar": None})
+          {f: None for f in ("week", "session", "team", "disk", "weekbar", "daybar", "tokbar", "diskbar")})
         t("team/bar/weekbar: slim, the week alone, marked at the day's stop",
           ((w := sh("weekbar", {"week": 70, "plan": 85, "day": day}))["slim"], w["label"], txt(w), w["meter"]["mark"]), (True, "Week", "70%", 73))
         gap = {"used": 2, "quota": 5, "from": 74}

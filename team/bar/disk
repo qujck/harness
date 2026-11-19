@@ -7,11 +7,11 @@ import sys
 
 d = json.load(sys.stdin).get("disk")
 if not d:
-    print(json.dumps({"place": "header", "hidden": True}))
+    print(json.dumps({"hidden": True}))
 elif d.get("free_gb") is None:
-    print(json.dumps({"place": "header", "label": d["label"] + " free", "value": "?", "title": f"{d['label']} cannot be read"}))
+    print(json.dumps({"label": d["label"] + " free", "value": "?", "title": f"{d['label']} cannot be read"}))
 else:
     f = d["free_gb"]
     c = "red" if f < d["alert"] else "amber" if f < d["warn"] else "text"
-    print(json.dumps({"place": "header", "label": d["label"] + " free", "every": 30,
+    print(json.dumps({"label": d["label"] + " free", "every": 30,
                       "value": [{"text": f"{f} GB", "colour": c}, {"text": f" of {d['total_gb']}", "colour": "faint"}]}))
