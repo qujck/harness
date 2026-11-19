@@ -5607,15 +5607,18 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .stop{flex:none;position:relative;width:31px;height:31px;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);cursor:pointer}
 .stop::before{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border-radius:var(--r-xs);background:var(--text)}
 .stop:hover{border-color:var(--red)}
-/* while the agent works, Stop sits where Send does, inside the box, until something is typed; then Send is back, so the
-   box keeps its width (owner, 2026-11-17: "these 2 buttons should just toggle between each other, so the text box doesnt
-   keep changing in size"). Every box has a placeholder, so an empty one shows it. The phone keeps its own Stop beside the box. */
-html:not(.phone) .sayrow:has(> .stop:not([style*="none"])) > .say:placeholder-shown ~ .send{display:none}
-html:not(.phone) .sayrow > .say:not(:placeholder-shown) ~ .stop{display:none}
-html:not(.phone) .sayrow > .stop{z-index:1;width:25px;height:25px;margin:5px 3px 0 calc(-6px - 28px);border:0;border-radius:var(--r-s);background:none}
+/* while the agent works, Stop sits inside the box at its right with Send just before it, so Stop can be pressed while
+   something is being typed (owner, 2026-11-19: "lets just display both next to each other"), and the box keeps its
+   width (owner, 2026-11-17: "so the text box doesnt keep changing in size"): the box's text leaves room for both. Send
+   moves one button further in; Stop takes the place Send has when it is alone. The phone keeps its own Stop beside the box. */
+html:not(.phone) .sayrow > .stop{z-index:1;width:25px;height:25px;margin:5px 3px 0 -6px;border:0;border-radius:var(--r-s);background:none}
 html:not(.phone) .sayrow > .stop::before{background:var(--mute)}
 html:not(.phone) .sayrow > .stop:hover::before{background:var(--red)}
-html:not(.phone) #detail .sayrow > .stop{width:31px;height:31px;margin:6px 4px 0 calc(-6px - 35px)}
+html:not(.phone) .sayrow:has(> .stop:not([style*="none"])) > .send{margin-left:calc(-6px - 56px)}
+html:not(.phone) .sayrow:has(> .stop:not([style*="none"])) > .say{padding-right:62px}
+html:not(.phone) #detail .sayrow > .stop{width:31px;height:31px;margin:6px 4px 0 -6px}
+html:not(.phone) #detail .sayrow:has(> .stop:not([style*="none"])) > .send{margin-left:calc(-6px - 70px)}
+html:not(.phone) #detail .sayrow:has(> .stop:not([style*="none"])) > .say{padding-right:77px}
 /* and + sits inside the box too, at its left, so the box is all one piece (owner, 2026-11-17: "the + button should also be
    incorporated into the text box so it's all uniform") */
 html:not(.phone) .sayrow > .add{z-index:1;width:25px;height:25px;margin:5px calc(-6px - 28px) 0 3px;border:0;border-radius:var(--r-s);background:none}
