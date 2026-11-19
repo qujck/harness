@@ -8053,7 +8053,10 @@ function wkData(all) {
   const keyOf = s => (String(s || "").match(WK_KEY) || [])[0] || "";
   const queue = ["now", "next", "later", "parked", "done"].flatMap(k => (q[k] || []).map(i => ({...i, list: k})));
   // every merge the plug-in keeps, else today's merges with their time of day
-  const today = new Date(), at = hm => { const [h, m] = String(hm || "").split(":").map(Number); return new Date(today.getFullYear(), today.getMonth(), today.getDate(), h || 0, m || 0).getTime() / 1000; };
+  // a merge's time of day, "12:34Z" (UTC, as the plug-in writes it) or "12:34" (local); "34Z" is not a number, so the
+  // minutes are read by pattern, else every merge drew on the hour (owner, 2026-11-19: "the times … look a little odd")
+  const today = new Date(), at = hm => { const [, h = 0, m = 0, z] = /^(\d{1,2}):(\d{2})(Z?)/.exec(String(hm || "").trim()) || [];
+    return (z ? Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), +h, +m) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), +h, +m).getTime()) / 1000; };
   const history = (p.history || (p.merged || []).map(m => ({t: at(m.at), who: m.who, title: m.title, id: m.id, ref: m.id, href: m.href}))).map(h => ({...h, key: h.id || keyOf(h.title)}));
   return wkOnly({p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []}, all || wkCompact() ? "" : wkGet("agent", ""));
 }
@@ -12904,6 +12907,9 @@ def self_test():
            "items = all.filter(i => i.key)" in PAGE), (True, True, True))
         t("  with no portrait, the owner is a rook and a role named with no agent its role's shadow",
           ("const PP_ROOK =" in PAGE, 'r ? phPor({name: n, role: r.role, colour: r.colour}, " pp")' in PAGE), (True, True))
+        t("  a merge's time keeps its minutes and reads a trailing Z as UTC",
+          ('/^(\\d{1,2}):(\\d{2})(Z?)/.exec(String(hm || "").trim())' in PAGE, "z ? Date.UTC(today.getUTCFullYear()" in PAGE,
+           'String(hm || "").split(":").map(Number)' in PAGE), (True, True, False))
         t("  merges come from the pipe's history, else today's merged",
           ("const history = (p.history || (p.merged || []).map(m => ({t: at(m.at)" in PAGE, '#       history         [{"t" (epoch seconds)' in SRC), (True, True))
         t("  the phone has a Work tab a swipe moves through, and the Dashboard's tile opens it",
