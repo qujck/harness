@@ -6611,7 +6611,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.5 3 1.5 3h-8"/>',
   code: '<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>',
   bug: '<rect x="5" y="5" width="6" height="8" rx="3"/><path d="M6 5a2 2 0 0 1 4 0M2.5 9h2.5M11 9h2.5M3 5l2 1.5M13 5l-2 1.5M3 13l2-1.5M13 13l-2-1.5"/>',
-  plus: '<path d="M8 3v10M3 8h10"/>',
+  plus: '<path shape-rendering="crispEdges" d="M8 3v10M3 8h10"/>',   // whole pixels: smoothed, one stroke comes out heavier than the other
   down: '<path d="M4 6l4 4 4-4"/>',
   start: '<path d="M5 3.2v9.6L12.8 8z"/>',
   stop: '<rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/>',
