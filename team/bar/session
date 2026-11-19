@@ -6,6 +6,6 @@ import sys
 
 ss = json.load(sys.stdin).get("session")
 c = "red" if ss is not None and ss >= 90 else "amber" if ss is not None and ss >= 75 else "green"
-print(json.dumps({"place": "header", "label": "Session", "every": 5, "title": "The account's five-hour session",
+print(json.dumps({"label": "Session", "every": 5, "title": "The account's five-hour session",
                   "value": ["no reading"] if ss is None else [{"text": f"{ss}%", "colour": c, "bold": True}],
                   "meter": {"pct": ss or 0, "colour": c if ss is not None and ss >= 75 else ""}}))
