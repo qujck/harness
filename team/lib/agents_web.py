@@ -994,7 +994,13 @@ def workqueue_json():
         except (OSError, ValueError):
             data = {"state": "bad", "file": path, "now": [], "next": [], "later": [], "parked": [], "done": []}
         _workqueue.update(key=key, data=data)
-    return json.dumps({**_workqueue["data"], "standups": standup_times()[:10]}).encode()
+    # each item's ledger number ("no"), so the page can show "#6533" in place of a hundred-character id (owner,
+    # 2026-11-19); read through ticket_facts, so a number not yet read is null and arrives on a later poll
+    data = _workqueue["data"]
+    lists = ("now", "next", "later", "parked", "done")
+    facts = ticket_facts([i["key"] for n in lists for i in data.get(n, [])])
+    numbered = {n: [{**i, "no": (facts.get(i["key"]) or {}).get("ref")} for i in data.get(n, [])] for n in lists}
+    return json.dumps({**data, **numbered, "standups": standup_times()[:10]}).encode()
 
 
 def refresh_board():
@@ -7922,10 +7928,11 @@ async function loadWorkQueue() {
   if (!leaves(layout().root).some(([, n]) => ["workqueue", "work"].includes(n.show))) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
 }
-// The id column shows an item's issue number, the "#N " its title starts with, and the title is drawn without it; an
-// item with none shows its key (the slug work-queue.py edits by), cut with an ellipsis, whole on hover and in a copy.
+// The id column shows an item's ledger number ("#6533", served as `no`), else the issue number its title starts with
+// ("#N "); the title is drawn without that "#N " either way. An item with neither shows its key (the slug
+// work-queue.py edits by), cut with an ellipsis; the key is whole on hover and in a copy.
 const WQ_NUM = /^#(\d+)\s+/;
-const wqLabel = i => { const m = WQ_NUM.exec(i.title || ""); return m ? "#" + m[1] : i.key; };
+const wqLabel = i => { if (i.no) return "#" + i.no; const m = WQ_NUM.exec(i.title || ""); return m ? "#" + m[1] : i.key; };
 // The id column is as wide as the widest label, measured in the row's font, so every title starts in one column, but
 // never wider than WQ_KEY_MAX px (scaled with the font): a longer slug is cut there.
 const WQ_KEY_MAX = 90;
@@ -8030,7 +8037,14 @@ const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; }
 const wkSet = (k, v) => { try { v == null || v === "" ? localStorage.removeItem("work:" + k) : localStorage.setItem("work:" + k, v); } catch (e) {} };
 const wkDayStart = t => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
 const wkWhen = t => new Date(t * 1000).toDateString() === new Date().toDateString() ? dayLogTime(t) : dayLogAt(t);
-const wkLink = (href, text) => href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span class="key">${esc(text)}</span>`;
+const wkLink = (href, text, tip = "") => { const t = tip && tip !== text ? ` title="${esc(tip)}"` : "";
+  return href ? `<a href="${esc(href)}" target="_blank" rel="noopener"${t}>${esc(text)}</a>` : `<span class="key"${t}>${esc(text)}</span>`; };
+// a ticket's short name: its ledger number ("#6533") where the work queue or an agent holding it has it, else the key
+// itself; the key stays on hover (owner, 2026-11-19: "ticket ids … the ledger # not that massive ugly string")
+const wkKey = key => { if (!key) return "";
+  const qi = workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.no);
+  const a = !qi && (S?.agents || []).find(x => x.ticket === key && x.ticketNo);
+  return qi ? "#" + qi.no : a ? "#" + a.ticketNo : key; };
 const wkJira = key => { const fy = [...(S.forYou?.open || []), ...(S.forYou?.cleared || [])].find(i => i.ticket === key && i.url);
   return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url) || ""; };
 // Everything known, by ticket: the pipeline's row, its questions, its queue entry, its merges and its log entries.
@@ -8089,7 +8103,7 @@ function wkDetail(d, key) {
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
     ...log.slice(0, 8).map(r => line("Log", `${esc(r.text)} <i>${esc(wkWhen(r.at))}${r.by ? " · " + esc(shown(r.by)) : ""}</i>`)),
   ].filter(Boolean);
-  return `<div class="wkdetail">${out.join("") || `<div class="wkd"><span>Nothing more is known of ${esc(key)} yet.</span></div>`}</div>`;
+  return `<div class="wkdetail">${out.join("") || `<div class="wkd"><span>Nothing more is known of ${esc(wkKey(key))} yet.</span></div>`}</div>`;
 }
 // One ticket's line, opening its detail under it when it is the opened one: under its first line only, as Done can
 // list a ticket several times (wkOpened is reset for each drawing of a list).
@@ -8137,12 +8151,12 @@ const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
   wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkTicketFaces(d, t.id || t.ref, t.who));
 // a question is read in full, so its text wraps
-const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid(i.ticket ? wkLink(i.url, i.ticket) : "General", wkWhen(i.at), inline(i.text)) +
+const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid(i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General", wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
-  wkMid(wkLink(i.url, i.key), "", inline(i.title) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkTicketFaces(d, i.key, i.who));
+  wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkTicketFaces(d, i.key, i.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
-  wkMid(e.key ? wkLink(wkJira(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
+  wkMid(e.key ? wkLink(wkJira(e.key), wkKey(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
 const wkOrdered = (d, stage) => { const order = (d.p.stages || []).map(s => s.key);
   return d.tickets.filter(t => !stage || t.stage === stage).sort((a, b) => order.indexOf(b.stage) - order.indexOf(a.stage) || (a.place ?? 0) - (b.place ?? 0)); };
@@ -8209,8 +8223,8 @@ function wkDone(d) {
 function wkAllStandup(d) {
   const {name, people} = wkPeople(d), chip = (t, cls, tip) => `<span class="wkchipk ${cls}" title="${esc(tip)}">${esc(t)}</span>`;
   const rows = people.map(([n, x]) => `<div class="wkrow wkperson">${n === "Unassigned" ? `<span class="pp-ini" title="Unassigned">?</span><span class="wkpname">Unassigned</span>` : wkFace(n)}<span class="wkpk">` +
-    x.done.map(i => chip(i.key || i.refs?.[0]?.ref || "done", "g", `Done: ${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}`)).join("") +
-    x.now.map(t => chip(t.key, "b", `Now: ${t.title || t.key}${t.stage ? ` (${t.stage})` : ""}`)).join("") + `</span></div>`);
+    x.done.map(i => chip(wkKey(i.key) || i.refs?.[0]?.ref || "done", "g", `Done: ${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}`)).join("") +
+    x.now.map(t => chip(wkKey(t.key), "b", `Now: ${t.title || t.key}${t.stage ? ` (${t.stage})` : ""}`)).join("") + `</span></div>`);
   return `<div class="wkhead wkgo" data-wktab="standup" title="Open Stand-up"><b>Stand-up</b><em class="g">${people.length}</em><span class="wkmerged">${esc(name)} · <span class="wkchipk g">done</span> <span class="wkchipk b">now</span></span>` +
     (people.length ? `<b class="wkcopy" data-wkcopy="*" title="Copy as a write-up for the stand-up">Copy</b>` : "") + `</div>` +
     (rows.join("") || `<div class="calm">Nothing to say yet.</div>`);
@@ -12463,7 +12477,7 @@ def self_test():
         # a ticket's issue number, read through the ledger's regenerate verb in the background and kept; an id with no
         # number is asked again only after TICKET_RETRY, and an id that is not a ticket id is never passed to the ledger
         global LEDGER
-        was_ledger, LEDGER = LEDGER, f"{T}/fake-ledger.sh"
+        LEDGER = f"{T}/fake-ledger.sh"
         with open(LEDGER, "w") as f:
             f.write('[ "$1" = ticket-refs ] || exit 64; shift; printf "%%s\\n" "$@" >> "%s/ledger-calls"\n'
                     'for i; do case "$i" in feat_x) echo "feat_x|6466|12130|The X ticket | with a bar";; feat_w) echo "feat_w|||W";; esac; done\n' % T)
@@ -12481,7 +12495,7 @@ def self_test():
         with open(f"{T}/ledger-calls") as f:
             t("  each id is read once, a numberless one not again inside TICKET_RETRY, and a non-id never",
               sorted(l.strip() for l in f), ["feat_w", "feat_x"])
-        LEDGER = was_ledger
+        LEDGER = f"{T}/no-ledger.sh"   # from here on nothing in the self-test reads a real ledger
         _tickets.clear()
 
         os.environ.update(AGENT_WEEK_PCT_PER_HOUR="2", AGENT_WORK_HOURS="08:00-17:00", AGENT_WORK_DAYS="Mon Tue Wed Thu Fri")
@@ -12805,6 +12819,11 @@ def self_test():
             d = json.loads(code("/api/workqueue")[1])
             wq("move", "CD-0", "later")
             d = json.loads(code("/api/workqueue")[1])
+            _tickets["feat_one"] = {"ref": 6533, "issue": 12217, "title": "One", "at": time.time()}
+            d2 = json.loads(code("/api/workqueue")[1])
+            t("  an item carries its ledger number where the ledger has one, and null where it has none",
+              [(i["key"], i["no"]) for i in d2["now"]], [("feat_one", 6533), ("AB-2", None)])
+            del _tickets["feat_one"]
             t("work queue pane: Now, Next and Later in order, an item linked only where it gives an http(s) link",
               (d["state"], [i["key"] for i in d["now"]], [i["url"] for i in d["now"]], len(d["next"]), [i["key"] for i in d["later"]]),
               ("ok", ["feat_one", "AB-2"], ["", "https://x/2"], 15, ["CD-0"]))
