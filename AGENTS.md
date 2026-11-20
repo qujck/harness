@@ -259,4 +259,7 @@ placeholders here, and writes a starter `CLAUDE.md`.
 A team's own rules live in `.claude/local/`, which is git-ignored and never committed. Where a rule there differs
 from one here, the local rule wins.
 
+Rules that are recommended but not on by default are in [CLAUDE.recommended.md](CLAUDE.recommended.md): copy one
+into `.claude/local/AGENTS.md` to use it.
+
 @.claude/local/AGENTS.md
