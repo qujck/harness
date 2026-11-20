@@ -77,6 +77,7 @@ scripts/check-tooling-hints-never-say-closes.sh	verify
 scripts/check-ci-run-pipes-fail.sh	verify
 team/activity-hook.sh	verify
 team/install-claude-code.sh	verify
+team/work-marker-hook.sh	verify
 team/nudge-target.sh	verify
 team/agents-day-budget.sh	verify
 team/owner-wanted.sh	verify

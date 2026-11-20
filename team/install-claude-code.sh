@@ -17,6 +17,8 @@
 #                              the four tool events carry matcher "*"
 #   hooks.PostToolUse          bash <repo>/claude-code/self-compact/after-ticket.sh, matcher Bash: a reviewer's session
 #                              compacts after each `ledger-db.sh work off` (owner, 2026-11-20)
+#   hooks.PostToolUse, SessionStart  bash <repo>/team/work-marker-hook.sh <Event> (PostToolUse matcher Bash): marks which
+#                              ticket an agent is on from its claim, branch, release, sign-off and handoff (owner, 2026-11-20)
 # The file is Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, default ~/.claude), not the
 # repo's .claude/settings.json: the row, the mods and the hooks are per session on the box, not per repo.
 # Takes effect in sessions started afterwards (README, setup step 5).
@@ -29,7 +31,7 @@ TOOL_EVENTS='["PreToolUse","PermissionRequest","PostToolUse","PostToolUseFailure
 
 # merge_settings <repo root> : current settings JSON on stdin -> merged JSON on stdout   (pure)
 merge_settings() {
-  jq --arg mods "$1/claude-code" --arg old "$1/mods" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" --arg at "bash $1/claude-code/self-compact/after-ticket.sh" \
+  jq --arg mods "$1/claude-code" --arg old "$1/mods" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" --arg at "bash $1/claude-code/self-compact/after-ticket.sh" --arg wm "bash $1/team/work-marker-hook.sh" \
      --argjson ev "$EVENTS" --argjson tev "$TOOL_EVENTS" '
     .statusLine //= {type: "command", command: $sl, refreshInterval: 5}
     | .env //= {}
@@ -42,7 +44,11 @@ merge_settings() {
            | if ($tev | index($e)) != null then .matcher = "*" else . end) ])
         end)
     | if ([.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("after-ticket\\.sh"))) then .
-      else .hooks.PostToolUse += [{matcher: "Bash", hooks: [{type: "command", command: $at, timeout: 10}]}] end'
+      else .hooks.PostToolUse += [{matcher: "Bash", hooks: [{type: "command", command: $at, timeout: 10}]}] end
+    | if ([.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("work-marker-hook\\.sh"))) then .
+      else .hooks.PostToolUse += [{matcher: "Bash", hooks: [{type: "command", command: ($wm + " PostToolUse"), timeout: 10}]}] end
+    | if ([.hooks.SessionStart[]?.hooks[]?.command // ""] | any(test("work-marker-hook\\.sh"))) then .
+      else .hooks.SessionStart += [{hooks: [{type: "command", command: ($wm + " SessionStart"), timeout: 10}]}] end'
 }
 
 # additions <current> <merged> -> one line per thing the merge adds   (pure)
@@ -53,7 +59,10 @@ additions() {
     def act($h; $e): [$h[$e][]?.hooks[]?.command // "" | select(test("activity-hook\\.sh"))];
     ([$m.hooks | keys[] | select(act($c.hooks; .) != act($m.hooks; .))] | select(length > 0) | "  hooks: activity-hook.sh on \(join(", "))"),
     (if ([$c.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("after-ticket\\.sh"))) then empty
-     else "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" end)'
+     else "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" end),
+    (if ([$c.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("work-marker-hook\\.sh")))
+        and ([$c.hooks.SessionStart[]?.hooks[]?.command // ""] | any(test("work-marker-hook\\.sh"))) then empty
+     else "  hooks: work-marker-hook.sh on PostToolUse (Bash) and SessionStart: marks which ticket an agent is on" end)'
 }
 
 DRY=0; YES=0
@@ -86,9 +95,15 @@ if selftest_is_flag "${1:-}"; then
   _t "the pre-2f96cd0 mods folder is replaced, not kept beside the new one" "/x:/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m4")"
   _t "an event that already runs an activity hook gains no second one" 1 "$(jq -r '.hooks.Stop | length' <<<"$m3")"
   _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreCompact, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit
-  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" "$(additions "$own" "$m3")"
+  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket
+  hooks: work-marker-hook.sh on PostToolUse (Bash) and SessionStart: marks which ticket an agent is on" "$(additions "$own" "$m3")"
   m5="$(merge_settings /r <<<"$(jq '.hooks.PostToolUse |= map(select(.matcher != "Bash"))' <<<"$m")")"
-  _t "a box with every activity hook gains only the after-ticket one, and says only that" "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" "$(additions "$(jq '.hooks.PostToolUse |= map(select(.matcher != "Bash"))' <<<"$m")" "$m5")"
+  _t "a box with every activity hook gains only the Bash ones, and says only that" "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket
+  hooks: work-marker-hook.sh on PostToolUse (Bash) and SessionStart: marks which ticket an agent is on" "$(additions "$(jq '.hooks.PostToolUse |= map(select(.matcher != "Bash"))' <<<"$m")" "$m5")"
+  _t "the work-marker hook on Bash, after the after-ticket one" "Bash bash /r/team/work-marker-hook.sh PostToolUse" "$(jq -r '.hooks.PostToolUse[2] | .matcher + " " + .hooks[0].command' <<<"$m")"
+  _t "and on SessionStart, after the activity hook, with no matcher" "null bash /r/team/work-marker-hook.sh SessionStart" "$(jq -r '.hooks.SessionStart[1] | (.matcher|tostring) + " " + .hooks[0].command' <<<"$m")"
+  m6="$(merge_settings /r <<<"$(jq '.hooks.PostToolUse |= map(select(.hooks[0].command | test("work-marker") | not)) | .hooks.SessionStart |= map(select(.hooks[0].command | test("work-marker") | not))' <<<"$m")")"
+  _t "a box wired before the work-marker hook gains it on both events, once" "2 2" "$(jq -r '[.hooks.PostToolUse, .hooks.SessionStart] | map(length) | "\(.[0] - 1) \(.[1])"' <<<"$m6")"
   # the real action against a throwaway config dir: a dry run writes nothing; --yes writes and keeps a .bak
   mkdir -p "$d/cfg"; printf '{"permissions":{}}\n' > "$d/cfg/settings.json"
   CLAUDE_CONFIG_DIR="$d/cfg" bash "$HERE/install-claude-code.sh" --dry-run >/dev/null 2>&1
