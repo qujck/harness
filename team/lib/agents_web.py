@@ -10846,6 +10846,31 @@ menu.addEventListener("click", e => {
   o.onclick = ev => { ev.stopPropagation(); o.remove(); };
   $("#phpor")?.remove(); document.body.append(o);
 }, true);
+// A link anywhere on the page (any pane, either mode) has the page's menu: Open, as a click on it would (a file in the
+// page's document view, anything else in a new tab), and Copy, its address (a file, its path). A right-click opens it,
+// and so does a moment's rest on the link, going again when the pointer leaves both, as a portrait's does.
+const LINK_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg>';
+const linkAt = el => { const a = !phoneOn() && el?.closest?.("a[href]:not(#menu a)"); return a && /^(https?:|\/doc\?)/.test(a.getAttribute("href")) ? a : null; };
+function linkMenu(a, rested) {
+  const doc = a.getAttribute("href").startsWith("/doc?"), text = doc ? new URLSearchParams(a.getAttribute("href").slice(5)).get("p") : a.href;
+  menuAt(a, "link:" + text, `<div class="hd"><div>${esc(text.length > 60 ? text.slice(0, 57) + "…" : text)}</div></div>` +
+    `<div class="mi" data-la="open">${MENU_ICON.open}Open</div><div class="mi" data-la="copy">${LINK_COPY}${doc ? "Copy path" : "Copy link"}</div>`, true);
+  if (rested) menu.dataset.rested = "1";
+  menu.querySelectorAll("[data-la]").forEach(mi => mi.onclick = async ev => { ev.stopPropagation(); menuOff(true);
+    if (mi.dataset.la === "open") return doc ? a.click() : window.open(a.href, "_blank", "noopener");
+    try { await navigator.clipboard.writeText(text); } catch (err) {} });
+}
+document.addEventListener("contextmenu", e => { const a = linkAt(e.target); if (a) { e.preventDefault(); e.stopImmediatePropagation(); linkMenu(a, false); } }, true);
+let linkRest = null;
+document.addEventListener("mouseover", e => {
+  const a = linkAt(e.target);
+  if (a === linkRest) return;
+  if (linkRest) { clearTimeout(menuShow); if (menu.dataset.rested && menu.dataset.key?.startsWith("link:")) menuOff(); }
+  linkRest = a;
+  if (!a || touched) return;
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  menuShow = setTimeout(() => linkMenu(a, true), 350);
+});
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
