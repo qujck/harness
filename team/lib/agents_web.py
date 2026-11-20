@@ -1983,10 +1983,23 @@ def repos_watch():
         time.sleep(900)
 
 
+CONTAINERS_SH = os.path.join(ROOT, "team/agent-containers.sh")
+
+
+def leftovers():
+    """The Docker containers agents with no running session left behind (agent-containers.sh --leftovers), one
+    "Name: N (a, b)" each."""
+    try:
+        out = subprocess.run(["bash", CONTAINERS_SH, "--leftovers"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [l for l in out.splitlines() if l.strip()]
+
+
 def start_team(lead, names):
     """The local repositories brought up to date (update_repos), then team/team-start.sh for the named agents (the
     whole team for None), then, once the lead is up and ready for a message, the lead is told to start the day, with
-    what the update did. The stop file is used up."""
+    what the update did and the containers benched agents left behind (leftovers). The stop file is used up."""
     started = names or [r["name"] for r in team_roster()]
     try:
         repos = update_repos()
@@ -1999,7 +2012,8 @@ def start_team(lead, names):
             if n != lead:
                 threading.Thread(target=compact_when_up, args=(n,), daemon=True).start()
         if compact_when_up(lead):
-            type_into(lead, TEAM_START + (f" Repositories updated first: {repos}." if repos else ""))
+            type_into(lead, TEAM_START + (f" Repositories updated first: {repos}." if repos else "") +
+                      (f" Containers left by benched agents: {'; '.join(left)}. Remove them (bash team/agent-containers.sh <Name> --remove) unless one is in use." if (left := leftovers()) else ""))
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
