@@ -2626,8 +2626,21 @@ case "${1:-}" in
               if [[ "$_ti_id" =~ ^#?([1-9][0-9]{0,8})$ ]]; then _ti_nums+="${_ti_nums:+,}${BASH_REMATCH[1]}"
               else _ti_list+="${_ti_list:+,}$(_sql_lit "$_ti_id")"; fi
             done
-            [[ -n "$_ti_list" ]] && _as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id"
-            [[ -z "$_ti_nums" ]] || _as_me "select ref::text, ref::text, coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where ref in ($_ti_nums) order by ref" ;;
+            # ⚠ A FAILED READ IS "CANNOT TELL": rc 2 and NOTHING on stdout, never rc 0 with empty output, which
+            # means "the ledger answered and there is no such ticket". Both reads are held until both have answered,
+            # so a half-answered call prints nothing either. Same contract as strength's `ref` (c4836ff15).
+            _ti_out=""; _ti_rows=""
+            if [[ -n "$_ti_list" ]]; then
+              _ti_rows="$(_as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id")" ||
+                { echo "ledger-db: ticket-refs could not read the ledger (rc $?) — cannot tell." >&2; exit 2; }
+              _ti_out+="${_ti_rows:+$_ti_rows$'\n'}"
+            fi
+            if [[ -n "$_ti_nums" ]]; then
+              _ti_rows="$(_as_me "select ref::text, ref::text, coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where ref in ($_ti_nums) order by ref")" ||
+                { echo "ledger-db: ticket-refs could not read the ledger (rc $?) — cannot tell." >&2; exit 2; }
+              _ti_out+="${_ti_rows:+$_ti_rows$'\n'}"
+            fi
+            printf '%s' "$_ti_out" ;;
   # ── THE PIPELINE, FOR THE TEAM PAGE'S PR BAR: `pipeline [<id>|<sha>...]` prints one row per in-flight ticket,
   # `T|id|ref|issue|claimed_by|status|title` (every in_progress ticket and every id named), then one row per live
   # verdict at a named 40-hex sha, `V|ticket|sha|kind|by_agent|pr|`. team/bar/pipeline names each open PR's ticket and
