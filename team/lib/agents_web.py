@@ -5221,7 +5221,7 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #wkcard .thead a{color:inherit;text-decoration:none}
 #wkcard .thead a:hover{text-decoration:underline}
 #wkcard .thead .maxbtn svg{width:12px;height:12px}
-#wkcard .thead .wkc-pin{right:36px}   /* beside the close, both at the head's end */
+#wkcard .thead .wkc-pin{right:36px}   /* beside the close or maximise, both at the head's end */
 #wkcard .thead .wkc-pin.on{color:var(--amber)}
 #wkcard .thead .wkc-pin.on svg{fill:var(--amber)}
 #wkcard .wkc-item{flex:none;padding:0 12px 6px}
@@ -8614,7 +8614,8 @@ function wkCardPlace() {
   if (!box?.classList.contains("on")) return;
   box.querySelectorAll(".wkc-thread, .wkc-more").forEach(edges);   // their fades, as their size or content changes
   if (!pane) return wkCardClose();
-  // over the pane below its head ("Work 5 in flight · …"), which stays in view
+  // maximised, over the whole window; else over the pane below its head ("Work 5 in flight · …"), which stays in view
+  if (wkCardMax) return Object.assign(box.style, {left: "0px", top: "0px", width: innerWidth + "px", height: innerHeight + "px"});
   const r = pane.getBoundingClientRect(), head = pane.querySelector(":scope > .thead")?.getBoundingClientRect(), top = head ? head.bottom : r.top;
   Object.assign(box.style, {left: r.left + "px", top: top + "px", width: r.width + "px", height: r.bottom - top + "px"});
 }
@@ -8679,9 +8680,10 @@ function wkCardBody(d, key) {
   const chips = `<span class="wkc-tolabel">${wkCardTo.length ? `To ${esc(wkCardTo.map(shown).join(", "))}` : "Pick who it goes to"}</span>` +
     to.map(n => `<span class="wkface wkc-to${wkCardTo.includes(n) ? " on" : ""}" data-wkcto="${esc(n)}"` +
     `${ppAgent(n) ? ` data-wkagent="${esc(n)}" data-menu-name="${esc(n)}"` : ` title="${esc(shown(n))}"`}>${ppFace(n)}</span>`).join("");
-  return {head: `<div class="thead"><span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
+  return {head: `<div class="thead">${wkCompact() ? "" : BACK_BUTTON.replace('class="backbtn" title="Back to Combined"', 'class="backbtn" data-wkcclose title="Back to Work (Esc)"')}<span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
       `<span class="tsum">${[title && title !== key ? esc(title) : "", stage ? `<b>${esc(stage)}</b>` : ""].filter(Boolean).join(" · ")}</span>${wkCompact() ? "" : `<b class="maxbtn wkc-pin${wkPins().includes(key) ? " on" : ""}" data-wkcpin ` +
-      `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>`}<b class="maxbtn" data-wkcclose title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</b></div>` +
+      `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>`}${wkCompact() ? `<b class="maxbtn" data-wkcclose title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</b>`
+      : maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax')}</div>` +
       (row ? `<div class="wkc-item">${row}</div>` : ""),
     left: prs + wkHead("On it") +
       wkDetail(d, key).replace(/<div class="wkd"><b>(?:PRs|Merged)<\/b>[\s\S]*?<\/span><\/div>/g, ""),   // the PRs are listed above
@@ -8751,7 +8753,8 @@ function wkCardRefresh() {
   if (th.dataset.html !== c.thread) { th.innerHTML = c.thread; th.dataset.html = c.thread; if (end) th.scrollTop = th.scrollHeight; th.onscroll?.(); }
   const tos = box.querySelector(".wkc-tos"); if (tos.dataset.html !== c.to) { tos.innerHTML = c.to; tos.dataset.html = c.to; }
 }
-const wkCardClose = () => { $("#wkcard")?.classList.remove("on"); wkCardKey = ""; wkCardSeen?.disconnect(); };
+let wkCardMax = false;   // the card maximised over the window (its maximise button; Esc restores it)
+const wkCardClose = () => { $("#wkcard")?.classList.remove("on"); wkCardKey = ""; wkCardMax = false; wkCardSeen?.disconnect(); };
 // A message from the card's box, sent as say() sends one, to each agent picked, with the item named first; the box
 // keeps the words and images when any of them did not take it.
 async function wkCardSay(name, input) {
@@ -8769,10 +8772,18 @@ async function wkCardSay(name, input) {
   flash(input, bad.length ? "failed" : "sent");
   saying.delete(name); input.disabled = false; input.focus();
 }
+// a click on its Work pane outside the card (its head, a tab) closes the card, and still does what it would
+document.addEventListener("click", e => {
+  if (!$("#wkcard")?.classList.contains("on") || e.target.closest?.("#wkcard")) return;
+  const pane = [...document.querySelectorAll(".teamlog.wk")].filter(x => x.offsetParent)[wkCardPane];
+  if (pane && pane.contains(e.target)) wkCardClose();
+}, true);
 document.addEventListener("click", e => {
   const box = $("#wkcard");
   if (!box?.classList.contains("on") || !e.target.closest?.("#wkcard")) return;
-  if (e.target.closest("[data-wkcto],[data-wkcclose],[data-wkcfold],[data-wkcpin]")) e.stopPropagation();
+  if (e.target.closest("[data-wkcto],[data-wkcclose],[data-wkcfold],[data-wkcpin],[data-wkcmax]")) e.stopPropagation();
+  const mx = e.target.closest("[data-wkcmax]");
+  if (mx) { wkCardMax = !wkCardMax; mx.outerHTML = maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax'); wkCardPlace(); return; }
   const pin = e.target.closest("[data-wkcpin]");
   if (pin) { wkPin(wkCardKey); const on = wkPins().includes(wkCardKey); pin.classList.toggle("on", on); pin.title = on ? "Unpin" : "Pin to the top of Work"; wkRedraw(); return; }
   const fold = e.target.closest("[data-wkcfold]");
@@ -8785,7 +8796,7 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => {
   if (!$("#wkcard")?.classList.contains("on")) return;
   // Esc closes it from inside it, or with nothing else in hand; typing in another pane keeps its own Esc
-  if (e.key === "Escape" && (e.target.closest?.("#wkcard") || e.target === document.body)) { e.stopPropagation(); return wkCardClose(); }
+  if (e.key === "Escape" && (e.target.closest?.("#wkcard") || e.target === document.body)) { e.stopPropagation(); if (wkCardMax) { wkCardMax = false; const m = $("#wkcard [data-wkcmax]"); if (m) m.outerHTML = maxButton(false).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax'); return wkCardPlace(); } return wkCardClose(); }
 }, true);
 setInterval(wkCardRefresh, 3000);
 setInterval(wkCardPlace, 250);
