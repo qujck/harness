@@ -26,9 +26,12 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   **bold** where it matters, and links in full. Drop an item only when it is no longer planned.
 - **For you.** Everything you put to the owner (a question, an approval, a decision, text to approve) also goes on
   the For you list, one item each, as you ask it: `team/for-you.py add "<the question, with your recommendation>"
-  --ticket ID` (no `--ticket` when there is none). Only you add to it. The owner reads it on the team page and
-  answers you in words; when an answer comes, clear the item in the same turn: `team/for-you.py clear ID --answer
-  "<their words>"` (or the number `team/for-you.py list` shows, for an item with no ticket). The owner can clear an
+  --ticket ID` (no `--ticket` when there is none). Only you add to it. Each open item has a short code, FY1, FY2 ...,
+  which `add` prints and the team page shows first on its row. The owner reads the list on the team page and answers
+  you in words, by code or by ticket: "FY3" in the owner's words means that item, which `team/for-you.py list` shows.
+  When an answer comes, clear the item in the same turn: `team/for-you.py clear FY3 --answer "<their words>"` (or a
+  ticket ID, which clears every open item for that ticket). A code is free again once its item is cleared, so read it
+  from the list, never from memory. The owner can clear an
   item on the page too; the page then tells you in your session, starting "[For you]", once you are idle: treat
   those as dealt with, and ask in chat if you still need an answer. Keep the list true, so an empty list means the
   team is working on its own.
