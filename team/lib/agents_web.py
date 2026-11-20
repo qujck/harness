@@ -8269,7 +8269,7 @@ function wkPeopleStrip() {
     `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work`)}${ppBenched(x.name) ? " (benched)" : ""}">` +
     face(x, "", ppBenched(x.name) ? " benched" : "") + `</span>`).join("")}</div>`;
 }
-function wkDetail(d, key) {
+function wkDetail(d, key, card) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
   const qs = [...d.fy.open.map(i => ({...i, open: true})), ...d.fy.cleared].filter(i => i.ticket === key);
   const merges = d.history.filter(h => h.key === key), log = d.log.filter(r => d.keyOf(r.label) === key || d.keyOf(r.text) === key);
@@ -8277,7 +8277,8 @@ function wkDetail(d, key) {
   const out = [
     t && t.ref && line("PRs", (t.tags || []).filter(g => !/^waits on /.test(g.text)).map(g => `<span class="pp-tag ${esc(g.tone || "")}">${esc(g.text)}</span>`).join(" ")),
     // whose it is "(assigned)", then everyone else seen on it; the owner's own approval as "You"
-    (wkOn(d, key, "").sup.length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>(assigned)</i>`)
+    // the list's row shows whose it is by its face, so there only supporters earn the line; the card says it in words
+    (wkOn(d, key, "").sup.length || card && wkNames(t?.who || qi?.who || "").length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>(assigned)</i>`)
       .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${x.name === "owner" ? "You" : esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
     ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${i.open && i.ref ? `<span class="fyref">${esc(i.ref)}</span> ` : ""}${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
@@ -8619,6 +8620,13 @@ function wkCardPlace() {
   const r = pane.getBoundingClientRect(), head = pane.querySelector(":scope > .thead")?.getBoundingClientRect(), top = head ? head.bottom : r.top;
   Object.assign(box.style, {left: r.left + "px", top: top + "px", width: r.width + "px", height: r.bottom - top + "px"});
 }
+// A ticket's PRs: its own list, else (a plug-in that gives one PR as the ticket's ref and link, as strength's does)
+// that one PR, its tags standing for the approvals
+function wkTicketPrs(t) {
+  if ((t?.prs || []).length) return t.prs;
+  const [, repo, n] = String(t?.href || "").match(/\/([^/]+)\/pull\/(\d+)\/?$/) || [];
+  return n ? [{href: t.href, ref: t.ref || `${repo} #${n}`, title: t.title, repo, n, tags: (t.tags || []).filter(g => !/^waits on /.test(g.text))}] : [];
+}
 function wkCardPeople(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
   const {own, sup} = wkOn(d, key, t?.who || qi?.who || "");
@@ -8627,9 +8635,12 @@ function wkCardPeople(d, key) {
 // The item's names in a message: its ticket id, each PR as "repo #N", "repo#N" or its link, and each PR's branch
 function wkCardRe(key) {
   const q = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), t = wkData(true).tickets.find(x => (x.id || x.ref) === key);
-  const alt = [`\\b${q(key)}\\b`];
-  for (const p of t?.prs || []) {
+  // "#6529" has no word boundary before its "#": bounded by lookarounds instead
+  const alt = [`(?<![\\w#])${q(key)}(?!\\w)`];
+  for (const p of wkTicketPrs(t)) {
     if (p.repo && p.n) alt.push(`\\b${q(p.repo)}\\s*#${p.n}\\b`, `\\b${q(p.repo)}/(?:pull-requests|pull)/${p.n}\\b`);
+    // a one-PR ticket's PR, as its own team names it: "#12233", "PR 12233"
+    if (p.tags && p.n) alt.push(`(?<![\\w#])#${p.n}\\b`, `\\bPR\\s*#?${p.n}\\b`);
     if (p.branch) alt.push(`(?<![\\w/.-])${q(p.branch)}(?![\\w/-])`);
   }
   // and those already merged, by their "repo #N"
@@ -8665,9 +8676,10 @@ function wkCardBody(d, key) {
   const title = t?.title || qi?.title || "", bare = x => esc(String(x || "").replace(new RegExp(`^${key}\\s*:?\\s*`), ""));
   const merged = d.history.filter(h => h.key === key);
   // in full mode, each open PR's approvals as a ticked name each, as its row in the list has them
-  const ticks = p => !p.ok || wkCompact() ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
+  const ticks = p => p.tags ? p.tags : !p.ok || wkCompact() ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
     : p.ok.length ? p.ok.map(n => ({text: `${shown(n)} ✓`, tone: "green"})) : [{text: "no approvals yet", tone: "grey"}];
-  const prs = [...(t?.prs || []).map(p => `<div class="wkrow wkc-row">` + wkMid(wkLink(p.href, p.ref), "", bare(p.title), ticks(p)) + `</div>`),
+  const tprs = wkTicketPrs(t);
+  const prs = [...tprs.map(p => `<div class="wkrow wkc-row">` + wkMid(wkLink(p.href, p.ref), "", bare(p.title), ticks(p)) + `</div>`),
     ...merged.map(h => `<div class="wkrow wkc-row">` + wkMid(wkLink(h.href, h.ref), "", bare(h.title), [{text: `merged ${wkWhen(h.t)}`, tone: "green"}]) + `</div>`)].join("");
   // everyone on it and the lead, in the team's order (byRole), as the Work strip lists them
   const named = [...new Set([...wkCardPeople(d, key), S.lead].filter(Boolean))];
@@ -8686,8 +8698,8 @@ function wkCardBody(d, key) {
       : maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax')}</div>` +
       (row ? `<div class="wkc-item">${row}</div>` : ""),
     left: prs + wkHead("On it") +
-      wkDetail(d, key).replace(/<div class="wkd"><b>(?:PRs|Merged)<\/b>[\s\S]*?<\/span><\/div>/g, ""),   // the PRs are listed above
-    prs: (t?.prs || []).length + merged.length, to: chips, thread: wkCardThreadHtml(key, to)};
+      wkDetail(d, key, true).replace(/<div class="wkd"><b>(?:PRs|Merged)<\/b>[\s\S]*?<\/span><\/div>/g, ""),   // the PRs are listed above
+    prs: tprs.length + merged.length, to: chips, thread: wkCardThreadHtml(key, to)};
 }
 function wkCardThreadHtml(key, names) {
   // each line drawn as the agents' own conversations draw one: who said it as a coloured name badge, whom to as a
@@ -13345,6 +13357,10 @@ def self_test():
         t("  a row opens its card; pins are full mode's only; the rows' approval chips are too, with tags as the fallback",
           ("function wkCardBody(d, key)" in PAGE, "const wkPins = () => wkCompact() ? [] : wkPinned();" in PAGE,
            "const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [" in PAGE), (True,) * 3)
+        t("  a one-PR ticket (a ref and link, no prs list) has that PR on its card, whose it is under On it, and its talk found by #ticket and #PR",
+          ('if ((t?.prs || []).length) return t.prs;' in PAGE, "const tprs = wkTicketPrs(t);" in PAGE, "const ticks = p => p.tags ? p.tags :" in PAGE,
+           'card && wkNames(t?.who || qi?.who || "").length' in PAGE, "const alt = [`(?<![\\\\w#])${q(key)}(?!\\\\w)`];" in PAGE,
+           "alt.push(`(?<![\\\\w#])#${p.n}\\\\b`, `\\\\bPR\\\\s*#?${p.n}\\\\b`)" in PAGE), (True,) * 6)
         t("  a benched agent's face is greyed in the strip and on a ticket, its tip saying so",
           ('phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp")' in PAGE, 'face(x, "", ppBenched(x.name) ? " benched" : "")' in PAGE,
            ".ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}" in PAGE), (True, True, True))
