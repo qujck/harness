@@ -170,6 +170,14 @@ relayed verbatim or given directly: destructive or irreversible operations (the 
 "How a PR reaches `main`" aside), infrastructure commands, anything touching production, and anything
 the project's `CLAUDE.md` reserves to the owner.
 
+**Your Docker containers.** Every container you start for a ticket carries your name and the ticket's:
+`--label agents.owner=<Name> --label agents.ticket=<id>`, named `<name>-<id>-<what>` in lower case (with compose,
+those labels and `-p <name>-<id>`). A one-off run (a test suite, a script) takes `--rm` as well, so it goes when it
+ends. Never use another agent's containers: start your own. Remove yours when the ticket has merged
+(`bash team/agent-containers.sh <Name> --remove`); `agent-bench.sh` removes whatever is left, and the lead's
+start-of-day message names any a benched agent left behind. The per-agent stacks (`agent-stacks.sh`) are not
+yours to label or remove.
+
 **Shared things: check, tell, then touch.** Some things belong to every session: the main checkout and
 any checkout another agent is marked in, a shared stack (`PER_STREAM_STACKS=0`) and its containers'
 filesystems, the ledger database, pre-prod, and any long-running job the team shares. Before any write

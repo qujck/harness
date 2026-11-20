@@ -67,6 +67,7 @@ team/agents-web.sh	verify
 scripts/check-context-is-never-a-reason-to-do-less.sh	verify
 team/agent-spawn.sh	verify
 team/agent-bench.sh	verify
+team/agent-containers.sh	verify
 team/team-start.sh	verify
 team/team-paused.sh	verify
 team/agent-stopped.sh	verify

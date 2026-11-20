@@ -29,7 +29,8 @@
 # A board or entry list it cannot read is a refusal too: "cannot tell" never reads as "nothing open".
 #
 # Then it stops the session: its tmux session `<project>-<name>` (the one agent-spawn.sh starts), or, for a
-# session started by hand from the launch line, its process. An agent with no running session is already on
+# session started by hand from the launch line, its process, and removes its Docker containers with their volumes
+# (team/agent-containers.sh: those labelled agents.owner=<Name>). An agent with no running session is already on
 # the bench, and that is said and exits 0. --dry-run runs every check and stops nothing.
 #
 # Exit: 0 benched (or already benched, or a dry run passed) · 1 refused · 2 a usage error.
@@ -109,10 +110,14 @@ printf '%s\n' "\$*" >> "$T/ledger.log"
 [ -e "$T/ledger.warn" ] && cat "$T/ledger.warn" >&2
 case "\$1" in board) cat "$T/board" ;; session-entries) cat "$T/entries" ;; esac
 EOF
-  chmod +x "$T/bin/tmux" "$T/bin/ledger-db.sh"
+  cat > "$T/bin/docker" <<EOF
+#!/usr/bin/env bash
+case "\$1" in ps) echo 'ada-feat_a-mysql|Ada|running' ;; rm) printf '%s\n' "\$*" >> "$T/rm.log" ;; esac
+EOF
+  chmod +x "$T/bin/tmux" "$T/bin/ledger-db.sh" "$T/bin/docker"
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local ROSTER_FILE="$T/repo/agents/roster.json" \
-            CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" LDB=ledger-db.sh bash "$SELF" "$@" 2>&1; }
+            CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" LDB=ledger-db.sh AGENTS_DOCKER="$T/bin/docker" bash "$SELF" "$@" 2>&1; }
   # Ada: running in agent-spawn's tmux session AND a live record (idle, started at a known ms), finished.
   reset() {
     printf 'proj-ada\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; : > "$T/ledger.log"; rm -f "$T/ledger.down"
@@ -190,12 +195,16 @@ EOF
   reset; out="$(run Ada --dry-run)"; rc=$?
   _t "a dry run of a finished agent passes" "$rc" 0
   _has "  and says what it would stop" "$out" "would bench Ada (developer): stop tmux session proj-ada"
+  _has "  and which containers it would remove" "$out" "remove its containers (ada-feat_a-mysql)"
   _t "  and stops nothing" "$(grep -c '^kill-session' "$T/tmux.log")" 0
+  _t "  and removes nothing" "$(cat "$T/rm.log" 2>/dev/null)" ""
 
   reset; out="$(run Ada)"; rc=$?
   _t "a bench exits 0" "$rc" 0
   _has "  and stops the agent's tmux session, exactly" "$(cat "$T/tmux.log")" "kill-session -t =proj-ada"
   _has "  and says what stays" "$out" "benched Ada"
+  _has "  and removes its containers" "$out" "removed ada-feat_a-mysql"
+  _t "  with their volumes" "$(cat "$T/rm.log")" "rm -f -v ada-feat_a-mysql"
   _t "  and writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
   _t "  and keeps the worktree" "$(git -C "$T/repo" worktree list | grep -c '/proj-ada ')" 1
 
@@ -320,6 +329,8 @@ N="$(jq -r 'if type == "array" then length else empty end' <<<"$ENTRIES" 2>/dev/
 
 # ── the bench ────────────────────────────────────────────────────────────────────────────────────────
 if (( TMUX_UP )); then WHAT="stop tmux session $SESSION"; else WHAT="stop its session, pid $PID"; fi
+CONTS="$(bash "$_here/agent-containers.sh" "$NAME" | cut -f1 | paste -sd' ' -)"
+[[ -z "$CONTS" ]] || WHAT+=", remove its containers ($CONTS)"
 if (( DRY )); then
   printf 'would bench %s (%s): %s. Roster row, name, identity and worktree stay.\n' "$NAME" "$ROLE" "$WHAT"
   exit 0
@@ -329,5 +340,6 @@ if (( TMUX_UP )); then
 else
   kill -TERM "$PID" 2>/dev/null || refuse "could not stop pid $PID"
 fi
+[[ -z "$CONTS" ]] || bash "$_here/agent-containers.sh" "$NAME" --remove
 printf 'benched %s (%s): %s. Roster row, name, identity and worktree%s stay; agent-spawn.sh starts it again for its next ticket.\n' \
   "$NAME" "$ROLE" "$WHAT" "${WTS:+ ($(paste -sd' ' - <<<"$WTS"))}"
