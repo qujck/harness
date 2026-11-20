@@ -3487,7 +3487,8 @@ def for_you():
             def item(i):
                 t = text(i.get("ticket"), 120)
                 t = t if re.match(r"^[\w.#-]+$", t) else ""
-                return {"n": i.get("n") if isinstance(i.get("n"), int) else 0, "text": text(i.get("text")), "ticket": t,
+                ref = text(i.get("ref"), 10)
+                return {"n": i.get("n") if isinstance(i.get("n"), int) else 0, "ref": ref if re.match(r"^FY[1-9]\d*$", ref) else "", "text": text(i.get("text")), "ticket": t,
                         "url": "", "from": text(i.get("from"), 60), "at": stamp(i.get("at")),
                         "cleared": stamp(i.get("cleared")), "by": text(i.get("by"), 60), "answer": text(i.get("answer"))}
             lists = {k: [item(i) for i in (q.get(k) if isinstance(q.get(k), list) else []) if isinstance(i, dict)] for k in ("open", "cleared")}
@@ -3636,7 +3637,7 @@ def for_you_tell_once(lead=None, live=None):
         items = [i for i in (q.get("cleared") if isinstance(q, dict) and isinstance(q.get("cleared"), list) else []) if isinstance(i, dict) and i.get("tell")]
         if not items:
             return False
-        line = lambda i: "- " + (f"{i['ticket']}: " if i.get("ticket") else "") + str(i.get("text", ""))
+        line = lambda i: "- " + ", ".join(x for x in (i.get("ref"), i.get("ticket")) if x) + (": " if i.get("ref") or i.get("ticket") else "") + str(i.get("text", ""))
         text = "\n".join(["[For you] The owner cleared these from the For you list, so treat them as dealt with. If you still need an answer on one, ask the owner in chat; do not add it again.", *map(line, reversed(items))])
         if not type_into(lead, text):
             return False
@@ -4512,6 +4513,7 @@ header > .bi.div.orph{display:none}
 .foryou a{color:var(--amber);font-weight:650;text-decoration:none}
 .foryou .row > a,.foryou .key{flex:none;min-width:5.5em;font-variant-numeric:tabular-nums}
 .foryou .tx{flex:1;white-space:normal;overflow-wrap:anywhere}
+.fyref{flex:none;min-width:2.4em;color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em}   /* an item's code, FY3, for the owner to say */
 .foryou .meta{flex:none;color:var(--mute);font-size:.88em;white-space:nowrap}
 .foryou .ans{display:block;color:var(--mute)}
 .foryou .fyclear{flex:none;cursor:pointer;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r-s);font-size:.88em}
@@ -4988,7 +4990,7 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 /* an agent's own pane: its card fills the pane, as a Combined view or the Day log does, not inset in a box of its own */
 .pane .cards:has(> .card.full:only-child){padding:0}
 .pane .cards > .card.full:only-child{border-radius:var(--r-l)}
-.pane .chrtabs:has(+ .cards > .card.full:only-child){padding-bottom:10px}   /* the gap the card's padding gave the portraits above it */
+.pane :is(.chrtabs, .icontabs):has(+ .cards > .card.full:only-child){padding-bottom:10px}   /* the gap the card's padding gave the portraits or icons above it */
 .card{--c:#888;position:relative;min-height:0;display:flex;flex-direction:column;border-radius:var(--r-m);border:1px solid var(--line2);
   background:linear-gradient(180deg,var(--card1),var(--card2));overflow:hidden;cursor:pointer;transition:transform .15s,border-color .2s,box-shadow .2s}
 .card:hover{transform:translateY(-1px);border-color:var(--hover)}
@@ -8082,8 +8084,8 @@ function forYouList(withCleared) {
   const q = S.forYou || {open: [], cleared: []};
   if (q.state === "bad") return `<div class="calm">The For you list at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/for-you.py.</div>`;
   const ago = t => { const m = Math.max(0, Math.floor((Date.now() / 1000 - t) / 60)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
-  const key = i => i.ticket ? (i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.ticket)}</a>` : `<span class="key">${esc(i.ticket)}</span>`) : "";
-  const row = (i, done) => `<div class="row">${key(i)}<span class="tx">${inline(i.text)}${done && i.answer ? `<span class="ans">${inline(i.answer)}</span>` : ""}</span>` +
+  const key = i => i.ticket ? (i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.ticket)}</a>` : `<span class="key">${esc(i.ticket)}</span>`) : `<span class="key"></span>`;   // kept when empty, so every row's text starts in line
+  const row = (i, done) => `<div class="row">${!done && i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span>` : ""}${key(i)}<span class="tx">${inline(i.text)}${done && i.answer ? `<span class="ans">${inline(i.answer)}</span>` : ""}</span>` +
     `<span class="meta">${done ? `cleared ${ago(i.cleared)} ago${i.by ? ` by ${esc(shown(i.by))}` : ""}` : `${i.from ? esc(shown(i.from)) + ", " : ""}${ago(i.at)}`}</span>` +
     (done ? "" : `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list">Clear</b>`) + `</div>`;
   const open = q.open.length ? `<div class="day">Waiting on you<span class="n"> ${q.open.length}</span></div>` + q.open.map(i => row(i, false)).join("")
@@ -8191,7 +8193,7 @@ function wkDetail(d, key) {
     (wkOn(d, key, "").sup.length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>its own</i>`)
       .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
-    ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
+    ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${i.open && i.ref ? `<span class="fyref">${esc(i.ref)}</span> ` : ""}${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
     ...log.slice(0, 8).map(r => line("Log", `${esc(r.text)} <i>${esc(wkWhen(r.at))}${r.by ? " · " + esc(shown(r.by)) : ""}</i>`)),
   ].filter(Boolean);
@@ -8243,7 +8245,7 @@ const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
   wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkTicketFaces(d, t.id || t.ref, t.who));
 // a question is read in full, so its text wraps
-const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid(i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General", wkWhen(i.at), inline(i.text)) +
+const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span> ` : "") + (i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General"), wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
   wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkTicketFaces(d, i.key, i.who));
