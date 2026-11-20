@@ -8479,7 +8479,7 @@ document.addEventListener("mouseover", e => {
   clearTimeout(menuShow); clearTimeout(menuHide);
   menuShow = setTimeout(() => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, true), 350);
 });
-const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="id">${id}${sub ? ` <span>· ${esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
+const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"><span class="id">${id}${subHtml || sub ? ` <span>· ${subHtml || esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
 // in full mode, its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
 // days its PRs have been quiet; its title on the line under
@@ -8487,8 +8487,10 @@ const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [
   ...t.ok.map(a => ({text: `${shown(a.who)} ✓${a.n < a.of ? ` ${a.n}/${a.of}` : ""}`, tone: a.n < a.of ? "grey" : "green"})),
   t.next && {text: `${shown(t.next)} next`, tone: t.next === "You" ? "amber" : "grey"},
   t.stuck && {text: `stuck ${t.stuck}d`, tone: "amber"}].filter(Boolean);
+// in full mode, each of a ticket's pull requests after its key as a link to it
+const wkPrLinks = t => t.id && !wkCompact() && t.prs?.length ? t.prs.map(p => wkLink(p.href, p.ref)).join(" + ") : "";
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
-  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkChips(t)) + wkTicketFaces(d, t.id || t.ref, t.who), " wktk");
+  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkChips(t), wkPrLinks(t)) + wkTicketFaces(d, t.id || t.ref, t.who), " wktk");
 // a question is read in full, so its text wraps
 const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span> ` : "") + (i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General"), wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
