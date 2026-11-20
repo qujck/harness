@@ -4872,7 +4872,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thseg b{display:grid;place-items:center}
 .thseg b svg{width:13px;height:13px}
 /* a full card's threads: chips over the open thread, or in a wide card (720px) the list on its left */
-.card.full.thon{container:thcard / inline-size}
+.card.full.thon{container:sayroom thcard / size}   /* its height for the message box (sayroom), its width for the thread list */
 .thbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto;position:relative}
 .thbody > .thlist{display:none}
 .thbody > .thchips{display:flex;gap:4px;overflow-x:auto;padding:6px 12px;border-top:1px solid var(--line)}
@@ -5380,7 +5380,7 @@ table.md th{background:var(--line);font-weight:650}
 .feed .it .tx{max-height:9em}
 /* an agent pane's card: its longer conversation, every turn in full, scrolled */
 .card.full .feed{overflow:auto;justify-content:flex-start;mask-image:none}
-.card.full .feed > :first-child{margin-top:auto}
+.card.full .feed > :first-child:not(.thhead){margin-top:auto}   /* a thread's head stays at the top; its lines go to the bottom */
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
 .teamlog{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:var(--r-l);background:var(--box);overflow:hidden}
