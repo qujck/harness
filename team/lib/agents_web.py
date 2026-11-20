@@ -8636,12 +8636,15 @@ function wkCardRe(key) {
     if (repo) alt.push(`\\b${q(repo)}\\s*#${n}\\b`, `\\b${q(repo)}/(?:pull-requests|pull)/${n}\\b`); }
   return new RegExp(alt.join("|"));
 }
-// what was said about the item, oldest first: every line naming it (wkCardRe)
+// what was said about the item, oldest first: every line naming it (wkCardRe), and an agent's answers to the owner's
+// message that named it, up to the owner's next message to that agent (answers seldom repeat the ticket)
 function wkCardThread(key, names) {
   const seen = new Set(), out = [], re = wkCardRe(key);
-  for (const a of S.agents.filter(a => names.includes(a.name)))
+  for (const a of S.agents.filter(a => names.includes(a.name))) {
+    let answering = false;
     for (const it of a.feed || []) {
-      if (!["said", "owner", "peer", "sent"].includes(it.kind) || !re.test(it.text || "")) continue;
+      if (it.kind === "owner") answering = re.test(it.text || "");
+      if (!["said", "owner", "peer", "sent"].includes(it.kind) || !(re.test(it.text || "") || answering && it.kind === "said")) continue;
       // a message between two agents is in both their feeds: kept once
       const from = it.kind === "said" ? a.name : it.kind === "owner" ? "you" : it.kind === "peer" ? it.who : a.name;
       const to = it.kind === "said" ? "you" : it.kind === "owner" ? a.name : it.kind === "peer" ? a.name : it.who;
@@ -8649,6 +8652,7 @@ function wkCardThread(key, names) {
       if (seen.has(id)) continue;
       seen.add(id); out.push({from, to, text: it.text, ts: it.ts});
     }
+  }
   return out.sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
 }
 function wkCardBody(d, key) {
