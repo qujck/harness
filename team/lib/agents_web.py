@@ -4759,7 +4759,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 :is(#phone,.wk).roomy .wkperson > .wkface{width:auto}
 :is(#phone,.wk).roomy .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
 :is(#phone,.wk).roomy :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
-.wk .wkgap{visibility:hidden}   /* holds a face's place where there is no one to show: "You", "Unassigned" */
+.wk .wkgap{visibility:hidden}   /* holds a face's place where there is no one to show: "Unassigned" */
 :is(#phone,.wk).roomy .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on and Stand-up keep theirs */
 :is(#phone,.wk).roomy .workq .wqwho > .wkface{width:auto}
 /* a narrow Stand-up: the face down the left of its row, the ticket and the time on top, the title under them in full */
@@ -8431,7 +8431,7 @@ const wkTodaySum = (x, num = n => `<span class="wkn g">${n}</span>`) =>
   `${num(x.prs)} ${x.prs === 1 ? "PR" : "PRs"} merged · ${num(x.done.length)} ${x.done.length === 1 ? "ticket" : "tickets"} done today`;
 function wkAll(d) {
   const p = d.p, go = (tab, name, n, tone, more = "") => `<div class="wkhead wkgo" data-wktab="${tab}" title="Open ${esc(name)}"><b>${esc(name)}</b>${n != null ? `<em class="${tone}">${n}</em>` : ""}${more}</div>`;
-  const waits = (p.waiting || []).map(w => `<div class="wkrow wkwait">${w.who === "You" ? `<span class="wkface"><span class="pp-ini wkgap"></span></span>` : `<span class="wkface${wkOpen(w.who) || `" title="${esc(shown(w.who) || "Someone")}`}">${ppFace(w.who)}</span>`}<span class="pp-mid"><span class="tt"><b class="wkname">${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}</div>`);
+  const waits = (p.waiting || []).map(w => `<div class="wkrow wkwait"><span class="wkface${wkOpen(w.who) || `" title="${esc(shown(w.who) || "Someone")}`}">${ppFace(w.who)}</span><span class="pp-mid"><span class="tt"><b class="wkname">${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}</div>`);
   const next = [...(d.q.next || []), ...(d.q.later || [])], tday = wkToday(d), done = tday.done;
   const left = `<div class="wkhead"><b>Pipeline</b><span class="wkmerged">${wkTodaySum(tday, n => `<em class="g">${n}</em>`)}</span></div>` +
     wkStrip(d, "") + go("flight", "Waiting on", null, "") + (waits.join("") || `<div class="calm">Nobody: everything is moving.</div>`) +
