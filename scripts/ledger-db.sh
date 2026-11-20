@@ -2620,9 +2620,14 @@ case "${1:-}" in
   # team page shows "#6466" in place of a hundred-character id with it.
   ticket-refs) shift
             (( $# )) || { echo "usage: ledger-db.sh ticket-refs <id>..." >&2; exit 64; }
-            _ti_list=""
-            for _ti_id in "$@"; do _ti_list+="${_ti_list:+,}$(_sql_lit "$_ti_id")"; done
-            _as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id" ;;
+            # a ledger number ("6854" or "#6854") is answered by ref and printed back as given, without the # (#6854)
+            _ti_list=""; _ti_nums=""
+            for _ti_id in "$@"; do
+              if [[ "$_ti_id" =~ ^#?([1-9][0-9]{0,8})$ ]]; then _ti_nums+="${_ti_nums:+,}${BASH_REMATCH[1]}"
+              else _ti_list+="${_ti_list:+,}$(_sql_lit "$_ti_id")"; fi
+            done
+            [[ -n "$_ti_list" ]] && _as_me "select id, coalesce(ref::text,''), coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where id in ($_ti_list) order by id"
+            [[ -z "$_ti_nums" ]] || _as_me "select ref::text, ref::text, coalesce(issue::text,''), replace(title, E'\n', ' ') from ledger.v_ticket_detail where ref in ($_ti_nums) order by ref" ;;
   # ── THE PIPELINE, FOR THE TEAM PAGE'S PR BAR: `pipeline [<id>|<sha>...]` prints one row per in-flight ticket,
   # `T|id|ref|issue|claimed_by|status|title` (every in_progress ticket and every id named), then one row per live
   # verdict at a named 40-hex sha, `V|ticket|sha|kind|by_agent|pr|`. team/bar/pipeline names each open PR's ticket and
