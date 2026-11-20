@@ -2987,7 +2987,7 @@ def tool_json(name, tid):
 # ── a prompt waiting on the owner ─────────────────────────────────────────────
 SEPARATOR = re.compile(r"^\s*[╌─━]{10,}\s*$")
 TOP_RULE = re.compile(r"^\s*[─━]{10,}\s*$")
-OPTION = re.compile(r"^\s*(?:❯\s*)?(\d+)\.\s+(.*\S)")
+OPTION = re.compile(r"^\s*(?:[❯↑↓]\s*)*(\d+)\.\s+(.*\S)")   # "↓ 2." / "↑ 3.": a scrolled list marks its edge rows
 CURSOR_ROW = re.compile(r"^(\s*❯\s+)(\S.*)$")   # an unnumbered choice's cursor row ("❯ No, exit"); its label starts where the text does
 SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that ends a multi-select question
 PREVIEW = re.compile(r"\s{2,}[┌│└].*$")   # a question with previews draws the cursor's option's preview to the right of the options
@@ -3009,7 +3009,10 @@ def ask_of(pane, asked=None):
         return ask
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = foot_of(lines)
-    if foot is None or not any(MORE_LINES.match(l) for l in lines[:foot]):
+    # Cut off either way: "↑ N more lines" above the options, or a scrolled list whose edge rows carry ↑/↓ and whose
+    # option 1 is off screen (Mark's 12-row, 41-column pane showed only "↓ 2." and "4. Chat about this", 2026-11-20).
+    # Either way the match below is the guard: every option the pane shows must be the transcript question's own.
+    if foot is None:
         return ask
     seen = [(int(m.group(1)), PREVIEW.sub("", m.group(2))) for m in (OPTION.match(l) for l in lines[:foot]) if m]
     norm = lambda s: re.sub(r"\s*\(Recommended\)$", "", str(s).strip()).rstrip("…").strip()
@@ -13330,6 +13333,24 @@ def self_test():
             (4, "Type something.", True), (5, "Chat about this", False)]))
         t("without the transcript's question, or with one whose options the pane does not show, the pane alone: no options",
           (bare and bare["options"], other and other["options"]), ([], []))
+        # a scrolled option list with no "more lines" row, as Mark's 12-row, 41-column pane drew it (captured 2026-11-20):
+        # option 1 is above the screen, option 2 carries the ↓ edge mark, and only "4. Chat about this" is plain
+        screen = ["     boxed.", "↓ 2. No, keep it boxed", "     #12384 stays a draft. I'll look for", "     another way.",
+                  "─" * 41, "  4. Chat about this", "", "Enter to select · ↑/↓ to navigate · Esc", "to cancel", "─" * 41]
+        mine = [{"question": "May I run init.sh outside the sandbox?", "options": [
+                 {"label": "Yes, unboxed + canary", "description": "Run it outside."}, {"label": "No, keep it boxed"}]}]
+        g["run"] = lambda *cmd, **kw: "\n".join(screen) + "\n" if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            scrolled = ask_of("%1", mine)
+            wrong = ask_of("%1", [{"question": "Two?", "options": [{"label": "A"}, {"label": "B"}]}])
+        finally:
+            g["run"] = was_run
+        t("a scrolled option list with option 1 off screen and no \"more lines\" row is read whole from the transcript",
+          (scrolled and scrolled["text"].splitlines()[0], scrolled and [(o["n"], o["label"]) for o in scrolled["options"]]),
+          ("May I run init.sh outside the sandbox?",
+           [(1, "Yes, unboxed + canary"), (2, "No, keep it boxed"), (3, "Type something."), (4, "Chat about this")]))
+        t("and a transcript question whose labels the pane does not show is not taken for it",
+          wrong and wrong["text"].startswith("Two?"), False)
         asked = [{"question": "Which shape?", "options": [
             {"label": "Compact count (Recommended)", "description": "One item.", "preview": "PRs ● 7\nhidden line"},
             {"label": "Segmented status", "description": "Two."}, {"label": "Per-author rows", "description": "Three."}]}]
