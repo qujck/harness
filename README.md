@@ -72,6 +72,7 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agents-web.service     # a reference systemd user unit for the page (KillMode=process keeps the agents it started through a restart)
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
   activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
+  work-marker-hook.sh    # from the hooks: marks which ticket an agent is on (claim, branch, release, sign-off, handoff) through the tree's ledger-db.sh
   install-claude-code.sh # once per box: adds the status line, the mods folder and the activity hooks to ~/.claude/settings.json, asking first
   lib/agent-session.sh   # is an agent's session running, and is it mid-turn (sourced by spawn and bench)
   lib/agents_web.py      # the page's server and the page itself (run through agents-web.sh)
@@ -207,7 +208,8 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
    three act per session on the box: the status line `team/statusline-publish.sh`, which publishes each
    session's row; `CLAUDE_CODE_PLUGIN_DIRS` naming the `claude-code` folder, so the three mods load; and
    hooks calling `team/activity-hook.sh` on prompts, tool calls, permission requests, stops and compactions, so the row
-   says whether a session is working, waiting or idle. Nothing the person already set is replaced. The
+   says whether a session is working, waiting or idle; and `team/work-marker-hook.sh` on Bash calls and session starts, so
+   each session's usage is counted against the ticket it is on. Nothing the person already set is replaced. The
    `compact-after.json` line sets the self-compact soft point: `default` is the token count at which an agent
    is nudged to compact itself (200k against a 300k `autoCompactWindow`); `agents` overrides it by launch-line
    name. Each mod's README has the rest.
