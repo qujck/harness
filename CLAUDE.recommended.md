@@ -16,8 +16,9 @@ message it writes to the owner in its own pane with that message's thread, in sq
 - ` · ask` added when the message asks the owner something: `[GitHub billing block · ask]`. Asking the same thing
   again, before the owner answers, keeps the same tag.
 - Each paragraph about another thread opens with that thread's tag, so nothing about one thing sits under another's
-  tag: "Nothing else needs you" and other general remarks go under `[General]`. A message about nothing in particular
-  has no tag.
+  tag: general remarks go under `[General]`. A message about nothing in particular has no tag.
+- A turn with nothing new for the owner writes nothing at all: never "Nothing needs you right now" or any other line
+  saying there is nothing, after a nudge, a teammate's message or anything else.
 - An ask names what is wanted in its own paragraph, the last one before any command to run, so the page can show it.
 
 The page hides the tag and files the message under it. The tag is the only place a ticket key may open a question to
