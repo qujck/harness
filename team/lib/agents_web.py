@@ -4719,6 +4719,14 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkpark > summary::-webkit-details-marker{display:none}
 /* a ticket a line: its badge, its ids (and tags) over its title, whose it is; a click opens what is known of it */
 .wkrow{display:flex;align-items:center;gap:10px;padding:5px 8px;border-top:1px solid var(--line);cursor:pointer}
+.thitem .wkpin{display:inline-grid;vertical-align:-5px;margin-left:4px;place-items:center;width:20px;height:20px;border-radius:var(--r-s);color:var(--mute);opacity:0;cursor:pointer}
+.thitem:hover .wkpin,.thitem .wkpin.on{opacity:1}
+.thitem .wkpin:hover{background:var(--on);color:var(--text)}
+.thitem .wkpin svg{width:12px;height:12px}
+.thitem .wkpin.on{color:var(--amber)}
+.thitem .wkpin.on svg{fill:var(--amber)}
+.thitem.thmini .wkpin{margin:0;width:14px;flex:none}
+.thitem.thmini .wkpin:not(.on){display:none}
 .wkrow > .wkpin{flex:none;margin-left:-4px;display:grid;place-items:center;width:20px;height:20px;border-radius:var(--r-s);color:var(--mute);opacity:0;cursor:pointer}
 .wkrow:hover > .wkpin,.wkrow > .wkpin.on{opacity:1}
 .wkrow > .wkpin:hover{background:var(--on);color:var(--text)}
@@ -4856,6 +4864,83 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .frecent a:hover{background:var(--soft)}
 .frecent a span{font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pown .kchips{display:flex;flex-wrap:wrap;gap:4px}
+.it .thl{display:inline-block;margin-right:6px;padding:0 7px;border-radius:10px;font-size:.78em;font-weight:650;line-height:1.6;vertical-align:1px;background:var(--track);color:var(--mute);white-space:nowrap}
+.it .thl[data-thread]{cursor:pointer}
+.it .thl[data-thread]:hover{color:var(--text)}
+/* the agent view's threads: the list on the left of the conversation, the open thread's head at the top of it */
+#dthreads{display:none}
+.thseg b{display:grid;place-items:center}
+.thseg b svg{width:13px;height:13px}
+/* a full card's threads: chips over the open thread, or in a wide card (720px) the list on its left */
+.card.full.thon{container:thcard / inline-size}
+.thbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto;position:relative}
+.thbody > .thlist{display:none}
+.thbody > .thchips{display:flex;gap:4px;overflow-x:auto;padding:6px 12px;border-top:1px solid var(--line)}
+.thbody > .thchips .thl{flex:none;cursor:pointer;margin:0}
+.thbody > .thchips .thl.on{background:var(--text);color:var(--box)}
+.thbody > .feed{grid-row:2}
+.card.full .feed > .thhead{top:-8px;margin-top:-8px}   /* the open thread's head at the top, its lines from the bottom */
+.card.full .feed > .thhead + *{margin-top:auto}
+@container thcard (min-width:720px){
+  .thbody{grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto auto}
+  .thbody > .thlist{display:flex;flex-direction:column;gap:2px;grid-column:1;grid-row:1/-1;min-height:0;overflow:auto;padding:10px 8px;border-top:1px solid var(--line);border-right:1px solid var(--line)}
+  .thbody > .thchips{display:none}
+  .thbody > :not(.thlist){grid-column:2}
+  .thbody > .feed{grid-row:1}
+}
+#detail .left.thon{padding-left:240px}
+#detail .left.thon.thfold{padding-left:96px}
+#detail .left.thon.thfold #dthreads{width:96px}
+@container thcard (min-width:720px){ .thbody.thfold{grid-template-columns:96px minmax(0,1fr)} }
+/* the list's fold button, and a folded list: each thread as its key (or name) badge with its new-message count */
+.thfoldbtn{display:grid;place-items:center;align-self:flex-end;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
+.thfoldbtn:hover{background:var(--on);color:var(--text)}
+.thitem.thmini{flex-direction:row;align-items:center;gap:4px;padding:4px 2px}
+.thitem.thmini .thl{margin:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;background:var(--track);color:var(--mute);font-family:var(--mono)}
+.thitem.thmini .thl.ask{background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}
+.thitem.thmini.on,.thitem.thmini:hover{border-color:transparent;background:none}
+.thitem.thmini.on .thl{outline:1.5px solid var(--text);color:var(--text)}
+.thitem.thmini .thl{display:block;white-space:nowrap}
+.thitem.thmini > .unseen{position:static;flex:none}
+/* unread threads scrolled out of the list's view: a count at that edge, which brings the nearest into view */
+.thmore{position:sticky;z-index:3;align-self:center;display:none;cursor:pointer;box-shadow:0 3px 10px #0005}
+.thmore.on{display:block}
+.thmore.up{top:0;margin-bottom:-18px}
+.thmore.down{bottom:0;margin-top:-18px;order:9}
+.thx{display:grid;visibility:hidden;place-items:center;width:18px;height:18px;flex:none;border-radius:var(--r-s);color:var(--mute);font-weight:400;cursor:pointer;line-height:1}
+.thx:hover{color:var(--text)}
+.thitem:hover > .thx{visibility:visible}
+.thitem:not(.thmini) > .thx{position:absolute;top:2px;right:2px}
+.thitem > .thkey{font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);padding-right:16px}
+.thitem > .thkey + b{font-weight:400}
+.thitem > .thtop{display:flex;align-items:baseline;gap:6px;align-self:stretch}
+.thitem > .thtop > .unseen{align-self:center;margin:0}
+.thitem:not(.thmini) > .wkpin{position:absolute;top:22px;right:1px;margin:0}   /* under the cross */
+.thitem:not(.thmini) > .wkpin:hover{background:none}
+.thitem:has(> .wkpin) > :is(b, .thsum){padding-right:16px}   /* lines clear of the pin */
+.thtop > .thago{margin-left:auto;flex:none;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);font-style:normal;color:var(--mute)}   /* the key is the bold thing, its title under it */
+.thitem > .thkey > .unseen,.thitem > b > .unseen{position:static;display:inline-block;margin-right:6px;vertical-align:1px}   /* the count first, as elsewhere */
+.thitem.thmini > .thx{margin-left:auto}
+#detail .left.thon #dthreads{position:absolute;left:0;top:0;bottom:0;width:240px;display:flex;flex-direction:column;gap:2px;padding:10px 8px;overflow:auto;border-right:1px solid var(--line)}
+.thitem{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:1px solid transparent;border-radius:var(--r-m,8px);cursor:pointer}
+.thitem:hover{background:var(--on)}
+.thitem.on{border-color:var(--line2);background:var(--card1)}
+.thitem{position:relative}
+.thitem > b{font-weight:650;padding-right:16px}
+.thl > .unseen{position:static;display:inline-block;margin-left:6px}
+.unseen.ask{background:var(--amber) !important;color:#000 !important}
+.thitem .thmeta{color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
+.thitem .thsum{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.thitem .thl{margin:2px 0 0;padding:1px 8px;border-radius:10px;font-size:.8em;font-weight:650}
+.thl.ok{background:color-mix(in srgb, var(--green) 20%, transparent);color:var(--green)}
+.thhead{position:sticky;top:-14px;z-index:2;margin:-14px 0 4px;padding:12px 0 10px;background:var(--box);border-bottom:1px solid var(--line)}
+.thname{display:flex;align-items:baseline;gap:10px}
+.thname b{font-size:calc(var(--t-l)*var(--fs,1));font-weight:650}
+.thname span{color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
+.thask{margin-top:10px;padding:10px 14px;border-radius:var(--r-m,8px);background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}
+.thask small{display:block;margin-top:4px;opacity:.85}
+.thask.ok{background:color-mix(in srgb, var(--green) 18%, transparent);color:var(--green)}
+.thl.ask{background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}   /* a thread or line waiting on the owner */
 .pbar .pown input.tfilter{flex:0 0 110px;font-family:var(--sans)}
 .blank .pchoose{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font:inherit;color:var(--text);background:var(--soft);border:1px solid var(--line2);border-radius:var(--r-s);cursor:pointer}
 .blank .pchoose svg{width:12px;height:12px}
@@ -5312,9 +5397,10 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(var(--t-s)*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
-   (edges() sets --ft and --fb), keeping a feed's line beneath its head */
+   (edges() sets --ft and --fb), keeping a feed's line beneath its head; a thread's head held at the top stays clear,
+   the fade starting under it (--fo) */
 .card.full .feed,.teamlog:not(.summary) .feed,.fdoc,.others,.chrs,#wkcard .wkc-thread,#wkcard .wkc-more{
-  mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 calc(1px + var(--ft,0px)),#000 calc(100% - var(--fb,0px)),transparent)}
+  mask-image:linear-gradient(180deg,#000 var(--fo,1px),transparent var(--fo,1px),#000 calc(var(--fo,1px) + var(--ft,0px)),#000 calc(100% - var(--fb,0px)),transparent)}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* on a wide screen an agent's conversation (a full card's, Combined's, the agent's own view) keeps its lines about 90
@@ -6269,7 +6355,7 @@ html.phoneoff #phoneback{display:block}
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbcount"></span><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span><b class="lbnav" id="lbprev" title="Previous image (←)">‹</b><b class="lbnav" id="lbnext" title="Next image (→)">›</b></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -6627,7 +6713,9 @@ let sayHint = a => a.name?.startsWith(MEET) ? "Message the meeting…" : openAsk
 function shutBox(box, a) {
   const shut = !!openAsk(a);
   if (box._shut !== shut) { box.disabled = shut; box._shut = shut; }
-  box.placeholder = sayHint(a);
+  // in an agent's thread, the plain hint names the thread a message goes to
+  const hint = sayHint(a);
+  box.placeholder = thBox(box) && thSel[a.name]?.name !== EVERY && hint === `Message ${shown(a.name)}…` ? `Reply in ${thSel[a.name]?.title || "General"}…` : hint;
 }
 async function answerAsk(b) {
   const name = b.dataset.name, opts = b.closest(".opts"), input = b.dataset.typed ? b.parentElement.querySelector(".askin") : null;
@@ -6757,6 +6845,8 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   said: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
   auto: '<rect x="3" y="5.5" width="10" height="8" rx="2"/><path d="M8 5.5V3"/><circle cx="8" cy="2.4" r=".7"/><circle cx="6" cy="9.5" r=".8"/><circle cx="10" cy="9.5" r=".8"/><path d="M1.5 8.5v2.5M14.5 8.5v2.5"/>',
   compact: '<path d="M2 2h12M2 14h12M8 4v3M6.3 5.3 8 7l1.7-1.7M8 12V9M6.3 10.7 8 9l1.7 1.7"/>',
+  threads: '<rect x="1.5" y="2.5" width="4.5" height="11" rx="1"/><path d="M8.5 4.5h6M8.5 8h6M8.5 11.5h4"/>',
+  lines: '<path d="M2 4h12M2 8h12M2 12h12"/>',
   more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
@@ -6796,10 +6886,59 @@ const seekWrap = html => {
   const re = new RegExp(esc(seek.q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
   return html.replace(/(^|>)([^<]+)/g, (m, a, t) => a + t.replace(re, x => `<mark class="seekm">${x}</mark>`)).replace(/^<div class="/, '<div class="seek ');
 };
-function feedHtml(items, name, compact, on = laneOf(name)) {
+// Each line's thread (AGENTS_TICKET_TAG; ~/dev/.claude/local/CLAUDE.md): a developer's or tester's words are in the
+// ticket it holds; anyone else's open with their thread in brackets, "[SE-2736]" or "[GitHub billing block · ask]",
+// which is cut from the text shown; the owner's are in the thread their "Re <thread>: " names (cut too), else in the
+// agent's last one; an agent's message to another, in the ticket its "[KEY]" names. An ask asked again in the same thread before the
+// owner has written there is folded into the first, which keeps the times it was asked (_asked).
+const THREAD_TAG = /^\s*\[([^\]\n]{1,60}?)(\s*·\s*ask)?\]\s*/, THREAD_RE = /^Re ([^:\n]{1,60}): /, THREAD_KEY = /^\s*\[([A-Z][A-Z0-9]+-\d+)\]/;
+// A message whose later paragraphs open with their own tags is several, one a thread: each part from its tag to the next.
+const THREAD_PARA = /(?:^|\n)\s*\[[^\]\n]{1,60}?(?:\s*·\s*ask)?\]/g;
+const splitThreads = it => {
+  if (it.kind !== "said") return [it];
+  const text = String(it.text || ""), at = [...text.matchAll(THREAD_PARA)].map(m => m.index + (m[0].startsWith("\n") ? 1 : 0));
+  if (at.length < 2 && !(at.length === 1 && at[0] > 0)) return [it];
+  const cuts = at[0] > 0 && text.slice(0, at[0]).trim() ? [0, ...at] : at;
+  return cuts.map((c, i) => ({...it, text: text.slice(c, cuts[i + 1] ?? text.length).trim()}));
+};
+function threadItems(items, name) {
+  const last = {}, open = {}, reply = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered
+  for (const it of items.flatMap(splitThreads)) {
+    const ag = it._agent || name, a = ppAgent(ag), text = String(it.text || "");
+    let th = "", ask = false, shownText = text, m;
+    if (it.kind === "said") {
+      if ((m = text.match(THREAD_TAG))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
+      else if (["dev", "tester"].includes(a?.role)) th = a.ticket || "";
+      else if (reply[ag] != null) th = reply[ag];   // an untagged answer stays in the thread it answers
+      last[ag] = th; reply[ag] = null;
+    } else if (["owner", "echo", "pending"].includes(it.kind)) {
+      if ((m = text.match(THREAD_RE))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); } else th = last[ag] || "";
+      reply[ag] = th;
+      open[ag + "\n" + th] = null;   // the owner has written in the thread: an ask after this is a new one
+    } else if (["peer", "sent"].includes(it.kind) && (m = text.match(THREAD_KEY))) th = m[1];
+    if (ask) {
+      const k = ag + "\n" + th, first = open[k];
+      if (first) { first._asked.push(it.ts); continue; }
+      out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
+      continue;
+    }
+    out.push(th || shownText !== text ? {...it, text: shownText, _thread: th} : it);
+  }
+  return out;
+}
+// a line's thread as a small label in an agent's conversation shown whole, and how many times an ask was asked
+const threadLabel = it => (it._thread ? `<span class="thl" data-thread="${esc(it._thread)}" title="Open the thread ${esc(it._thread)}">${esc(it._thread)}</span>` : "") +
+  (it._asked?.length > 1 ? `<span class="thl ask" title="Asked at ${esc(it._asked.map(t => String(t).slice(11, 16)).join(", "))}">asked ${it._asked.length}×</span>` : "");
+function feedHtml(items, name, compact, on = laneOf(name), only = null) {
   if (name) items = items.concat(echoItems(items, name));
+  items = threadItems(items, name);
+  if (only != null) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
   const hit = it => seekTurn(it, it._agent || name);
-  const one = it => { const h = item(it, compact, it._agent || name, !!it._agent); return hit(it) ? seekWrap(h) : h; };
+  // after the name badges at the start of its text, else at the start
+  const label = (h, it) => compact || only != null || !(it._thread || it._asked?.length > 1) ? h
+    : /<span class="heads">(?:<span[^>]*>[^<]*<\/span>)*<\/span>/.test(h) ? h.replace(/<span class="heads">(?:<span[^>]*>[^<]*<\/span>)*<\/span>/, x => x + threadLabel(it))
+    : h.replace('<span class="tx">', '<span class="tx">' + threadLabel(it));
+  const one = it => { const h = label(item(it, compact, it._agent || name, !!it._agent), it); return hit(it) ? seekWrap(h) : h; };
   const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending", "echo"].includes(it.kind) || hit(it)), out = [];
   for (let i = 0; i < shown.length; i++) {
     let j = i;
@@ -6865,16 +7004,22 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx" title="${a.ctxPct}% of context used"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
-  const feed = keep ? "" : turns.length ? feedHtml(turns, a.name, !conv) : `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`;
+  // a full card in Threads (the agent's choice, as in its view): its threads as a list on its left when it is wide, as
+  // chips over the open thread when narrow (CSS), and the open thread only in its conversation
+  const all = conv && thMode(a.name) === "threads" && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2, pick = thr ? thPick(all, a.name) : null;
+  const shownList = thr ? thHoldOrder(all, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
+  const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
+    : thr ? thHeadHtml(pick.t) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name) : feedHtml(turns, a.name, !conv);
   const fold = folded().includes(a.name);
-  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
-    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${roleWith(a)}</span><span class="cctl">${foldButton(a.name, fold)}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
+  const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
+    ${a.live ? sayRow(a) : ""}`;
+  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${thr ? " thon" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+    <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${roleWith(a)}</span><span class="cctl">${foldButton(a.name, fold)}${conv && a.feed.length ? thSeg(a.name) : ""}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
     <div class="row2">${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
-    <div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
-    ${a.live ? sayRow(a) : ""}</div>`;
+    ${thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(shownList, pick.name, unseenBy(a, turns))}</div><div class="thchips">${thChipsHtml(all, pick.name, unseenBy(a, turns))}</div>${(pick.name === EVERY ? body : body.replace(`placeholder="${esc(`Message ${shown(a.name)}…`)}"`, `placeholder="${esc(`Reply in ${pick.title}…`)}"`))}</div>` : body}</div>`;
 }
 // A List row's status, after its name and ticket: its state in words, then the pane's footer ("in shell · 1 shell").
 const mstat = (a, st) => [st === "wanted" ? STATE.wanted : STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
@@ -7025,6 +7170,7 @@ function patchNode(a, b) {
 }
 
 function draw() {
+  requestAnimationFrame(() => { document.querySelectorAll(".card.full .thlist").forEach(thEdges); document.querySelectorAll(".card.full.thon .feed").forEach(edges); });
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")
     || document.activeElement?.classList.contains("wkfilter")) return;   // nor while a tab is being named, or the Work pane filtered
   if (!barDrag) placeBar();
@@ -7114,8 +7260,8 @@ function draw() {
   const tabRow = (key, agents, badge, none) => {   // none: nobody is picked until one is (a Meeting's row)
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || (none ? null : agents[0]);
     if (badge === "icon")
-      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel ? 0 : unseen(a);
-        return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n) : ""}</span>`; }).join("")}</div>`];
+      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel && thMode(a.name) !== "threads" ? 0 : unseen(a), ask = n && Object.values(unseenBy(a)).some(o => o.ask);
+        return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n, ask) : ""}</span>`; }).join("")}</div>`];
     if (badge === "card")
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
       .replace('<div class="chr ', `<div data-tab="${esc(a.name)}" class="chr${a === sel ? " sel" : ""} `)).join("")}</div>`];
@@ -7205,6 +7351,8 @@ const benchStyle = () => ({card: "icon"}[localStorage.getItem("bench")] || local
 // A pane's scrolling part fades at an edge while there is more beyond it.
 const FADES = ".card.full .feed, .teamlog:not(.summary) .feed, .fdoc, .others, .chrs, #wkcard .wkc-thread, #wkcard .wkc-more";
 function edges(el) {
+  const head = el.querySelector(":scope > .thhead");
+  el.style.setProperty("--fo", head ? Math.max(1, Math.round(head.getBoundingClientRect().bottom - el.getBoundingClientRect().top)) + "px" : "1px");
   el.style.setProperty("--ft", el.scrollTop > 1 ? "28px" : "0px");
   el.style.setProperty("--fb", el.scrollTop + el.clientHeight < el.scrollHeight - 1 ? "28px" : "0px");
 }
@@ -9071,7 +9219,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey].join("|");
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", "")].join("|");
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -10073,36 +10221,50 @@ async function load() {
 
 // What the owner has seen of each agent's conversation, as the time of its newest turn when they last saw it: every
 // agent whose card is on the page (in tabs, only the picked one), and the open one while its view is. A message from an agent, or to or from
-// it, newer than that is unseen. It is counted only in the lanes the agent's card shows, and once per message: the
-// pieces of one reply, between its tool calls, are one message, and a message from the owner ends one.
+// it, newer than that is unseen. It is counted only in the lanes the agent's card shows (unseenBy).
 const seen = JSON.parse(localStorage.getItem("seen") || "{}");
 const SEEN_KINDS = ["said", "peer", "sent"];
 function markSeen(names) {
   for (const a of S.agents) {
     if (!names.includes(a.name)) continue;
     const newest = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, "");
-    if (newest > (seen[a.name] || "")) seen[a.name] = newest;
+    const threads = thMode(a.name) === "threads" && (a.name === open ? thOn() : !!document.querySelector(`.card.full.thon[data-name="${CSS.escape(a.name)}"]`));
+    if (threads && seen[a.name] && thSel[a.name]?.name !== EVERY) {
+      const th = thSel[a.name]?.name ?? "", m = threadItems(paneConv[a.name] || a.feed, a.name).filter(it => (it._thread || "") === th)
+        .reduce((m, it) => { const t = (it._asked || [it.ts]).at(-1) || ""; return t > m ? t : m; }, "");
+      if (m > (seenTh[a.name]?.[th] || "")) (seenTh[a.name] ||= {})[th] = m;
+    } else if (newest > (seen[a.name] || "")) seen[a.name] = newest;
   }
-  localStorage.setItem("seen", JSON.stringify(seen));
+  localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh));
 }
 // a message shown in a Combined pane has been seen, as an agent's card counts its own as seen
 function seenUpTo(items) {
   for (const it of items) if (SEEN_KINDS.includes(it.kind) && it.ts > (seen[it._agent] || "")) seen[it._agent] = it.ts;
   localStorage.setItem("seen", JSON.stringify(seen));
 }
-const unseenBadge = n => `<span class="unseen" title="${n} message${n > 1 ? "s" : ""} since you last looked">${n >= 10 ? "10+" : n}</span>`;
-function unseen(a) {
-  if (!seen[a.name]) return 0;
+const unseenBadge = (n, ask) => `<span class="unseen${ask ? " ask" : ""}" title="${n} message${n > 1 ? "s" : ""} since you last looked${ask ? ", one asking you something" : ""}">${n >= 10 ? "10+" : n}</span>`;
+// In Threads, each thread is seen apart (seenTh: agent -> thread -> the time of its newest line when last seen): only
+// the thread open in an agent's card or view is seen by being shown. A line is unseen when newer than both its
+// thread's time and the agent's.
+const seenTh = JSON.parse(localStorage.getItem("seenth") || "{}");
+const thSeen = (name, th) => { const a = seen[name] || "", t = seenTh[name]?.[th] || ""; return a > t ? a : t; };
+// unseen messages by thread ({thread: {n, ask}}): each message in the lanes shown, newer than its thread was seen; the
+// parts of one message (one time) count once in each thread they are in, and an ask asked again counts once, at its last
+function unseenBy(a, feed = a.feed) {
+  const out = {}, counted = new Set();
+  if (!seen[a.name]) return out;
   const on = laneOf(a.name);
-  let n = 0, prev = "";
-  for (const it of a.feed) {
-    if (it.kind === "owner") { prev = ""; continue; }
+  for (const it of threadItems(feed, a.name)) {
     if (!SEEN_KINDS.includes(it.kind) || !on.includes(it.lane)) continue;
-    const key = it.kind + ":" + it.who;
-    if (key !== prev && it.ts && it.ts > seen[a.name]) n++;
-    prev = key;
+    const th = it._thread || "", last = (it._asked || [it.ts]).at(-1), key = th + "\n" + it.ts;
+    if (!last || last <= thSeen(a.name, th) || counted.has(key)) continue;
+    counted.add(key);
+    const o = out[th] || (out[th] = {n: 0, ask: false}); o.n++; o.ask ||= !!it._ask;
   }
-  return n;
+  return out;
+}
+function unseen(a) {
+  return Object.values(unseenBy(a)).reduce((n, o) => n + o.n, 0);
 }
 
 // The column of every agent beside an open one, the open one marked: name with its state and unseen count (as a tab),
@@ -10220,7 +10382,7 @@ async function openDetail(name) {
   if (ONLY) document.title = shown(name);
   const a = S.agents.find(x => x.name === name) || S.bench.find(x => x.name === name) || {};   // a benched agent's last conversation is there to read
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${thSeg(name)}${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
@@ -10261,10 +10423,195 @@ $("#dconv").addEventListener("load", () => { if (open && pinned && !holding($("#
 $("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return; const c = $("#dconv"); pinned = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; $("#dbottom").classList.toggle("on", !pinned); });
 $("#dbottom").onclick = () => { const c = $("#dconv"); pinned = true; $("#dbottom").classList.remove("on"); c.scrollTo({top: c.scrollHeight, behavior: "smooth"}); };
 let convFeed = [];
+// The agent view's Threads | All switch (owner, 2026-11-20, threads brief), kept per agent in this browser: Threads by
+// default. Threads, where the view is wide enough (720px), lists the agent's threads on the left and shows the one
+// chosen on the right; All is the whole conversation, each line labelled with its thread.
+const thMode = n => localStorage.getItem("threads:" + n) === "all" ? "all" : "threads";
+// a message box in a thread: the agent view's in Threads, or a card's showing its threads
+const thBox = box => box.id === "dsay" ? thOn() : !!box.closest?.(".card.full.thon");
+const thWide = () => !!open && thMode(open) === "threads" && $("#detail .left").clientWidth >= 720;
+const thOn = () => thWide() && !thSingle[open];
+// agents whose conversation has one thread only (Everything and General): shown whole, with no list
+const thSingle = {};
+const ANSWERED_FOR = 15 * 60 * 1000;   // how long a thread says "answered" after the owner writes in it
+// Each thread of a conversation, from its lines (threadItems): its name ("" is General), its last line's time, the ask
+// still open in it (the owner has not written there since), when the owner last answered an ask there, and the
+// agent's latest words in it. The ticket's title stands for a ticket key where the Work data knows it.
+function threadsOf(items, name) {
+  const by = new Map(), get = th => by.get(th) || by.set(th, {name: th, last: 0, ask: null, answered: 0, latest: ""}).get(th);
+  const ask = {};
+  for (const it of threadItems(items, name)) {
+    if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
+    const th = it._thread || "", t = get(th), ts = Date.parse(it.ts) || 0;
+    t.last = Math.max(t.last, ts, ...(it._asked || []).map(x => Date.parse(x) || 0));
+    const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
+    if (it._ask) ask[th] = it;
+    if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
+    if (it.kind === "said") t.latest = it.text;
+  }
+  for (const [th, it] of Object.entries(ask)) if (it) by.get(th).ask = it;
+  get("");
+  const d = workQueue ? wkData(true) : null, title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title) || "";
+  const isKey = th => /^[A-Z][A-Z0-9]+-\d+$/.test(th);
+  const hid = thHidden[name] || {}, pins = new Set(wkPinned());
+  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
+    // General first, then pinned in Work, then waiting on the owner, then the most recent
+    .sort((a, b) => !b.name - !a.name || pins.has(b.name) - pins.has(a.name) || !!b.ask - !!a.ask || b.last - a.last)
+    .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "Everything", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
+}
+// the list's first row: every thread's lines together, each labelled with its thread
+var EVERY = "*";
+// a row's new-message count: its thread's, or for Everything every thread's
+const thUn = (un, name) => name !== EVERY ? un[name] : Object.values(un).reduce((s, u) => s && {n: s.n + u.n, ask: s.ask || u.ask} || {...u}, null);
+const thAgo = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return !ms ? "" : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
+const thHHMM = ts => String(ts || "").slice(11, 16);
+// threads removed from an agent's list (agent -> thread -> its newest line then): each comes back when a newer line
+// arrives in it; General stays
+var thHidden = JSON.parse(localStorage.getItem("thhide") || "{}");
+// a ticket's thread pins as it does in Work: the same pins, at the top of both
+const thPinBtn = t => { if (!t.key) return ""; const on = wkPinned().includes(t.key);
+  return `<b class="wkpin${on ? " on" : ""}" data-thpin="${esc(t.key)}" title="${on ? "Unpin" : "Pin to the top of Work and the threads"}">${MENU_ICON.pin}</b>`; };
+const thX = t => t.name && t.name !== EVERY ? `<b class="thx" data-thx="${esc(t.name)}" title="Remove it until something new arrives in it">×</b>` : "";
+// the thread list folded to badges, one choice for every list in this browser
+function thFolded() { return localStorage.getItem("thfold") === "1"; }
+const thFoldBtn = () => `<b class="thfoldbtn" data-thfold title="${thFolded() ? "Show the threads in full" : "Fold the threads to their badges"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${thFolded() ? "M4.5 2.5 8 6l-3.5 3.5" : "M7.5 2.5 4 6l3.5 3.5"}"/></svg></b>`;
+const THMORE = `<b class="unseen thmore up" data-thmore="up"></b><b class="unseen thmore down" data-thmore="down"></b>`;
+// the edge counts of a thread list: its unread threads above and below what shows
+function thEdges(list) {
+  if (!list?.isConnected) return;
+  const box = list.getBoundingClientRect(), un = [...list.querySelectorAll(".thitem")].filter(e => e.querySelector(".unseen"));
+  const up = un.filter(e => e.getBoundingClientRect().bottom < box.top + 20), down = un.filter(e => e.getBoundingClientRect().top > box.bottom - 20);
+  for (const [d, xs] of [["up", up], ["down", down]]) {
+    const b = list.querySelector(`.thmore.${d}`); if (!b) continue;
+    b.classList.toggle("on", !!xs.length); b.classList.toggle("ask", xs.some(e => e.querySelector(".unseen.ask")));
+    b.textContent = xs.length ? `${d === "up" ? "↑" : "↓"} ${xs.length} unread` : "";
+    b.title = xs.length ? `${xs.length} thread${xs.length > 1 ? "s" : ""} with new messages ${d === "up" ? "above" : "below"}: a click shows the nearest` : "";
+  }
+}
+document.addEventListener("scroll", e => { if (e.target.matches?.("#dthreads, .thlist")) thEdges(e.target); }, true);
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-thmore]"); if (!b) return;
+  e.stopImmediatePropagation();
+  const list = b.parentElement, box = list.getBoundingClientRect(), un = [...list.querySelectorAll(".thitem")].filter(x => x.querySelector(".unseen"));
+  const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
+  t?.scrollIntoView({block: "nearest", behavior: "smooth"});
+}, true);
+function thListHtml(list, sel, un = {}) {
+  if (thFolded()) return THMORE + thFoldBtn() + list.map(t => {
+    const u = t.name === sel ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";
+    const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
+    return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || t.name || "General")}</span>${thX(t)}</div>`;
+  }).join("");
+  return THMORE + thFoldBtn() + list.map(t => {
+    const u = t.name === sel ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";
+    const tag = t.ask ? `<span class="thl ask">waiting on you · asked ${t.ask._asked.length}×</span>`
+      : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
+      : t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : t.name ? "" : `<span class="thsum">anything else</span>`;
+    // a ticket's key first, the count with it, then its title
+    // and the time since its last line at the right of that first line
+    const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "", meta = t.name && t.name !== EVERY && !t.key ? "not a ticket" : "";
+    const head = t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${ago}</span>${t.title !== t.key ? `<b>${esc(t.title)}</b>` : ""}` : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>`;
+    return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}` +
+      (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
+  }).join("");
+}
+// the open thread's head, kept at the top: its name, its key or "not a ticket", and the ask open in it (amber, the
+// times it was asked again folded in), or for a while once answered, green
+// the part of an ask that asks: its last paragraph with a question mark, else its last paragraph that is not a code
+// block or a closing line ("You should see failed=0"), as an agent ends an ask with what it wants done
+function thAskLine(text) {
+  const paras = String(text || "").split(/\n\s*\n/).map(p => p.trim()).filter(p => p && !p.startsWith("```"));
+  const q = paras.filter(p => /\?\s*$/.test(p) || /\?\*\*/.test(p)).at(-1) || paras.find(p => /^\*\*[^*]+\*\*/.test(p)) || paras.at(-1) || "";
+  const flat = q.replace(/\*\*/g, "").replace(/\s+/g, " ");
+  return flat.length > 240 ? flat.slice(0, 239) + "…" : flat;
+}
+function thHeadHtml(t) {
+  if (!t) return "";
+  const ask = t.ask ? `<div class="thask"><b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thHHMM(t.ask._asked[0])}` +
+      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thHHMM).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
+    : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${new Date(t.answered).toTimeString().slice(0, 5)}</div>` : "";
+  return `<div class="thhead"><div class="thname"><b>${esc(t.title)}</b><span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key && t.title !== t.key ? t.key : t.key ? "" : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
+}
+document.addEventListener("click", e => {
+  const x = e.target.closest?.("[data-thx]"), pin = e.target.closest?.("[data-thpin]");
+  if (!x && !pin && !e.target.closest?.("[data-thfold]")) return;
+  e.stopImmediatePropagation();
+  if (pin) wkPin(pin.dataset.thpin);
+  else if (x) {   // removed, and what it held counts as seen
+    const agent = e.target.closest("#detail") ? open : e.target.closest(".card.full[data-name]")?.dataset.name, th = x.dataset.thx;
+    if (!agent) return;
+    const t = threadsOf(e.target.closest("#detail") ? convFeed : paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [], agent).find(t => t.name === th);
+    if (!t) return;
+    (thHidden[agent] ||= {})[th] = t.at || "";
+    if (seen[agent] && (t.at || "") > (seenTh[agent]?.[th] || "")) (seenTh[agent] ||= {})[th] = t.at;
+    localStorage.setItem("thhide", JSON.stringify(thHidden)); localStorage.setItem("seenth", JSON.stringify(seenTh));
+  } else localStorage.setItem("thfold", thFolded() ? "0" : "1");
+  thFlip = true;
+  if (open) renderConv();
+  wkRedraw(); thFlip = false;
+}, true);
+var thFlip = false;   // the list redrawn under the pointer, as its fold button was pressed
+document.addEventListener("click", e => {
+  const m = e.target.closest?.("[data-thm]"), item = e.target.closest?.(".thitem[data-thread]"), label = e.target.closest?.(".thl[data-thread]");
+  const c = e.target.closest?.(".card.full[data-name]"), agent = e.target.closest?.("#detail") ? open : c?.dataset.name;
+  if (!agent || !m && !item && !label) return;
+  e.stopPropagation();
+  if (m) localStorage.setItem("threads:" + agent, m.dataset.thm);
+  if (item || label) {   // opened, the thread's lines are seen
+    const th = (item || label).dataset.thread;
+    localStorage.removeItem("threads:" + agent); localStorage.setItem("thread:" + agent, th);
+    thSel[agent] = {...thSel[agent], name: th}; markSeen([agent]);
+  }
+  thFlip = true;   // the list's order as it now is, though the pointer is over it
+  if (agent === open && e.target.closest("#detail")) {
+    $("#dhead").querySelectorAll("[data-thm]").forEach(b => b.classList.toggle("on", b.dataset.thm === thMode(open)));
+    pinned = true; renderConv(); const conv = $("#dconv"); conv.scrollTop = conv.scrollHeight;
+  } else draw();
+  thFlip = false;
+  if (!(agent === open && e.target.closest("#detail"))) { requestAnimationFrame(() => { const f = document.querySelector(`.card.full[data-name="${CSS.escape(agent)}"] .feed`); if (f) f.scrollTop = f.scrollHeight; }); }
+}, true);
+// the list's order catches up once the pointer leaves it
+document.addEventListener("mouseout", e => { if (e.target.closest?.("#dthreads") && !e.relatedTarget?.closest?.("#dthreads") && open) renderConv(); });
+// while the pointer is over a thread list its rows keep their order, so none moves under a click; what each row says
+// is always current (a new thread joins at the end)
+function thHoldOrder(all, el) {
+  if (thFlip || !el?.matches(":hover")) return all;
+  const order = [...el.querySelectorAll(".thitem")].map(e => e.dataset.thread), ix = n => { const i = order.indexOf(n); return i < 0 ? 1e9 : i; };
+  return [...all].sort((a, b) => ix(a.name) - ix(b.name));
+}
+addEventListener("resize", () => { if (open) renderConv(); });
+// each agent's open thread as last drawn, {name, title}, which a message sent from its thread names
+const thSel = {};
+function thPick(all, agent) {
+  let sel = localStorage.getItem("thread:" + agent);
+  if (sel == null || !all.some(t => t.name === sel)) sel = all[0]?.name ?? "";
+  const t = all.find(x => x.name === sel);
+  return thSel[agent] = {name: sel, title: t?.title || "General", t};
+}
+// the Threads | All switch, as two icons
+const thSeg = name => `<span class="seg thseg" data-name="${esc(name)}">${[["threads", "threads", "Threads: the conversation by thread"], ["all", "lines", "All: the whole conversation, each line labelled with its thread"]].map(([m, i, tip]) =>
+  `<b data-thm="${m}" class="${thMode(name) === m ? "on" : ""}" title="${tip}">${MENU_ICON[i]}</b>`).join("")}</span>`;
+// a narrow view's threads: a row of chips over the open thread
+const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel ? null : thUn(un, t.name);
+  return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span>`; }).join("");
 function renderConv() {
-  const conv = $("#dconv");
+  const conv = $("#dconv"), list = $("#dthreads"), left = $("#detail .left");
   if (holding(conv)) return;
-  patch(conv, convFeed.length ? feedHtml(convFeed, open, false) : `<div class="empty">no conversation yet</div>`);
+  const all = thWide() ? threadsOf(convFeed, open) : [];
+  thSingle[open] = all.length <= 2;
+  const on = thOn();
+  left.classList.toggle("thon", on);
+  left.classList.toggle("thfold", on && thFolded());
+  if (on) {
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {});
+    patch(list, html);
+    thEdges(list);
+    patch(conv, thHeadHtml(all.find(t => t.name === sel)) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel));
+  } else {
+    patch(conv, convFeed.length ? feedHtml(convFeed, open, false) : `<div class="empty">no conversation yet</div>`);
+  }
+  const a = S.agents.find(x => x.name === open);
+  if (a) shutBox($("#dsay"), a);
   conv.querySelectorAll(".folded").forEach(f => f.onclick = () => { const k = f.dataset.run; openRuns.has(k) ? openRuns.delete(k) : openRuns.add(k); renderConv(); });
 }
 async function refreshDetail(first) {
@@ -10469,7 +10816,9 @@ const saying = new Set();   // agents a message is on its way to: a second Enter
 async function say(name, input) {
   if (name.startsWith(MEET)) return sayAll(name, input);
   if (name.startsWith(CARD)) return wkCardSay(name, input);
-  const text = input.value.trim(), sent = atts[name] || [];
+  // sent from an agent's thread, General too, it names the thread, unless the owner already has
+  const th = !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "General";
+  const typed = input.value.trim(), text = th && typed && !THREAD_RE.test(typed) ? `Re ${th}: ${typed}` : typed, sent = atts[name] || [];
   if (!text && !sent.length || input.disabled || saying.has(name)) return;
   // The box empties before the echo redraws the page, so neither the redraw nor the kept draft can bring the text
   // back to be sent twice; a card's box may have been redrawn by the time the answer comes, so the answer goes to
