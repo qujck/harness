@@ -4913,6 +4913,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thitem:not(.thmini) > .thx{position:absolute;top:2px;right:2px}
 .thitem > .thkey{font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);padding-right:16px}
 .thitem > .thkey + b{font-weight:400}
+.thl.thclosed{display:inline-block;margin:0;padding:0 7px;border-radius:10px;font:650 .72em/1.6 var(--sans);background:var(--track);color:var(--mute);align-self:center}
 .thitem > .thtop{display:flex;align-items:baseline;gap:6px;align-self:stretch}
 .thitem > .thtop > .unseen{align-self:center;margin:0}
 .thitem:not(.thmini) > .wkpin{position:absolute;top:22px;right:1px;margin:0}   /* under the cross */
@@ -9219,7 +9220,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", "")].join("|");
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {})].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -10433,7 +10434,7 @@ const thWide = () => !!open && thMode(open) === "threads" && $("#detail .left").
 const thOn = () => thWide() && !thSingle[open];
 // agents whose conversation has one thread only (Everything and General): shown whole, with no list
 const thSingle = {};
-const ANSWERED_FOR = 15 * 60 * 1000;   // how long a thread says "answered" after the owner writes in it
+const ANSWERED_FOR = 60 * 1000;   // how long a thread says "answered" after the owner writes in it
 // Each thread of a conversation, from its lines (threadItems): its name ("" is General), its last line's time, the ask
 // still open in it (the owner has not written there since), when the owner last answered an ask there, and the
 // agent's latest words in it. The ticket's title stands for a ticket key where the Work data knows it.
@@ -10449,12 +10450,19 @@ function threadsOf(items, name) {
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
     if (it.kind === "said") t.latest = it.text;
   }
-  for (const [th, it] of Object.entries(ask)) if (it) by.get(th).ask = it;
+  // an ask to answer another agent's prompt ("... in Jason's pane") is open only while that agent still waits on the owner
+  const paneAsk = it => { const m = String(it.text).match(/\b([A-Z][a-z]+)'s pane\b/), ag = m && S.agents.find(a => a.name === m[1]);
+    return ag && !["waiting", "wanted"].includes(stOf(ag)); };
+  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it)) by.get(th).ask = it;
   get("");
   const d = workQueue ? wkData(true) : null, title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title) || "";
   const isKey = th => /^[A-Z][A-Z0-9]+-\d+$/.test(th);
+  // a ticket is closed once it is merged or Work lists it as done, with no pull request of it still open and not
+  // listed as work to do
+  const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => i.key === k && i.list === "done")) &&
+    !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => i.key === k && i.list !== "done");
   const hid = thHidden[name] || {}, pins = new Set(wkPinned());
-  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
+  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
     // General first, then pinned in Work, then waiting on the owner, then the most recent
     .sort((a, b) => !b.name - !a.name || pins.has(b.name) - pins.has(a.name) || !!b.ask - !!a.ask || b.last - a.last)
     .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "Everything", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
@@ -10498,19 +10506,19 @@ document.addEventListener("click", e => {
 }, true);
 function thListHtml(list, sel, un = {}) {
   if (thFolded()) return THMORE + thFoldBtn() + list.map(t => {
-    const u = t.name === sel ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";
+    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
     return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || t.name || "General")}</span>${thX(t)}</div>`;
   }).join("");
   return THMORE + thFoldBtn() + list.map(t => {
-    const u = t.name === sel ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";
+    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tag = t.ask ? `<span class="thl ask">waiting on you · asked ${t.ask._asked.length}×</span>`
       : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
       : t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : t.name ? "" : `<span class="thsum">anything else</span>`;
     // a ticket's key first, the count with it, then its title
     // and the time since its last line at the right of that first line
     const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "", meta = t.name && t.name !== EVERY && !t.key ? "not a ticket" : "";
-    const head = t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${ago}</span>${t.title !== t.key ? `<b>${esc(t.title)}</b>` : ""}` : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>`;
+    const head = t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : ""}${ago}</span>${t.title !== t.key ? `<b>${esc(t.title)}</b>` : ""}` : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>`;
     return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}` +
       (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
   }).join("");
@@ -10530,7 +10538,7 @@ function thHeadHtml(t) {
   const ask = t.ask ? `<div class="thask"><b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thHHMM(t.ask._asked[0])}` +
       `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thHHMM).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
     : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${new Date(t.answered).toTimeString().slice(0, 5)}</div>` : "";
-  return `<div class="thhead"><div class="thname"><b>${esc(t.title)}</b><span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key && t.title !== t.key ? t.key : t.key ? "" : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
+  return `<div class="thhead"><div class="thname"><b>${esc(t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key && t.title !== t.key ? t.key : t.key ? "" : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
 }
 document.addEventListener("click", e => {
   const x = e.target.closest?.("[data-thx]"), pin = e.target.closest?.("[data-thpin]");
@@ -10592,7 +10600,7 @@ function thPick(all, agent) {
 const thSeg = name => `<span class="seg thseg" data-name="${esc(name)}">${[["threads", "threads", "Threads: the conversation by thread"], ["all", "lines", "All: the whole conversation, each line labelled with its thread"]].map(([m, i, tip]) =>
   `<b data-thm="${m}" class="${thMode(name) === m ? "on" : ""}" title="${tip}">${MENU_ICON[i]}</b>`).join("")}</span>`;
 // a narrow view's threads: a row of chips over the open thread
-const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel ? null : thUn(un, t.name);
+const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name);
   return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span>`; }).join("");
 function renderConv() {
   const conv = $("#dconv"), list = $("#dthreads"), left = $("#detail .left");
