@@ -4687,7 +4687,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wk .wkcompact{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));cursor:pointer;user-select:none}
 .wk .wkcompact input{margin:0;cursor:pointer}
 .wk .wkfilter{flex:1 1 140px;min-width:0;padding:3px 8px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--box);color:var(--text);font:inherit;font-size:calc(var(--t-s)*var(--fs,1))}
-.wk .wklist{padding-top:0}
+.wk .wklist{padding:0 12px 10px}   /* the same 12px in from the pane as the header, the tabs and the faces, so all start on one edge */
 /* the stand-up scrolls as one, its summary with its lists, so a short pane does not squeeze the lists under the summary */
 .wk .wkstand{flex:1;min-height:0;overflow-y:auto}
 .wk .wkstand > .daylog{flex:none;overflow:visible}
@@ -4727,7 +4727,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 :is(#phone,.wk).roomy .wkrow > time{width:3.6em;font-size:calc(var(--t-m)*var(--fs,1))}
 :is(#phone,.wk).roomy .wkface{gap:8px;font-size:.95em}
 :is(#phone,.wk).roomy .wkface :is(.ph-por.pp,.pp-ini){width:28px;height:28px;font-size:10px}
-:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(300px,2fr) minmax(0,3fr);gap:14px;padding:2px 12px 12px}
+:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(300px,2fr) minmax(0,3fr);gap:14px;padding:2px 0 12px}
 :is(#phone,.wk).roomy .wkall .wkrow{padding:7px 10px;gap:10px}
 @container (max-width:700px){:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(0,1fr)}}
 :is(#phone,.wk).roomy .wkall .wkrow .pp-mid{display:block}
@@ -4754,7 +4754,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}   /* a benched agent's face greyed, its frame keeping its role colour, as on the bench */
 .wk:not(.roomy) .wkface.sup{display:none}   /* Compact shows whose a ticket is alone */
 /* the agents in the Work pane's tickets, a face each, along its top: a click shows only that agent's, a right-click its menu */
-.wkpeople{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px 6px}
+.wkpeople{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 6px}
 .wkpeople .face{cursor:pointer}
 .wkpeople.on .face:not(.sel){opacity:.35}
 .wkpeople .face.sel{outline:2px solid var(--c);outline-offset:2px}
@@ -4766,13 +4766,13 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkopen:hover .ph-por{filter:brightness(1.08)}
 /* In flight's strip of stages: a stage's count narrows the list to it (the #phone in these selectors outranks the
    Pipeline's own rules for the same pieces) */
-:is(#phone,.wk) .wkstrip{margin:0 8px 6px}
+:is(#phone,.wk) .wkstrip{margin:0 0 6px}
 :is(#phone,.wk) .wkstrip .pp-c{cursor:pointer}
 :is(#phone,.wk) .wkstrip .pp-c:hover{background:var(--soft)}
 :is(#phone,.wk) .wkstrip .pp-c.on{background:var(--track);box-shadow:inset 0 0 0 1px var(--line2)}
 /* All: two columns as the Pipeline pane's, one above the other when the pane is narrow */
 .wk{container-type:inline-size}
-.wkall{display:grid;grid-template-columns:minmax(280px,2fr) minmax(0,3fr);align-items:start;gap:10px;padding:0 10px 10px}
+.wkall{display:grid;grid-template-columns:minmax(280px,2fr) minmax(0,3fr);align-items:start;gap:10px;padding:0 0 10px}
 .wkall .wkcol{min-width:0;border:1px solid var(--line2);border-radius:10px;background:var(--card1);padding-bottom:4px}
 .wkall .wkcol > .wkhead:first-child{padding-top:8px}
 .wkall .calm{padding:4px 10px 8px}
