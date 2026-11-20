@@ -14,7 +14,8 @@
 #   git checkout / git switch to a branch named <id> or <id>-pt<N>         work switch <id>   (off every other ticket)
 #   release | sign-off | hand-over <id>   (ledger-db.sh, feature-ticket.sh release)   work off <id>
 #   handoff.sh                (the end of a session)                        work off           (every ticket)
-# and at SessionStart (a spawn, a resume, after a compaction) a tree whose branch is <id> or <id>-pt<N>: work on <id>.
+# and at SessionStart (a spawn, a resume, after a compaction) a tree whose branch is <id> or <id>-pt<N>: work on <id>;
+# on any other branch or a detached head, the ticket agent-spawn.sh named in STRENGTH_TICKET, if it set one.
 # A command that already runs `ledger-db.sh work` is left alone: the agent marked it by hand.
 #
 # It writes through the tree's own scripts/ledger-db.sh, so the ledger checks who is asking (the session identity)
@@ -76,10 +77,13 @@ run() {
   local role; role="$(role_of "${GIT_AUTHOR_NAME:-}" "$top/agents/roster.json")"
   [[ -n "$role" && " $WORK_MARKER_SKIP_ROLES " == *" $role "* ]] && return 0
   if [[ "$event" == SessionStart ]]; then
+    # the branch first; else the ticket agent-spawn.sh started this session for (a tester's tree starts detached)
+    local how="this tree's branch"
     id="$(ticket_of_branch "$(git -C "$top" branch --show-current 2>/dev/null)")"
+    if [[ -z "$id" && "${STRENGTH_TICKET:-}" =~ ^[A-Za-z0-9_.-]+$ ]]; then id="$STRENGTH_TICKET"; how="the ticket this session was spawned for"; fi
     [[ -n "$id" ]] || return 0
     ans="$(mark "$top" on "$id")"
-    [[ "$ans" == ok:* ]] && said+=("on $id (this tree's branch)")
+    [[ "$ans" == ok:* ]] && said+=("on $id ($how)")
   else
     jq -e '.tool_name == "Bash" and ((.tool_response.interrupted // false) | not)' >/dev/null 2>&1 <<<"$in" || return 0
     cmd="$(jq -r '.tool_input.command // empty' <<<"$in")"
@@ -153,6 +157,15 @@ self_test() {
   _t "a project-office session on a ticket's branch writes nothing (it works in others' trees)" "$(cat "$d/calls")$out" ""
   out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME=ada bash "$HERE/work-marker-hook.sh" SessionStart)"
   _t "a developer's, any case, does" "$(cat "$d/calls")" "work on fix_a_thing"
+  : > "$d/calls"; git -C "$d" switch -q --detach
+  out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= STRENGTH_TICKET=feat_spawned bash "$HERE/work-marker-hook.sh" SessionStart)"
+  _t "a detached tree marks the ticket it was spawned for" "$(cat "$d/calls")" "work on feat_spawned"
+  : > "$d/calls"; git -C "$d" switch -q fix_a_thing-pt1
+  jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= STRENGTH_TICKET=feat_spawned bash "$HERE/work-marker-hook.sh" SessionStart >/dev/null
+  _t "a ticket's branch wins over the spawn ticket" "$(cat "$d/calls")" "work on fix_a_thing"
+  : > "$d/calls"; git -C "$d" switch -q --detach
+  out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= STRENGTH_TICKET='x; rm -rf /' bash "$HERE/work-marker-hook.sh" SessionStart)"
+  _t "a spawn ticket that is not an id is ignored" "$(cat "$d/calls")$out" ""
   rm -f "$d/scripts/ledger-db.sh"
   out="$(p 'bash scripts/feature-ticket.sh claim fix_a_thing' | bash "$HERE/work-marker-hook.sh" PostToolUse)"; rc=$?
   _t "a tree with no ledger-db.sh is skipped, exit 0" "$rc:$out" "0:"
