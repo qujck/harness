@@ -6908,7 +6908,7 @@ const seekWrap = html => {
 // which is cut from the text shown; the owner's are in the thread their "Re <thread>: " names (cut too), else in the
 // agent's last one; an agent's message to another, in the ticket its "[KEY]" names. An ask asked again in the same thread before the
 // owner has written there is folded into the first, which keeps the times it was asked (_asked).
-const THREAD_TAG = /^\s*\[([^\]\n]{1,60}?)(\s*·\s*ask)?\]\s*/, THREAD_RE = /^Re ([^:\n]{1,60}): /, THREAD_KEY = /^\s*\[([A-Z][A-Z0-9]+-\d+)\]/;
+const THREAD_TAG = /^\s*\[([^\]\n]{1,60}?)(\s*·\s*ask)?\]\s*/, THREAD_RE = /^Re ([^:\n]{1,60}): /, THREAD_KEY = /^\s*\[([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)\]/;
 // A message whose later paragraphs open with their own tags is several, one a thread: each part from its tag to the next.
 const THREAD_PARA = /(?:^|\n)\s*\[[^\]\n]{1,60}?(?:\s*·\s*ask)?\]/g;
 const splitThreads = it => {
@@ -10485,12 +10485,13 @@ function threadsOf(items, name) {
     return ag && !["waiting", "wanted"].includes(stOf(ag)); };
   for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it)) by.get(th).ask = it;
   get("");
-  const d = workQueue ? wkData(true) : null, title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title) || "";
-  const isKey = th => /^[A-Z][A-Z0-9]+-\d+$/.test(th);
+  const d = workQueue ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
+    title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || "";
+  const isKey = th => /^([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)$/.test(th);   // a Jira key, or a ledger number "#6854"
   // a ticket is closed once it is merged or Work lists it as done, with no pull request of it still open and not
   // listed as work to do
-  const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => i.key === k && i.list === "done")) &&
-    !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => i.key === k && i.list !== "done");
+  const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => qk(i, k) && i.list === "done")) &&
+    !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => qk(i, k) && i.list !== "done");
   const hid = thHidden[name] || {}, pins = new Set(wkPinned());
   return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
     // General first, then pinned in Work, then waiting on the owner, then the most recent
