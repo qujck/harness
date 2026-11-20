@@ -4719,6 +4719,12 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkpark > summary::-webkit-details-marker{display:none}
 /* a ticket a line: its badge, its ids (and tags) over its title, whose it is; a click opens what is known of it */
 .wkrow{display:flex;align-items:center;gap:10px;padding:5px 8px;border-top:1px solid var(--line);cursor:pointer}
+.wkrow > .wkpin{flex:none;margin-left:-4px;display:grid;place-items:center;width:20px;height:20px;border-radius:var(--r-s);color:var(--mute);opacity:0;cursor:pointer}
+.wkrow:hover > .wkpin,.wkrow > .wkpin.on{opacity:1}
+.wkrow > .wkpin:hover{background:var(--on);color:var(--text)}
+.wkrow > .wkpin svg{width:12px;height:12px}
+.wkrow > .wkpin.on{color:var(--amber)}
+.wkrow > .wkpin.on svg{fill:var(--amber)}
 .wkhead + .wkrow,.wkstrip + .wkrow{border-top:0}
 .wkrow:hover{background:var(--soft)}
 .wkrow.open{background:var(--track)}
@@ -4753,7 +4759,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 :is(#phone,.wk).roomy .wkperson > .wkface{width:auto}
 :is(#phone,.wk).roomy .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
 :is(#phone,.wk).roomy :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
-:is(#phone,.wk).roomy :is(.wkface > .wkname,.wkpname,.wkwait .wkname){display:none}   /* the face alone, its name on hover */
+.wk .wkgap{visibility:hidden}   /* holds a face's place where there is no one to show: "You", "Unassigned" */
+:is(#phone,.wk).roomy .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on and Stand-up keep theirs */
 :is(#phone,.wk).roomy .workq .wqwho > .wkface{width:auto}
 /* a narrow Stand-up: the face down the left of its row, the ticket and the time on top, the title under them in full */
 @container (max-width:600px){
@@ -4768,12 +4775,13 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkface.sup > .wkname{display:none}   /* a supporting agent's face alone, its name on hover; whose it is keeps its name */
 .wkface.sup.gone{opacity:.45}   /* one no longer on the ticket */
 .ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}   /* a benched agent's face greyed, its frame keeping its role colour, as on the bench */
-.wk:not(.roomy) .wkface.sup{display:none}   /* Compact shows whose a ticket is alone */
+.wk .wkface.sup{display:none}   /* a ticket row shows whose it is alone: its tags say who has approved it */
 /* the agents in the Work pane's tickets, a face each, along its top: a click shows only that agent's, a right-click its menu */
-.wkpeople{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 6px}
-.wkpeople .face{cursor:pointer}
-.wkpeople.on .face:not(.sel){opacity:.35}
-.wkpeople .face.sel{outline:2px solid var(--c);outline-offset:2px}
+.wkpeople{display:flex;flex-wrap:wrap;gap:6px 8px;padding:4px 12px 6px}
+.wkpeople .wkp{display:flex;cursor:pointer}
+.wkpeople .wkpall{display:grid;place-items:center;color:var(--text);font-weight:600;border:1px solid var(--line2)}
+.wkpeople.on .wkp:not(.sel){opacity:.35}
+.wkpeople .wkp.sel > .face{outline:2px solid var(--c, var(--text));outline-offset:2px}
 /* the stand-up tab's people, as faces like the other tabs, one width so the times line up */
 .wk .workq .wqwho > .wkface{width:9em;overflow:hidden}
 /* a face whose agent is on the page opens that agent */
@@ -4805,6 +4813,9 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkall .wkrow .pp-mid{display:flex;align-items:baseline;gap:8px}
 .wkall .wkrow .pp-mid .id{flex:0 1 auto;max-width:55%;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
 .wkall .wkrow .pp-mid .tt{flex:1 1 0;min-width:8em}
+.wk.roomy .wkrow.wktk .pp-mid{display:block}   /* a ticket in flight: ids and chips over its title, as two lines */
+.wk.roomy .wkrow.wktk .pp-mid .id{max-width:none}
+.wk.roomy .wkrow.wktk .pp-mid .tt{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 :is(#phone,.wk) .wkall .wkrow .pp-b{width:20px;height:20px;font-size:10px}
 :is(#phone,.wk) .wkall .wkrow :is(.ph-por.pp,.pp-ini){width:20px;height:20px;font-size:9px}
 .wkall .wkhead{padding:7px 8px 2px}
@@ -5200,6 +5211,50 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #graphbody .blank{display:grid;place-items:center;height:100%;color:var(--mute)}
 .mini.perf[data-series]{cursor:pointer}
 @media (max-width:600px){#graphbox{padding:12px}}
+/* over the Work pane as an agent opened over the Combined view is (.paneover): inset, the pane greyed round it, a click
+   on the grey closing it */
+#wkcard{position:fixed;z-index:30;display:none;padding:18px;border-radius:0 0 var(--r-l) var(--r-l);
+  background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
+#wkcard.on{display:flex}
+#wkcard .wkc{container-type:inline-size;width:100%;height:100%;border:1px solid var(--line2);border-radius:var(--r-l);
+  background:linear-gradient(var(--box),var(--box)),var(--bg);box-shadow:0 12px 36px #0009}
+#wkcard .thead a{color:inherit;text-decoration:none}
+#wkcard .thead a:hover{text-decoration:underline}
+#wkcard .thead .maxbtn svg{width:12px;height:12px}
+#wkcard .thead .wkc-pin{right:36px}   /* beside the close, both at the head's end */
+#wkcard .thead .wkc-pin.on{color:var(--amber)}
+#wkcard .thead .wkc-pin.on svg{fill:var(--amber)}
+#wkcard .wkc-item{flex:none;padding:0 12px 6px}
+#wkcard .wkc-item > .wkrow{border-top:0;cursor:default;padding-left:0;padding-right:0}
+#wkcard .wkc-cols{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 12px 10px}   /* the details card above, folded or open, and the conversation filling the rest */
+#wkcard .wkc-chat{position:relative}   /* for its ↓ Newest */
+#wkcard :is(.wkc-left,.wkc-chat){min-height:0;display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:10px;background:var(--card1)}
+#wkcard .wkc-left{flex:none;max-height:45%;overflow:hidden}
+#wkcard .wkc-more{flex:1;min-height:0;overflow:auto}   /* the details scroll under their title, which stays */
+#wkcard .wkc-left[style*="height"]{max-height:none}   /* sized by a drag of the divider under it */
+#wkcard .wkc-left.shut{height:auto !important}
+/* the divider between the details and the conversation: a pane divider's, running across */
+#wkcard .wkc-split{width:auto;height:10px;cursor:row-resize}
+#wkcard .wkc-split::after{inset:3px 0}
+#wkcard .wkc-left.shut + .wkc-split{pointer-events:none}
+#wkcard .wkc-left.shut + .wkc-split::after{display:none}
+#wkcard .wkc-chat{flex:1 1 0}
+#wkcard .wkc-left.shut > .wkc-more{display:none}
+#wkcard :is(.wkc-left,.wkc-chat) > .wkhead{padding-top:10px;padding-bottom:10px;align-items:center}   /* each card's title in the middle of its bar */
+#wkcard .wkc-chat > .wkhead{border-bottom:1px solid var(--line)}   /* the conversation scrolls under its title, not into it */
+#wkcard .wkc-left .wkhead .wkc-fold{display:grid;place-items:center;width:22px;height:20px;margin-left:auto;border-radius:var(--r-s);color:var(--mute);cursor:pointer}   /* as a card's fold button */
+#wkcard .wkc-left .wkhead .wkc-fold:hover{background:var(--on);color:var(--text)}
+#wkcard .wkc-row{cursor:default}
+#wkcard .wkc-thread{flex:1;min-height:0;overflow:auto;padding:8px 12px}
+#wkcard .wkc-thread > .it + .it{margin-top:10px}
+#wkcard .wkc-tos{flex:none;display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+#wkcard .wkc-to{cursor:pointer}   /* only a benched agent's face is greyed (ppFace); who is picked is outlined */
+#wkcard .wkc-tolabel{align-self:center;margin-right:4px;color:var(--text);font-weight:600}
+#wkcard .wkc-to:not(.on){opacity:.45}   /* who it goes to stands out: the rest dimmed, the picked outlined */
+#wkcard .wkc-to:not(.on):hover{opacity:.8}
+  background:color-mix(in srgb,var(--amber) 12%,transparent);color:var(--amber);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
+#wkcard .wkc-to.on > :is(.ph-por,.pp-ini){outline:2px solid var(--c, var(--text));outline-offset:2px;border-radius:var(--r-s)}   /* rounded, as the Work strip's picked face is */
+#wkcard .sayrow{margin:0 12px 10px}
 #docbox{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;padding:40px;background:#000c;backdrop-filter:blur(3px)}
 #docbox.on{display:flex}
 #docbox .doc{display:flex;flex-direction:column;width:min(920px,100%);max-height:100%;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 14px 40px #0009}
@@ -5258,7 +5313,7 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
    (edges() sets --ft and --fb), keeping a feed's line beneath its head */
-.card.full .feed,.teamlog:not(.summary) .feed,.fdoc,.others,.chrs{
+.card.full .feed,.teamlog:not(.summary) .feed,.fdoc,.others,.chrs,#wkcard .wkc-thread,#wkcard .wkc-more{
   mask-image:linear-gradient(180deg,#000 1px,transparent 1px,#000 calc(1px + var(--ft,0px)),#000 calc(100% - var(--fb,0px)),transparent)}
 .teamlog:not(.summary) .feed > :first-child{margin-top:auto}
 .teamlog:not(.summary) .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
@@ -5673,7 +5728,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 .att .file b{line-height:normal}
 #detail .say{padding:9px 42px 9px 12px;font-size:calc(var(--t-l)*var(--fs,1)*var(--boxfs,1));max-height:35vh}
 /* where a card or the agent's own view is tall enough, its box starts three lines tall */
-.card,#detail .left{container:sayroom/size}
+.card,#detail .left,#wkcard .wkc-chat{container:sayroom/size}
 @container sayroom (min-height:360px){.say{min-height:calc(4.2em + 14px)} #dsay{min-height:calc(4.2em + 20px)}}
 .stop.going{cursor:default;animation:stopping .9s ease-in-out infinite}
 @keyframes stopping{50%{opacity:.3}}
@@ -6679,6 +6734,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   check: '<path d="M3 8.5 6.5 12 13 4.5"/>',
   power: '<path d="M8 1.5v6"/><path d="M4.3 3.6a5.5 5.5 0 1 0 7.4 0"/>',
   close: '<path d="M4 4l8 8M12 4l-8 8"/>',
+  pin: '<path d="M5.5 1.5h5M6.5 1.5v4.2L4 9h8L9.5 5.7V1.5M8 9v5.5"/>',
   pencil: '<path d="M10.5 2.5l3 3L5.5 13.5H2.5v-3z"/>',
   calendar: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
   chart: '<path d="M2.5 13.5h11M4.5 11V7.5M8 11V4M11.5 11V9"/>',
@@ -7147,7 +7203,7 @@ const BENCH_STYLES = [["name", "Name"], ["icon", "Icon"]];
 const benchStyle = () => ({card: "icon"}[localStorage.getItem("bench")] || localStorage.getItem("bench"))   // "card" was the icon's old name
   || (localStorage.getItem("page") === "custom" && leaves(layout().root).some(([, n]) => n.show === "characters") ? "icon" : "name");
 // A pane's scrolling part fades at an edge while there is more beyond it.
-const FADES = ".card.full .feed, .teamlog:not(.summary) .feed, .fdoc, .others, .chrs";
+const FADES = ".card.full .feed, .teamlog:not(.summary) .feed, .fdoc, .others, .chrs, #wkcard .wkc-thread, #wkcard .wkc-more";
 function edges(el) {
   el.style.setProperty("--ft", el.scrollTop > 1 ? "28px" : "0px");
   el.style.setProperty("--fb", el.scrollTop + el.clientHeight < el.scrollHeight - 1 ? "28px" : "0px");
@@ -8020,9 +8076,11 @@ document.addEventListener("click", e => {
 function doneByStandup(items, standups) {
   const newest = [...items].sort((x, y) => (y.done || 0) - (x.done || 0)), [s0, s1, s2] = standups || [];
   if (!s0) return [["Done", newest]];
-  const day = t => new Date(t * 1000).toLocaleDateString("en-GB", {weekday: "long"}) + "'s stand-up";
+  // a stand-up named by when it was, "Fri 13 Nov 09:00"
+  const at = t => { const d = new Date(t * 1000); return `${d.toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} ` +
+    `${d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"})}`; };
   const between = (from, to) => newest.filter(i => (i.done || 0) >= (from || 0) && (to == null || (i.done || 0) < to));
-  return [["Since " + day(s0), between(s0)], ...(s1 ? [[day(s0), between(s1, s0)]] : []), ...(s1 && s2 ? [[day(s1), between(s2, s1)]] : [])];
+  return [["Since last stand-up, " + at(s0), between(s0)], ...(s1 ? [["Stand-up " + at(s0), between(s1, s0)]] : []), ...(s1 && s2 ? [["Stand-up " + at(s1), between(s2, s1)]] : [])];
 }
 // Each section folds to its heading under its ^ and opens again under its v, kept per tab and section name in this browser.
 const wqFolded = () => { try { return JSON.parse(localStorage.getItem("workqueue:folded")) || []; } catch (e) { return []; } };
@@ -8145,6 +8203,10 @@ const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"]
 const WK_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; } catch (e) { return d; } };
 const wkSet = (k, v) => { try { v == null || v === "" ? localStorage.removeItem("work:" + k) : localStorage.setItem("work:" + k, v); } catch (e) {} };
+// the items pinned, in the order they were pinned, kept in this browser; full mode's only, so compact shows none
+const wkPinned = () => { try { const v = JSON.parse(wkGet("pins", "[]")); return Array.isArray(v) ? v.filter(k => typeof k === "string") : []; } catch (e) { return []; } };
+const wkPins = () => wkCompact() ? [] : wkPinned();
+const wkPin = key => { const p = wkPinned(); wkSet("pins", JSON.stringify(p.includes(key) ? p.filter(k => k !== key) : [...p, key])); };
 const wkDayStart = t => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
 const wkWhen = t => new Date(t * 1000).toDateString() === new Date().toDateString() ? dayLogTime(t) : dayLogAt(t);
 const wkLink = (href, text, tip = "") => { const t = tip && tip !== text ? ` title="${esc(tip)}"` : "";
@@ -8155,8 +8217,11 @@ const wkKey = key => { if (!key) return "";
   const qi = workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.no);
   const a = !qi && (S?.agents || []).find(x => x.ticket === key && x.ticketNo);
   return qi ? "#" + qi.no : a ? "#" + a.ticketNo : key; };
+// a ticket's Jira page: For you's or the work queue's link for it, else the Jira site the pipeline reads
 const wkJira = key => { const fy = [...(S.forYou?.open || []), ...(S.forYou?.cleared || [])].find(i => i.ticket === key && i.url);
-  return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url) || ""; };
+  const site = (ppData() || {}).jira;
+  return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url)
+    || (site && WK_KEY.test(key) ? `${site}/browse/${key}` : ""); };
 // Everything known, by ticket: the pipeline's row, its questions, its queue entry, its merges and its log entries.
 function wkData(all) {
   const p = ppData() || {}, fy = S.forYou || {open: [], cleared: []}, q = workQueue || {}, log = (dayLog?.rows || []).filter(r => r.type === "entry");
@@ -8198,9 +8263,11 @@ function wkPeopleStrip() {
   d.fy.open.forEach(i => named.add(i.from));
   const them = byRole([...S.agents, ...S.bench].filter(x => x.role !== "pa" && (named.has(x.name) || x.name === a)));
   if (!them.length) return "";
-  return `<div class="wkpeople${a ? " on" : ""}">${them.map(x => face(x, `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a
-    ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work`)}${ppBenched(x.name) ? " (benched)" : ""}"`,
-    (x.name === a ? " sel" : "") + (ppBenched(x.name) ? " benched" : ""))).join("")}</div>`;
+  // "All" first, then each face (greyed on the bench); the one chosen outlined, the rest dimmed while one is
+  const all = `<span class="wkp${a ? "" : " sel"}" data-wkfilter="" title="Everyone's work"><span class="face wkpall">All</span></span>`;
+  return `<div class="wkpeople${a ? " on" : ""}">${all}${them.map(x => `<span class="wkp${x.name === a ? " sel" : ""}${ppBenched(x.name) ? " benched" : ""}" style="--c:${x.colour}" ` +
+    `data-wkfilter="${esc(x.name)}" title="${esc(x.name === a ? `Showing only ${shown(x.name)}'s work: click for everyone's` : `Only ${shown(x.name)}'s work`)}${ppBenched(x.name) ? " (benched)" : ""}">` +
+    face(x, "", ppBenched(x.name) ? " benched" : "") + `</span>`).join("")}</div>`;
 }
 function wkDetail(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
@@ -8209,8 +8276,9 @@ function wkDetail(d, key) {
   const line = (label, body) => `<div class="wkd"><b>${label}</b><span>${body}</span></div>`;
   const out = [
     t && t.ref && line("PRs", (t.tags || []).filter(g => !/^waits on /.test(g.text)).map(g => `<span class="pp-tag ${esc(g.tone || "")}">${esc(g.text)}</span>`).join(" ")),
-    (wkOn(d, key, "").sup.length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>its own</i>`)
-      .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
+    // whose it is "(assigned)", then everyone else seen on it; the owner's own approval as "You"
+    (wkOn(d, key, "").sup.length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>(assigned)</i>`)
+      .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${x.name === "owner" ? "You" : esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
     ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${i.open && i.ref ? `<span class="fyref">${esc(i.ref)}</span> ` : ""}${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
@@ -8224,7 +8292,9 @@ let wkOpened = false;
 function wkRow(d, key, body, cls = "") {
   const open = key && wkGet("open") === key, first = open && !wkOpened;
   if (first) wkOpened = true;
-  return `<div class="wkrow${cls}${open ? " open" : ""}"${key ? ` data-wkkey="${esc(key)}"` : ""}>${body}</div>${first ? wkDetail(d, key) : ""}`;
+  // each item's pin at its top right: shown while the pointer is on the row, and always once it is pinned
+  const pin = key && !wkCompact() ? `<b class="wkpin${wkPins().includes(key) ? " on" : ""}" data-wkpin="${esc(key)}" title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>` : "";
+  return `<div class="wkrow${cls}${open ? " open" : ""}"${key ? ` data-wkkey="${esc(key)}"` : ""}>${body}${pin}</div>${first ? wkDetail(d, key) : ""}`;
 }
 // a ticket's title, or nothing where all that is known is its key; its tags, less a "waits on" naming whose it is
 const wkTitle = t => t.title && t.title !== (t.id || t.ref) ? t.title : "";
@@ -8243,15 +8313,15 @@ const wkFace = n => { const all = wkNames(n); return all.length > 1 ? `<span cla
 // a ticket's faces, all one size: those who supported it, first seen first (faded once off it), then whose it is, rightmost
 const wkTicketFaces = (d, key, who) => { const {own, sup} = wkOn(d, key, who);
   return sup.length ? `<span class="wkfaces">${sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}</span>` : wkFace(who); };
-document.addEventListener("click", e => { const f = e.target.closest(".wk [data-wkagent]");
+document.addEventListener("click", e => { const f = e.target.closest(".wk [data-wkagent]:not([data-wkcto])");
   if (f) { e.stopPropagation(); e.preventDefault(); openDetail(f.dataset.wkagent); } }, true);
 // and a right-click on it gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
-document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent], .wkpeople [data-wkfilter]");
+document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent], .wkpeople [data-wkfilter]:not([data-wkfilter=''])");
   if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false); } });
 // and a moment's rest on it opens that menu too, going again when the pointer leaves both, as a portrait's does elsewhere
 let wkRest = null;
 document.addEventListener("mouseover", e => {
-  const f = e.target.closest?.(".wk [data-wkagent], .wkpeople [data-wkfilter]");
+  const f = e.target.closest?.(".wk [data-wkagent], .wkpeople [data-wkfilter]:not([data-wkfilter=''])");
   if (f === wkRest) return;
   if (wkRest) { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); }
   wkRest = f;
@@ -8261,8 +8331,14 @@ document.addEventListener("mouseover", e => {
 });
 const wkMid = (id, sub, title, tags = []) => `<span class="pp-mid"><span class="id">${id}${sub ? ` <span>· ${esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
+// in full mode, its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
+// days its PRs have been quiet; its title on the line under
+const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [
+  ...t.ok.map(a => ({text: `${shown(a.who)} ✓${a.n < a.of ? ` ${a.n}/${a.of}` : ""}`, tone: a.n < a.of ? "grey" : "green"})),
+  t.next && {text: `${shown(t.next)} next`, tone: t.next === "You" ? "amber" : "grey"},
+  t.stuck && {text: `stuck ${t.stuck}d`, tone: "amber"}].filter(Boolean);
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
-  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkTags(t)) + wkTicketFaces(d, t.id || t.ref, t.who));
+  wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkChips(t)) + wkTicketFaces(d, t.id || t.ref, t.who), " wktk");
 // a question is read in full, so its text wraps
 const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span> ` : "") + (i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General"), wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
@@ -8335,31 +8411,46 @@ function wkDone(d) {
 // All's stand-up: a line a person, their face, the tickets they finished (green) and those they are on (blue)
 function wkAllStandup(d) {
   const {name, people} = wkPeople(d), chip = (t, cls, tip) => `<span class="wkchipk ${cls}" title="${esc(tip)}">${esc(t)}</span>`;
-  const rows = people.map(([n, x]) => `<div class="wkrow wkperson">${n === "Unassigned" ? `<span class="pp-ini" title="Unassigned">?</span><span class="wkpname">Unassigned</span>` : wkFace(n)}<span class="wkpk">` +
+  const rows = people.map(([n, x]) => `<div class="wkrow wkperson">${n === "Unassigned" ? `<span class="pp-ini wkgap"></span><span class="wkpname">Unassigned</span>` : wkFace(n)}<span class="wkpk">` +
     x.done.map(i => chip(wkKey(i.key) || i.refs?.[0]?.ref || "done", "g", `Done: ${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}`)).join("") +
     x.now.map(t => chip(wkKey(t.key), "b", `Now: ${t.title || t.key}${t.stage ? ` (${t.stage})` : ""}`)).join("") + `</span></div>`);
   return `<div class="wkhead wkgo" data-wktab="standup" title="Open Stand-up"><b>Stand-up</b><em class="g">${people.length}</em><span class="wkmerged">${esc(name)} · <span class="wkchipk g">done</span> <span class="wkchipk b">now</span></span>` +
     (people.length ? `<b class="wkcopy" data-wkcopy="*" title="Copy as a write-up for the stand-up">Copy</b>` : "") + `</div>` +
     (rows.join("") || `<div class="calm">Nothing to say yet.</div>`);
 }
+// Today, counted from one place: the PRs merged since midnight, and the tickets done today, a row each (its Done item
+// and its merges together, as the stand-up has them). A ticket with a PR still open is in flight, not done, however
+// many of its PRs have merged. The counts differ (a ticket can take several PRs, or none), so each says what it counts.
+function wkToday(d) {
+  const today = wkDayStart(Date.now() / 1000), flying = new Set(d.tickets.map(t => t.id || t.ref));
+  const done = wkStandupItems(d).filter(i => (i.done || 0) >= today && !flying.has(i.key)).sort((x, y) => y.done - x.done).map(i => ({t: i.done, key: i.key, who: i.who,
+    kind: i.refs.length ? "merged" : "done", html: `${inline(i.title)}${i.refs.length ? ` <span class="note">${i.refs.map(r => wkLink(r.href, r.ref)).join(", ")}</span>` : ""}`}));
+  return {prs: d.history.filter(h => h.t >= today).length, done};
+}
+const wkTodaySum = (x, num = n => `<span class="wkn g">${n}</span>`) =>
+  `${num(x.prs)} ${x.prs === 1 ? "PR" : "PRs"} merged · ${num(x.done.length)} ${x.done.length === 1 ? "ticket" : "tickets"} done today`;
 function wkAll(d) {
   const p = d.p, go = (tab, name, n, tone, more = "") => `<div class="wkhead wkgo" data-wktab="${tab}" title="Open ${esc(name)}"><b>${esc(name)}</b>${n != null ? `<em class="${tone}">${n}</em>` : ""}${more}</div>`;
-  const waits = (p.waiting || []).map(w => `<div class="wkrow wkwait"><span class="wkface${wkOpen(w.who) || `" title="${esc(shown(w.who) || "Someone")}`}">${ppFace(w.who)}</span><span class="pp-mid"><span class="tt"><b class="wkname">${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}</div>`);
-  const next = [...(d.q.next || []), ...(d.q.later || [])], today = wkDayStart(Date.now() / 1000);
-  // done today, a row a ticket: its Done item and its merges together, as the stand-up has them
-  const done = wkStandupItems(d).filter(i => (i.done || 0) >= today).sort((x, y) => y.done - x.done).map(i => ({t: i.done, key: i.key, who: i.who,
-    kind: i.refs.length ? "merged" : "done", html: `${inline(i.title)}${i.refs.length ? ` <span class="note">${i.refs.map(r => wkLink(r.href, r.ref)).join(", ")}</span>` : ""}`}));
-  const left = `<div class="wkhead"><b>Pipeline</b><span class="wkmerged"><em class="g">${d.history.filter(h => h.t >= today).length}</em> merged today</span></div>` +
+  const waits = (p.waiting || []).map(w => `<div class="wkrow wkwait">${w.who === "You" ? `<span class="wkface"><span class="pp-ini wkgap"></span></span>` : `<span class="wkface${wkOpen(w.who) || `" title="${esc(shown(w.who) || "Someone")}`}">${ppFace(w.who)}</span>`}<span class="pp-mid"><span class="tt"><b class="wkname">${esc(shown(w.who) || "Someone")}</b> ${esc(w.text)}</span></span>${ppTag(w.tag)}</div>`);
+  const next = [...(d.q.next || []), ...(d.q.later || [])], tday = wkToday(d), done = tday.done;
+  const left = `<div class="wkhead"><b>Pipeline</b><span class="wkmerged">${wkTodaySum(tday, n => `<em class="g">${n}</em>`)}</span></div>` +
     wkStrip(d, "") + go("flight", "Waiting on", null, "") + (waits.join("") || `<div class="calm">Nobody: everything is moving.</div>`) +
     go("next", "Up next", next.length, "") + (next.slice(0, 5).map((i, n) => wkQueued(d, i, n + 1)).join("") || `<div class="calm">Nothing queued.</div>`) +
     wkAllStandup(d);
-  const asks = [...d.tickets.filter(t => t.stage === "lead").map(t => wkTicket(d, t)), ...d.fy.open.map(i => wkAsk(d, i))];
-  const stages = [...(p.stages || [])].reverse().map(s => { const at = wkOrdered(d, s.key);
+  // a pinned item shows under Pinned alone, not again in the sections below
+  const pinned = new Set(wkPins()), loose = t => !pinned.has(t.id || t.ref);
+  const asks = [...d.tickets.filter(t => t.stage === "lead" && loose(t)).map(t => wkTicket(d, t)), ...d.fy.open.filter(i => !pinned.has(i.ticket)).map(i => wkAsk(d, i))];
+  // a ticket once, in its most urgent section: one under Needs you is not listed again under its stage
+  const stages = [...(p.stages || [])].reverse().map(s => { const at = wkOrdered(d, s.key).filter(t => loose(t) && t.stage !== "lead");
     return at.length ? `<div class="wkhead wkgo" data-wkstage="${esc(s.key)}" title="Open In flight at ${esc(wkStageName(s))}"><b>${esc(wkStageName(s))}</b><em>${at.length}</em></div>` + at.map(t => wkTicket(d, t)).join("") : ""; }).join("");
-  const right = (asks.length ? go("needs", "Needs you", asks.length, "a") + asks.join("") : "") +
+  const pins = [...pinned].map(k => { const t = d.tickets.find(x => (x.id || x.ref) === k), qi = d.queue.find(i => i.key === k);
+    return t ? wkTicket(d, t) : qi ? wkQueued(d, qi, "") : wkRow(d, k, wkMid(esc(k), "", `<span class="calm">Not in flight or queued</span>`, [])); });
+  const dn = done.filter(e => !pinned.has(e.key));
+  const right = (pins.length ? wkHead("Pinned", pins.length) + pins.join("") : "") +
+    (asks.length ? go("needs", "Needs you", asks.length, "a") + asks.join("") : "") +
     (stages || go("flight", "In flight", 0, "") + `<div class="calm">Nothing in flight.</div>`) +
-    go("done", "Done today", done.length, "g") + (done.slice(0, 8).map(e => wkEvent(d, e)).join("") || `<div class="calm">Nothing done yet today.</div>`) +
-    (done.length > 8 ? `<div class="wkmore" data-wktab="done">Show all ${done.length}</div>` : "");
+    go("done", "Done today", dn.length, "g") + (dn.slice(0, 8).map(e => wkEvent(d, e)).join("") || `<div class="calm">Nothing done yet today.</div>`) +
+    (dn.length > 8 ? `<div class="wkmore" data-wktab="done">Show all ${dn.length}</div>` : "");
   return `<div class="wkall"><div class="wkcol">${left}</div><div class="wkcol">${right}</div></div>`;
 }
 // The stand-up (owner, 2026-11-17: as the Work queue's Done tab, which the team reads at stand-up): what was done, split
@@ -8453,7 +8544,7 @@ function wkStandup(d, n) {
 function workHtml(big, n) {
   wkOpened = false;
   const d = wkData(), tab = WK_TABS.some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
-  const today = wkDayStart(Date.now() / 1000), merged = d.history.filter(h => h.t >= today).length;
+  const tday = wkToday(d);
   const needs = d.fy.open.length + d.tickets.filter(t => t.stage === "lead").length;
   const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0)};
   const tabs = `<span class="seg wktabs">${WK_TABS.map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
@@ -8461,12 +8552,17 @@ function workHtml(big, n) {
       `<b data-wkrange="${k}" class="${k === wkGet("range", "today") ? "on" : ""}">${l}</b>`).join("")}</span>` +
       `<input class="wkfilter" placeholder="Filter: a ticket or a word" value="${esc(wkGet("filter", ""))}" autocomplete="off">` : "";
   const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, done: wkDone, standup: wkStandup}[tab](d, n);
-  const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · <span class="wkn g">${merged}</span> merged today` +
+  const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · ${wkTodaySum(tday)}` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
   return `<div class="teamlog wk${wkCompact() ? "" : " roomy"}" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
     `<div class="wkbar">${tabs}${tools}${phoneOn() ? "" : `<label class="wkcompact" title="Small type and tight rows, to fit the most in">Compact<input type="checkbox" data-wkcompact${wkCompact() ? " checked" : ""}></label>`}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
 }
-const wkRedraw = () => phoneOn() ? phoneDraw() : draw();
+// a redraw the owner asked for (a tab, a row, a filter) is drawn at once, held list or not
+let wkForce = false;
+const wkRedraw = () => { if (phoneOn()) return phoneDraw(); wkForce = true; try { draw(); } finally { wkForce = false; } };
+// a Work list held while the pointer was over it (draw) catches up as soon as the pointer leaves it
+document.addEventListener("mouseout", e => { const from = e.target.closest?.(".wk :is(.wklist,.wkstand)");
+  if (from && !from.contains(e.relatedTarget)) draw(); });
 // Compact (small type, tight rows) is the desktop's alone, kept per browser and on until its box is cleared; the phone
 // always draws the pane full size
 const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";
@@ -8474,7 +8570,8 @@ document.addEventListener("change", e => { if (e.target.matches?.("[data-wkcompa
 document.addEventListener("click", e => {
   const who = e.target.closest(".wkpeople [data-wkfilter]");
   if (who) { wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter); return wkRedraw(); }
-  const t = e.target.closest("[data-wktab],[data-wkrange],[data-wkstage],[data-wkcopy]");
+  // the list carries its tab's name (data-wktab) for its styles, so it is no tab to click: a click in it is a row's
+  const t = e.target.closest("[data-wktab]:not(.wklist,.wkstand),[data-wkrange],[data-wkstage],[data-wkcopy]");
   if (t?.dataset.wktab) { wkSet("tab", t.dataset.wktab); return wkRedraw(); }
   if (t?.dataset.wkrange) { wkSet("range", t.dataset.wkrange); return wkRedraw(); }
   if (t?.dataset.wkstage) {
@@ -8487,8 +8584,13 @@ document.addEventListener("click", e => {
     navigator.clipboard?.writeText(wkStandupText(wkData(), who)).then(() => { t.textContent = "Copied"; setTimeout(() => t.textContent = "Copy write-up", 1500); });
     return;
   }
+  const pin = e.target.closest("[data-wkpin]");
+  if (pin) { wkPin(pin.dataset.wkpin); return wkRedraw(); }
   const row = e.target.closest(".wkrow[data-wkkey]");
-  if (row && !e.target.closest("a,.fyclear,button,input")) { wkSet("open", wkGet("open") === row.dataset.wkkey ? "" : row.dataset.wkkey); wkRedraw(); }
+  if (row && !e.target.closest("a,.fyclear,button,input,[data-wkagent]")) {
+    if (!phoneOn()) { wkCardPane = Math.max(0, [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent).indexOf(row.closest(".teamlog.wk"))); return wkCardOpen(row.dataset.wkkey); }
+    wkSet("open", wkGet("open") === row.dataset.wkkey ? "" : row.dataset.wkkey); wkRedraw();
+  }
 });
 // Typing in the filter narrows the list in place; the page does not redraw under the box while it has the focus.
 document.addEventListener("input", e => {
@@ -8497,6 +8599,193 @@ document.addEventListener("input", e => {
   const list = e.target.closest(".wk")?.querySelector(".wklist");
   if (list) { wkOpened = false; list.innerHTML = wkDone(wkData()); }
 });
+// ── a Work item's card ────────────────────────────────────────────────────────
+// A click on a Work row opens its card over the page: the ticket and its Jira link, every PR with its approvals, who has
+// worked on it, what it asks of the owner, its merges and log, and a conversation about it. The conversation gathers,
+// from the feeds of everyone on it, each line that names the ticket, oldest first; the box under it sends the owner's
+// words to whoever is picked, starting "Re KEY:" so they know what is meant, and that line then shows in it too.
+const CARD = "~card:";   // a Work item card's message box: say() sends it to whoever is picked in the card
+let wkCardSeen = null;   // watches the card's conversation change size, to keep it at its newest line
+let wkCardKey = "", wkCardTo = [], wkCardPane = 0, wkCardMore = true;    // wkCardMore: the details card open   // wkCardPane: which Work pane on the page (0 the first) the card covers
+// the card sits over the Work pane it came from, kept on it as the page redraws, resizes or the pane moves
+const wkCardTint = () => $("#wkcard .wkc-chat")?.style.setProperty("--c", colours[wkCardTo[0]] || "var(--line2)");
+function wkCardPlace() {
+  const box = $("#wkcard"), pane = [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent)[wkCardPane];
+  if (!box?.classList.contains("on")) return;
+  box.querySelectorAll(".wkc-thread, .wkc-more").forEach(edges);   // their fades, as their size or content changes
+  if (!pane) return wkCardClose();
+  // over the pane below its head ("Work 5 in flight · …"), which stays in view
+  const r = pane.getBoundingClientRect(), head = pane.querySelector(":scope > .thead")?.getBoundingClientRect(), top = head ? head.bottom : r.top;
+  Object.assign(box.style, {left: r.left + "px", top: top + "px", width: r.width + "px", height: r.bottom - top + "px"});
+}
+function wkCardPeople(d, key) {
+  const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
+  const {own, sup} = wkOn(d, key, t?.who || qi?.who || "");
+  return [...new Set([...own, ...sup.map(x => x.name)])].filter(n => n && !ppIsOwner(n));
+}
+// The item's names in a message: its ticket id, each PR as "repo #N", "repo#N" or its link, and each PR's branch
+function wkCardRe(key) {
+  const q = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), t = wkData(true).tickets.find(x => (x.id || x.ref) === key);
+  const alt = [`\\b${q(key)}\\b`];
+  for (const p of t?.prs || []) {
+    if (p.repo && p.n) alt.push(`\\b${q(p.repo)}\\s*#${p.n}\\b`, `\\b${q(p.repo)}/(?:pull-requests|pull)/${p.n}\\b`);
+    if (p.branch) alt.push(`(?<![\\w/.-])${q(p.branch)}(?![\\w/-])`);
+  }
+  // and those already merged, by their "repo #N"
+  for (const h of wkData(true).history.filter(h => h.key === key)) { const [, repo, n] = String(h.ref || "").match(/^(\S+) #(\d+)$/) || [];
+    if (repo) alt.push(`\\b${q(repo)}\\s*#${n}\\b`, `\\b${q(repo)}/(?:pull-requests|pull)/${n}\\b`); }
+  return new RegExp(alt.join("|"));
+}
+// what was said about the item, oldest first: every line naming it (wkCardRe)
+function wkCardThread(key, names) {
+  const seen = new Set(), out = [], re = wkCardRe(key);
+  for (const a of S.agents.filter(a => names.includes(a.name)))
+    for (const it of a.feed || []) {
+      if (!["said", "owner", "peer", "sent"].includes(it.kind) || !re.test(it.text || "")) continue;
+      // a message between two agents is in both their feeds: kept once
+      const from = it.kind === "said" ? a.name : it.kind === "owner" ? "you" : it.kind === "peer" ? it.who : a.name;
+      const to = it.kind === "said" ? "you" : it.kind === "owner" ? a.name : it.kind === "peer" ? a.name : it.who;
+      const id = (it.text || "").slice(0, 120);
+      if (seen.has(id)) continue;
+      seen.add(id); out.push({from, to, text: it.text, ts: it.ts});
+    }
+  return out.sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
+}
+function wkCardBody(d, key) {
+  const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
+  const jira = t?.jira || qi?.url || "", stage = t ? (wkStageName((d.p.stages || []).find(s => s.key === t.stage) || {key: t.stage, name: t.stage})) : qi ? "Queued" : "";
+  // the item itself, drawn as its row in the list is
+  const row = (t ? wkTicket(d, t) : qi ? wkQueued(d, qi, "") : "").replace(/ data-wkkey="[^"]*"/, "").replace(/<b class="wkpin[^"]*"[\s\S]*?<\/b>/, "");   // the card has its own pin
+  // every PR for it: the open ones with where each has got to, then those merged
+  const title = t?.title || qi?.title || "", bare = x => esc(String(x || "").replace(new RegExp(`^${key}\\s*:?\\s*`), ""));
+  const merged = d.history.filter(h => h.key === key);
+  // in full mode, each open PR's approvals as a ticked name each, as its row in the list has them
+  const ticks = p => !p.ok || wkCompact() ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
+    : p.ok.length ? p.ok.map(n => ({text: `${shown(n)} ✓`, tone: "green"})) : [{text: "no approvals yet", tone: "grey"}];
+  const prs = [...(t?.prs || []).map(p => `<div class="wkrow wkc-row">` + wkMid(wkLink(p.href, p.ref), "", bare(p.title), ticks(p)) + `</div>`),
+    ...merged.map(h => `<div class="wkrow wkc-row">` + wkMid(wkLink(h.href, h.ref), "", bare(h.title), [{text: `merged ${wkWhen(h.t)}`, tone: "green"}]) + `</div>`)].join("");
+  // everyone on it and the lead, in the team's order (byRole), as the Work strip lists them
+  const named = [...new Set([...wkCardPeople(d, key), S.lead].filter(Boolean))];
+  const to = [...byRole(named.map(ppAgent).filter(Boolean)).map(a => a.name), ...named.filter(n => !ppAgent(n))];
+  // picked at first: the developer it is assigned to (owner, 2026-11-20), else the first on it
+  // (a developer gone on to another ticket leaves it unassigned: then the developer who has worked on it)
+  const dev = wkNames(t?.who || qi?.who || "").find(n => to.includes(n)) || to.find(n => ppAgent(n)?.role === "dev");
+  if (!wkCardTo.length || !wkCardTo.every(n => to.includes(n))) wkCardTo = [dev || to[0]].filter(Boolean);
+  // a face alone, as everywhere else: a click picks who it goes to, and resting on it opens the agent's menu
+  const chips = `<span class="wkc-tolabel">${wkCardTo.length ? `To ${esc(wkCardTo.map(shown).join(", "))}` : "Pick who it goes to"}</span>` +
+    to.map(n => `<span class="wkface wkc-to${wkCardTo.includes(n) ? " on" : ""}" data-wkcto="${esc(n)}"` +
+    `${ppAgent(n) ? ` data-wkagent="${esc(n)}" data-menu-name="${esc(n)}"` : ` title="${esc(shown(n))}"`}>${ppFace(n)}</span>`).join("");
+  return {head: `<div class="thead"><span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
+      `<span class="tsum">${[title && title !== key ? esc(title) : "", stage ? `<b>${esc(stage)}</b>` : ""].filter(Boolean).join(" · ")}</span>${wkCompact() ? "" : `<b class="maxbtn wkc-pin${wkPins().includes(key) ? " on" : ""}" data-wkcpin ` +
+      `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>`}<b class="maxbtn" data-wkcclose title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</b></div>` +
+      (row ? `<div class="wkc-item">${row}</div>` : ""),
+    left: prs + wkHead("On it") +
+      wkDetail(d, key).replace(/<div class="wkd"><b>(?:PRs|Merged)<\/b>[\s\S]*?<\/span><\/div>/g, ""),   // the PRs are listed above
+    prs: (t?.prs || []).length + merged.length, to: chips, thread: wkCardThreadHtml(key, to)};
+}
+function wkCardThreadHtml(key, names) {
+  // each line drawn as the agents' own conversations draw one: who said it as a coloured name badge, whom to as a
+  // second, then the words and how long ago
+  const th = wkCardThread(key, names);
+  const badge = (n, to) => n === "you" ? `<span class="who${to ? " ag to" : ""}">${esc(S.owner || "You")}</span>`
+    : `<span class="who${to ? " ag to" : ""}" style="--pc:${esc(colours[n] || "#888")}">${esc(shown(n))}</span>`;
+  return th.length ? th.map(m => {
+    const kind = m.from === "you" ? "owner" : m.to === "you" ? "said" : "peer";
+    return `<div class="it ${kind}"${kind === "owner" ? "" : ` style="--pc:${esc(colours[m.from] || "#888")}"`}><span class="tx"><span class="heads">${badge(m.from)}` +
+      `${m.to === "you" ? "" : badge(m.to, true)}</span>${md(m.text)}</span><span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
+  }).join("") : `<div class="calm">Nothing said about ${esc(key)} in their recent conversations yet.</div>`;
+}
+function wkCardOpen(key) {
+  if (wkCardKey !== key) wkCardTo = [];
+  wkCardKey = key;
+  let box = $("#wkcard");
+  if (!box) { document.body.insertAdjacentHTML("beforeend", `<div id="wkcard"></div>`); box = $("#wkcard"); }
+  const c = wkCardBody(wkData(true), key);
+  box.innerHTML = `<div class="teamlog wk roomy wkc">${c.head}<div class="wkc-cols"><div class="wkc-left${wkCardMore ? "" : " shut"}">` +
+    `${wkHead("Pull requests and who's on it", c.prs, "", `<b class="wkc-fold" data-wkcfold title="${wkCardMore ? "Hide" : "Show"} them">${foldIcon(!wkCardMore)}</b>`)}<div class="wkc-more">${c.left}</div></div><div class="divider drag wkc-split" title="Drag to share the room between the details and the conversation"></div><div class="wkc-chat">` +
+    `${wkHead("Conversation")}<div class="wkc-thread">${c.thread}</div><button class="newest" title="Back to the newest line">↓ Newest</button><div class="wkc-tos">${c.to}</div>` +
+    `<div class="att" data-name="${esc(CARD + key)}"></div><div class="sayrow">${addButton(CARD + key)}<textarea class="say" rows="1" data-name="${esc(CARD + key)}" ` +
+    `placeholder="Message about ${esc(key)}: sent with it named, to whoever is picked" autocomplete="off"></textarea>${SEND}</div></div></div></div>`;
+  box.classList.add("on");
+  wkCardPlace(); wkCardTint();
+  // the details' height, as the divider was last dragged to (kept in this browser), and the divider's drag
+  const left = box.querySelector(".wkc-left"), split = box.querySelector(".wkc-split"), h = +wkGet("cardsplit", 0);
+  if (h) left.style.height = h + "px";
+  split.onpointerdown = e => {
+    if (left.classList.contains("shut")) return;
+    e.preventDefault(); split.setPointerCapture(e.pointerId); split.classList.add("moving"); document.body.classList.add("resizing-row");
+    const top = left.getBoundingClientRect().top, room = box.querySelector(".wkc-cols").getBoundingClientRect().bottom - top - 140;
+    split.onpointermove = mv => { left.style.height = Math.max(60, Math.min(room, mv.clientY - top - 5)) + "px"; };
+    split.onpointerup = () => { split.onpointermove = split.onpointerup = null; split.classList.remove("moving"); document.body.classList.remove("resizing-row");
+      wkSet("cardsplit", String(Math.round(left.getBoundingClientRect().height))); };
+  };
+  // the conversation as a pane's is: at its newest line unless scrolled up, kept there as the details above it grow or
+  // shrink, and with ↓ Newest while it is not
+  const th = box.querySelector(".wkc-thread"), btn = box.querySelector(".wkc-chat > .newest"), chat = box.querySelector(".wkc-chat");
+  const show = () => { btn.style.bottom = (chat.getBoundingClientRect().bottom - th.getBoundingClientRect().bottom + 12) + "px"; btn.classList.toggle("on", !atEnd(th)); };
+  th.scrollTop = th.scrollHeight; markEnd(th);
+  th.onscroll = () => { markEnd(th); show(); };
+  btn.onclick = e => { e.stopPropagation(); th.scrollTo({top: th.scrollHeight, behavior: "smooth"}); };
+  wkCardSeen?.disconnect();
+  wkCardSeen = new ResizeObserver(() => { if (atEnd(th)) th.scrollTop = th.scrollHeight; edges(th); show(); });
+  wkCardSeen.observe(th); show();
+  const i = box.querySelector("textarea.say"), name = CARD + key;
+  i.value = draft(name); grow(i);
+  i.onclick = e => e.stopPropagation();
+  i.oninput = () => { emojify(i); grow(i); keep(i); };
+  i.onkeydown = e => emoKey(e, i) || keys(e, i, name);
+  i.onpaste = e => pasted(e, name);
+  box.querySelector(".add").onclick = e => { e.stopPropagation(); pick(name, i); };
+  showAtt(name);
+  i.focus();
+}
+function wkCardRefresh() {
+  const box = $("#wkcard");
+  if (!wkCardKey || !box?.classList.contains("on")) return;
+  const c = wkCardBody(wkData(true), wkCardKey), th = box.querySelector(".wkc-thread");
+  const end = atEnd(th);
+  if (th.dataset.html !== c.thread) { th.innerHTML = c.thread; th.dataset.html = c.thread; if (end) th.scrollTop = th.scrollHeight; th.onscroll?.(); }
+  const tos = box.querySelector(".wkc-tos"); if (tos.dataset.html !== c.to) { tos.innerHTML = c.to; tos.dataset.html = c.to; }
+}
+const wkCardClose = () => { $("#wkcard")?.classList.remove("on"); wkCardKey = ""; wkCardSeen?.disconnect(); };
+// A message from the card's box, sent as say() sends one, to each agent picked, with the item named first; the box
+// keeps the words and images when any of them did not take it.
+async function wkCardSay(name, input) {
+  const key = name.slice(CARD.length), text = input.value.trim(), sent = atts[name] || [];
+  if (!text && !sent.length || input.disabled || saying.has(name) || !wkCardTo.length) return;
+  input.value = ""; grow(input); keep(input); input.disabled = true; saying.add(name);
+  const bad = [];
+  for (const n of wkCardTo) {
+    const r = await fetch("/api/agent/" + encodeURIComponent(n) + "/say", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
+      body: JSON.stringify({text: `Re ${key}: ${text}`, images: sent.map(i => i.path)})}).catch(() => null);
+    if (r?.ok) chase(n, text); else bad.push(shown(n));
+  }
+  if (bad.length) { input.value = text; grow(input); keep(input); input.title = `Not sent to ${bad.join(", ")}`; }
+  else { atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name); input.title = ""; }
+  flash(input, bad.length ? "failed" : "sent");
+  saying.delete(name); input.disabled = false; input.focus();
+}
+document.addEventListener("click", e => {
+  const box = $("#wkcard");
+  if (!box?.classList.contains("on") || !e.target.closest?.("#wkcard")) return;
+  if (e.target.closest("[data-wkcto],[data-wkcclose],[data-wkcfold],[data-wkcpin]")) e.stopPropagation();
+  const pin = e.target.closest("[data-wkcpin]");
+  if (pin) { wkPin(wkCardKey); const on = wkPins().includes(wkCardKey); pin.classList.toggle("on", on); pin.title = on ? "Unpin" : "Pin to the top of Work"; wkRedraw(); return; }
+  const fold = e.target.closest("[data-wkcfold]");
+  if (fold) { wkCardMore = !wkCardMore; fold.closest(".wkc-left").classList.toggle("shut", !wkCardMore);
+    fold.innerHTML = foldIcon(!wkCardMore); fold.title = `${wkCardMore ? "Hide" : "Show"} them`; return; }
+  if (e.target === box || e.target.closest("[data-wkcclose]")) return wkCardClose();
+  const to = e.target.closest("[data-wkcto]");
+  if (to) { const n = to.dataset.wkcto; wkCardTo = wkCardTo.includes(n) ? wkCardTo.filter(x => x !== n) : [...wkCardTo, n]; wkCardRefresh(); wkCardTint(); return; }
+}, true);
+document.addEventListener("keydown", e => {
+  if (!$("#wkcard")?.classList.contains("on")) return;
+  // Esc closes it from inside it, or with nothing else in hand; typing in another pane keeps its own Esc
+  if (e.key === "Escape" && (e.target.closest?.("#wkcard") || e.target === document.body)) { e.stopPropagation(); return wkCardClose(); }
+}, true);
+setInterval(wkCardRefresh, 3000);
+setInterval(wkCardPlace, 250);
+addEventListener("resize", wkCardPlace);
 let meetNow = {}, meetRecords = "";
 async function loadMeetings() {
   if (!leaves(layout().root).some(([, n]) => n.show === "meeting")) return;
@@ -8800,7 +9089,9 @@ function customHtml(ceil, tabRow) {
     } else if (n.show === "pipeline") {
       body = ppPaneHtml();
     } else if (n.show === "work") {
-      body = workHtml(path === maxed, n);
+      // held as it is while the pointer is over its list, so no row moves from under a click; drawn when it leaves
+      const held = $(`#main .pane[data-path="${path}"] .teamlog.wk`);
+      body = !wkForce && held?.querySelector(".wklist:hover, .wkstand:hover") ? held.outerHTML : workHtml(path === maxed, n);
     } else if (n.show === "combined") {
       // the agent picked in it over the Combined view, which shows greyed round it; maximised, the agent alone
       const one = paneFocus(path, n), card1 = one && `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, one, path, BACK_BUTTON)}</div>`;
@@ -10150,6 +10441,7 @@ function echoed(name) { draw(); if (open === name) { renderConv(); const c = $("
 const saying = new Set();   // agents a message is on its way to: a second Enter meanwhile sends nothing
 async function say(name, input) {
   if (name.startsWith(MEET)) return sayAll(name, input);
+  if (name.startsWith(CARD)) return wkCardSay(name, input);
   const text = input.value.trim(), sent = atts[name] || [];
   if (!text && !sent.length || input.disabled || saying.has(name)) return;
   // The box empties before the echo redraws the page, so neither the redraw nor the kept draft can bring the text
@@ -11323,11 +11615,13 @@ const ppFace = n => { const a = ppAgent(n), r = !a && ppRoleOf(n);
 const ppA = (href, cls, label, inner) => /^https:\/\//.test(href || "") ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener" aria-label="${esc(label)}">${inner}</a>` : `<div class="${cls}" aria-label="${esc(label)}">${inner}</div>`;
 const ppTag = g => g && g.text ? `<span class="pp-tag ${PP_TONES.includes(g.tone) ? g.tone : "grey"}">${esc(g.text)}</span>` : "";
 const ppQueue = p => (p.stages || []).find(s => s.queue)?.key;
-const ppBadge = (t, p) => t.fail ? `<span class="pp-b fail" aria-hidden="true">✕</span>`
-  : t.stage === ppQueue(p) && t.place === 0 ? `<span class="pp-b run" aria-hidden="true">▶</span>`
-  : t.stage === ppQueue(p) ? `<span class="pp-b q" aria-hidden="true">${esc(t.place)}</span>`
-  : t.back ? `<span class="pp-b back" aria-hidden="true">↩</span>`
-  : `<span class="pp-b st" aria-hidden="true">${(p.stages || []).findIndex(s => s.key === t.stage) + 1}</span>`;
+// a ticket's badge: its stage's number along the pipeline, or its place in the stage that is a queue; its hover says which
+const ppBadge = (t, p) => { const st = p.stages || [], i = st.findIndex(s => s.key === t.stage), name = st[i]?.name || t.stage;
+  return t.fail ? `<span class="pp-b fail" title="Failed">✕</span>`
+    : t.stage === ppQueue(p) && t.place === 0 ? `<span class="pp-b run" title="Running now">▶</span>`
+    : t.stage === ppQueue(p) ? `<span class="pp-b q" title="Number ${esc(t.place)} in the queue for ${esc(name)}">${esc(t.place)}</span>`
+    : t.back ? `<span class="pp-b back" title="Sent back to ${esc(name)}">↩</span>`
+    : `<span class="pp-b st" title="Stage ${i + 1} of ${st.length}: ${esc(name)}">${i + 1}</span>`; };
 const ppIdLine = t => `<span class="id">${esc(t.ref || "")}${t.ref && t.id ? " <span>· " : t.id ? "<span>" : ""}${t.id ? esc(t.id) + "</span>" : ""}</span>`;
 function ppCells(p) {
   const ts = p.tickets || [];
@@ -11927,7 +12221,7 @@ function phKeepChips(body, draw) {
 let phHeld = 0;
 // A press held on an agent anywhere on the phone, by a finger or a mouse button (a row, a portrait, the agent view's strip of portraits, a name in
 // Combined) opens its menu, as a sheet. Wired once, on the document.
-const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name], #phone .wkpeople [data-wkfilter]";
+const PH_HOLD = "#phone [data-menu-name], #drail .phf[data-name], #phone .teamlog .cnames .name[data-name], #phone .wkpeople [data-wkfilter]:not([data-wkfilter=''])";
 function phHoldWire() {
   if (phHoldWire.done) return; phHoldWire.done = true;
   const who = t => { const m = phoneOn() && t.closest?.(PH_HOLD), n = m && (m.dataset.menuName || m.dataset.name || m.dataset.wkfilter); return n && [...S.agents, ...S.bench].some(a => a.name === n) ? [m, n] : null; };   // a benched or stopped agent has its menu too
@@ -13003,11 +13297,16 @@ def self_test():
         t("  a face opens its agent on a click and gives its menu on a right-click or a held press; several people are a face each",
           ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
            'const wkNames = who => String(who || "").split(/,|&| and /)' in PAGE), (True,) * 4)
-        t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; Compact shows whose alone",
+        t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; both modes show whose alone",
           ('sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}' in PAGE,
-           ".wk:not(.roomy) .wkface.sup{display:none}" in PAGE), (True, True))
+           ".wk .wkface.sup{display:none}" in PAGE), (True, True))
+        t("  Done today leaves out a ticket still in flight, and the counts say what they count",
+          ("(i.done || 0) >= today && !flying.has(i.key)" in PAGE, 'merged · ${num(x.done.length)}' in PAGE), (True, True))
+        t("  a row opens its card; pins are full mode's only; the rows' approval chips are too, with tags as the fallback",
+          ("function wkCardBody(d, key)" in PAGE, "const wkPins = () => wkCompact() ? [] : wkPinned();" in PAGE,
+           "const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [" in PAGE), (True,) * 3)
         t("  a benched agent's face is greyed in the strip and on a ticket, its tip saying so",
-          ('phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp")' in PAGE, '(ppBenched(x.name) ? " benched" : "")' in PAGE,
+          ('phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp")' in PAGE, 'face(x, "", ppBenched(x.name) ? " benched" : "")' in PAGE,
            ".ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}" in PAGE), (True, True, True))
         t("  an agent strip by role filters every tab to that agent's work, a click again for everyone's; Compact has neither",
           ("const them = byRole([...S.agents, ...S.bench]" in PAGE, 'wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter)' in PAGE,
