@@ -2993,6 +2993,8 @@ SUBMIT_ROW = re.compile(r"^\s*(?:❯\s*)?Submit$")   # the unnumbered row that e
 PREVIEW = re.compile(r"\s{2,}[┌│└].*$")   # a question with previews draws the cursor's option's preview to the right of the options
 CHAT_ROW = re.compile(r"^\s*(?:❯\s*)?Chat about this$")   # a preview question's unnumbered last choice, below a rule of its own
 CHECKBOX = re.compile(r"^\[[ ✔]\]\s?")   # a multi-select option's tick box
+CONTINUE = "Press Enter to continue"   # a screen that only waits for Enter, such as the one /login ends on
+WAIT_RULE = re.compile(r"^\s*[▔─━]{10,}\s*$")   # the rule drawn above such a screen
 DIM = re.compile(r"\x1b\[2m.*?\x1b\[(?:0|22)?m")   # a dim run: an empty field's placeholder
 ESCAPES = re.compile(r"\x1b\[[0-9;:?]*[A-Za-z]")
 
@@ -3045,9 +3047,17 @@ def screen_ask(pane):
     not. Some prompts (trusting a folder, confirming a tool's action) list their options unnumbered, the cursor's row
     marked ❯ and the others lined up with its text; those are numbered here in order and answered by moving the cursor
     ("select", with "cursor" the option it is on). A prompt with no options at all (signing in again: a web address
-    and a field for the code) is its text alone, with none. None when no prompt is on screen."""
+    and a field for the code) is its text alone, with none. A screen that only waits for Enter ("Press Enter to
+    continue", as /login ends) has no Esc footer: it is read as one option, Continue ("enter"), answered with Enter.
+    None when no prompt is on screen."""
     lines = [l.rstrip() for l in run("tmux", "capture-pane", "-p", "-t", pane).splitlines()]
     foot = foot_of(lines)
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if foot is None and last is not None and CONTINUE in lines[last]:
+        # it has no Esc footer and no options of its own, so a numbered list above it is the conversation's
+        top = next((i + 1 for i in range(last - 1, max(-1, last - 40), -1) if WAIT_RULE.match(lines[i])), max(0, last - 8))
+        text = "\n".join(l.strip() for l in lines[top:last + 1]).strip()
+        return {"text": text, "options": [{"n": 1, "label": "Continue", "typed": False}], "enter": True}
     # A rule with a later option under it ("5. Chat about this", below "4. Type something.") splits the options; it does
     # not open the prompt, which would leave option 1 above it and the prompt unread (Deacon's, 2026-11-10). A question
     # with previews draws it unnumbered ("  Chat about this"), and that rule hid the whole question (owner's phone, 2026-11-14).
@@ -3394,6 +3404,12 @@ def answer(name, n, label, text):
         return cursor() == m
 
     try:
+        if ask.get("enter"):
+            # a screen that only waits for Enter: Enter is its one answer
+            closed = gone()
+            if not key("Enter") or not wait_for(closed, 3, 0.2):
+                return 500, "Enter was not taken"
+            return 200, "continued"
         if ask.get("select"):
             # unnumbered options: the cursor is taken to the option a row at a time, then Enter chooses it
             for _ in range(2 * len(order)):
@@ -13313,6 +13329,18 @@ def self_test():
           "as a choice taken with the cursor, so the owner can decline them all",
           (ask and [(o["label"], bool(o.get("move"))) for o in ask["options"]], ask and ask.get("preview")),
           ([("Compact count", False), ("Segmented status", False), ("Per-author rows", False), ("Chat about this", True)], True))
+        # the screen /login ends on, under a numbered list in the conversation: no Esc footer, only Enter to go on
+        screen = ["  1. Copy the full instructions to your clipboard:", "  2. In the prompt, replace the instructions with it.", "",
+                  "⏺ Login expired · Please run /login", "", "❯ ok lets analyse the outputs", "▔" * 60, "   Login", "",
+                  "   Logged in as owner@example.invalid", "   Login successful. Press Enter to continue…", "", ""]
+        g["run"] = lambda *cmd, **kw: "\n".join(screen) + "\n" if cmd[:2] == ("tmux", "capture-pane") else was_run(*cmd, **kw)
+        try:
+            login = ask_of("%1")
+        finally:
+            g["run"] = was_run
+        t("a screen that only waits for Enter (after /login) is one Continue, answered with Enter, not the list above it",
+          (login and login.get("enter"), login and [o["label"] for o in login["options"]], login and login["text"].splitlines()[0],
+           login and "Copy" in login["text"]), (True, ["Continue"], "Login", False))
         # a question taller than the pane, as Blair's 9-row, 42-column pane drew it (captured 2026-11-19): options 1 to 4
         # never drawn, "↑ 14 more lines", and even the footer wrapped; the question is the transcript's
         screen = ["     only; du before and after go to", "     Deacon.", "─" * 42, "  5. Chat about this", " ↑ 14 more lines",
