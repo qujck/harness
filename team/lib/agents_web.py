@@ -4782,7 +4782,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 :is(#phone,.wk).roomy .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
 :is(#phone,.wk).roomy :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
 .wk .wkgap{visibility:hidden}   /* holds a face's place where there is no one to show: "Unassigned" */
-:is(#phone,.wk).roomy .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on and Stand-up keep theirs */
+:is(#phone,.wk).roomy .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on keeps theirs */
 :is(#phone,.wk).roomy .workq .wqwho > .wkface{width:auto}
 /* a narrow Stand-up: the face down the left of its row, the ticket and the time on top, the title under them in full */
 @container (max-width:600px){
@@ -4804,8 +4804,10 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkpeople .wkpall{display:grid;place-items:center;color:var(--text);font-weight:600;border:1px solid var(--line2)}
 .wkpeople.on .wkp:not(.sel){opacity:.35}
 .wkpeople .wkp.sel > .face{outline:2px solid var(--c, var(--text));outline-offset:2px}
-/* the stand-up tab's people, as faces like the other tabs, one width so the times line up */
-.wk .workq .wqwho > .wkface{width:9em;overflow:hidden}
+/* the stand-up tab's people as faces alone (the name on hover), at the right next to the time, as "unassigned" is */
+.wk .workq .wqwho .wkname{display:none}
+.wk .workq .row > .tx{flex:1}
+.wk .workq .row > .wqwho > :is(.wkface,.wkfaces),.wk .workq .row > .wh{margin-left:auto}
 /* a face whose agent is on the page opens that agent */
 .wkopen{cursor:pointer}
 .wkopen:hover > .wkname{color:var(--text);text-decoration:underline}
@@ -8497,7 +8499,8 @@ const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
 // in full mode, its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
 // days its PRs have been quiet; its title on the line under
-const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [
+const wkChips = t => !t.ok || wkCompact() ? [...(t._sect ? [{text: t._sect, tone: "blue"}] : []), ...wkTags(t)] : [
+  t._sect && {text: t._sect, tone: "blue"},   // a pinned ticket's section, in a colour no approval or wait uses
   ...t.ok.map(a => ({text: `${shown(a.who)} ✓${a.n < a.of ? ` ${a.n}/${a.of}` : ""}`, tone: a.n < a.of ? "grey" : "green"})),
   t.next && {text: `${shown(t.next)} next`, tone: t.next === "You" ? "amber" : "grey"},
   t.stuck && {text: `stuck ${t.stuck}d`, tone: "amber"}].filter(Boolean);
@@ -8508,8 +8511,8 @@ const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
 // a question is read in full, so its text wraps
 const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span> ` : "") + (i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General"), wkWhen(i.at), inline(i.text)) +
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
-const wkQueued = (d, i, n) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
-  wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : "")) + wkTicketFaces(d, i.key, i.who));
+const wkQueued = (d, i, n, tags = []) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
+  wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : ""), tags) + wkTicketFaces(d, i.key, i.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
   wkMid(e.key ? wkLink(wkJira(e.key), wkKey(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
@@ -8609,13 +8612,24 @@ function wkAll(d) {
   // a ticket once, in its most urgent section: one under Needs you is not listed again under its stage
   const stages = [...(p.stages || [])].reverse().map(s => { const at = wkOrdered(d, s.key).filter(t => loose(t) && t.stage !== "lead");
     return at.length ? `<div class="wkhead wkgo" data-wkstage="${esc(s.key)}" title="Open In flight at ${esc(wkStageName(s))}"><b>${esc(wkStageName(s))}</b><em>${at.length}</em></div>` + at.map(t => wkTicket(d, t)).join("") : ""; }).join("");
-  const pins = [...pinned].map(k => { const t = d.tickets.find(x => (x.id || x.ref) === k), qi = d.queue.find(i => i.key === k);
-    return t ? wkTicket(d, t) : qi ? wkQueued(d, qi, "") : wkRow(d, k, wkMid(esc(k), "", `<span class="calm">Not in flight or queued</span>`, [])); });
+  // each pinned item badged with the section it belongs to, which still counts it ("2 pinned above")
+  const sect = k => { const t = d.tickets.find(x => (x.id || x.ref) === k), qi = d.queue.filter(i => i.key === k);
+    return t ? (t.stage === "lead" ? "needs you" : "in flight") : d.fy.open.some(i => i.ticket === k) ? "needs you"
+      : done.some(e => e.key === k) ? "done" : qi.some(i => ["now", "next", "later"].includes(i.list)) ? "up next"
+      : qi.some(i => i.list === "parked") ? "parked" : qi.length ? "done" : ""; };
+  const pinIn = {}; pinned.forEach(k => { const s = sect(k); pinIn[s] = (pinIn[s] || 0) + 1; });
+  const above = (s, more) => pinIn[s] ? `<div class="calm">${pinIn[s]}${more ? " more" : ""} pinned above.</div>` : "";
+  // a ticket in flight is badged with its stage ("reviewed"), anything else with its section
+  const label = (k, t) => t && t.stage !== "lead" ? ((p.stages || []).find(st => st.key === t.stage)?.name || "in flight").toLowerCase() : sect(k);
+  const pins = [...pinned].map(k => { const t = d.tickets.find(x => (x.id || x.ref) === k), qi = d.queue.find(i => i.key === k), s = label(k, t);
+    return t ? wkTicket(d, {...t, _sect: s}) : qi ? wkQueued(d, qi, "", s ? [{text: s, tone: "blue"}] : [])
+      : wkRow(d, k, wkMid(esc(k), "", `<span class="calm">Not in flight or queued</span>`, [])); });
   const dn = done.filter(e => !pinned.has(e.key));
+  const flying = (p.stages || []).reduce((n, st) => n + wkOrdered(d, st.key).filter(t => loose(t) && t.stage !== "lead").length, 0);
   const right = (pins.length ? wkHead("Pinned", pins.length) + pins.join("") : "") +
-    (asks.length ? go("needs", "Needs you", asks.length, "a") + asks.join("") : "") +
-    (stages || go("flight", "In flight", 0, "") + `<div class="calm">Nothing in flight.</div>`) +
-    go("done", "Done today", dn.length, "g") + (dn.slice(0, 8).map(e => wkEvent(d, e)).join("") || `<div class="calm">Nothing done yet today.</div>`) +
+    (asks.length || pinIn["needs you"] ? go("needs", "Needs you", asks.length + (pinIn["needs you"] || 0), "a") + asks.join("") + above("needs you", asks.length) : "") +
+    (stages ? stages + above("in flight", flying) : go("flight", "In flight", pinIn["in flight"] || 0, "") + (above("in flight") || `<div class="calm">Nothing in flight.</div>`)) +
+    go("done", "Done today", done.length, "g") + (dn.slice(0, 8).map(e => wkEvent(d, e)).join("") + above("done", dn.length) || `<div class="calm">Nothing done yet today.</div>`) +
     (dn.length > 8 ? `<div class="wkmore" data-wktab="done">Show all ${dn.length}</div>` : "");
   return `<div class="wkall"><div class="wkcol">${left}</div><div class="wkcol">${right}</div></div>`;
 }
