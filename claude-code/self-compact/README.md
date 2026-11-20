@@ -82,3 +82,11 @@ does not override it.
   `scripts/verify.sh` runs the tests on every PR through `scripts/check-mods-tests-pass.sh`.
   `.claude-plugin/types/`, which `tsconfig.json` extends, is written by Claude Code when it loads the mod
   and is not committed.
+
+**After every ticket, for the reviewers.** `after-ticket.sh` is a `PostToolUse` hook on Bash (installed by
+`team/install-claude-code.sh`). When an agent whose roster role is `code-reviewer` or `test-reviewer` runs
+`ledger-db.sh work off` and it succeeds, the hook writes that session's request through `compact-me.sh` and tells
+the agent to end its turn, so the session compacts at the end of every finished review instead of only at the
+nudge. Owner, 2026-11-20: the test reviewer had made 721 calls by 08:30Z at about 120k of context each, nudged at
+150k, with no finished review to stop at. Other roles, other commands and subagents' calls are left alone.
+`AFTER_TICKET_ROLES` and `AFTER_TICKET_ROSTER` override the roles and the roster path.

@@ -15,6 +15,8 @@
 #                                not kept beside it: a box left on it loads no mods in any new session
 #   hooks                      bash <repo>/team/activity-hook.sh <Event> for the nine events it records;
 #                              the four tool events carry matcher "*"
+#   hooks.PostToolUse          bash <repo>/claude-code/self-compact/after-ticket.sh, matcher Bash: a reviewer's session
+#                              compacts after each `ledger-db.sh work off` (owner, 2026-11-20)
 # The file is Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, default ~/.claude), not the
 # repo's .claude/settings.json: the row, the mods and the hooks are per session on the box, not per repo.
 # Takes effect in sessions started afterwards (README, setup step 5).
@@ -27,7 +29,7 @@ TOOL_EVENTS='["PreToolUse","PermissionRequest","PostToolUse","PostToolUseFailure
 
 # merge_settings <repo root> : current settings JSON on stdin -> merged JSON on stdout   (pure)
 merge_settings() {
-  jq --arg mods "$1/claude-code" --arg old "$1/mods" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" \
+  jq --arg mods "$1/claude-code" --arg old "$1/mods" --arg sl "bash $1/team/statusline-publish.sh" --arg hook "bash $1/team/activity-hook.sh" --arg at "bash $1/claude-code/self-compact/after-ticket.sh" \
      --argjson ev "$EVENTS" --argjson tev "$TOOL_EVENTS" '
     .statusLine //= {type: "command", command: $sl, refreshInterval: 5}
     | .env //= {}
@@ -38,7 +40,9 @@ merge_settings() {
         else .hooks[$e] = ((.hooks[$e] // []) + [
           ({hooks: [{type: "command", command: ($hook + " " + $e), timeout: 5}]}
            | if ($tev | index($e)) != null then .matcher = "*" else . end) ])
-        end)'
+        end)
+    | if ([.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("after-ticket\\.sh"))) then .
+      else .hooks.PostToolUse += [{matcher: "Bash", hooks: [{type: "command", command: $at, timeout: 10}]}] end'
 }
 
 # additions <current> <merged> -> one line per thing the merge adds   (pure)
@@ -46,7 +50,10 @@ additions() {
   jq -rn --argjson c "$1" --argjson m "$2" '
     (if $c.statusLine == null then "  statusLine: \($m.statusLine.command)" else empty end),
     (if ($c.env.CLAUDE_CODE_PLUGIN_DIRS // "") != $m.env.CLAUDE_CODE_PLUGIN_DIRS then "  env CLAUDE_CODE_PLUGIN_DIRS: \($m.env.CLAUDE_CODE_PLUGIN_DIRS)" else empty end),
-    ([$m.hooks | keys[] | select(($c.hooks[.] // []) != $m.hooks[.])] | select(length > 0) | "  hooks: activity-hook.sh on \(join(", "))")'
+    def act($h; $e): [$h[$e][]?.hooks[]?.command // "" | select(test("activity-hook\\.sh"))];
+    ([$m.hooks | keys[] | select(act($c.hooks; .) != act($m.hooks; .))] | select(length > 0) | "  hooks: activity-hook.sh on \(join(", "))"),
+    (if ([$c.hooks.PostToolUse[]?.hooks[]?.command // ""] | any(test("after-ticket\\.sh"))) then empty
+     else "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" end)'
 }
 
 DRY=0; YES=0
@@ -65,6 +72,7 @@ if selftest_is_flag "${1:-}"; then
   _t "and the mods folder" "/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m")"
   _t "and a hook for each of the nine events" 9 "$(jq -r '.hooks | length' <<<"$m")"
   _t "a tool event's hook carries matcher *" '*' "$(jq -r '.hooks.PreToolUse[0].matcher' <<<"$m")"
+  _t "and the after-ticket hook on Bash, after the activity hook" "Bash bash /r/claude-code/self-compact/after-ticket.sh" "$(jq -r '.hooks.PostToolUse[1] | .matcher + " " + .hooks[0].command' <<<"$m")"
   _t "a stop's hook carries none" null "$(jq -r '.hooks.Stop[0].matcher' <<<"$m")"
   _t "the hook names its event" "bash /r/team/activity-hook.sh PermissionRequest" "$(jq -r '.hooks.PermissionRequest[0].hooks[0].command' <<<"$m")"
   m2="$(merge_settings /r <<<"$m")"
@@ -77,7 +85,10 @@ if selftest_is_flag "${1:-}"; then
   m4="$(merge_settings /r <<<'{"env":{"CLAUDE_CODE_PLUGIN_DIRS":"/x:/r/mods"}}')"
   _t "the pre-2f96cd0 mods folder is replaced, not kept beside the new one" "/x:/r/claude-code" "$(jq -r .env.CLAUDE_CODE_PLUGIN_DIRS <<<"$m4")"
   _t "an event that already runs an activity hook gains no second one" 1 "$(jq -r '.hooks.Stop | length' <<<"$m3")"
-  _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreCompact, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit" "$(additions "$own" "$m3")"
+  _t "the additions name only what is new" "  hooks: activity-hook.sh on PermissionRequest, PostToolUse, PostToolUseFailure, PreCompact, PreToolUse, SessionEnd, SessionStart, UserPromptSubmit
+  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" "$(additions "$own" "$m3")"
+  m5="$(merge_settings /r <<<"$(jq '.hooks.PostToolUse |= map(select(.matcher != "Bash"))' <<<"$m")")"
+  _t "a box with every activity hook gains only the after-ticket one, and says only that" "  hooks: self-compact/after-ticket.sh on PostToolUse (Bash): a reviewer compacts after each ticket" "$(additions "$(jq '.hooks.PostToolUse |= map(select(.matcher != "Bash"))' <<<"$m")" "$m5")"
   # the real action against a throwaway config dir: a dry run writes nothing; --yes writes and keeps a .bak
   mkdir -p "$d/cfg"; printf '{"permissions":{}}\n' > "$d/cfg/settings.json"
   CLAUDE_CONFIG_DIR="$d/cfg" bash "$HERE/install-claude-code.sh" --dry-run >/dev/null 2>&1
