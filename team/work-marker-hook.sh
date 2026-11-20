@@ -45,10 +45,13 @@ intents() {
   return 0
 }
 
-# ticket_of_branch <branch> -> the ticket id a branch is cut for (<id> or <id>-pt<N>), or nothing   (pure)
+# ticket_of_branch <branch> -> the ticket a branch is cut for, or nothing   (pure)
+#   a ledger number: <N>, <N>-pt<M>, <N>-hotfix or <N>-raise -> N (strength #6854: numbers replace the text ids)
+#   an old text id, until the ids are gone: <id> or <id>-pt<M> -> id
 ticket_of_branch() {
   local b="$1"
   case "$b" in ""|main|master|HEAD|*/*) return 0 ;; esac
+  [[ "$b" =~ ^([1-9][0-9]{0,8})(-pt[0-9]+|-hotfix|-raise)?$ ]] && { printf '%s' "${BASH_REMATCH[1]}"; return 0; }
   [[ "$b" =~ ^(.+)-pt[0-9]+$ ]] && b="${BASH_REMATCH[1]}"
   [[ "$b" =~ ^[A-Za-z0-9_.-]+$ && "$b" == *_* ]] && printf '%s' "$b"
   return 0
@@ -80,7 +83,7 @@ run() {
     # the branch first; else the ticket agent-spawn.sh started this session for (a tester's tree starts detached)
     local how="this tree's branch"
     id="$(ticket_of_branch "$(git -C "$top" branch --show-current 2>/dev/null)")"
-    if [[ -z "$id" && "${STRENGTH_TICKET:-}" =~ ^[A-Za-z0-9_.-]+$ ]]; then id="$STRENGTH_TICKET"; how="the ticket this session was spawned for"; fi
+    if [[ -z "$id" && "${STRENGTH_TICKET:-}" =~ ^#?[A-Za-z0-9_.-]+$ ]]; then id="${STRENGTH_TICKET#\#}"; how="the ticket this session was spawned for"; fi
     [[ -n "$id" ]] || return 0
     ans="$(mark "$top" on "$id")"
     [[ "$ans" == ok:* ]] && said+=("on $id ($how)")
@@ -121,6 +124,11 @@ self_test() {
   _t "a pt branch names its ticket" "$(ticket_of_branch fix_a_thing-pt12)" fix_a_thing
   _t "a bare ticket branch too" "$(ticket_of_branch feat_x_y)" feat_x_y
   _t "main names none" "$(ticket_of_branch main)" ""
+  _t "a ledger number branch names its number" "$(ticket_of_branch 6854)" 6854
+  _t "a numbered pt branch names its number" "$(ticket_of_branch 6854-pt3)" 6854
+  _t "a numbered hotfix branch names its number" "$(ticket_of_branch 6854-hotfix)" 6854
+  _t "a numbered raise branch names its number" "$(ticket_of_branch 6854-raise)" 6854
+  _t "a leading zero is no number" "$(ticket_of_branch 0123)" ""
   _t "a slash branch names none" "$(ticket_of_branch peter/try)" ""
   _t "a word with no underscore names none" "$(ticket_of_branch scratch)" ""
   # the real entry point against a throwaway repo and a stub ledger that records its calls

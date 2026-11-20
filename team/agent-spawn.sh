@@ -169,7 +169,7 @@ spawn_cap_rule() {
   if (( $2 >= $1 )); then printf 'full'; else printf 'open'; fi
 }
 # PURE: is this a ticket id? A ledger id (the ledger's own CHECK: ^[a-z][a-z0-9_-]{4,200}$) or a Jira key.
-spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+)$ ]]; }
+spawn_ticket_ok() { [[ "${1-}" =~ ^([a-z][a-z0-9_-]{4,200}|[A-Z][A-Z0-9]+-[0-9]+|#?[1-9][0-9]{0,8})$ ]]; }   # an id, a Jira key, or a ledger number (#6854)
 # PURE: who holds the row, from a ticket-owner line. The database store answers `owner:<name>\tstood-down-by:<x>`;
 # the Jira store answers the assignee's name alone. $1 line -> the name, or nothing
 spawn_owner_of() { local f="${1%%$'\t'*}"; printf '%s' "${f#owner:}"; }
@@ -240,6 +240,9 @@ spawn_self_test() {
   # PURE arms
   spawn_ticket_ok feat_some_ticket && _t "a ledger id is a ticket" 0 0 || _t "a ledger id is a ticket" 1 0
   spawn_ticket_ok HAR-12 && _t "a Jira key is a ticket" 0 0 || _t "a Jira key is a ticket" 1 0
+  spawn_ticket_ok 6854 && _t "a ledger number is a ticket" 0 0 || _t "a ledger number is a ticket" 1 0
+  spawn_ticket_ok '#6854' && _t "a #ledger number is a ticket" 0 0 || _t "a #ledger number is a ticket" 1 0
+  spawn_ticket_ok 0 && _t "zero is no ticket" 0 1 || _t "zero is no ticket" 1 1
   spawn_ticket_ok Har-12 && _t "a mixed-case key is no ticket" 0 1 || _t "a mixed-case key is no ticket" 1 1
   spawn_ticket_ok 'x;rm' && _t "a shell metacharacter is no ticket" 0 1 || _t "a shell metacharacter is no ticket" 1 1
   spawn_model_ok 'opus;rm' && _t "a model with ; is refused" 0 1 || _t "a model with ; is refused" 1 1
@@ -690,7 +693,7 @@ while (( $# )); do
                 OWNER_OK=$2; shift
                 spawn_owner_ok_text_ok "$OWNER_OK" \
                   || { printf "agent-spawn: --owner-ok needs the owner's words on one line, and got %q\n" "$OWNER_OK" >&2; echo "$USAGE" >&2; exit 2; } ;;
-    --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=$2; shift ;;
+    --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=${2#\#}; shift ;;   # "#6854" is 6854
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
     --why)    [[ $# -ge 2 ]] || { echo "agent-spawn: --why needs the reason for the model" >&2; echo "$USAGE" >&2; exit 2; }
               WHY=$2; shift

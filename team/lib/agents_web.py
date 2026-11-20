@@ -1065,7 +1065,7 @@ def _read_tickets(ids):
 def ticket_facts(ids):
     """id -> {"issue", "title"} for the ids already read; the rest (and numberless ones gone stale) start a read."""
     now, want = time.time(), []
-    for tid in {i for i in ids if i and re.fullmatch(r"[a-z][a-z0-9_-]{1,200}", i)}:
+    for tid in {i for i in ids if i and re.fullmatch(r"[a-z][a-z0-9_-]{1,200}|[1-9][0-9]{0,8}", i)}:   # an old text id, or a ledger number
         got = _tickets.get(tid)
         if tid not in _tickets_busy and (got is None or (got["ref"] is None and now - got["at"] >= TICKET_RETRY)):
             want.append(tid)
@@ -6925,7 +6925,7 @@ function threadItems(items, name) {
     let th = "", ask = false, shownText = text, m;
     if (it.kind === "said") {
       if ((m = text.match(THREAD_TAG))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
-      else if (["dev", "tester"].includes(a?.role)) th = a.ticket || "";
+      else if (["dev", "tester"].includes(a?.role)) th = a.ticketNo ? "#" + a.ticketNo : a.ticket || "";   // its ticket's #N, so it joins the owner's [#N] thread
       else if (reply[ag] != null) th = reply[ag];   // an untagged answer stays in the thread it answers
       last[ag] = th; reply[ag] = null;
     } else if (["owner", "echo", "pending"].includes(it.kind)) {
