@@ -15,7 +15,9 @@ turn (a subagent's or fork's turns are passed through) it does one of two things
   file that is not a JSON object compacts nothing and is named once in the log. A hook's veto is reported,
   not retried. Once the compaction has happened, one prompt marked `[self-compact mod, not the owner]` is
   queued in the session: read your durable record first, then carry on with its next action, and if that
-  action is waiting on someone, say so and stop. A compaction is not a turn, so without that prompt the
+  action is waiting on someone, say so and stop. When a roster can be read (`ROSTER_FILE`, else
+  `agents/roster.json` in the session's working directory), the prompt also names the team's pronouns: every
+  active row that has `pronouns`, the rest left out, never guessed. A compaction is not a turn, so without that prompt the
   session would sit at an empty prompt and the standing rule to read the record first would never fire; a
   veto or a refused request compacted nothing and is followed by nothing. The agent may write the file at
   any time, not only when nudged: an early compaction after a milestone is the agent's call.
