@@ -328,6 +328,9 @@ test('the pronouns line names active rows that have pronouns, sorted, and leaves
   expect(pronounsLine('not json')).toBe('')
   expect(pronounsLine('{"agents":"x"}')).toBe('')
   expect(pronounsLine('{"agents":[{"name":"Bare","status":"active"}]}')).toBe('')
+  for (const bad of ['"she"', '7', '["she/her"]', '"She/Her"', '"she/her\\nX"', '""']) {
+    expect(pronounsLine(`{"agents":[{"name":"Zed","status":"active","pronouns":"he/him"},{"name":"Odd","status":"active","pronouns":${bad}}]}`)).toBe('Zed he/him')
+  }
   expect(compactedText('')).toBe(COMPACTED_TEXT)
   expect(compactedText('amy she/her')).toBe(`${COMPACTED_TEXT}\nYour teammates' pronouns, from the owner (the roster): amy she/her. Use them; never guess one from a name.`)
 })

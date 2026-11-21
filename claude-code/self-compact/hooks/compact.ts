@@ -190,6 +190,10 @@ export function rosterPathOf(env: { ROSTER_FILE?: string; PWD?: string }): strin
   return env.PWD ? `${env.PWD}/agents/roster.json` : undefined
 }
 
+// Only a value in the roster's set is named (strength's ROSTER_PRONOUNS): "she", 7, ["she/her"], "She/Her" or a value
+// carrying a newline is left out like a missing one, so nothing malformed reaches a prompt (#6923 review F1).
+export const PRONOUNS = ['she/her', 'he/him', 'they/them'] as const
+
 export function pronounsLine(rosterText: string): string {
   let roster: unknown
   try { roster = JSON.parse(rosterText) } catch { return '' }
@@ -197,7 +201,7 @@ export function pronounsLine(rosterText: string): string {
   if (!Array.isArray(agents)) return ''
   return agents
     .filter((a): a is { name: string; pronouns: string } =>
-      !!a && a.status === 'active' && typeof a.name === 'string' && typeof a.pronouns === 'string' && a.pronouns !== '')
+      !!a && a.status === 'active' && typeof a.name === 'string' && typeof a.pronouns === 'string' && (PRONOUNS as readonly string[]).includes(a.pronouns))
     .map(a => `${a.name} ${a.pronouns}`)
     .sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()))
     .join(', ')
