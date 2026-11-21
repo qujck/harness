@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { compactedText, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, pronounsLine, requestPath, rosterPathOf, statusText, type Window } from './compact.ts'
+import { compactedText, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, pronounsLine, requestPath, rosterPathsOf, statusText, type Window } from './compact.ts'
 
 // Store keys, per session: the token count at the last nudge (re-armed when the count drops under it),
 // the mtime of the last request file acted on (a file is acted on once; the agent may write it again),
@@ -59,9 +59,15 @@ async function windowOf($: EngineInterface): Promise<Window | undefined> {
 // The team's pronouns from the roster, or '' when there is none to read: a missing or unreadable roster
 // must never stop the prompt that carries the agent on.
 async function pronounsOf($: EngineInterface): Promise<string> {
-  const path = rosterPathOf({ ROSTER_FILE: await $.env.get('ROSTER_FILE'), PWD: await $.env.get('PWD') })
-  if (!path) return ''
-  try { return (await $.fs.exists(path)) ? pronounsLine(await $.fs.read(path)) : '' } catch { return '' }
+  const env = { ROSTER_FILE: await $.env.get('ROSTER_FILE'), PWD: await $.env.get('PWD') }
+  // A worktree's .git is a FILE naming the main checkout; in the main checkout it is a directory and the read fails.
+  let dotGit: string | undefined
+  if (!env.ROSTER_FILE && env.PWD) { try { dotGit = await $.fs.read(`${env.PWD}/.git`) } catch { dotGit = undefined } }
+  // The first roster that names anyone: the main checkout's, else this tree's.
+  for (const path of rosterPathsOf(env, dotGit)) {
+    try { if (await $.fs.exists(path)) { const line = pronounsLine(await $.fs.read(path)); if (line) return line } } catch { /* next */ }
+  }
+  return ''
 }
 
 // A request file newer than the last one handled is read, acted on, and remembered by its mtime.

@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { COMPACTED_TEXT, compactedText, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, pronounsLine, remainingFraction, requestPath, rosterPathOf, softPoint } from './compact.ts'
+import { COMPACTED_TEXT, compactedText, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, pronounsLine, remainingFraction, requestPath, mainCheckoutOf, rosterPathsOf, softPoint } from './compact.ts'
 
 const v = (value: unknown) => ({ value }) as never
 const SID = 'sid-1'
@@ -19,6 +19,8 @@ type World = {
   request?: { text: string; mtimeMs: number }
   /** A roster file the session can read: its path and text. */
   roster?: { path: string; text: string }
+  /** Other files the session can read, by path (a worktree's .git file, a second roster). */
+  files?: Record<string, string>
   store: Record<string, unknown>
 }
 
@@ -49,7 +51,7 @@ function stage(on: On, w: World, seen: Seen, opts: Stage = {}) {
     return v({ startedAt: 0, context: { tokens: w.tokens, window: w.window ?? 1_000_000, breakdown }, rateLimits: [] })
   })
   on('settings.read', () => v(w.settings ?? { autoCompactWindow: 250_000 }))
-  on('fs.exists', ($, e) => v((e.path === path && w.request !== undefined) || (e.path === CONFIG_PATH && w.config !== undefined) || (w.roster !== undefined && e.path === w.roster.path)))
+  on('fs.exists', ($, e) => v((e.path === path && w.request !== undefined) || (e.path === CONFIG_PATH && w.config !== undefined) || (w.roster !== undefined && e.path === w.roster.path) || (w.files?.[e.path] !== undefined)))
   on('fs.stat', ($, e) => {
     if (e.path !== path || !w.request) throw new Error(`ENOENT: ${e.path}`)
     return v({ kind: 'file', size: w.request.text.length, mtimeMs: w.request.mtimeMs, isLink: false })
@@ -57,6 +59,7 @@ function stage(on: On, w: World, seen: Seen, opts: Stage = {}) {
   on('fs.read', ($, e) => {
     if (e.path === CONFIG_PATH && w.config !== undefined) return v(w.config)
     if (w.roster && e.path === w.roster.path) return v(w.roster.text)
+    if (w.files?.[e.path] !== undefined) return v(w.files[e.path])
     if (e.path !== path || !w.request) throw new Error(`ENOENT: ${e.path}`)
     return v(w.request.text)
   })
@@ -335,10 +338,15 @@ test('the pronouns line names active rows that have pronouns, sorted, and leaves
   expect(compactedText('amy she/her')).toBe(`${COMPACTED_TEXT}\nYour teammates' pronouns, from the owner (the roster): amy she/her. Use them; never guess one from a name.`)
 })
 
-test('the roster is ROSTER_FILE, else agents/roster.json in the working directory, else none', () => {
-  expect(rosterPathOf({ ROSTER_FILE: '/r.json', PWD: '/w' })).toBe('/r.json')
-  expect(rosterPathOf({ PWD: '/w' })).toBe('/w/agents/roster.json')
-  expect(rosterPathOf({})).toBeUndefined()
+test('the roster is ROSTER_FILE, else the main checkout\'s, then the working directory\'s, else none', () => {
+  expect(rosterPathsOf({ ROSTER_FILE: '/r.json', PWD: '/w' }, 'gitdir: /main/.git/worktrees/w')).toEqual(['/r.json'])
+  expect(rosterPathsOf({ PWD: '/w' })).toEqual(['/w/agents/roster.json'])
+  expect(rosterPathsOf({ PWD: '/w' }, 'gitdir: /main/.git/worktrees/w\n')).toEqual(['/main/agents/roster.json', '/w/agents/roster.json'])
+  expect(rosterPathsOf({})).toEqual([])
+  expect(mainCheckoutOf('gitdir: /home/p/dev/strength/.git/worktrees/strength-boozer')).toBe('/home/p/dev/strength')
+  expect(mainCheckoutOf('gitdir: /m/.git/modules/sub')).toBeUndefined()   // a submodule is not a worktree
+  expect(mainCheckoutOf('gitdir: ../rel/.git/worktrees/x')).toBeUndefined() // relative: not guessed
+  expect(mainCheckoutOf(undefined)).toBeUndefined()
 })
 
 test('after a compaction the prompt names the team\'s pronouns from ROSTER_FILE', async ($, on) => {
@@ -351,6 +359,24 @@ test('after a compaction the prompt names the team\'s pronouns from ROSTER_FILE'
 test('…and from agents/roster.json in the working directory when ROSTER_FILE is unset', async ($, on) => {
   const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 }, roster: { path: '/tree/agents/roster.json', text: ROSTER } }
   stage(on, w, s, { vars: { HOME: '/home/me', PWD: '/tree' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([`${COMPACTED_TEXT}\n${LINE}`])
+})
+
+test('in a worktree, the MAIN checkout\'s roster names the pronouns, not the branch\'s older one (#6923 pt2)', async ($, on) => {
+  // The branch's roster is older: it names Zed only. Read first, it would win; the main checkout's names both.
+  const stale = JSON.stringify({ agents: [{ name: 'Zed', status: 'active', pronouns: 'he/him' }, { name: 'amy', status: 'active' }] })
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 },
+    files: { '/wt/.git': 'gitdir: /main/.git/worktrees/wt\n', '/wt/agents/roster.json': stale, '/main/agents/roster.json': ROSTER } }
+  stage(on, w, s, { vars: { HOME: '/home/me', PWD: '/wt' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([`${COMPACTED_TEXT}\n${LINE}`])
+})
+
+test('…and a worktree whose main roster names no one falls back to its own', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 },
+    files: { '/wt/.git': 'gitdir: /main/.git/worktrees/wt\n', '/wt/agents/roster.json': ROSTER, '/main/agents/roster.json': '{"agents":[]}' } }
+  stage(on, w, s, { vars: { HOME: '/home/me', PWD: '/wt' } })
   await turn($ as never)
   expect(s.sent).toEqual([`${COMPACTED_TEXT}\n${LINE}`])
 })
