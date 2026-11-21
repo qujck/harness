@@ -182,12 +182,26 @@ export const COMPACTED_TEXT = [
 
 // The team's pronouns after a compaction. A compaction drops whatever the session was told at its
 // start, and a long-running session would otherwise go back to guessing pronouns from a name. The
-// roster is ROSTER_FILE, else agents/roster.json in the session's working directory; every active
-// row that has `pronouns` is named, the rest left out, never guessed. No roster, or one that does
-// not parse, adds nothing. (strength #6923, owner 2026-11-21)
-export function rosterPathOf(env: { ROSTER_FILE?: string; PWD?: string }): string | undefined {
-  if (env.ROSTER_FILE) return env.ROSTER_FILE
-  return env.PWD ? `${env.PWD}/agents/roster.json` : undefined
+// roster is ROSTER_FILE; else the MAIN checkout's agents/roster.json, then the working directory's;
+// every active row that has `pronouns` is named, the rest left out, never guessed. No roster, or one
+// that does not parse, adds nothing. (strength #6923, owner 2026-11-21)
+//
+// ⚠ THE MAIN CHECKOUT FIRST (#6923 pt2). An agent works in a worktree on its own branch, and that
+// branch's roster.json is as old as the branch: one cut before the pronouns landed has none, so the
+// session came back from a compaction told nothing. A worktree's `.git` is a file naming
+// <main>/.git/worktrees/<name>; <main>/agents/roster.json is the roster main has.
+export function mainCheckoutOf(dotGit: string | undefined): string | undefined {
+  const m = /^gitdir:\s*(\/.+?)\s*$/m.exec(dotGit ?? '')
+  const w = m && /^(.+)\/\.git\/worktrees\/[^/]+\/?$/.exec(m[1])
+  return w ? w[1] : undefined
+}
+
+export function rosterPathsOf(env: { ROSTER_FILE?: string; PWD?: string }, dotGit?: string): string[] {
+  if (env.ROSTER_FILE) return [env.ROSTER_FILE]
+  if (!env.PWD) return []
+  const main = mainCheckoutOf(dotGit)
+  const paths = [main && `${main}/agents/roster.json`, `${env.PWD}/agents/roster.json`].filter((p): p is string => !!p)
+  return [...new Set(paths)]
 }
 
 // Only a value in the roster's set is named (strength's ROSTER_PRONOUNS): "she", 7, ["she/her"], "She/Her" or a value
