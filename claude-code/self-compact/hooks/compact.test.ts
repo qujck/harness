@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { COMPACTED_TEXT, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, remainingFraction, requestPath, softPoint } from './compact.ts'
+import { COMPACTED_TEXT, compactedText, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, pronounsLine, remainingFraction, requestPath, rosterPathOf, softPoint } from './compact.ts'
 
 const v = (value: unknown) => ({ value }) as never
 const SID = 'sid-1'
@@ -17,6 +17,8 @@ type World = {
   config?: string
   /** The request file, if present: its text and mtime. */
   request?: { text: string; mtimeMs: number }
+  /** A roster file the session can read: its path and text. */
+  roster?: { path: string; text: string }
   store: Record<string, unknown>
 }
 
@@ -47,13 +49,14 @@ function stage(on: On, w: World, seen: Seen, opts: Stage = {}) {
     return v({ startedAt: 0, context: { tokens: w.tokens, window: w.window ?? 1_000_000, breakdown }, rateLimits: [] })
   })
   on('settings.read', () => v(w.settings ?? { autoCompactWindow: 250_000 }))
-  on('fs.exists', ($, e) => v((e.path === path && w.request !== undefined) || (e.path === CONFIG_PATH && w.config !== undefined)))
+  on('fs.exists', ($, e) => v((e.path === path && w.request !== undefined) || (e.path === CONFIG_PATH && w.config !== undefined) || (w.roster !== undefined && e.path === w.roster.path)))
   on('fs.stat', ($, e) => {
     if (e.path !== path || !w.request) throw new Error(`ENOENT: ${e.path}`)
     return v({ kind: 'file', size: w.request.text.length, mtimeMs: w.request.mtimeMs, isLink: false })
   })
   on('fs.read', ($, e) => {
     if (e.path === CONFIG_PATH && w.config !== undefined) return v(w.config)
+    if (w.roster && e.path === w.roster.path) return v(w.roster.text)
     if (e.path !== path || !w.request) throw new Error(`ENOENT: ${e.path}`)
     return v(w.request.text)
   })
@@ -312,4 +315,53 @@ test('pure parts: window arithmetic, settings fallback, breakdown reading, confi
   expect(parseRequest('{"instructions":"x"}')).toEqual({ request: { instructions: 'x' } })
   expect(parseRequest('[]')).toEqual({ refuse: 'the request file is not a JSON object' })
   expect(parseRequest('{"instructions":3}')).toEqual({ refuse: '"instructions" is not a string' })
+})
+
+// ── the team's pronouns after a compaction (strength #6923) ─────────────────────────────────────
+const ROSTER = JSON.stringify({ agents: [
+  { name: 'Zed', status: 'active', pronouns: 'he/him' }, { name: 'amy', status: 'active', pronouns: 'she/her' },
+  { name: 'Bare', status: 'active' }, { name: 'Old', status: 'retired', pronouns: 'she/her' }] })
+const LINE = "Your teammates' pronouns, from the owner (the roster): amy she/her, Zed he/him. Use them; never guess one from a name."
+
+test('the pronouns line names active rows that have pronouns, sorted, and leaves the rest out', () => {
+  expect(pronounsLine(ROSTER)).toBe('amy she/her, Zed he/him')
+  expect(pronounsLine('not json')).toBe('')
+  expect(pronounsLine('{"agents":"x"}')).toBe('')
+  expect(pronounsLine('{"agents":[{"name":"Bare","status":"active"}]}')).toBe('')
+  expect(compactedText('')).toBe(COMPACTED_TEXT)
+  expect(compactedText('amy she/her')).toBe(`${COMPACTED_TEXT}\nYour teammates' pronouns, from the owner (the roster): amy she/her. Use them; never guess one from a name.`)
+})
+
+test('the roster is ROSTER_FILE, else agents/roster.json in the working directory, else none', () => {
+  expect(rosterPathOf({ ROSTER_FILE: '/r.json', PWD: '/w' })).toBe('/r.json')
+  expect(rosterPathOf({ PWD: '/w' })).toBe('/w/agents/roster.json')
+  expect(rosterPathOf({})).toBeUndefined()
+})
+
+test('after a compaction the prompt names the team\'s pronouns from ROSTER_FILE', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 }, roster: { path: '/r/roster.json', text: ROSTER } }
+  stage(on, w, s, { vars: { HOME: '/home/me', ROSTER_FILE: '/r/roster.json' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([`${COMPACTED_TEXT}\n${LINE}`])
+})
+
+test('…and from agents/roster.json in the working directory when ROSTER_FILE is unset', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 }, roster: { path: '/tree/agents/roster.json', text: ROSTER } }
+  stage(on, w, s, { vars: { HOME: '/home/me', PWD: '/tree' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([`${COMPACTED_TEXT}\n${LINE}`])
+})
+
+test('a roster that does not parse still sends the plain follow-up', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 }, roster: { path: '/r/roster.json', text: '{oops' } }
+  stage(on, w, s, { vars: { HOME: '/home/me', ROSTER_FILE: '/r/roster.json' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([COMPACTED_TEXT])
+})
+
+test('…and so does one that is not there', async ($, on) => {
+  const s = seen(); const w: World = { tokens: 100_000, store: {}, request: { text: '{}', mtimeMs: 7 } }
+  stage(on, w, s, { vars: { HOME: '/home/me', ROSTER_FILE: '/nowhere.json' } })
+  await turn($ as never)
+  expect(s.sent).toEqual([COMPACTED_TEXT])
 })

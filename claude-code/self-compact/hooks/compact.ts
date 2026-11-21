@@ -179,3 +179,32 @@ export const COMPACTED_TEXT = [
   'Read your durable record first (the ticket you hold, its row notes and your latest session entry), then carry on with its next action.',
   'If that action is waiting on someone, say what you are waiting for and stop.',
 ].join('\n')
+
+// The team's pronouns after a compaction. A compaction drops whatever the session was told at its
+// start, and a long-running session would otherwise go back to guessing pronouns from a name. The
+// roster is ROSTER_FILE, else agents/roster.json in the session's working directory; every active
+// row that has `pronouns` is named, the rest left out, never guessed. No roster, or one that does
+// not parse, adds nothing. (strength #6923, owner 2026-11-21)
+export function rosterPathOf(env: { ROSTER_FILE?: string; PWD?: string }): string | undefined {
+  if (env.ROSTER_FILE) return env.ROSTER_FILE
+  return env.PWD ? `${env.PWD}/agents/roster.json` : undefined
+}
+
+export function pronounsLine(rosterText: string): string {
+  let roster: unknown
+  try { roster = JSON.parse(rosterText) } catch { return '' }
+  const agents = (roster as { agents?: unknown })?.agents
+  if (!Array.isArray(agents)) return ''
+  return agents
+    .filter((a): a is { name: string; pronouns: string } =>
+      !!a && a.status === 'active' && typeof a.name === 'string' && typeof a.pronouns === 'string' && a.pronouns !== '')
+    .map(a => `${a.name} ${a.pronouns}`)
+    .sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()))
+    .join(', ')
+}
+
+export function compactedText(pronouns: string): string {
+  return pronouns
+    ? `${COMPACTED_TEXT}\nYour teammates' pronouns, from the owner (the roster): ${pronouns}. Use them; never guess one from a name.`
+    : COMPACTED_TEXT
+}

@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { COMPACTED_TEXT, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, requestPath, statusText, type Window } from './compact.ts'
+import { compactedText, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, pronounsLine, requestPath, rosterPathOf, statusText, type Window } from './compact.ts'
 
 // Store keys, per session: the token count at the last nudge (re-armed when the count drops under it),
 // the mtime of the last request file acted on (a file is acted on once; the agent may write it again),
@@ -56,6 +56,14 @@ async function windowOf($: EngineInterface): Promise<Window | undefined> {
   }
 }
 
+// The team's pronouns from the roster, or '' when there is none to read: a missing or unreadable roster
+// must never stop the prompt that carries the agent on.
+async function pronounsOf($: EngineInterface): Promise<string> {
+  const path = rosterPathOf({ ROSTER_FILE: await $.env.get('ROSTER_FILE'), PWD: await $.env.get('PWD') })
+  if (!path) return ''
+  try { return (await $.fs.exists(path)) ? pronounsLine(await $.fs.read(path)) : '' } catch { return '' }
+}
+
 // A request file newer than the last one handled is read, acted on, and remembered by its mtime.
 // The compact call runs between turns and rejects while a turn runs, so a request written mid-turn
 // is simply read at the next turn's end. A compaction that happened is followed by one prompt of
@@ -79,7 +87,7 @@ async function actOnRequest($: EngineInterface, path: string): Promise<boolean> 
     return true
   }
   $.ui.log('compacted at the agent\'s request')
-  await $.prompt.submit({ text: COMPACTED_TEXT })
+  await $.prompt.submit({ text: compactedText(await pronounsOf($)) })
   return true
 }
 
