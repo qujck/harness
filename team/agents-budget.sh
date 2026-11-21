@@ -185,6 +185,15 @@ budget_self_test() {
   [[ "$r" == "40 $(date -u -d 2026-10-21T11:00:30Z +%s)" ]] \
     && printf '  ok   %s\n' "the highest figure within a minute of the freshest row; an hour-old row and a bad file are ignored" \
     || { printf '  FAIL the week reading: got %q\n' "$r"; fails=$((fails+1)); }
+  # a session idle since before the week reset keeps rewriting its old figure: it is not a reading (owner, 2026-11-21)
+  rm -f "$T/ctx/"*.json
+  printf '{"ts":"2026-10-21T11:00:00Z","activity":"working","idle_s":null,"week":{"used_pct":1}}\n' > "$T/ctx/a.json"
+  printf '{"ts":"2026-10-21T11:00:01Z","activity":"idle","idle_s":7000,"week":{"used_pct":99}}\n' > "$T/ctx/b.json"
+  printf '{"ts":"2026-10-21T10:59:30Z","activity":"idle","idle_s":20,"week":{"used_pct":2}}\n' > "$T/ctx/c.json"
+  r=$(CONTEXT_DIR="$T/ctx" week_used)
+  [[ "$r" == "2 $(date -u -d 2026-10-21T11:00:01Z +%s)" ]] \
+    && printf '  ok   %s\n' "a row idle for two hours is not counted; one idle for seconds is" \
+    || { printf '  FAIL the idle-row reading: got %q\n' "$r"; fails=$((fails+1)); }
 
   if (( fails == 0 )); then echo "agents-budget --self-test: PASS"; return 0; fi
   echo "agents-budget --self-test: FAIL ($fails)"; return 1
