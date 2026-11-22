@@ -264,9 +264,12 @@ if [ -n "$sid" ] && command -v jq >/dev/null 2>&1; then
       out_total=$(( ${out_total:-0} + ${last_out%.*} ))
       printf '%s %s %s\n' "$used" "$last_out" "$out_total" > "$tok.tmp" && mv -f "$tok.tmp" "$tok"
     fi
+    # When this session last answered: the tokens file changes only on a new response. A session waking from idle
+    # goes working before its first response, still carrying its old week figure; the reader judges rows by this.
+    resp_at=$(stat -c %Y "$tok" 2>/dev/null)
     jq -c --arg agent "${me:-unnamed}" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cwd "$rawdir" --arg act "$act_state" --arg idle "${act_idle_s:-}" --arg cw "${cw:-}" --arg crem "${rem:-}" \
-       --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
-       '{agent:$agent, session_id:.session_id, ts:$ts, cwd:$cwd, worktree:(.workspace.git_worktree // null), activity:$act, idle_s:($idle|tonumber? // null),
+       --arg resp_at "${resp_at:-}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
+       '{agent:$agent, session_id:.session_id, ts:$ts, cwd:$cwd, worktree:(.workspace.git_worktree // null), activity:$act, idle_s:($idle|tonumber? // null), resp_at:($resp_at|tonumber? // null),
          model:(.model.display_name // .model.id // null), effort:((.effort | objects | .level) // null),
          context:{used_pct:(.context_window.used_percentage // null), remaining_pct:(.context_window.remaining_percentage // null),
                   size:(.context_window.context_window_size // null), input_tokens:(.context_window.total_input_tokens // null),

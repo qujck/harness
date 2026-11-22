@@ -194,6 +194,16 @@ budget_self_test() {
   [[ "$r" == "2 $(date -u -d 2026-10-21T11:00:01Z +%s)" ]] \
     && printf '  ok   %s\n' "a row idle for two hours is not counted; one idle for seconds is" \
     || { printf '  FAIL the idle-row reading: got %q\n' "$r"; fails=$((fails+1)); }
+  # a session waking from idle goes working before its first response: its figure is still the old one (2026-11-22)
+  rm -f "$T/ctx/"*.json
+  local t0; t0=$(date -u -d 2026-10-21T11:00:00Z +%s)
+  printf '{"ts":"2026-10-21T11:00:00Z","activity":"working","idle_s":null,"resp_at":%d,"week":{"used_pct":11}}\n' "$t0" > "$T/ctx/a.json"
+  printf '{"ts":"2026-10-21T11:00:02Z","activity":"working","idle_s":null,"resp_at":%d,"week":{"used_pct":99}}\n' $((t0 - 65000)) > "$T/ctx/b.json"
+  printf '{"ts":"2026-10-21T11:00:01Z","activity":"working","idle_s":null,"week":{"used_pct":10}}\n' > "$T/ctx/c.json"
+  r=$(CONTEXT_DIR="$T/ctx" week_used)
+  [[ "$r" == "11 $(date -u -d 2026-10-21T11:00:02Z +%s)" ]] \
+    && printf '  ok   %s\n' "a woken row whose last response is old is not counted; one without resp_at falls back to ts" \
+    || { printf '  FAIL the woken-row reading: got %q\n' "$r"; fails=$((fails+1)); }
 
   if (( fails == 0 )); then echo "agents-budget --self-test: PASS"; return 0; fi
   echo "agents-budget --self-test: FAIL ($fails)"; return 1
