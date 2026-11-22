@@ -4905,9 +4905,12 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
   .thbody > .feed{grid-row:1}
 }
 #detail .left.thon{padding-left:240px}
-#detail .left.thon.thfold{padding-left:96px}
-#detail .left.thon.thfold #dthreads{width:96px}
-@container thcard (min-width:720px){ .thbody.thfold{grid-template-columns:96px minmax(0,1fr)} }
+/* a folded list is wide enough for a row's three-character count ("10+"), its pin, its full key (#6935) and the cross
+   that shows on hover, with room for the owner's fonts (owner, 2026-11-22: 96px cut every key with a count to "#…") */
+:root{--thfoldw:152px}
+#detail .left.thon.thfold{padding-left:var(--thfoldw)}
+#detail .left.thon.thfold #dthreads{width:var(--thfoldw)}
+@container thcard (min-width:720px){ .thbody.thfold{grid-template-columns:var(--thfoldw) minmax(0,1fr)} }
 /* the list's fold button, and a folded list: each thread as its key (or name) badge with its new-message count */
 .thfoldbtn{display:grid;place-items:center;align-self:flex-end;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .thfoldbtn:hover{background:var(--on);color:var(--text)}
