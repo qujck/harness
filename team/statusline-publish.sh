@@ -37,6 +37,9 @@ if [ -n "$used" ] && [ -n "$last_out" ] && { [ "$used" != "$prev_used" ] || [ "$
   out_total=$(( ${out_total:-0} + ${last_out%.*} ))
   printf '%s %s %s\n' "$used" "$last_out" "$out_total" > "$tok.tmp" && mv -f "$tok.tmp" "$tok"
 fi
+# When this session last answered: the tokens file changes only on a new response. A session waking from idle
+# goes working before its first response, still carrying its old week figure; the reader judges rows by this.
+resp_at=$(stat -c %Y "$tok" 2>/dev/null)
 # The window the gauge is measured against. The payload's context_window_size is always the model's
 # full window, but /autocompact caps where compaction fires, saved per model in settings.json
 # (modelSettings.<model id>.autoCompactWindow, else autoCompactWindow). When that cap is positive and
@@ -49,7 +52,7 @@ window="${cw:-null}"
 if [ -n "$cap" ] && [ "$cap" -gt 0 ] 2>/dev/null && [ -n "$cw" ] && [ "$cap" -lt "$cw" ] 2>/dev/null; then window=$cap; fi
 jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%TZ)" --arg cwd "$(pwd)" \
    --arg wt "$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename)" \
-   --arg activity "$activity" --argjson idle_s "$idle_s" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
+   --arg activity "$activity" --argjson idle_s "$idle_s" --arg resp_at "${resp_at:-}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
    --argjson window "$window" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
@@ -60,6 +63,6 @@ jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%T
     tokens:  { output_total: (if $has_tokens == "1" then $total else null end) },
     week:    { used_pct: (.rate_limits.seven_day.used_percentage // null) },
     five_hour: { used_pct: (.rate_limits.five_hour.used_percentage // null) },
-    activity: $activity, idle_s: $idle_s }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv -f "$DIR/$sid.json.tmp" "$DIR/$sid.json"
+    activity: $activity, idle_s: $idle_s, resp_at: ($resp_at|tonumber? // null) }' <<<"$payload" > "$DIR/$sid.json.tmp" && mv -f "$DIR/$sid.json.tmp" "$DIR/$sid.json"
 # the status line itself: what the person sees
 printf '%s · ctx %s%% left · week %s%%\n' "${name:-unnamed}" "$(jq -r '.context_window.remaining_percentage // "?"' <<<"$payload")" "$(jq -r '.rate_limits.seven_day.used_percentage // "?"' <<<"$payload")"
