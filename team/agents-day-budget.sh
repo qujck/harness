@@ -33,8 +33,10 @@
 # stop). strength's dev-day.sh opens that day's 5% with `start 5` and records the kind in dev-day.json beside the day's
 # file. While that says verification, `status` is `day  on` and exit 0 past the share too, ending VERIFICATION_MARK, so a
 # reader that only knows on and over carries on, and the mod and the page read the mark. It is `day  on` and not a word of
-# its own because strength's agent-spawn.sh takes only `day  on:` and `day  over:` for an answer. No file, or one that
-# cannot be read, is a development day: this script's other projects have no such record.
+# its own because strength's agent-spawn.sh takes only `day  on:` and `day  over:` for an answer. No file is a
+# development day: this script's other projects have no such record. A file whose kind cannot be read (not JSON, no
+# kind, or a kind that is neither) is `day  cannot tell … ask the owner`, exit 2: it may be a verification day, and a
+# guess either way is wrong one day in two.
 #
 # THE HISTORY. Each new day and each `end` appends a line to the file beside the day's, <file>.log: the epoch, the verb,
 # the week reading then ("?" with none) and the quota. `history` reads it back as stretches: a day (start to end) and
@@ -112,10 +114,14 @@ day_selftest() {
   echo '{"kind":"development"}' > "$K"
   out=$(run 60 46); rc=$?; check "the same reading on a development day is over" "$rc" 1; has "  and says to pause" "$out" "write your durable record and pause"
   out=$(run 60 45); rc=$?; check "  within its share it carries no mark" "$out" "day  on: 5% of the day's 5% used (week 45%, from 40% at 08:00)"
-  for junk in 'not json {{{' '{"started_at":"x"}' '{"kind":"weekend"}'; do
-    printf '%s\n' "$junk" > "$K"; run 60 46 >/dev/null; check "an unreadable kind ($junk) is a development day" "$?" 1
+  for junk in 'not json {{{' '{"started_at":"x"}' '{"kind":"weekend"}' ''; do
+    printf '%s\n' "$junk" > "$K"; out=$(run 60 46); rc=$?
+    check "a kind record that cannot be read ($junk) is cannot tell, not a development day" "$rc" 2
+    has "  and says to ask" "$out" "cannot be read, so this may be a verification day: ask the owner"
   done
-  rm -f "$K"; run 60 46 >/dev/null; check "no record of the kind is a development day" "$?" 1
+  printf 'x\n' > "$K"; run 60 43 >/dev/null; check "  within its share too (it never guesses the kind)" "$?" 2
+  rm -f "$K"; run 60 46 >/dev/null; check "no record of the kind is a development day (as before): over" "$?" 1
+  run 60 43 >/dev/null; check "  and within its share, on" "$?" 0
   echo '{"kind":"verification"}' > "$K"; run 70 46 end >/dev/null
   out=$(run 80 46); rc=$?; check "a verification day with no share open is no day" "$rc" 3
   T="$T1"; rm -rf "$T4"
@@ -169,7 +175,15 @@ open_day() {
 }
 
 VERIFICATION_MARK=": verification day, nothing stops at it"
-is_verification_day() { [ "$(jq -r '.kind // empty' "$(dirname "$FILE")/dev-day.json" 2>/dev/null)" = verification ]; }
+KIND_FILE() { printf '%s/dev-day.json' "$(dirname "$FILE")"; }
+# The kind of day: development when there is no record (this script's other projects keep none), the record's kind
+# when it says development or verification, and unknown when a record is there but says neither: that is not read as
+# a development day, because it may be a verification day, and the status says it cannot tell (ask).
+day_kind() {
+  local k; [ -e "$(KIND_FILE)" ] || { echo development; return; }
+  k=$(jq -r '.kind // empty' "$(KIND_FILE)" 2>/dev/null)
+  case "$k" in development|verification) echo "$k" ;; *) echo unknown ;; esac
+}
 
 # When the day began: the time, with the weekday once it is not today.
 # Append "<epoch> <verb> <reading or ?> <quota>" to the history; the first line, with a day open, is that day's start.
@@ -232,7 +246,12 @@ case "${1:-status}" in
       echo "day  none: the week has reset since the day started at $(began "$at") (week ${now_used}%)"; exit 3
     fi
     spent=$((now_used > start ? now_used - start : 0))
-    if is_verification_day; then
+    kind=$(day_kind)
+    if [ "$kind" = unknown ]; then
+      printf 'day  cannot tell: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s), but the kind of day in %s cannot be read, so this may be a verification day: ask the owner\n' \
+        "$spent" "$quota" "$now_used" "$start" "$(began "$at")" "$(KIND_FILE)"; exit 2
+    fi
+    if [ "$kind" = verification ]; then
       printf 'day  on: %s%% of the day'"'"'s %s%% used (week %s%%, from %s%% at %s)%s\n' \
         "$spent" "$quota" "$now_used" "$start" "$(began "$at")" "$VERIFICATION_MARK"; exit 0
     fi
