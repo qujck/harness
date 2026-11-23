@@ -985,6 +985,8 @@ def workqueue_json():
             stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
             for name in ("now", "next", "later", "parked", "done"):
                 items = q.get(name) if isinstance(q.get(name), list) else []
+                if name == "done":   # the newest hundred, so what was finished lately keeps its fix line
+                    items = sorted((i for i in items if isinstance(i, dict)), key=lambda i: stamp(i.get("done")))[-100:]
                 lists[name] = [{"key": k, "title": text(i.get("title")), "note": text(i.get("note")), "fix": text(i.get("fix")),
                                 "who": roster_name.get(letters(text(i.get("who"), 60)), text(i.get("who"), 60)),
                                 "url": u if re.match(r"https?://", u) else "", "done": stamp(i.get("done"))}
@@ -13924,6 +13926,14 @@ def self_test():
             d = json.loads(code("/api/workqueue")[1])
             t("  Done is served with when each got there", ([i["key"] for i in d["done"]], d["done"][0]["done"] > 0, d["now"][0]["done"]), (["AB-10"], True, 0))
             wq("drop", "AB-10")
+            with open(wqf) as f:
+                keep = f.read()
+            with open(wqf, "w") as f:
+                json.dump({"done": [{"key": f"AB-{n}", "title": "t", "fix": f"f{n}", "done": 1_000_000 + n} for n in range(120)]}, f)
+            d = json.loads(code("/api/workqueue")[1])["done"]
+            t("  Done serves the newest hundred, each with its fix line", (len(d), d[0]["key"], d[-1]["key"], d[-1]["fix"]), (100, "AB-20", "AB-119", "f119"))
+            with open(wqf, "w") as f:
+                f.write(keep)
             wq("add", long_id, "Long")
             t("  a 194-character ledger id is served whole", [i["key"] for i in json.loads(code("/api/workqueue")[1])["next"]].count(long_id), 1)
             wq("drop", long_id)
