@@ -5572,6 +5572,8 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it .tx > .heads{float:left;height:1lh;margin-right:7px;white-space:nowrap}   /* one line's height, so the next line runs beneath */
 .it .tx > .heads .who{display:inline-block;vertical-align:top;line-height:1.1;margin-top:.5px}   /* inside the line it opens, so a one-line message never cuts it off */
 .it .tx > .heads .who + .who{margin-left:4px}
+/* a code block starts beneath the names, never squeezed in beside them */
+.it .tx pre.code{clear:left}
 .it.owner .who{background:var(--ownerbg);color:var(--ownerfg)}
 .it.l-auto,.it.l-team{border-left:2px solid var(--lanec);padding-left:7px}
 .it.l-owner{padding-left:9px}
@@ -5652,6 +5654,8 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.tools .call + .call{margin-top:2px}
 .it .ago{flex:none;margin-left:auto;color:var(--faint);font:calc(var(--t-s)*var(--fs,1)) var(--mono);padding-left:4px;min-width:calc(3ch + 4px);text-align:right}   /* 9s to 10s does not move the line */
 code{font:calc(var(--t-m)*var(--fs,1)) var(--mono);background:var(--codebg);padding:0 4px;border-radius:var(--r-s);color:var(--text)}
+/* code that opens a line: its text on the margin, its shading in the gutter */
+code.lead{margin-left:-4px}
 code.flat{padding:0;background:none;color:var(--mute)}
 .it.pics{flex-wrap:wrap}
 .it .thumbs{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 2px 2px}
@@ -5986,6 +5990,9 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .retag.fixed{cursor:default}
 #dremenu{position:absolute;bottom:100%;left:16px;z-index:6;display:flex;flex-direction:column;max-width:min(520px,90vw);max-height:280px;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
 #shmenu .remi,#thsortmenu .remi,#dremenu .remi{padding:6px 10px;border-radius:6px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+#thsortmenu .remsep{display:block;height:1px;margin:4px 6px;background:var(--line2)}
+#thsortmenu .remchk{display:flex;align-items:center;gap:8px}
+#thsortmenu .remchk .chk{margin-left:auto;padding-left:12px;flex:none;font-weight:650;line-height:1}
 :is(#dremenu,#thsortmenu,#shmenu) .remi:hover{background:var(--on)}
 :is(#dremenu,#thsortmenu) .remi.on{font-weight:650}
 #dremenu .remi.ask{color:var(--amber)}
@@ -7306,6 +7313,22 @@ document.addEventListener("focusout", e => {
   const i = e.target.closest?.(".it.ask .askin");
   if (i) setTimeout(() => { if (i.isConnected && document.activeElement !== i) askFocus = null; });
 });
+// Marks each piece of inline code that opens a line, wrapped there or after a line break, so its text lines up with the
+// line above (code.lead). Run once a frame after the page changes or a box changes width.
+let leadsDue = false;
+const codeLeads = () => { if (leadsDue) return; leadsDue = true; requestAnimationFrame(() => { leadsDue = false;
+  for (const c of document.querySelectorAll(".tx code")) {
+    const r = c.getClientRects()[0]; if (!r) continue;
+    let b = c.parentElement; while (b && getComputedStyle(b).display.startsWith("inline")) b = b.parentElement;
+    if (!b) continue;
+    const bs = getComputedStyle(b), edge = b.getBoundingClientRect().left + parseFloat(bs.borderLeftWidth) + parseFloat(bs.paddingLeft);
+    const lead = Math.abs(r.left + (c.classList.contains("lead") ? 4 : 0) - edge) < 1.5;
+    if (lead !== c.classList.contains("lead")) c.classList.toggle("lead", lead);
+  } }); };
+const leadsRO = new ResizeObserver(codeLeads);
+addEventListener("resize", codeLeads);
+new MutationObserver(() => { codeLeads(); document.querySelectorAll(".feed").forEach(f => leadsRO.observe(f)); })
+  .observe(document.body, {childList: true, subtree: true});
 new MutationObserver(() => {
   if (!askFocus || document.activeElement?.matches?.(".askin")) return;
   const i = [...document.querySelectorAll(".it.ask .askin")].find(x => askKey(x.dataset.name, x.dataset.n) === askFocus.key && x.offsetParent);
@@ -9948,7 +9971,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort(), newMarksKey(a.name)].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort(), thNoClosed(), newMarksKey(a.name)].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -11257,6 +11280,15 @@ document.addEventListener("click", e => {
   thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false;
 }, true);
 // the list's first row: every thread's lines together, each labelled with its thread
+  // Remove closed ticked: a closed ticket's thread is removed as its × would, its lines seen, until something new arrives
+  if (thNoClosed() && d) {
+    let gone = false;
+    for (const t of by.values()) if (t.name && isKey(t.name) && !t.ask && closed(t.name) && !((thHidden[name] || {})[t.name] >= (t.at || ""))) {
+      (thHidden[name] ||= {})[t.name] = t.at || ""; gone = true;
+      if (seen[name] && (t.at || "") > (seenTh[name]?.[t.name] || "")) (seenTh[name] ||= {})[t.name] = t.at;
+    }
+    if (gone) { localStorage.setItem("thhide", JSON.stringify(thHidden)); localStorage.setItem("seenth", JSON.stringify(seenTh)); }
+  }
 var EVERY = "*";
 // a row's new-message count: its thread's, or for Everything every thread's
 const thUn = (un, name) => name !== EVERY ? un[name] : Object.values(un).reduce((s, u) => s && {n: s.n + u.n, ask: s.ask || u.ask} || {...u}, null);
@@ -11273,6 +11305,7 @@ const thNotice = s => /^\s*(You['’]ve hit your|You have hit your|API Error|Cla
 // threads removed from an agent's list (agent -> thread -> its newest line then): each comes back when a newer line
 // arrives in it; General stays
 var thHidden = JSON.parse(localStorage.getItem("thhide") || "{}");
+const thNoClosed = () => localStorage.getItem("thnoclosed") === "1";   // the order menu's Remove closed
 // a ticket's thread pins as it does in Work: the same pins, at the top of both
 const thPinBtn = t => { if (!t.key) return ""; const on = wkPinned().includes(t.key);
   return `<b class="wkpin${on ? " on" : ""}" data-thpin="${esc(t.key)}" title="${on ? "Unpin" : "Pin to the top of Work and the threads"}">${MENU_ICON.pin}</b>`; };
@@ -11288,13 +11321,17 @@ var thSortCmp = (a, b) => ({"time-asc": a.last - b.last, "name-asc": thByTicket(
 var thSortBtn = (label = true) => { const [, long, short] = TH_SORTS.find(([k]) => k === thSort());
   return `<b class="thsortbtn" data-thsort title="Order of the threads after the waiting ones: ${long}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2v8M1.5 8l2 2 2-2M8.5 10V2M6.5 4l2-2 2 2"/></svg>${label ? `<span>${short}</span>` : ""}</b>`; };
 document.addEventListener("click", e => {
+  const nc = e.target.closest?.("[data-thnoclosed]");
+  if (nc) { e.stopImmediatePropagation(); e.preventDefault(); localStorage.setItem("thnoclosed", thNoClosed() ? "0" : "1"); $("#thsortmenu")?.remove(); thFlip = true; draw(); if (open) renderConv(); wkRedraw(); thFlip = false; return; }
   const b = e.target.closest?.("[data-thsort]"), v = e.target.closest?.("[data-thsortv]"), m = $("#thsortmenu");
   if (!b && !v) { m?.remove(); return; }
   e.stopImmediatePropagation(); e.preventDefault();
   if (v) { localStorage.setItem("thsort", v.dataset.thsortv); m?.remove(); thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; return; }
   if (m) { m.remove(); return; }
   const r = b.getBoundingClientRect(), menu = document.createElement("div"); menu.id = "thsortmenu";
-  menu.innerHTML = TH_SORTS.map(([k, l]) => `<b class="remi${k === thSort() ? " on" : ""}" data-thsortv="${k}">${l}</b>`).join("");
+  menu.innerHTML = TH_SORTS.map(([k, l]) => `<b class="remi${k === thSort() ? " on" : ""}" data-thsortv="${k}">${l}</b>`).join("") +
+    `<i class="remsep"></i><b class="remi remchk${thNoClosed() ? " ticked" : ""}" data-thnoclosed title="Remove each thread whose ticket is closed, as its × would: it comes back if something new arrives in it">` +
+    `Remove closed<span class="chk">${thNoClosed() ? "✓" : ""}</span></b>`;
   menu.style.cssText = `top:${r.bottom + 4}px;left:${Math.max(8, Math.min(r.left, innerWidth - 168))}px`;
   document.body.append(menu);
 }, true);
