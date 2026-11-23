@@ -4947,7 +4947,14 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 #detail .left.thon.thfold #dthreads{width:var(--thfoldw)}
 @container thcard (min-width:720px){ .thbody.thfold{grid-template-columns:var(--thfoldw) minmax(0,1fr)} }
 /* the list's fold button, and a folded list: each thread as its key (or name) badge with its new-message count */
-.thfoldbtn{display:grid;place-items:center;align-self:flex-end;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
+.thtools{display:flex;justify-content:flex-end;align-items:center;gap:2px;flex:none}
+.thsortbtn{display:flex;align-items:center;gap:4px;height:20px;padding:0 5px;flex:none;border-radius:var(--r-s);color:var(--mute);font:400 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer}
+.thsortbtn:hover{background:var(--on);color:var(--text)}
+.phthh{display:flex;align-items:center}
+.phthh .thsortbtn{margin-left:auto;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:14px;font:650 12px var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
+#thsortmenu{position:fixed;z-index:60;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
+.phthrow.plain{min-height:48px;align-items:center}
+.thfoldbtn{display:grid;place-items:center;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .thfoldbtn:hover{background:var(--on);color:var(--text)}
 .thitem.thmini{flex-direction:row;align-items:center;gap:4px;padding:4px 2px}
 .thitem.thmini .thl{margin:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;background:var(--track);color:var(--mute);font-family:var(--mono)}
@@ -4966,14 +4973,14 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thitem:hover > .thx{visibility:visible}
 .thitem:not(.thmini) > .thx{position:absolute;top:2px;right:2px}
 .thitem > .thkey{font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);padding-right:16px}
-.thitem > .thkey + b{font-weight:400}
+.thitem > .thtop + .thkey{display:flex;align-items:center;gap:6px;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}   /* a ticket's key under its title */
 .thl.thclosed{display:inline-block;margin:0;padding:0 7px;border-radius:10px;font:650 .72em/1.6 var(--sans);background:var(--track);color:var(--mute);align-self:center}
 .thitem > .thtop{display:flex;align-items:baseline;gap:6px;align-self:stretch}
 .thitem > .thtop > .unseen{align-self:center;margin:0}
 .thitem:not(.thmini) > .wkpin{position:absolute;top:22px;right:1px;margin:0}   /* under the cross */
 .thitem:not(.thmini) > .wkpin:hover{background:none}
 .thitem:has(> .wkpin) > :is(b, .thsum){padding-right:16px}   /* lines clear of the pin */
-.thtop > .thago{margin-left:auto;flex:none;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);font-style:normal;color:var(--mute)}   /* the key is the bold thing, its title under it */
+.thtop > .thago{margin-left:auto;flex:none;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);font-style:normal;color:var(--mute)}   /* the title is the bold thing, a ticket's key under it */
 .thitem > .thkey > .unseen,.thitem > b > .unseen{position:static;display:inline-block;margin-right:6px;vertical-align:1px}   /* the count first, as elsewhere */
 .thitem.thmini > .thx{margin-left:auto}
 #detail .left.thon #dthreads{position:absolute;left:0;top:0;bottom:0;width:240px;display:flex;flex-direction:column;gap:2px;padding:10px 8px;overflow:auto;border-right:1px solid var(--line)}
@@ -5569,6 +5576,44 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
 #detail .box.noterm .termwrap{display:none}
 #detail .box.noterm .conv{padding-right:16px}
+.newline{display:flex;align-items:center;gap:8px;color:var(--amber);font:650 11px var(--sans);letter-spacing:.07em;text-transform:uppercase}
+.newline::before,.newline::after{content:"";flex:1;border-top:1px solid currentColor;opacity:.6}
+html.phone #detail.phthread .box .rail{display:none !important}   /* a thread full screen */
+#detail.phlist #dbottom{display:none !important}   /* the inbox has no newest turn to go back to */
+.phthh{margin:14px 2px 6px;font:700 11px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--mute)}
+.phthh.ask{color:var(--amber)}
+.phthrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;flex:none;min-height:56px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card1);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.phthrow.ask{border-color:color-mix(in srgb,var(--amber) 60%,transparent)}
+.phthrow .l1{grid-column:1;display:flex;align-items:baseline;gap:8px;min-width:0}
+.phthrow .l1 b{flex:1;min-width:0;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phthrow .l1 i{flex:none;font:400 12px var(--mono);font-style:normal;color:var(--mute)}
+.phthrow .l2{grid-column:1;font:12px var(--mono);color:var(--mute)}
+.phthrow .l3{grid-column:1;font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phthrow .r{grid-column:2;grid-row:1/4;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:6px}
+.phthrow .r .unseen{position:static;margin:0}
+.phthrow .r .thl{margin:0;padding:1px 8px;border-radius:10px;font-size:.8em;font-weight:650}
+.phthrow .r .thl.ask{background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber)}
+.phth .phthname{display:flex;flex-direction:column;gap:2px;min-width:0}
+.phth .phthname b{font-size:calc(var(--t-l)*var(--fs,1));font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phth .phthname span{color:var(--mute);font:12px var(--mono)}
+.thclr{float:right;margin:0 0 4px 10px;padding:2px 10px;border:1px solid currentColor;border-radius:12px;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer;opacity:.85}
+.thclr:hover{opacity:1;background:color-mix(in srgb,var(--amber) 18%,transparent)}
+.phqa{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.phqa button{min-height:36px;min-width:64px;padding:0 16px;border:1.5px solid var(--amber);border-radius:18px;background:transparent;color:var(--text);font:650 14px var(--sans);cursor:pointer}
+.ph-asks{padding:1px 8px;border-radius:10px;background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber);font:650 11px var(--sans);white-space:nowrap}
+#dre{position:relative;display:flex;gap:6px;padding:0 16px 4px}
+#dre[hidden]{display:none}
+.retag{font:650 calc(var(--t-s)*var(--fs,1)) var(--mono);padding:2px 10px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);cursor:pointer}
+.retag.ask{border-color:var(--amber);color:var(--amber)}
+.retag.fixed{cursor:default}
+#dremenu{position:absolute;bottom:100%;left:16px;z-index:6;display:flex;flex-direction:column;max-width:min(520px,90vw);max-height:280px;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
+#thsortmenu .remi,#dremenu .remi{padding:6px 10px;border-radius:6px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+:is(#dremenu,#thsortmenu) .remi:hover{background:var(--on)}
+:is(#dremenu,#thsortmenu) .remi.on{font-weight:650}
+#dremenu .remi.ask{color:var(--amber)}
+#detail .box.termdock .left .conv{padding-right:16px}   /* the terminal docked under a conversation too narrow to have it beside */
+#detail .box.termdock .left .sayrow{margin-right:0}
+#detail .box.termdock .left .termwrap:not(.big){position:static;align-self:flex-end;margin:0 16px 10px}
 /* the header keeps its name, role and switches whole; the facts take the room left and drop whole, from the end,
    when there is not room for them all */
 #detail .head > *{flex:none;white-space:nowrap}
@@ -6410,7 +6455,7 @@ html.phoneoff #phoneback{display:block}
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbcount"></span><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span><b class="lbnav" id="lbprev" title="Previous image (←)">‹</b><b class="lbnav" id="lbnext" title="Next image (→)">›</b></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="retagrow" id="dre" hidden></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -6984,7 +7029,7 @@ function threadItems(items, name) {
 // a line's thread as a small label in an agent's conversation shown whole, and how many times an ask was asked
 const threadLabel = it => (it._thread ? `<span class="thl" data-thread="${esc(it._thread)}" title="Open the thread ${esc(it._thread)}">${esc(it._thread)}</span>` : "") +
   (it._asked?.length > 1 ? `<span class="thl ask" title="Asked at ${esc(it._asked.map(t => String(t).slice(11, 16)).join(", "))}">asked ${it._asked.length}×</span>` : "");
-function feedHtml(items, name, compact, on = laneOf(name), only = null) {
+function feedHtml(items, name, compact, on = laneOf(name), only = null, newAfter = null) {
   if (name) items = items.concat(echoItems(items, name));
   items = threadItems(items, name);
   if (only != null) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
@@ -6998,6 +7043,7 @@ function feedHtml(items, name, compact, on = laneOf(name), only = null) {
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
+    if (newAfter && SEEN_KINDS.includes(shown[i].kind) && (shown[i].ts || "") > newAfter) { out.push(`<div class="newline"><span>New</span></div>`); newAfter = null; }
     if (j === i) { out.push(one(shown[i])); continue; }
     const run = shown.slice(i, j + 1), key = run[0].ts + run[0].who, n = {};
     run.forEach(it => n[it.who] = (n[it.who] || 0) + 1);
@@ -9288,7 +9334,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {})].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort()].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -10297,7 +10343,8 @@ function markSeen(names) {
   for (const a of S.agents) {
     if (!names.includes(a.name)) continue;
     const newest = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, "");
-    const threads = thMode(a.name) === "threads" && (a.name === open ? thOn() : !!document.querySelector(`.card.full.thon[data-name="${CSS.escape(a.name)}"]`));
+    if (a.name === open && seen[a.name] && phThOn(open) && !phThOpen(open)) continue;   // the phone's inbox: nothing in it read yet
+    const threads = thMode(a.name) === "threads" && (a.name === open ? thOn() || phThOpen(open) : !!document.querySelector(`.card.full.thon[data-name="${CSS.escape(a.name)}"]`));
     if (threads && seen[a.name] && thSel[a.name]?.name !== EVERY) {
       const th = thSel[a.name]?.name ?? "", m = threadItems(paneConv[a.name] || a.feed, a.name).filter(it => (it._thread || "") === th)
         .reduce((m, it) => { const t = (it._asked || [it.ts]).at(-1) || ""; return t > m ? t : m; }, "");
@@ -10454,7 +10501,7 @@ async function openDetail(name) {
   $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${thSeg(name)}${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
-  $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); };
+  $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); renderConv(); };
   $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); fitTerm(); };
   showTerm(); showRail();
   facts();
@@ -10516,32 +10563,60 @@ function threadsOf(items, name) {
     const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
     if (it._ask) ask[th] = it;
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
-    if (it.kind === "said") t.latest = it.text;
+    if (it.kind === "said" && !thNotice(it.text)) t.latest = it.text;
   }
   // an ask to answer another agent's prompt ("... in Jason's pane") is open only while that agent still waits on the owner
-  const paneAsk = it => { const m = String(it.text).match(/\b([A-Z][a-z]+)'s pane\b/), ag = m && S.agents.find(a => a.name === m[1]);
+  const paneAsk = it => { const m = String(it.text).match(/\b([A-Z][a-z]+)'s (?:pane|window)\b/), ag = m && S.agents.find(a => a.name === m[1]);
     return ag && !["waiting", "wanted"].includes(stOf(ag)); };
-  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it)) by.get(th).ask = it;
+  // and one the owner marked dealt with is closed, until the agent asks again
+  const cleared = thCleared[name] || {};
+  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) by.get(th).ask = it;
   get("");
-  const d = workQueue ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
+  const d = workQueue || ppData() ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
     title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || "";
+  // where a ticket is: its stage in flight, else its place in the queue
+  const stage = k => { const t = d?.tickets.find(x => (x.id || x.ref) === k); if (t) return (d.p.stages || []).find(s => s.key === t.stage)?.name?.toLowerCase() || t.stage || "";
+    return d?.queue.find(i => qk(i, k) && i.list !== "done")?.list || ""; };
   const isKey = th => /^([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)$/.test(th);   // a Jira key, or a ledger number "#6854"
   // a ticket is closed once it is merged or Work lists it as done, with no pull request of it still open and not
   // listed as work to do
   const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => qk(i, k) && i.list === "done")) &&
     !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => qk(i, k) && i.list !== "done");
   const hid = thHidden[name] || {}, pins = new Set(wkPinned());
-  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
-    // General first, then pinned in Work, then waiting on the owner, then the most recent
-    .sort((a, b) => !b.name - !a.name || pins.has(b.name) - pins.has(a.name) || !!b.ask - !!a.ask || b.last - a.last)
-    .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "Everything", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
+  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), stage: isKey(t.name) ? stage(t.name) : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
+    // All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
+    .sort((a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
+      pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b))
+    .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "All", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
 }
+// asks the owner marked dealt with (agent -> thread -> the time it was last asked then)
+var thCleared = JSON.parse(localStorage.getItem("thclear") || "{}");
+const thClrBtn = t => `<b class="thclr" data-thclr="${esc(t.name)}" title="Dealt with: close this ask until it is asked again">Dealt with</b>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-thclr]"); if (!b) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  const card = e.target.closest(".card.full[data-name]"), agent = card ? card.dataset.name : open, th = b.dataset.thclr;
+  if (!agent) return;
+  const t = threadsOf(card ? paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [] : convFeed, agent).find(x => x.name === th);
+  if (!t?.ask) return;
+  (thCleared[agent] ||= {})[th] = t.ask._asked.at(-1) || "";
+  localStorage.setItem("thclear", JSON.stringify(thCleared));
+  thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false;
+}, true);
 // the list's first row: every thread's lines together, each labelled with its thread
 var EVERY = "*";
 // a row's new-message count: its thread's, or for Everything every thread's
 const thUn = (un, name) => name !== EVERY ? un[name] : Object.values(un).reduce((s, u) => s && {n: s.n + u.n, ask: s.ask || u.ask} || {...u}, null);
 const thAgo = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return !ms ? "" : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
-const thHHMM = ts => String(ts || "").slice(11, 16);
+// a time in a thread: "20:07" today, "yesterday 20:07", else "21 Nov 20:07"
+function thWhen(ts) {
+  const d = new Date(typeof ts === "number" ? ts : Date.parse(ts)); if (isNaN(d)) return "";
+  const hm = d.toTimeString().slice(0, 5), day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(new Date()) - day(d)) / 864e5);
+  return days <= 0 ? hm : days === 1 ? `yesterday ${hm}` : `${d.getDate()} ${d.toLocaleString("en-GB", {month: "short"})} ${hm}`;
+}
+// a line that is Claude Code's notice, not the agent's words ("You've hit your weekly limit"): never a thread's preview
+const thNotice = s => /^\s*(You['’]ve hit your|You have hit your|API Error|Claude AI usage limit|Interrupted by user|No response requested|\[self-compact)/i.test(String(s || ""));
 // threads removed from an agent's list (agent -> thread -> its newest line then): each comes back when a newer line
 // arrives in it; General stays
 var thHidden = JSON.parse(localStorage.getItem("thhide") || "{}");
@@ -10551,6 +10626,25 @@ const thPinBtn = t => { if (!t.key) return ""; const on = wkPinned().includes(t.
 const thX = t => t.name && t.name !== EVERY ? `<b class="thx" data-thx="${esc(t.name)}" title="Remove it until something new arrives in it">×</b>` : "";
 // the thread list folded to badges, one choice for every list in this browser
 function thFolded() { return localStorage.getItem("thfold") === "1"; }
+// the order of the threads after the waiting ones (owner, 2026-11-23), one choice for every list in this browser
+var TH_SORTS = [["time-desc", "Newest first", "Newest"], ["time-asc", "Oldest first", "Oldest"], ["name-asc", "Ticket A–Z", "Ticket A–Z"], ["name-desc", "Ticket Z–A", "Ticket Z–A"]];
+var thSort = () => { const v = localStorage.getItem("thsort"); return TH_SORTS.some(([k]) => k === v) ? v : "time-desc"; };
+// by ticket key (LFE-1493 before LFE-1512), the threads with no ticket after them by name
+var thByTicket = (a, b, dir) => !a.key - !b.key || dir * (a.key || a.title).localeCompare(b.key || b.title, undefined, {sensitivity: "base", numeric: true});
+var thSortCmp = (a, b) => ({"time-asc": a.last - b.last, "name-asc": thByTicket(a, b, 1), "name-desc": thByTicket(a, b, -1)})[thSort()] ?? b.last - a.last;
+var thSortBtn = (label = true) => { const [, long, short] = TH_SORTS.find(([k]) => k === thSort());
+  return `<b class="thsortbtn" data-thsort title="Order of the threads after the waiting ones: ${long}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2v8M1.5 8l2 2 2-2M8.5 10V2M6.5 4l2-2 2 2"/></svg>${label ? `<span>${short}</span>` : ""}</b>`; };
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-thsort]"), v = e.target.closest?.("[data-thsortv]"), m = $("#thsortmenu");
+  if (!b && !v) { m?.remove(); return; }
+  e.stopImmediatePropagation(); e.preventDefault();
+  if (v) { localStorage.setItem("thsort", v.dataset.thsortv); m?.remove(); thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; return; }
+  if (m) { m.remove(); return; }
+  const r = b.getBoundingClientRect(), menu = document.createElement("div"); menu.id = "thsortmenu";
+  menu.innerHTML = TH_SORTS.map(([k, l]) => `<b class="remi${k === thSort() ? " on" : ""}" data-thsortv="${k}">${l}</b>`).join("");
+  menu.style.cssText = `top:${r.bottom + 4}px;left:${Math.max(8, Math.min(r.left, innerWidth - 168))}px`;
+  document.body.append(menu);
+}, true);
 const thFoldBtn = () => `<b class="thfoldbtn" data-thfold title="${thFolded() ? "Show the threads in full" : "Fold the threads to their badges"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${thFolded() ? "M4.5 2.5 8 6l-3.5 3.5" : "M7.5 2.5 4 6l3.5 3.5"}"/></svg></b>`;
 const THMORE = `<b class="unseen thmore up" data-thmore="up"></b><b class="unseen thmore down" data-thmore="down"></b>`;
 // the edge counts of a thread list: its unread threads above and below what shows
@@ -10573,21 +10667,22 @@ document.addEventListener("click", e => {
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
-function thListHtml(list, sel, un = {}) {
-  if (thFolded()) return THMORE + thFoldBtn() + list.map(t => {
+function thListHtml(list, sel, un = {}, squeezed = false) {
+  if (thFolded() || squeezed) return THMORE + `<div class="thtools">${thSortBtn(false)}${squeezed ? "" : thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
-    return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || t.name || "General")}</span>${thX(t)}</div>`;
+    return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
   }).join("");
-  return THMORE + thFoldBtn() + list.map(t => {
+  return THMORE + `<div class="thtools">${thSortBtn()}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tag = t.ask ? `<span class="thl ask">waiting on you · asked ${t.ask._asked.length}×</span>`
       : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
-      : t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : t.name ? "" : `<span class="thsum">anything else</span>`;
-    // a ticket's key first, the count with it, then its title
-    // and the time since its last line at the right of that first line
+      : t.name && t.name !== EVERY && t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : "";   // All and General: their names alone
     const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "", meta = t.name && t.name !== EVERY && !t.key ? "not a ticket" : "";
-    const head = t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : ""}${ago}</span>${t.title !== t.key ? `<b>${esc(t.title)}</b>` : ""}` : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>`;
+    // its title first, with the count and the time since its last line, then a ticket's key under it
+    const closed = t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : "";
+    const head = t.key && t.title === t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${closed}${ago}</span>`
+      : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>` + (t.key ? `<span class="thkey">${esc(t.key)}${closed}</span>` : "");
     return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}` +
       (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
   }).join("");
@@ -10604,9 +10699,9 @@ function thAskLine(text) {
 }
 function thHeadHtml(t) {
   if (!t) return "";
-  const ask = t.ask ? `<div class="thask"><b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thHHMM(t.ask._asked[0])}` +
-      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thHHMM).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
-    : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${new Date(t.answered).toTimeString().slice(0, 5)}</div>` : "";
+  const ask = t.ask ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
+      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
+    : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
   return `<div class="thhead"><div class="thname"><b>${esc(t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key && t.title !== t.key ? t.key : t.key ? "" : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
 }
 document.addEventListener("click", e => {
@@ -10671,16 +10766,127 @@ const thSeg = name => `<span class="seg thseg" data-name="${esc(name)}">${[["thr
 // a narrow view's threads: a row of chips over the open thread
 const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name);
   return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span>`; }).join("");
+// The thread a message from the open agent's box goes to where the box is not in a thread (All, or Everything): the
+// newest ask still open, unless the owner picked another or none (General), shown over the box as "Re LFE-1493 ▾".
+// The pick holds until the message is sent.
+const reTo = {};
+const reShown = () => !!S && !!open && !open.startsWith(MEET) && (!phThOpen(open) || phTh[open] === EVERY) && (!thOn() || thSel[open]?.name === EVERY);
+function reTarget(name) {
+  if (reTo[name]) return reTo[name].th;
+  const asks = threadsOf(convFeed, name).filter(t => t.ask && t.name !== EVERY).sort((a, b) => (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || ""));
+  return asks[0]?.name || "";
+}
+const reLabel = t => t ? t.key || t.title : "General";
+function reDraw() {
+  const box = $("#dre");
+  if (!S || !open) return;
+  if (phThOpen(open) && phTh[open] !== EVERY) {   // a phone's thread: its replies go to it
+    const t = phThSel(open), html = t?.name ? `<span class="retag fixed">Re ${esc(reLabel(t))}</span>` : "";
+    box.hidden = !html; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } return;
+  }
+  const all = reShown() ? threadsOf(convFeed, open).filter(t => t.name !== EVERY) : [];
+  if (all.length < 2 && !all.some(t => t.ask)) { box.hidden = true; box.dataset.html = box.innerHTML = ""; return; }
+  const th = reTarget(open), t = all.find(x => x.name === th);
+  const html = `<button class="retag${t?.ask ? " ask" : ""}" data-re title="Where this message goes: a click picks another thread, or General">${th ? `Re ${esc(reLabel(t))}` : "General"} ▾</button>`;
+  box.hidden = false;
+  if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("#dre [data-re]"), pick = e.target.closest?.("#dremenu [data-reth]"), menu = $("#dremenu");
+  if (!b && !pick) { menu?.remove(); return; }
+  e.stopPropagation();
+  if (pick) { reTo[open] = {th: pick.dataset.reth}; menu?.remove(); reDraw(); $("#dsay").focus(); return; }
+  if (menu) { menu.remove(); return; }
+  const all = threadsOf(convFeed, open).filter(t => t.name && t.name !== EVERY).sort((a, z) => !!z.ask - !!a.ask || z.last - a.last), th = reTarget(open);
+  const m = document.createElement("div"); m.id = "dremenu";
+  m.innerHTML = all.map(t => `<b class="remi${t.name === th ? " on" : ""}${t.ask ? " ask" : ""}" data-reth="${esc(t.name)}">${esc(t.key && t.title !== t.key ? `${t.key} · ${t.title}` : t.title)}${t.ask ? " · waiting on you" : ""}</b>`).join("") +
+    `<b class="remi${th ? "" : " on"}" data-reth="">General (no thread)</b>`;
+  $("#dre").append(m);
+});
+// The phone's threads (owner, 2026-11-23): with Threads chosen, an agent's threads as an inbox (waiting on the owner,
+// then the rest by their last line, then General), and a thread opened from it full screen, back going to the inbox.
+const phTh = {};   // agent -> the thread open on the phone ("" is General); none: the inbox
+const phNew = {};   // agent -> the time its open thread was seen up to as it opened, where it had new lines: "New" goes there
+const phAnswered = {};   // "agent\nthread" -> when the owner answered its ask with a quick answer, until the answer shows
+let phThNext = null;   // {name, th}: the thread an agent opens in, from a banner
+const phThAll = name => threadsOf(convFeed, name);
+const phThOn = name => !!S && !!name && name === open && phoneOn() && !name.startsWith(MEET) && thMode(name) === "threads" && phThAll(name).length > 2;
+const phThOpen = name => phThOn(name) && phTh[name] != null;
+const phThSel = name => phThAll(name).find(t => t.name === phTh[name]);
+const phAgo = t => { const at = t.ask ? Date.parse(t.ask._asked.at(-1)) || t.last : t.last; return at ? thAgo(at) : ""; };
+function phInboxHtml(all, un) {
+  // All and General first, their names alone; then waiting on the owner; then the rest, in the order chosen beside them
+  const top = all.filter(t => !t.name || t.name === EVERY), wait = all.filter(t => t.ask && t.name && t.name !== EVERY), other = all.filter(t => t.name && t.name !== EVERY && !t.ask);
+  const plain = t => { const u = thUn(un, t.name);
+    return `<button class="phthrow plain${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b></span>` +
+      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
+  const row = t => { const u = un[t.name], text = phPlain(t.ask ? thAskLine(t.ask.text) : t.latest);
+    const where = t.key ? esc(t.key) + (t.closed ? " · closed" : t.stage ? ` · ${esc(t.stage)}` : "") : t.name ? "not a ticket" : "anything else";
+    return `<button class="phthrow${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b><i>${phAgo(t)}</i></span>` +
+      `<span class="l2">${where}</span>${text ? `<span class="l3">${esc(text)}</span>` : ""}` +
+      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
+  // a prompt open in the agent's pane is answered from the inbox too
+  const prompt = convFeed.filter(it => it.kind === "ask");
+  return (prompt.length ? feedHtml(prompt, open, false) : "") + top.map(plain).join("") +
+    (wait.length ? `<h3 class="phthh ask">Waiting on you · ${wait.length}</h3>${wait.map(row).join("")}` : "") +
+    (other.length ? `<h3 class="phthh">Other threads${thSortBtn()}</h3>${other.map(row).join("")}` : "");
+}
+// an ask answered yes or no: its question is not a "what", "which" or "how" and offers no choice of its own ("A or B?")
+const thYesNo = text => { const q = (thAskLine(text).match(/[^.!?:]*\?\s*$/) || [""])[0].trim();
+  return /\b(yes or no|yes\/no)\b/i.test(thAskLine(text)) || !!q && !/^(what|which|who|whom|whose|when|where|why|how)\b/i.test(q) && !/\bor\b/i.test(q); };
+function phThHeadHtml(t) {
+  const done = phAnswered[open + "\n" + t.name], open_ = t.ask && !(done > (Date.parse(t.ask._asked.at(-1)) || 0));
+  const qa = !open_ ? "" : thYesNo(t.ask.text) ? `<div class="phqa"><button data-phqa="Yes">Yes</button><button data-phqa="No">No</button><button data-phqa="Why?">Ask why</button></div>`
+    : `<div class="phqa"><button data-phqa="">Reply</button></div>`;
+  const clr = open_ ? thClrBtn(t) : "";
+  const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
+    : done || t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(Math.max(done || 0, t.answered || 0))}</div>` : "";
+  const who = t.key ? `${esc(t.key)} · ${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
+  return `<div class="thhead phth"><div class="phthname"><b>${esc(t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${who}</span></div>${ask}</div>`;
+}
+function phThGo(th) {
+  const ag = S.agents.find(a => a.name === open), u = ag && thUn(unseenBy(ag, convFeed), th);
+  phNew[open] = u?.n ? (th === EVERY ? seen[open] || "" : thSeen(open, th)) : null;
+  phTh[open] = th; thSel[open] = {...thSel[open], name: th};
+  history.pushState({...(history.state || {}), ph: 1, th}, "");
+  markSeen([open]); pinned = true; renderConv(); const c = $("#dconv"); c.scrollTop = c.scrollHeight;
+}
+addEventListener("popstate", () => {   // back, from a thread to the inbox
+  if (open && phoneOn() && history.state?.ph && history.state.th == null && phTh[open] != null) { delete phTh[open]; renderConv(); $("#dconv").scrollTop = 0; }
+});
+document.addEventListener("click", e => {
+  const r = e.target.closest?.("#dconv [data-phth]"), q = e.target.closest?.("#dconv [data-phqa]");
+  if (!r && !q) return;
+  e.stopPropagation();
+  if (r) return phThGo(r.dataset.phth);
+  const box = $("#dsay"), word = q.dataset.phqa;
+  if (!word) { box.focus(); return; }
+  box.value = word; phAnswered[open + "\n" + phTh[open]] = Date.now(); say(open, box); renderConv();
+}, true);
+// a banner on the Agents tab opens its agent in the thread it names
+document.addEventListener("click", e => { const b = e.target.closest?.("[data-thopen]"); if (b) phThNext = {name: b.dataset.open, th: b.dataset.thopen}; }, true);
 function renderConv() {
   const conv = $("#dconv"), list = $("#dthreads"), left = $("#detail .left");
   if (holding(conv)) return;
   const all = thWide() ? threadsOf(convFeed, open) : [];
   thSingle[open] = all.length <= 2;
   const on = thOn();
+  // the conversation is never under 360px wide: with the terminal open beside it, the list folds to its badges where
+  // its full width would leave less, and where even that leaves less the terminal docks under the conversation
+  const room = list => left.clientWidth - list - 16 - (termOn() ? THUMB_W + 40 : 16);
+  const squeezed = on && !thFolded() && termOn() && room(240) < 360;
+  $("#detail .box").classList.toggle("termdock", termOn() && room(on ? (thFolded() || squeezed ? 152 : 240) : 0) < 360);
   left.classList.toggle("thon", on);
-  left.classList.toggle("thfold", on && thFolded());
-  if (on) {
-    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {});
+  left.classList.toggle("thfold", on && (thFolded() || squeezed));
+  const phone = phThOn(open);
+  if (phone && phTh[open] != null && !phThSel(open)) delete phTh[open];   // its thread gone (removed, or no lines left)
+  $("#detail").classList.toggle("phlist", phone && phTh[open] == null);
+  $("#detail").classList.toggle("phthread", phone && phTh[open] != null);
+  if (phone) {
+    const ag = S.agents.find(x => x.name === open), un = ag ? unseenBy(ag, convFeed) : {};
+    patch(conv, phTh[open] == null ? phInboxHtml(phThAll(open), un) : phThHeadHtml(phThSel(open)) + feedHtml(convFeed, open, false, laneOf(open), phTh[open] === EVERY ? null : phTh[open], phNew[open]));
+  } else if (on) {
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, squeezed);
     patch(list, html);
     thEdges(list);
     patch(conv, thHeadHtml(all.find(t => t.name === sel)) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel));
@@ -10689,6 +10895,8 @@ function renderConv() {
   }
   const a = S.agents.find(x => x.name === open);
   if (a) shutBox($("#dsay"), a);
+  reDraw();
+  if (conv.scrollHeight <= conv.clientHeight + 30) { pinned = true; $("#dbottom").classList.remove("on"); }   // all of it in view: nothing newer below
   conv.querySelectorAll(".folded").forEach(f => f.onclick = () => { const k = f.dataset.run; openRuns.has(k) ? openRuns.delete(k) : openRuns.add(k); renderConv(); });
 }
 async function refreshDetail(first) {
@@ -10706,8 +10914,9 @@ async function refreshDetail(first) {
     if (el) { pinned = false; $("#dbottom").classList.add("on"); const go = () => el.scrollIntoView({block: "center"}); go(); requestAnimationFrame(go); }
     else seekGone(conv);
   }
-  if (pinned && !holding(conv)) { conv.scrollTop = conv.scrollHeight; requestAnimationFrame(() => { conv.scrollTop = conv.scrollHeight; }); }
-  if (first && pinned) arrive();
+  if (phThOn(open) && phTh[open] == null) { if (first) conv.scrollTop = 0; }   // the phone's inbox reads from the top
+  else if (pinned && !holding(conv)) { conv.scrollTop = conv.scrollHeight; requestAnimationFrame(() => { conv.scrollTop = conv.scrollHeight; }); }
+  if (first && pinned && !(phThOn(open) && phTh[open] == null)) arrive();
   if (!holding($("#dscreen"))) $("#dscreen").innerHTML = d.screen || `<span style="color:var(--faint)">not on screen</span>`;
   term = {cols: d.cols || 80, rows: d.rows || 24};
   $("#dtitle").textContent = `${open} — ${term.cols}×${term.rows}`;
@@ -10893,14 +11102,17 @@ const saying = new Set();   // agents a message is on its way to: a second Enter
 async function say(name, input) {
   if (name.startsWith(MEET)) return sayAll(name, input);
   if (name.startsWith(CARD)) return wkCardSay(name, input);
-  // sent from an agent's thread it names the thread, unless the owner already has; from General or Everything it names none
-  const th = !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "";
+  // sent from an agent's thread it names the thread, unless the owner already has; from General it names none; from the
+  // whole conversation (All, Everything) it names the thread shown over the box
+  const view = input.id === "dsay" && name === open;
+  const th = view && phThOpen(name) && phTh[name] !== EVERY ? phTh[name] : view && reShown() ? reTarget(name) : !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "";
   const typed = input.value.trim(), text = th && typed && !THREAD_RE.test(typed) ? `Re ${th}: ${typed}` : typed, sent = atts[name] || [];
   if (!text && !sent.length || input.disabled || saying.has(name)) return;
   // The box empties before the echo redraws the page, so neither the redraw nor the kept draft can bring the text
   // back to be sent twice; a card's box may have been redrawn by the time the answer comes, so the answer goes to
   // whichever box is on the page then.
   input.value = ""; grow(input); keep(input); input.disabled = true; saying.add(name);
+  if (view) delete reTo[name];
   const echo = text && {text, at: Date.now(), state: "sending"};
   if (echo) { (echoes[name] = echoes[name] || []).push(echo); echoed(name); }
   const box = () => input.isConnected ? input : document.querySelector(`#main .say[data-name="${CSS.escape(name)}"]`) || input;
@@ -12351,6 +12563,14 @@ function phByRole() {
   const all = [...S.agents, ...S.bench];
   return roleList().map(r => [r, all.filter(a => a.role === r.role).sort(byName)]).filter(([, list]) => list.length);
 }
+// an agent's open asks in its threads, newest first (a developer's or tester's thread is its ticket: it asks through the lead)
+const phAsksMemo = new WeakMap();
+function phAsks(a) {
+  if (!a.feed || ["dev", "tester"].includes(a.role)) return [];
+  if (!phAsksMemo.has(a.feed)) phAsksMemo.set(a.feed, threadsOf(a.feed, a.name).filter(t => t.ask && t.name !== EVERY).sort((x, y) => (y.ask._asked.at(-1) || "").localeCompare(x.ask._asked.at(-1) || "")));
+  return phAsksMemo.get(a.feed);
+}
+const phAskTag = a => { const n = phAsks(a).length; return n ? `<span class="ph-asks">${n} ask${n > 1 ? "s" : ""}</span>` : ""; };
 function phListHtml() {
   const favs = phFavs().map(n => S.agents.find(a => a.name === n) || S.bench.find(a => a.name === n)).filter(Boolean);
   const notFav = a => !favs.includes(a);
@@ -12360,10 +12580,14 @@ function phListHtml() {
   const off = [...S.agents.filter(a => !a.live), ...S.bench].filter(notFav);
   const banner = a => { const ask = (a.feed || []).find(it => it.kind === "ask");
     return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
+  // an agent's newest open ask in a thread, a tap opening that thread
+  const thBanner = a => { const t = phAsks(a)[0]; if (!t || a.status === "waiting") return "";
+    return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-thopen="${esc(t.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${thAgo(Date.parse(t.ask._asked.at(-1)))}</small><b>${esc(shown(a.name))}: ${esc(phPlain(thAskLine(t.ask.text)))}</b></span>${PH_ICON.chev}</button>`; };
+  const banners = wait.map(banner).join("") + S.agents.filter(a => a.live).map(thBanner).join("");
   const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
     return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
       (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : big ? "" : `<span class="ph-role">${roleWith(a)}</span>`) +
-      `<span class="ph-right">${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
+      `<span class="ph-right">${phAskTag(a)}${n ? unseenBadge(n) : ""}${big ? (a.ctxPct == null ? "" : `<span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span>`) : `${STATE[st] || esc(st)} ${ago(a.held)}`}</span></span>` +
       (big && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const sec = (title, list, big) => list.length ? `<section><h2>${title} · ${list.length}</h2><div class="ph-list">${list.map(a => row(a, big)).join("")}</div></section>` : "";
   // by role (owner, 2026-11-08): each role's agents in the roster's order, running or not, a stopped one greyed
@@ -12371,14 +12595,14 @@ function phListHtml() {
       const st = stOf(a), last = phLast(a), n = unseen(a), busy = st === "busy" || st === "compacting" || st === "waiting";
       return `<button class="ph-row ${st}${busy ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, busy ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
         (a.ticket ? `<span class="ph-tk" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : "") +
-        `<span class="ph-right">${n ? unseenBadge(n) : ""}<span style="color:${st === "waiting" ? "var(--amber)" : busy ? "var(--green)" : "var(--mute)"}">${STATE[st] || esc(st)}</span> ${ago(a.held)}</span></span>` +
+        `<span class="ph-right">${phAskTag(a)}${n ? unseenBadge(n) : ""}<span style="color:${st === "waiting" ? "var(--amber)" : busy ? "var(--green)" : "var(--mute)"}">${STATE[st] || esc(st)}</span> ${ago(a.held)}</span></span>` +
         (busy && last.text ? `<span class="ph-sub${last.live ? " live" : ""}">${esc(last.text)}</span>` : "") + `</span></button>`; };
   const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites · ${favs.length}</h2><div class="ph-list">${favs.map(rrow).join("")}</div></section>` : "";
   if (phOrder() === "role") {
-    return fav + wait.map(banner).join("") + phByRole().map(([r, list]) => [r, list.filter(notFav)]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
+    return fav + banners + phByRole().map(([r, list]) => [r, list.filter(notFav)]).filter(([, list]) => list.length).map(([r, list]) => `<section><h2>${roleMark(r).replace("cdot", "cdot ph-nodot")}${esc(r.name)} · ${list.length}</h2><div class="ph-list">${list.map(rrow).join("")}</div></section>`).join("") +
       (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
   }
-  return fav + wait.map(banner).join("") + sec("Working", work, true) + sec("Idle", idle, false) +
+  return fav + banners + sec("Working", work, true) + sec("Idle", idle, false) +
     (off.length ? `<section><h2>Stopped · ${off.length}</h2><div class="ph-chips">${off.map(a => `<button class="ph-chip${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     (S.agents.length || S.bench.length ? "" : `<div class="ph-empty">No one on the roster</div>`);
 }
@@ -13160,9 +13384,12 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
 {
   const _open = openDetail, _rail = rail, _facts = facts, _hint = sayHint;
   openDetail = function (name) {
+    const th = phThNext?.name === name ? phThNext.th : null; phThNext = null;
+    if (th == null) delete phTh[name]; else { phTh[name] = th; thSel[name] = {...thSel[name], name: th}; }
     if (phoneOn() && !history.state?.ph) history.pushState({ph: 1}, "", "#" + encodeURIComponent(name));
     const r = _open(name);   // which writes its own entry over the one pushed: the mark goes back on it
     if (phoneOn()) history.replaceState({ph: 1}, "", "#" + encodeURIComponent(name));
+    if (phoneOn() && th != null) history.pushState({ph: 1, th}, "", "#" + encodeURIComponent(name));
     phDetail(); return r;
   };
   rail = function () { if (phoneOn() && open && S) phRail(); else _rail(); };
@@ -13849,7 +14076,7 @@ def self_test():
            'data-ppgo="~merged"' in PAGE and 'data-ppsec="~merged"' in PAGE,
            'const go = e.target.closest(".ppdesk [data-ppgo]"), desk = go?.closest(".ppdesk");' in PAGE), (True,) * 4)
         t("  opening or switching to an agent lands on its newest turn and holds there while it settles, until the reader touches it; a late image keeps a pinned view at the end",
-          ("  if (first && pinned) arrive();" in PAGE, "const step = () => { if (Date.now() > arriving || !pinned) return;" in PAGE,
+          ("  if (first && pinned && !(phThOn(open) && phTh[open] == null)) arrive();" in PAGE, "const step = () => { if (Date.now() > arriving || !pinned) return;" in PAGE,
            'for (const ev of ["touchstart", "wheel", "pointerdown"]) $("#dconv").addEventListener(ev, () => { arriving = 0; }, {passive: true});' in PAGE,
            '$("#dconv").addEventListener("load", () => { if (open && pinned && !holding($("#dconv"))) convEnd(); }, true);' in PAGE,
            '$("#dconv").addEventListener("scroll", () => { if (Date.now() < arriving) return;' in PAGE), (True,) * 5)
