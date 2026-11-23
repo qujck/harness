@@ -4001,6 +4001,13 @@ def shell_kinds():
         or (win if os.path.exists(win) else None)
     if ps:
         kinds["pwsh"] = {"name": "PowerShell", "argv": [ps, "-NoLogo"]}
+    # Each agent's own byobu session, <project>-<name> (owner, 2026-11-23: one session per agent, and no shortcuts to
+    # reach one): the + menu names the agent, and its terminal opens on that agent's screen.
+    names = {r["name"].lower(): r["name"] for r in roster()}
+    for sess in sorted(run("tmux", "list-sessions", "-F", "#{session_name}").split()):
+        name = sess.startswith(PROJECT + "-") and names.get(sess[len(PROJECT) + 1:])
+        if name:
+            kinds["tmux:" + sess] = {"name": name, "argv": ["tmux", "attach-session", "-t", "=" + sess]}
     return kinds
 
 
@@ -4070,7 +4077,8 @@ class TermShell:
         kinds = shell_kinds()
         argv = (kinds.get(kind) or kinds["sh"])["argv"]
         cwd = win_home(argv[0]) if argv[0].endswith(".exe") else HOME
-        env = {k: v for k, v in os.environ.items() if k not in ("AGENT_WEB_PORT", "INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID")}
+        # TMUX too: the page may be started from inside a byobu session, and tmux refuses to attach from within one
+        env = {k: v for k, v in os.environ.items() if k not in ("AGENT_WEB_PORT", "INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "TMUX", "TMUX_PANE")}
         env.update(TERM="xterm-256color", COLORTERM="truecolor")
         self.id, self.buf, self.pages, self.lock, self.alone = tid, bytearray(), {}, threading.Lock(), None
         self.pid, self.fd = pty.fork()
@@ -7671,7 +7679,9 @@ const xtermReady = () => xtermLoad ||= Promise.all(XTERM.map(([u, h]) => new Pro
 }))).catch(e => { xtermLoad = null; throw e; });
 const shells = {}, shellEnc = new TextEncoder();
 let shellKinds = [];   // the shells this machine has for a pane, its bar's switch when more than one
-fetch("/api/shells").then(r => r.json()).then(k => { shellKinds = k; draw(); }).catch(() => {});
+// the agents' sessions come and go, so the list is asked for again each minute
+const shellKindsGet = () => fetch("/api/shells").then(r => r.json()).then(k => { if (JSON.stringify(k) !== JSON.stringify(shellKinds)) { shellKinds = k; draw(); } }).catch(() => {});
+shellKindsGet(); setInterval(shellKindsGet, 60000);
 function shellMount() {
   const hosts = [...document.querySelectorAll(".shellhost[data-sh]")], saved = localStorage.getItem("views") || "";
   for (const id of Object.keys(shells)) if (!saved.includes(`"sh":"${id}"`)) shellEnd(id);
@@ -15004,6 +15014,18 @@ def self_test():
           (json.loads(got[1] or b"[]"), code("/dir?p=/etc")[0]),
           ([{"name": "sub", "dir": True}, {"name": ".hidden.md", "dir": False}, {"name": "a.md", "dir": False}], 404))
         server.shutdown()
+        # the + menu of a Terminal pane: each agent's own session, by the agent's name, and nothing else of tmux's
+        was_run, was_roster = g["run"], g["roster"]
+        g["run"] = lambda *cmd, **kw: (f"{PROJECT}-lea\n{PROJECT}-lea-3\nPanel\n{PROJECT}-gone\n" if cmd[:2] == ("tmux", "list-sessions")
+                                       else was_run(*cmd, **kw))
+        g["roster"] = lambda: [{"name": "Lea", "role": "delivery-lead"}]
+        try:
+            kinds = shell_kinds()
+        finally:
+            g["run"], g["roster"] = was_run, was_roster
+        t("a Terminal's + lists each agent's session by name, and opens it attached",
+          {k: v for k, v in kinds.items() if k.startswith("tmux:")},
+          {f"tmux:{PROJECT}-lea": {"name": "Lea", "argv": ["tmux", "attach-session", "-t", f"={PROJECT}-lea"]}})
         # a question with previews, as the pane draws it: the preview of the option under the cursor beside the options
         shot = ("─" * 60 + "\n ☐ Test\n\nWhich footer?\n\n❯ 1. Footer empty        ┌──────────────────┐\n"
                 "    (Recommended)        │ header: everything │\n  2. Bench in footer     │ footer: empty      │\n"
