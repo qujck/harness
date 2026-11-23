@@ -11258,8 +11258,12 @@ function threadsOf(items, name) {
   // listed as work to do
   const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => qk(i, k) && i.list === "done")) &&
     !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => qk(i, k) && i.list !== "done");
+  // Remove closed ticked: a closed ticket's thread is left out while it has no open ask, nothing unread and is not the
+  // thread open
+  const sel = phTh[name] ?? localStorage.getItem("thread:" + name), un = thNoClosed() && d ? unseenBy({name}, items) : null;
+  const shut = t => !!un && t.name !== sel && isKey(t.name) && !t.ask && !un[t.name]?.n && closed(t.name);
   const hid = thHidden[name] || {}, pins = new Set(wkPinned());
-  return [...by.values()].filter(t => !t.name || !hid[t.name] || (t.at || "") > hid[t.name]).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), stage: isKey(t.name) ? stage(t.name) : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
+  return [...by.values()].filter(t => !t.name || !shut(t) && (!hid[t.name] || (t.at || "") > hid[t.name])).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), stage: isKey(t.name) ? stage(t.name) : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
     // All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
     .sort((a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
       pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b))
@@ -11280,15 +11284,6 @@ document.addEventListener("click", e => {
   thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false;
 }, true);
 // the list's first row: every thread's lines together, each labelled with its thread
-  // Remove closed ticked: a closed ticket's thread is removed as its × would, its lines seen, until something new arrives
-  if (thNoClosed() && d) {
-    let gone = false;
-    for (const t of by.values()) if (t.name && isKey(t.name) && !t.ask && closed(t.name) && !((thHidden[name] || {})[t.name] >= (t.at || ""))) {
-      (thHidden[name] ||= {})[t.name] = t.at || ""; gone = true;
-      if (seen[name] && (t.at || "") > (seenTh[name]?.[t.name] || "")) (seenTh[name] ||= {})[t.name] = t.at;
-    }
-    if (gone) { localStorage.setItem("thhide", JSON.stringify(thHidden)); localStorage.setItem("seenth", JSON.stringify(seenTh)); }
-  }
 var EVERY = "*";
 // a row's new-message count: its thread's, or for Everything every thread's
 const thUn = (un, name) => name !== EVERY ? un[name] : Object.values(un).reduce((s, u) => s && {n: s.n + u.n, ask: s.ask || u.ask} || {...u}, null);
@@ -11330,7 +11325,7 @@ document.addEventListener("click", e => {
   if (m) { m.remove(); return; }
   const r = b.getBoundingClientRect(), menu = document.createElement("div"); menu.id = "thsortmenu";
   menu.innerHTML = TH_SORTS.map(([k, l]) => `<b class="remi${k === thSort() ? " on" : ""}" data-thsortv="${k}">${l}</b>`).join("") +
-    `<i class="remsep"></i><b class="remi remchk${thNoClosed() ? " ticked" : ""}" data-thnoclosed title="Remove each thread whose ticket is closed, as its × would: it comes back if something new arrives in it">` +
+    `<i class="remsep"></i><b class="remi remchk${thNoClosed() ? " ticked" : ""}" data-thnoclosed title="Leave out each thread whose ticket is closed, unless it has something unread or is open">` +
     `Remove closed<span class="chk">${thNoClosed() ? "✓" : ""}</span></b>`;
   menu.style.cssText = `top:${r.bottom + 4}px;left:${Math.max(8, Math.min(r.left, innerWidth - 168))}px`;
   document.body.append(menu);
