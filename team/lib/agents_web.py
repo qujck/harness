@@ -7419,8 +7419,10 @@ const seekWrap = html => {
 // Each line's thread (AGENTS_TICKET_TAG; ~/dev/.claude/local/CLAUDE.md): a developer's or tester's words are in the
 // ticket it holds; anyone else's open with their thread in brackets, "[SE-2736]" or "[GitHub billing block · ask]",
 // which is cut from the text shown; the owner's are in the thread their "Re <thread>: " names (cut too), else in the
-// agent's last one; an agent's message to another, in the ticket its "[KEY]" names. An ask asked again in the same thread before the
-// owner has written there is folded into the first, which keeps the times it was asked (_asked).
+// agent's last one; an agent's message to another, in the ticket its "[KEY]" names. The same ask asked again, word for word, in
+// the same thread before the owner has written there is folded into the first, which keeps the times it was asked (_asked).
+// An ask in other words is a new message and is shown: the owner wrote elsewhere and the agent answered him in the open
+// thread, so folding it hid every word of it (owner, 2026-11-23: "I can't see your messages").
 const THREAD_TAG = /^\s*\[([^\]\n]{1,60}?)(\s*·\s*ask)?\]\s*/, THREAD_RE = /^Re ([^:\n]{1,60}): /, THREAD_KEY = /^\s*\[([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)\]/;
 // A message whose later paragraphs open with their own tags is several, one a thread: each part from its tag to the next.
 const THREAD_PARA = /(?:^|\n)\s*\[[^\]\n]{1,60}?(?:\s*·\s*ask)?\]/g;
@@ -7447,8 +7449,8 @@ function threadItems(items, name) {
       open[ag + "\n" + th] = null;   // the owner has written in the thread: an ask after this is a new one
     } else if (["peer", "sent"].includes(it.kind) && (m = text.match(THREAD_KEY))) th = m[1];
     if (ask) {
-      const k = ag + "\n" + th, first = open[k];
-      if (first) { first._asked.push(it.ts); continue; }
+      const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim();
+      if (first && same(first.text) === same(shownText)) { first._asked.push(it.ts); continue; }
       out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
       continue;
     }
