@@ -6957,7 +6957,7 @@ const splitThreads = it => {
   return cuts.map((c, i) => ({...it, text: text.slice(c, cuts[i + 1] ?? text.length).trim()}));
 };
 function threadItems(items, name) {
-  const last = {}, open = {}, reply = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered
+  const open = {}, reply = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered
   for (const it of items.flatMap(splitThreads)) {
     const ag = it._agent || name, a = ppAgent(ag), text = String(it.text || "");
     let th = "", ask = false, shownText = text, m;
@@ -6965,9 +6965,9 @@ function threadItems(items, name) {
       if ((m = text.match(THREAD_TAG))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
       else if (["dev", "tester"].includes(a?.role)) th = a.ticketNo ? "#" + a.ticketNo : a.ticket || "";   // its ticket's #N, so it joins the owner's [#N] thread
       else if (reply[ag] != null) th = reply[ag];   // an untagged answer stays in the thread it answers
-      last[ag] = th; reply[ag] = null;
+      reply[ag] = null;
     } else if (["owner", "echo", "pending"].includes(it.kind)) {
-      if ((m = text.match(THREAD_RE))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); } else th = last[ag] || "";
+      if ((m = text.match(THREAD_RE))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); }   // a message with no thread named is General
       reply[ag] = th;
       open[ag + "\n" + th] = null;   // the owner has written in the thread: an ask after this is a new one
     } else if (["peer", "sent"].includes(it.kind) && (m = text.match(THREAD_KEY))) th = m[1];
@@ -10893,8 +10893,8 @@ const saying = new Set();   // agents a message is on its way to: a second Enter
 async function say(name, input) {
   if (name.startsWith(MEET)) return sayAll(name, input);
   if (name.startsWith(CARD)) return wkCardSay(name, input);
-  // sent from an agent's thread, General too, it names the thread, unless the owner already has
-  const th = !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "General";
+  // sent from an agent's thread it names the thread, unless the owner already has; from General or Everything it names none
+  const th = !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "";
   const typed = input.value.trim(), text = th && typed && !THREAD_RE.test(typed) ? `Re ${th}: ${typed}` : typed, sent = atts[name] || [];
   if (!text && !sent.length || input.disabled || saying.has(name)) return;
   // The box empties before the echo redraws the page, so neither the redraw nor the kept draft can bring the text
