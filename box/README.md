@@ -1,7 +1,7 @@
 # box/ — streak's own wiring for the team
 
-The scripts that run the team on Peter's box (`streak`): the byobu layout and restore after a reboot, the
-Delivery tab sync, the team panel and web page launchers, the activity hook and the status line. Unlike the
+The scripts that run the team on Peter's box (`streak`): the restore after a reboot (one byobu session per
+agent), the spawn colours, the team panel and web page launchers, the activity hook and the status line. Unlike the
 rest of this repo they are not generic: they name `/home/peter`, the strength checkout and this box's budget
 file. They came from `qujck/download` (a torrenting stack that had grown the box's config) on 2026-11-05,
 with their history, so that the team-running scripts live in one repo with one owner.

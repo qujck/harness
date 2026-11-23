@@ -1,7 +1,7 @@
 #!/bin/bash
-# Recreate the byobu layout and resume every named Claude session after a reboot.
+# Resume every agent that was running, each in its own byobu session, after a reboot.
 # Safe to re-run: sessions that already exist are left alone, and an agent already
-# running anywhere gets an empty slot, so its conversation is never resumed twice. So
+# running anywhere is skipped, so its conversation is never resumed twice. So
 # this can be used to bring back one missing session without touching the others.
 # Attach to any session with:  byobu attach -t <name>
 set -e
@@ -20,7 +20,7 @@ TITLES=$(command grep -oH '"customTitle":"[^"]*"' /home/peter/.claude/projects/*
   awk -F'"customTitle":"' '{sub(/"$/,"",$2); last[$1]=$2} END {for (f in last) print f "\t" last[f]}')
 # WHO WAS UP. The team page (harness team/lib/agents_web.py, note_up) keeps a record of every agent running and its
 # session, and takes one off only after watching it stop (a bench); a reboot or a crash leaves it as it was. With that
-# record, exactly the agents in it come back, each in the session it had, and every other slot is empty. Without
+# record, exactly the agents in it come back, each resuming the conversation it had, and nobody else. Without
 # it (no page ran) the old way: every active agent, by its newest /rename title. (2026-11-14: by title alone, the
 # seven agents spawned that day, in unnamed conversations, stayed down and seven benched agents came back instead.)
 LIVE=${LIVE_AGENTS_FILE:-/home/peter/.local/state/strength/live-agents.json}
@@ -64,20 +64,6 @@ ident() { # ident <name> -> "env GIT_...=... " or nothing
   [ -n "$e" ] && printf 'env AGENT_NAME=%s GIT_AUTHOR_NAME=%s GIT_AUTHOR_EMAIL=%s GIT_COMMITTER_NAME=%s GIT_COMMITTER_EMAIL=%s ' "$1" "$1" "$e" "$1" "$e"
 }
 
-# by_role <role>... -> the first active agent holding one of these roles, in roster order, or nothing.
-# The fixed tabs below are filled by role, so a rotation changes the roster and nothing here.
-by_role() {
-  jq -r '[.agents[]? | select(.status == "active" and (.role | IN($ARGS.positional[]))) | .name] | first // empty' \
-    --args "$@" <<<"$ROSTER" 2>/dev/null
-}
-# The house assistant: the active project-office agent; before it held that role (strength c0b00a8a4, 2026-11) it
-# was the first of .assistants, kept as the fallback. Reading only .assistants left the Project pane empty after the
-# 2026-11-14 restore, because that list is empty now.
-assistant() { local n; n=$(by_role project-office); [ -n "$n" ] && echo "$n" || jq -r '.assistants[0].name // empty' <<<"$ROSTER" 2>/dev/null; }
-# slot <name> -> the name, or "-" (an empty slot) when the role is vacant
-# A name not in the record of who was up is an empty slot too.
-slot() { if [ -n "$1" ] && was_up "$1"; then printf '%s\n' "$1"; else printf '%s\n' -; fi; }
-
 resume() { # resume <claude-name> -> the command that resumes it as itself
   local f; f=$(transcript "$1")
   if [ -n "$f" ]; then echo "$(ident "$1")claude --resume $(basename "$f" .jsonl)"
@@ -102,128 +88,57 @@ dir() { # dir <claude-name> <fallback>
   echo "${d:-$2}"
 }
 
-# cmd <claude-name> <fallback-dir> -> sets $C and $D for one pane; an agent with no named
-# conversation yet gets an empty slot, so the grid keeps its shape. "-" is a deliberately
-# empty slot. An empty slot says so in the pane (box/empty-slot.py); Enter gives a shell.
-EMPTY="python3 /home/peter/dev/harness/box/empty-slot.py"
-cmd() {
-  if [ "$1" = - ]; then C=$EMPTY; D=/home/peter; return; fi
-  if running "$1"; then echo "skip    $1 (already running), empty slot"; C=$EMPTY; D=$2; return; fi
-  if [ -z "$(transcript "$1")" ]; then echo "note    $1 has no named conversation yet, empty slot"; C=$EMPTY; D=$2; return; fi
-  C=$(resume "$1"); D=$(dir "$1" "$2")
+# Every agent in its own session (owner, 2026-11-23: "give each agent their own byobu session"), named as
+# harness team/agent-spawn.sh names a spawned one, strength-<name, lowercased>, so the spawn and the bench find a
+# restored agent the same way (team/lib/agent-session.sh).
+session() { printf 'strength-%s\n' "${1,,}"; }
+
+# home <name> <role> -> the folder to fall back on when the conversation's own can't be read
+home() {
+  case $2 in
+    project-office) echo "/home/peter/dev/${1,,}" ;;   # Claude Code never saves trust for the home folder
+    process-improvement) echo /home/peter/dev ;;
+    *) [ -d "/home/peter/dev/strength-${1,,}" ] && echo "/home/peter/dev/strength-${1,,}" || echo "$S" ;;
+  esac
 }
 
-# columns <session> <fallback-dir> <top1> <bottom1> <top2> <bottom2> ... : one window,
-# one column per pair, each column split top and bottom. A bottom of "=" leaves that
-# column as one full-height pane.
-columns() {
-  local s=$1 fd=$2 i n; shift 2
+# one <name> <role>: resume this agent in its own session, unless it is up already
+one() {
+  local s; s=$(session "$1")
   if exists "$s"; then echo "skip    $s (already running)"; return; fi
-  local args=("$@") top=() p
-  for ((i = 0; i < ${#args[@]}; i += 2)); do
-    cmd "${args[i]}" "$fd"
-    if [ $i = 0 ]; then p=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s "$s" -c "$D" "$C")
-    else p=$(byobu split-window -h -d -P -F '#{pane_id}' -t "${top[-1]}" -c "$D" "$C"); fi
-    top+=("$p")
-  done
-  byobu select-layout -t "$s" even-horizontal >/dev/null
-  for ((i = 0; i < ${#top[@]}; i++)); do
-    [ "${args[i * 2 + 1]}" = = ] && continue
-    cmd "${args[i * 2 + 1]}" "$fd"
-    byobu split-window -v -d -t "${top[i]}" -c "$D" "$C"
-  done
-  echo "started $s ($*)"
+  if running "$1"; then echo "skip    $1 (already running in another session)"; return; fi
+  if [ -z "$(transcript "$1")" ]; then echo "note    $1 has no named conversation yet, not started"; return; fi
+  byobu new-session -d -x 168 -y 51 -s "$s" -c "$(dir "$1" "$(home "$1" "$2")")" "$(resume "$1")"
+  echo "started $s"
 }
 
-# --- Delivery: worked out from the roster ---
-# delivery_slots -> the Delivery panes in column order (top, bottom, top, bottom, ...): the developers,
-# then the testers, then every other active agent not placed in Delivery Lead or Project, in roster
-# order, with the reviewers last: the test reviewer, then the code reviewer in the bottom-right pane. Each group starts its own columns
-# and a group with an odd count ends on an empty slot "-", so developers and testers never share a
-# column. Empty columns, added before the last one, pad it to at least 8 panes; more agents means more
-# columns.
-delivery_slots() {
-  local g names out=() rev
-  for g in developer tester other; do
-    mapfile -t names < <(jq -r --arg g "$g" --argjson up "${UP:-null}" '.agents[]? | select(.status == "active" and (.name as $n | $up == null or ($up | has($n))))
-      | select(if $g == "other" then (.role | IN("developer", "tester", "delivery-lead", "head-of-testing", "process-improvement", "production-support", "head-of-operations", "project-office", "code-reviewer", "test-reviewer") | not)
-               else .role == $g end) | .name' <<<"$ROSTER")
-    if [ $g != other ] && [ $(( ${#names[@]} % 2 )) = 1 ]; then names+=(-); fi
-    out+=("${names[@]}")
-  done
-  mapfile -t rev < <(jq -r --argjson up "${UP:-null}" '.agents[]? | select(.status == "active" and (.name as $n | $up == null or ($up | has($n))))
-    | select(.role == "test-reviewer") | .name' <<<"$ROSTER"; jq -r --argjson up "${UP:-null}" '.agents[]?
-    | select(.status == "active" and (.name as $n | $up == null or ($up | has($n)))) | select(.role == "code-reviewer") | .name' <<<"$ROSTER")
-  # The reviewer(s) end the grid, the last one bottom right; a gap goes before them if needed.
-  if [ $(( (${#out[@]} + ${#rev[@]}) % 2 )) = 1 ]; then out+=(-); fi
-  out+=("${rev[@]}")
-  while [ ${#out[@]} -lt 8 ]; do
-    if [ ${#out[@]} -ge 2 ]; then out=("${out[@]:0:${#out[@]}-2}" - - "${out[@]: -2}"); else out=(- - "${out[@]}"); fi
-  done
-  printf '%s\n' "${out[@]}"
-}
 # Agents use the shared login (~/.claude/.credentials.json), NOT the long-lived token in
 # ~/.config/claude-agent-token.env: a setup-token token is inference-only, and Remote Control refuses it
 # (tried 2026-10-26, reverted on Peter's word). Make sure none is inherited.
 unset CLAUDE_CODE_OAUTH_TOKEN
 byobu set-environment -gu CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
 
-mapfile -t SLOTS < <(delivery_slots)
-columns Delivery "$S" "${SLOTS[@]}"
-# Spawned agents (harness agent-spawn.sh starts each in its own strength-<name> session) are moved
-# into Delivery, and a benched agent's pane turned back into an empty slot, by delivery-sync.py, which
-# tmux runs whenever a session is created or a pane dies. It also keeps the layout rules above.
+# Each spawned developer and tester gets its role's colour from delivery-sync.py, which tmux runs whenever a
+# session is created. It moves nothing: every agent stays in its own session.
 byobu set-hook -g session-created 'run-shell -b "python3 /home/peter/dev/harness/box/delivery-sync.py"'
-byobu set-hook -g pane-died 'run-shell -b "python3 /home/peter/dev/harness/box/delivery-sync.py"'
-python3 /home/peter/dev/harness/box/delivery-sync.py || echo "WARNING delivery-sync.py failed: see byobu show-messages"
-# A pane whose agent exits stays in place, marked dead, so the grid never shrinks on its own.
-# Bring one agent back in its own pane with:  byobu respawn-pane -t <pane>  (it reruns the resume)
-byobu set-option -w -t Delivery remain-on-exit on
+byobu set-hook -gu pane-died 2>/dev/null || true
 
-# --- the delivery lead, with the team panel ---
+# The agents that were up (every active one when there is no record of who was), in roster order.
+while IFS=$'\t' read -r name role; do
+  was_up "$name" && one "$name" "$role"
+done < <(jq -r '.agents[]? | select(.status == "active") | [.name, .role] | @tsv' <<<"$ROSTER")
+python3 /home/peter/dev/harness/box/delivery-sync.py || echo "WARNING delivery-sync.py failed: see byobu show-messages"
+
+# --- the team panel, in its own session ---
 # The panel's settings live in box/team-panel.sh, beside this script, and the owner's weekly budget in
 # ~/.local/state/strength/agents-budget.env, the one file strength's spawn wrapper also reads. Without it the
 # panel refuses to start and says so in its pane.
 BUDGET=/home/peter/.local/state/strength/agents-budget.env
 [ -r "$BUDGET" ] || echo "WARNING $BUDGET is missing: the team panel will not start until it exists"
-LEAD=$(slot "$(by_role delivery-lead)")
-PI=$(slot "$(by_role process-improvement)")
-PA=$(slot "$(assistant)")
-HOT=$(slot "$(by_role head-of-testing)")
-OPS=$(slot "$(by_role head-of-operations production-support)")
-tree() { [ "$1" = - ] && echo /home/peter || echo "/home/peter/dev/strength-${1,,}"; }
-
-# The delivery lead, with the team panel (harness team/agents-dash.sh) on the right.
-if exists "Delivery Lead"; then echo "skip    Delivery Lead (already running)"
+if exists Panel; then echo "skip    Panel (already running)"
 else
-  cmd "$LEAD" "$(tree "$LEAD")"
-  c=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s "Delivery Lead" -c "$D" "$C")
-  p=$(byobu split-window -h -d -P -F '#{pane_id}' -l 32 -t "$c" "bash /home/peter/dev/harness/box/team-panel.sh")
-  # Pane sizes scale in proportion when the window resizes, so pin the panel back to 32 columns
-  # every time it does.
-  byobu set-hook -t "Delivery Lead" window-resized "resize-pane -t $p -x 32"
-  echo "started Delivery Lead ($LEAD, the team panel)"
-fi
-
-# --- Project: process improvement on the left, the house assistant on the right ---
-if exists Project; then echo "skip    Project (already running)"
-else
-  cmd "$PI" /home/peter/dev
-  r=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s Project -n Project -c "$D" "$C")
-  # The assistant runs from its own folder, ~/dev/<name>: Claude Code never saves trust for the home folder.
-  cmd "$PA" "/home/peter/dev/${PA,,}"
-  byobu split-window -h -d -t "$r" -c "$D" "$C"
-  echo "started Project ($PI, $PA)"
-fi
-
-# --- Ops: the head of testing on the left, the head of operations (streak upkeep) on the right ---
-if exists Ops; then echo "skip    Ops (already running)"
-else
-  cmd "$HOT" "$(tree "$HOT")"
-  v=$(byobu new-session -d -P -F '#{pane_id}' -x 168 -y 51 -s Ops -n Ops -c "$D" "$C")
-  cmd "$OPS" "$S"
-  byobu split-window -h -d -t "$v" -c "$D" "$C"
-  echo "started Ops ($HOT, $OPS)"
+  byobu new-session -d -s Panel -n Panel -c /home/peter "bash /home/peter/dev/harness/box/team-panel.sh"
+  echo "started Panel (the team panel)"
 fi
 
 # --- Web: the team as a web page (harness team/agents-web.sh) on http://127.0.0.1:8787, the panel's settings ---
@@ -234,8 +149,4 @@ else
 fi
 
 echo
-echo "Attach with:"
-echo "  byobu attach -t Delivery          (columns: developers, testers, then the rest; at least 8 panes)"
-echo "  byobu attach -t 'Delivery Lead'   ($LEAD, the team panel)"
-echo "  byobu attach -t Project           ($PI, $PA)"
-echo "  byobu attach -t Ops               ($HOT, $OPS)"
+echo "Attach with:  byobu attach -t strength-<name>   (one session per agent; byobu list-sessions names them)"
