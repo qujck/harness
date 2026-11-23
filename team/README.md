@@ -27,5 +27,12 @@ Claude subscription whose usage the status line can read. Nothing in `scripts/` 
 **Optional.** A project whose agents each run on their own machine, or that watches its team another way, leaves
 this directory out. `agent-onboard.sh` still prints the launch line; only the spawn, bench, budget and panel go.
 
+**A project's own way.** A project whose agents work in their own sibling worktrees, read the budget from a file
+outside the checkout, need more environment, a stack check, more first-prompt text, a ticket lookup or its own
+"is the work done" check before a bench sets the `AGENT_TREE_MODE`, `HARNESS_ENV_FILE`, `AGENT_LAUNCH_ENV`,
+`AGENT_SPAWN_*` and `AGENT_BENCH_*` settings (`harness.env.example`, and the headers of `agent-spawn.sh` and
+`agent-bench.sh`) instead of wrapping the two scripts. Unset, each is the harness's own behaviour. `agent-spawn.sh
+spawn …` and `agent-spawn.sh bench …` (or `agent-bench.sh bench …`) are accepted, so one command can spawn and bench.
+
 Each script carries `--self-test` through `scripts/lib/selftest-flag.sh` and has a row in
 `scripts/selftest-tiers.txt`.
