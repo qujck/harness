@@ -3081,15 +3081,18 @@ def screen_ask(pane):
         return bool(m) and int(m.group(1)) > 1 or CHAT_ROW.match(below) is not None
     top = 0 if foot is None else next((i + 1 for i in range(foot - 1, max(-1, foot - 400), -1)
                                        if TOP_RULE.match(lines[i]) and not splits_options(i)), 0)
+    width = pane_width(pane)
     opts = [i for i, l in enumerate(lines) if re.match(r"^\s*(❯\s*)?1\.\s", l) and (foot is None or top <= i < foot)]
     if not opts:
-        return None if foot is None else select_of(lines, top, foot) or text_of(pane)
+        return None if foot is None else select_of(lines, top, foot, width) or text_of(pane)
     first = opts[-1]
     above = range(first - 1, max(-1, first - 400), -1)
     start = next((i + 1 for i in above if TOP_RULE.match(lines[i])),
                  next((i + 1 for i in above if SEPARATOR.match(lines[i])), max(0, first - 12)))
     end = len(lines) if foot is None else foot + 1 + (foot + 1 < len(lines) and "Esc to cancel" not in lines[foot])
-    block = ["" if SEPARATOR.match(l) else l for l in lines[start:end] if l.strip() and not MORE_LINES.match(l)]
+    if foot is not None and end < len(lines) and len(unwrapped(lines[end - 1:end + 1], width)) == 1:
+        end += 1   # the footer's own last words, wrapped
+    block = ["" if SEPARATOR.match(l) else l for l in unwrapped(lines[start:end], width) if l.strip() and not MORE_LINES.match(l)]
     block = [l for i, l in enumerate(block) if l or (0 < i < len(block) - 1 and block[i - 1])]
     boxed = re.compile(r"^\s*│ ?")
     pad = min((len(l) - len(l.lstrip()) for l in block if l and not boxed.match(l)), default=0)
@@ -3127,6 +3130,32 @@ def foot_of(lines):
 
 
 MORE_LINES = re.compile(r"^\s*↑ \d+ more lines?$")   # a prompt taller than the pane: its top is above the screen
+UNWRAP_OPENS = re.compile(r"^\s*(❯|\d+\.\s|│|⚠|↑|↓|[─━╌┄-]{3})")   # a row that starts its own line
+UNWRAP_ROW = re.compile(r"^\s*(❯|\d+\.\s|│|[─━╌┄-]{3})")   # a row nothing joins on to
+
+
+def unwrapped(lines, width):
+    """A prompt's lines with the ones Claude Code wrapped to the pane's width joined back into their sentences, so a
+    narrow pane's question reads as prose on the page. Claude Code wraps two columns short of the pane's edge, so a
+    line joins the one above when it has the same indent and its first word would not have fitted there. Option rows,
+    boxed rows, rules and blank lines stay apart, and a warning starts its own line."""
+    out, last = [], ""
+    for l in lines:
+        word = l.strip().split(" ", 1)[0]
+        indent = len(l) - len(l.lstrip())
+        if (width and word and last.strip() and out and not UNWRAP_OPENS.match(l) and not UNWRAP_ROW.match(last)
+                and indent == len(last) - len(last.lstrip()) and len(last) + 1 + len(word) > width - 2):
+            out[-1] += " " + l.strip()
+        else:
+            out.append(l)
+        last = l
+    return out
+
+
+def pane_width(pane):
+    """The pane's width in columns, or 0 when tmux cannot say."""
+    w = run("tmux", "display-message", "-p", "-t", pane, "#{pane_width}").strip()
+    return int(w) if w.isdigit() else 0
 
 
 def text_of(pane):
@@ -3142,7 +3171,7 @@ def text_of(pane):
     return {"text": text, "options": []} if text else None
 
 
-def select_of(lines, top, foot):
+def select_of(lines, top, foot, width=0):
     """An unnumbered prompt between its rule (top) and its footer (foot): the cursor's row and the rows whose text lines
     up with its label, as options numbered in order; None when the prompt has no cursor row."""
     rows = [(i, ESCAPES.sub("", l)) for i, l in enumerate(lines[top:foot], top)]
@@ -3159,7 +3188,7 @@ def select_of(lines, top, foot):
         hi += 1
     options = [{"n": k + 1, "label": (CURSOR_ROW.match(l).group(2) if CURSOR_ROW.match(l) else l.strip()), "typed": False}
                for k, (_, l) in enumerate(rows[lo:hi + 1])]
-    block = [l for _, l in rows[:lo] if l.strip() and not SEPARATOR.match(l)] + [lines[foot]]
+    block = unwrapped([l for _, l in rows[:lo] if l.strip() and not SEPARATOR.match(l)], width) + [lines[foot]]
     pad = min((len(l) - len(l.lstrip()) for l in block), default=0)
     text = "\n".join([l[pad:] for l in block[:-1]] + [r[1].strip() for r in rows[lo:hi + 1]] + [block[-1].strip()])
     return {"text": text, "options": options, "select": True, "cursor": at - lo + 1}
@@ -14057,6 +14086,21 @@ def self_test():
             g["run"] = was_run
         t("a question with previews keeps the preview out of its options' labels, and says it has them",
           ([o["label"] for o in ask["options"]], ask.get("preview")), (["Footer empty", "Bench in footer"], True))
+        # a permission prompt in a 23-column pane, wrapped by Claude Code: read back as sentences (owner, 2026-11-23)
+        shot = ("─" * 23 + "\nThis shell -c script\nruns rm and could not\nbe checked\n⚠ Claude Code will\nautomatically block\n"
+                "this request in 0:58,\nto avoid holding up\nan unattended session\n\nDo you want to\nproceed?\n❯ 1. Yes\n"
+                "  2. No\n\nEsc to cancel · Tab\nto amend\n")
+        g["run"] = lambda *cmd, **kw: (shot if cmd[:2] == ("tmux", "capture-pane") else "23\n" if cmd[:2] == ("tmux", "display-message")
+                                       else was_run(*cmd, **kw))
+        try:
+            ask = screen_ask("%1")
+        finally:
+            g["run"] = was_run
+        t("a prompt wrapped to a narrow pane reads as sentences, its options and warning on lines of their own",
+          (ask["text"].split("\n"), [o["label"] for o in ask["options"]]),
+          (["This shell -c script runs rm and could not be checked",
+            "⚠ Claude Code will automatically block this request in 0:58, to avoid holding up an unattended session",
+            "Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel · Tab to amend"], ["Yes", "No"]))
         # a question with previews as Claude Code v2.1 draws it (captured 2026-11-14): "Chat about this" unnumbered below a
         # rule of its own, which was read as the top of the prompt, so the owner's phone showed only "Chat about this"
         rule = "─" * 120
