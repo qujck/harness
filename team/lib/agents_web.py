@@ -1709,7 +1709,7 @@ def plugins(facts=None):
 
 def panes():
     """Roster name -> its tmux pane: the pane id and size of the session agent-spawn.sh starts for it,
-    <project>-<name>, else of a pane titled with its name (a session started by hand); and "<name> · meeting" -> its
+    named for it (Ada; <project>-<name> before 11-23), else of a pane titled with its name (a session started by hand); and "<name> · meeting" -> its
     meeting session's pane, titled so."""
     names = {r["name"].lower(): r["name"] for r in roster()}
     names.update({meeting_session(n).lower(): meeting_session(n) for n in list(names.values())})   # its meeting session's pane, by title
@@ -1724,7 +1724,7 @@ def panes():
             home[pid] = sess
     by_name = {}
     for sess, pid, title, cmd, cols, rows in lines:
-        own = sess.startswith(PROJECT + "-") and names.get(sess[len(PROJECT) + 1:])
+        own = names.get(sess.lower()) or (sess.startswith(PROJECT + "-") and names.get(sess[len(PROJECT) + 1:]))
         name = own or names.get(re.sub(r"^[^A-Za-z]+", "", title).strip().lower())
         if name and (own or cmd == "claude") and (own or name not in by_name):
             by_name[name] = {"session": "" if own else home[pid], "pane": pid, "cols": int(cols), "rows": int(rows)}

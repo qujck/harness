@@ -89,9 +89,9 @@ dir() { # dir <claude-name> <fallback>
 }
 
 # Every agent in its own session (owner, 2026-11-23: "give each agent their own byobu session"), named as
-# harness team/agent-spawn.sh names a spawned one, strength-<name, lowercased>, so the spawn and the bench find a
-# restored agent the same way (team/lib/agent-session.sh).
-session() { printf 'strength-%s\n' "${1,,}"; }
+# harness team/agent-spawn.sh names a spawned one, by the agent's name (Ada), so the spawn and the bench find a
+# restored agent the same way (team/lib/agent-session.sh) and byobu's menu lists it (it hides any name with a "-").
+session() { printf '%s\n' "${1^}"; }
 
 # home <name> <role> -> the folder to fall back on when the conversation's own can't be read
 home() {
@@ -149,4 +149,4 @@ else
 fi
 
 echo
-echo "Attach with:  byobu attach -t strength-<name>   (one session per agent; byobu list-sessions names them)"
+echo "Attach with:  byobu   (it lists one session per agent, by name: pick one)"

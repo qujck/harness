@@ -13,8 +13,9 @@ conversation, so it can also bring back a single agent that has died without dis
 
 ## One session per agent
 
-Every agent has its own byobu session, `strength-<name>` in lower case (owner, 2026-11-23: "give each agent
-their own byobu session"): `strength-deacon`, `strength-boozer`. It is the name `team/agent-spawn.sh` gives a
+Every agent has its own byobu session, named for the agent (owner, 2026-11-23: "give each agent their own
+byobu session"): `Deacon`, `Boozer`. byobu's menu lists only a session whose name has no `-`, so plain `byobu`
+offers every agent by name to pick from. It is the name `team/agent-spawn.sh` gives a
 spawned agent, so the spawn and the bench find a restored agent the same way. Two more sessions:
 
 | Session | What runs in it |
@@ -42,7 +43,9 @@ keeps its memories.
 
 ## Get into a session
 
-    byobu attach -t strength-deacon
+    byobu
+
+and pick the agent from the menu, or go straight to one: `byobu attach -t Deacon`.
 
 ## Get out of a session (Claude keeps running)
 
@@ -54,7 +57,7 @@ Press **F6**. Closing the terminal window does the same.
 
 ## Bring one agent back
 
-Kill its session if it is still there (`byobu kill-session -t strength-<name>`), then run `~/restore-claude.sh`.
+Kill its session if it is still there (`byobu kill-session -t <Name>`), then run `~/restore-claude.sh`.
 
 ## If `claude --resume <name>` says it can't find the session
 

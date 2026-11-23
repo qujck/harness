@@ -24,7 +24,6 @@ import sys
 import time
 
 ROSTER = os.environ.get("ROSTER_FILE", "/home/peter/dev/strength/agents/roster.json")
-PREFIX = "strength-"
 # The owner's /color for each role that is spawned.
 COLOURS = {"developer": "blue", "tester": "yellow"}
 SESSIONS = os.environ.get("DELIVERY_SYNC_SESSIONS", os.path.expanduser("~/.claude/sessions"))
@@ -69,7 +68,7 @@ def main():
     # Every agent session still without its role's colour gets a helper, unless one is already waiting: a spawned
     # agent can stay busy for hours, so this also picks up any helper that was lost.
     for s in tmux("list-sessions", "-F", "#{session_name}").split("\n"):
-        role = roles.get(s[len(PREFIX):]) if s.startswith(PREFIX) else None
+        role = roles.get(s.lower())
         if role in COLOURS:
             pane = tmux("list-panes", "-t", f"={s}:", "-F", "#{pane_id}").split()
             if len(pane) == 1:
