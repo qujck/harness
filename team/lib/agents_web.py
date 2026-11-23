@@ -9986,7 +9986,7 @@ function customHtml(ceil, tabRow) {
         : `<div class="blank">${n.name ? `<span>${esc(shown(n.name))} is not running</span>` : ""}${agentPick(n, true)}</div>`;
     } else if (n.show === "shell") {
       // the pane's terminals (n.terms, n.termAt the one showing), each kept whole across redraws, its id going with it
-      // through the pane's tabs and page loads; above them, a tab for each, + for another, and light or dark
+      // through the pane's tabs and page loads; above them, a tab for each, + for another, light or dark, and maximise
       if (!n.terms?.length) { n.terms = [{sh: n.sh || shellId(), shell: n.shell || "sh"}]; delete n.sh; delete n.shell; n.termAt = 0; saveLayout(l); }
       const th = shellTheme(n), at = Math.min(n.termAt || 0, n.terms.length - 1), t = n.terms[at];
       const kindName = k => shellKinds.find(x => x.kind === k)?.name || (k === "pwsh" ? "PowerShell" : "Shell");
@@ -9995,8 +9995,8 @@ function customHtml(ceil, tabRow) {
       const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">` +
         `<i class="shpinbtn${x.pin ? " on" : ""}" data-shpin="${i}" title="${x.pin ? `Pinned: a fresh shell here runs ${esc(x.pin)}` : "Pin a command for a fresh shell here to run"}">${PANE_ICON.shell}${SH_PIN}</i>` +
         `<span>${esc(label(x, i))}</span>` + (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
-      body = `<div class="shellwrap ${th}"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></b>` +
-        `<b class="shthemebtn" data-shtheme="${th === "light" ? "dark" : "light"}" title="${th === "light" ? "Dark" : "Light"} terminal">${th === "light" ? SH_MOON : SH_SUN}</b></div>` +
+      body = `<div class="shellwrap ${th}" data-name="~shell"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></b>` +
+        `<b class="shthemebtn" data-shtheme="${th === "light" ? "dark" : "light"}" title="${th === "light" ? "Dark" : "Light"} terminal">${th === "light" ? SH_MOON : SH_SUN}</b>${maxButton(path === maxed)}</div>` +
         `<div class="shellbox"><div class="shellhost" data-kept data-key="shell:${t.sh}" data-sh="${t.sh}" data-kind="${esc(t.shell)}"></div></div></div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
@@ -10124,7 +10124,7 @@ function tileZoom(n, path, count, split) {
 // An agent's card, or a Team, Combined, Meeting, File or Work queue pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 // the panes, other than agents' cards, whose maximise button fills the layout with the pane itself
-const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens"];
+const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens", "shell"];
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
 // An agent clicked in a Combined pane fills that pane with its card (kept in this browser as "focus:pane:<path>")
@@ -15146,7 +15146,7 @@ def self_test():
         t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
-           'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+           'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens", "shell"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
           ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
