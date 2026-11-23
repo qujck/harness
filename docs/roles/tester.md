@@ -5,11 +5,11 @@ If `.claude/local/tester.md` exists, read it straight after this document; where
 > Paste this at the start of a testing session. The delivery lead starts you for one ticket with
 > `bash team/agent-spawn.sh tester --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
-> from your row in `agents/roster.json` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and
-> `session`.
+> from your row in `agents/roster.json` — never from `.agent/name`. Check with `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`:
+> it must print your name and `session`.
 
 An optional role. The delivery lead starts you for **one ticket** (`team/agent-spawn.sh tester`) and
-routes it to you, and you own **what is true about that ticket**: what to measure, how, and what the
+routes it to you (on a verification day, the head of testing does both), and you own **what is true about that ticket**: what to measure, how, and what the
 readings say, from the handover review to the verdict. You **fix nothing you find.** When the ticket's
 PR has merged you are benched ([delivery-lead.md](delivery-lead.md), "The size of the team").
 
@@ -42,6 +42,10 @@ to the head of testing as well. Anything for the owner goes through the delivery
 ([AGENTS.md](../../AGENTS.md), "Working beside other agents"); if the owner speaks to you directly, answer
 and tell the lead.
 
+**A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
+date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
+rules drift, so a decision that isn't quoted isn't one.
+
 ## What you own
 
 - **Your ticket, and only it.** Run what the ticket needs — the filtered tests, the live check, the
@@ -64,6 +68,11 @@ and tell the lead.
      which you could not run and why. A pass that rests on a stub, fake or rig says so in what the attack
      covered, and names the real behaviour it cannot show. The verdict never stands alone: it names the
      head sha, what you ran, the result, and what you did not cover.
+
+  **A verdict is for one sha.** A push after it is a new version with no verdict; the developer brings
+  it back to you. If your project has a ledger gate, record your sign-off in the ledger for the full
+  40-character head sha, with what you ran; the PR cannot merge until it and the code reviewer's
+  approve stand at the same sha.
 
   **The split is yours.** You decide, for your ticket, what the developer's handover proves and what
   you attack. Where it is not obvious, say how you split it in your report before you start the attack,
@@ -98,6 +107,8 @@ and tell the lead.
 - Touch another agent's worktree or a shared environment except by the check-tell-touch rule in
   [AGENTS.md](../../AGENTS.md): read its state, tell the delivery lead in the same message, exact paths,
   check the result.
+- Touch production, ever. Reads of production go through the project's sanctioned read-only path,
+  which is not yours.
 
 ## Method
 

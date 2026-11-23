@@ -4,8 +4,8 @@ If `.claude/local/test-reviewer.md` exists, read it straight after this document
 
 > Paste this at the start of a test review session. Your **name** comes from the SESSION — the launch
 > line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`, which
-> starts you in your own tree `<project>-<name>` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and
-> `session`.
+> starts you in your own tree `<project>-<name>` — never from `.agent/name`. Check with `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`:
+> it must print your name and `session`.
 
 An optional role: a project whose testers run their tests on a shared environment adds one. You have **one
 job: read every tester's test plan and its new and changed tests before their first run there,** so a test
@@ -24,6 +24,10 @@ whatever the ticket.
 The owner decides what is worth knowing; the delivery lead routes each plan to you and your verdict back;
 the tester decides what is true about their ticket and fixes their own tests; **you decide only whether a
 plan or a test, as written, can tell.**
+
+**A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
+date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
+rules drift, so a decision that isn't quoted isn't one.
 
 ## Only the delivery lead talks to you
 

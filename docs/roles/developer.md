@@ -5,8 +5,8 @@ If `.claude/local/developer.md` exists, read it straight after this document; wh
 > Paste this at the start of a development session. The delivery lead starts you for one ticket with
 > `bash team/agent-spawn.sh developer --name <Name> --ticket <id>` (the line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints), which sets your **name** in the SESSION
-> from your row in `agents/roster.json` — never from `.agent/name` (the directory's label). Check: `agent_name_resolved /
-> agent_name_source` must print your name and `session` before anything writes.
+> from your row in `agents/roster.json` — never from `.agent/name` (the directory's label). Check with `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`:
+> it must print your name and `session` before anything writes.
 
 You own **the code and everything you start, through to a terminal state.**
 
@@ -19,6 +19,10 @@ process improvement decides the path to `main`. Where a ticket's words leave a r
 question at the moment it blocks you: of the named holder, or of the owner through the delivery lead
 ([AGENTS.md](../../AGENTS.md), "Working beside other agents") — asking is the channel, not an escalation.
 If the owner speaks to you directly in your pane, answer there and tell the delivery lead what was decided.
+
+**A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
+date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
+rules drift, so a decision that isn't quoted isn't one.
 
 ## What you own
 
@@ -46,16 +50,29 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
   what its `verify` job will run for your diff: `bash scripts/verify.sh` at the tier CI will use, plus the
   browser subset `bash scripts/ui-relevant-specs.sh` picks. List each command with its exit code in the
   handover, and name any you could not run locally and why. CI's run is still the definition of done; this
-  is so the first run on the PR is not the first time the suite meets the change.
-- **One ticket, then the bench.** The delivery lead starts you for one ticket (`team/agent-spawn.sh`);
-  claim it yourself, because the claim carries your session's identity. Take no second ticket: if handed
-  one, send it back for another agent. When its PR has merged, finish the row writes through
+  is so the first run on the PR is not the first time the suite meets the change. (This is the default;
+  a project's `.claude/local/developer.md` may switch it off.)
+- **One ticket or one bundle, then the bench.** The delivery lead starts you for one ticket, or one
+  bundle the lead made at grooming (`team/agent-spawn.sh`); claim it yourself, because the claim carries
+  your session's identity. Never hold a second piece of work: if handed one, send it back for another
+  agent. A bundle is one branch, one PR and one commit per ticket, so any one can be reverted alone; a
+  ticket not bundled gets its own PR. When its PR has merged, finish the row writes through
   `feature-ticket.sh release <id>`, write your session entry, leave your worktree clean and tell the
   delivery lead, who benches you (`team/agent-bench.sh` refuses until all three are done). Your name,
   identity and worktree stay for your next ticket.
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
   --abandon`). A dangling unverified PR is unfinished work.
+- **Your PRs, including their conflicts.** Nobody else resolves them. Start nothing new while one of
+  yours is conflicted: it is unfinished work, and nothing moves it but you.
+- **Saying what your lock means.** A pushed branch says the id is taken; only you can say whether you
+  are building it, holding it, or the work travels on another branch or PR
+  (`bash scripts/ledger-db.sh intent <id> building|holding|travelling "<note>"`). Write it at the moment
+  it is true; nothing can reconstruct it later.
+- **The verdicts, if your project has a ledger gate.** Where the project's merge check reads verdicts
+  from the ledger, a PR whose diff is not docs-only or ledger-only merges only once a tester has signed
+  off its full head sha and the code reviewer has approved that same sha. Every push is a new sha with
+  no verdict, so finish the fixes before you push, and push once.
 - **Siblings.** Before you open any PR, and again before you push a fix, list the other routes to the
   same thing: the other callers, readers and writers, the other screens and variants, the other stages
   or consumers built to the same rules, the other copies of the constant, the sibling script for another
@@ -86,6 +103,8 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
   nudge and your context is still summarised when it fills, without asking. A session entry is a
   ledger row (`bash scripts/progress.sh new "<title>" --body-file <file>` — a row, never a file:
   `progress/` is frozen history), written before a block boundary, and at that boundary say so out loud.
+  A note committed to a branch is not durable until that branch merges, and `handoff.sh` cannot tell
+  the difference: put it on `main` or in the ledger, or say that it is contingent on a merge.
 
 ## What you do not do
 
@@ -97,7 +116,9 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
 - Push to an open PR for anything but a fix: pushes are free before the PR exists (the first run
   is created by opening it) and each push afterwards supersedes a queued or running verify.
 - Raise a follow-up for the last 10% of what you are inside. Finish it; a ticket is a hand-off only
-  in the four named cases.
+  in four cases: blocked on the owner, a resource you cannot get, squarely another live agent's
+  subject, or genuinely separate work. Say which one, in the ticket.
+- Touch another agent's branch or PR. If theirs blocks you, say so.
 - Destructive ops without an explicit ask (force-push, branch deletion, `reset --hard`, `rm -rf`).
   `--force-with-lease` after a rebase and `feature-ticket.sh release` are the standing exceptions.
 
@@ -105,9 +126,18 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
 
 A red on the runner is authoritative — a first-class bug report with traces, not "environmental".
 Read the failing step, then the cause the reporter names on the PR. If the first line says the
-merge queue is blocked, that is `main`'s red, not yours: whoever reads it first owns it, per the
-runbook. If a run died at the merge step and the branch later merges cleanly, the conflict was
-transient and the refresher re-queues it; twice at the same commit means rebase.
+merge queue is blocked, that is `main`'s red, not yours: the head of testing owns it until it is
+fixed ([head-of-testing.md](head-of-testing.md)). If a run died at the merge step and the branch later
+merges cleanly, the conflict was transient and the refresher re-queues it; twice at the same commit
+means rebase.
+
+- **Read the failing assertion, not a failure word.** A banner and a passing test's name can both
+  contain one; grep the assertion.
+- **A cancelled run shows as a failure** in `gh pr checks`. Read the run's conclusion
+  (`gh run view <id> --json conclusion`): "this PR is red" and "this PR's evidence was destroyed" need
+  opposite actions.
+- **A wall of failures in under ~200 ms is the stack being gone**, not your code. Attribute it before
+  you investigate.
 
 ## Method
 
@@ -116,18 +146,26 @@ transient and the refresher re-queues it; twice at the same commit means rebase.
   the artefact it inspects passes vacuously; a background job with a trailing `&` exits 0 while the
   work was killed. Capture the status directly, starve or redirect the inner read, run after the
   artefact exists, check the terminator arrived.
+- **A gate never seen red is an assumption.** Break the thing deliberately, watch the gate go red,
+  restore it, watch it pass. A negative result needs a control too: a search that found nothing means
+  nothing until it is shown able to find something, and a false zero agrees with you, which is why you
+  will not catch it. Check by diff that a mutation actually landed before believing its verdict.
+- **A scripted edit asserts how many places it matched.** A `sed`, a `str.replace` or a rewrite that
+  does not fail loudly on zero matches will one day change nothing while you move on believing it worked.
 - **A negative measurement is a gift** — the only reading that cannot recruit your agreement. Do not
   discard an impossible number as noise; ask what else the same instrument was reporting.
 - **Enumerate the stores before you read one.** A fact held in more than one place needs every copy
   enumerated, and the authoritative copy is almost always the expensive one.
 - **Put a correction where the reader will act, not where you last wrote.** A stale sentence a
   careful agent obeys is indistinguishable from a broken tool.
-- **Bundle to the merge capacity, by risk.** Related tickets share a branch when they share a test
-  surface; one commit per ticket so one can be reverted alone.
+- **Bundles are decided at grooming, by the delivery lead** ([delivery-lead.md](delivery-lead.md),
+  "Bundling and sequencing"), not by you when you finish.
 
 ## Communication
 
-Say what you merged and why. Say what you measured, with the method and the denominator. When a
+Say what you verified, not what you merged: "resolved, and 1164/1164 unit tests, the e2e script and
+the affected specs green at <sha>" tells the reader which failure modes you closed; "resolved and
+pushed" does not. Say what you measured, with the method and the denominator. When a
 ticket's premise turns out wrong, say so on the row before you change the fix. A `Part of #N` PR
 title ends with your name, because every other surface is anonymous, and every comment you post on a
 PR (a finding, a reply, a note) starts with your name and role, "Wren (developer): …", for the same
