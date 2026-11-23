@@ -7,29 +7,24 @@ SSH connection. Every command you need is below - nothing else to learn.
 
     ~/restore-claude.sh
 
-Safe to run at any time. It prints one line per session and only starts the ones
-that aren't already running, and an agent already running in another session gets an
-empty slot rather than a second copy of its conversation, so it can also bring back a single agent that has
-died without disturbing the others.
+Safe to run at any time. It prints one line per agent and only starts the ones that aren't already running,
+and an agent already running in another session is skipped rather than given a second copy of its
+conversation, so it can also bring back a single agent that has died without disturbing the others.
 
-## Rename a session that came up as a number
+## One session per agent
 
-If a session shows as `11` instead of a name:
+Every agent has its own byobu session, `strength-<name>` in lower case (owner, 2026-11-23: "give each agent
+their own byobu session"): `strength-deacon`, `strength-boozer`. It is the name `team/agent-spawn.sh` gives a
+spawned agent, so the spawn and the bench find a restored agent the same way. Two more sessions:
 
-    byobu rename-session -t 11 Delivery
-
-## Restore each agent individually
-
-The script is the reliable route: it resumes each agent by conversation ID, in the
-directory its conversation is filed under, with its git identity from the strength
-roster. Run it to bring back any single missing session. Sessions and who is in them:
-
-| Session | Panes |
+| Session | What runs in it |
 |---|---|
-| `Delivery` | Columns of two (top / bottom), worked out from the roster: developers, then testers, then anyone else, then any test reviewer, with the code reviewer always in the bottom-right pane. Developers and testers never share a column; a gap is an empty shell. Never fewer than 8 panes, more columns as the team grows. |
-| `Delivery Lead` | The delivery lead, with the team panel in 32 columns on the right |
-| `Project` | Process improvement on the left (an empty slot when the role is vacant), the house assistant on the right |
-| `Ops` | The head of testing on the left, the head of operations on the right |
+| `Panel` | The team panel (`box/team-panel.sh`) |
+| `Web` | The team page on http://127.0.0.1:8787 (`box/team-web.sh`) |
+
+The script resumes each agent by conversation ID, in the directory its conversation is filed under, with its
+git identity from the strength roster. Each spawned developer and tester gets its role's colour from
+`box/delivery-sync.py`, which tmux runs whenever a session is created; it never moves or stops an agent.
 
 ## Who comes back
 
@@ -37,53 +32,32 @@ Only the agents that were running. The team page keeps a record of who is up and
 (`~/.local/state/strength/live-agents.json`, or `LIVE_AGENTS_FILE`). It takes an agent off only after it has
 watched that agent stop, which is what a bench does; a reboot or a crash stops the page too, so the record stays
 as it was. The restore resumes each agent in the record by its session ID, so a spawned agent's unnamed
-conversation comes back. Every other slot is empty, including a benched agent's. With no record (the page never
+conversation comes back, and nobody else, so a benched agent stays benched. With no record (the page never
 ran), it falls back to every active agent's newest conversation with that `/rename` title.
 
-The house assistant is the roster's active `project-office` agent (before that role existed, the first of
-`.assistants`).
-
-The house assistant runs from its own folder, `~/dev/<name>` (`~/dev/boozer`), which isn't a
-project. Claude Code never remembers trust for your home folder, so running it from `~` asked
-every restart. Its memory folder is a link to the one in `~`, so it keeps its memories.
-
-Delivery, Project and Ops come back whole or not at all. In Delivery a pane whose agent exits stays in
-place, marked dead; bring that one back with `byobu respawn-pane -t <pane>`. Kill and re-run the
-whole session only to pick up a roster change. A session name with a space needs quotes:
-`byobu attach -t 'Delivery Lead'`.
+The house assistant is the roster's active `project-office` agent. It runs from its own folder,
+`~/dev/<name>` (`~/dev/boozer`), which isn't a project. Claude Code never remembers trust for your home
+folder, so running it from `~` asked every restart. Its memory folder is a link to the one in `~`, so it
+keeps its memories.
 
 ## Get into a session
 
-    byobu attach -t Project
-
-Names: `Delivery`, `Delivery Lead`, `Project`, `Ops`.
+    byobu attach -t strength-deacon
 
 ## Get out of a session (Claude keeps running)
 
 Press **F6**. Closing the terminal window does the same.
 
-## Move between the panes in `Delivery`, `Project` or `Ops`
-
-**Shift+F3** / **Shift+F4**, or click the pane.
-
 ## See what's running
 
     byobu list-sessions
 
-## Kill a session so you can recreate it
+## Bring one agent back
 
-    byobu kill-session -t Project
+Kill its session if it is still there (`byobu kill-session -t strength-<name>`), then run `~/restore-claude.sh`.
 
 ## If `claude --resume <name>` says it can't find the session
 
 The name is set inside Claude with `/rename`. Pick from a list instead:
 
     cd /home/peter && claude --resume
-
-## Adding a new agent
-
-Onboard it in strength first (`scripts/agent-onboard.sh <Name> <role>`), launch it
-with `-n <Name>` so its conversation carries the name, then add the name to the
-right `columns` or `start` line in `restore-claude.sh` (the `-` in the Delivery line is
-the empty slot, ready for one). Until an agent has a named
-conversation the script leaves it out with a note rather than failing.
