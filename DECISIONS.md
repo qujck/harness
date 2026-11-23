@@ -697,5 +697,6 @@ scripts' contracts and the page's side.
   `Name<TAB>time` in `~/.local/state/<project>/team-up`; the page closes the pane of any team agent in it once that
   turn ends, the lead's only once no other team agent runs, and never an assistant's. A line older than the agent's
   session is ignored, so a restarted agent is never closed by it. Stop empties the file, so it ends up holding exactly
-  who stopped, and Start brings back those agents and the lead. The team shows stopping until no team agent runs, or
+  who stopped, and keeps beside it who was running then; Start brings back both and the lead, so a machine that goes
+  down before every agent has stopped still brings them all back. The team shows stopping until no team agent runs, or
   for half an hour.

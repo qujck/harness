@@ -124,6 +124,7 @@ TEAM_PAUSED_SH = os.environ.get("TEAM_PAUSED") or os.path.join(ROOT, "team/team-
 TEAM_START_LOG = os.path.join(STATE_DIR, "team-start.log")   # what the page's starts printed
 NUDGER_PAUSED = os.path.join(os.path.dirname(CONTEXT_DIR), "waiting-agents.paused")   # the nudger is off while this exists
 TEAM_UP = os.path.join(STATE_DIR, "team-up")   # stop file: "Name<TAB>epoch" a line, from team/agent-stopped.sh
+TEAM_WAS_UP = os.path.join(STATE_DIR, "team-was-up")   # who was running at the last Stop, a name a line
 STOPPED = os.environ.get("AGENTS_STOPPED") or os.path.join(STATE_DIR, "stopped")   # standing agents stopped one by one from the page, one a line
 COMPACT_ON_START = os.path.join(STATE_DIR, "compact-on-start")   # a file per agent the page stopped
 STANDING = {"lead", "hot", "ops", "support", "review", "testrev", "process", "pa"}   # the roles started and stopped one by one; developers and testers come and go with tickets
@@ -1902,11 +1903,12 @@ def lead_name(live=None):
 
 
 def team_up():
-    """Who the next start brings back, the lead always among them: those in the stop file (each agent that ran
-    team/agent-stopped.sh) who are still on the roster. With no stop file, the roster except the agents stopped one by one; None if that is
+    """Who the next start brings back, the lead always among them: those who were running when the owner pressed Stop
+    (TEAM_WAS_UP) or ran team/agent-stopped.sh since (the stop file), who are still on the roster, so a machine that goes
+    down before everyone has stopped still brings them all back. With no stop file, the roster except the agents stopped one by one; None if that is
     the whole team."""
     lead = lambda r: role_of(r["role"])[0] == "lead"
-    names = set(stopped_at()) if os.path.exists(TEAM_UP) else None
+    names = set(stopped_at()) | (names_in(TEAM_WAS_UP) or set()) if os.path.exists(TEAM_UP) else None
     if names is not None:
         return [r["name"] for r in team_roster() if r["name"] in names or lead(r)]
     stopped = names_in(STOPPED) or set()
@@ -1999,15 +2001,16 @@ def leftovers():
 def start_team(lead, names):
     """The local repositories brought up to date (update_repos), then team/team-start.sh for the named agents (the
     whole team for None), then, once the lead is up and ready for a message, the lead is told to start the day, with
-    what the update did and the containers benched agents left behind (leftovers). The stop file is used up."""
+    what the update did and the containers benched agents left behind (leftovers). The stop file and the list of who was running are used up."""
     started = names or [r["name"] for r in team_roster()]
     try:
         repos = update_repos()
         restore(*[a for n in names for a in ("--only", n)]) if names else restore()
-        try:
-            os.remove(TEAM_UP)
-        except OSError:
-            pass
+        for f in (TEAM_UP, TEAM_WAS_UP):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
         for n in started:
             if n != lead:
                 threading.Thread(target=compact_when_up, args=(n,), daemon=True).start()
@@ -4225,7 +4228,8 @@ class Handler(BaseHTTPRequestHandler):
         """Starts the team (team/team-start.sh for those in the stop file, else the whole team, then the lead is told
         to start the day once it is up), or asks the lead to wind it down, as the owner asks before a shutdown: the lead
         marks the team paused and stops everyone, each agent running team/agent-stopped.sh, which stop_pass acts on.
-        The stop file starts empty, so it ends up holding exactly who stopped, for the next start."""
+        The stop file starts empty, so it ends up holding exactly who stopped; who was running is kept beside it, and
+        the next start brings back both."""
         # the stop asks whoever leads now; the start brings the delivery lead up and tells them to start the day
         lead = lead_name() if what == "stop" else next((r["name"] for r in roster() if role_of(r["role"])[0] == "lead"), None)
         if not lead:
@@ -4238,6 +4242,8 @@ class Handler(BaseHTTPRequestHandler):
             if ok:
                 os.makedirs(STATE_DIR, exist_ok=True)
                 open(TEAM_UP, "w").close()
+                with open(TEAM_WAS_UP, "w") as f:
+                    f.write("".join(n + "\n" for n in running))
                 _halting.update(["team", *running])
                 _team_stop["at"] = time.time()
             return self.send(200 if ok else 500, json.dumps({"asked": lead}).encode(), "application/json")
@@ -13252,7 +13258,7 @@ def self_test():
         g.update(HOME=T, PROJECT="proj", SESSIONS=T + "/sessions", PROJECTS=T + "/projects", CONTEXT_DIR=T + "/context",
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
                  ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
-                 TEAM_UP=T + "/state/team-up", STOPPED=T + "/state/stopped", COMPACT_ON_START=T + "/state/compact-on-start", TEAM_START_LOG=T + "/state/team-start.log",
+                 TEAM_UP=T + "/state/team-up", TEAM_WAS_UP=T + "/state/team-was-up", STOPPED=T + "/state/stopped", COMPACT_ON_START=T + "/state/compact-on-start", TEAM_START_LOG=T + "/state/team-start.log",
                  TEAM_START_SH=T + "/bin/team-start", REPOS_UPDATE=T + "/bin/repos-update", REPOS_UPDATE_LOG=T + "/state/repos-update.log", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
         with open(T + "/roster.json", "w") as f:
             json.dump({"agents": [
@@ -14007,6 +14013,8 @@ def self_test():
         g.update(live_sessions=lambda: {"Lea": {"status": "idle"}, "Max": {"status": "idle"}})
         code("/api/team/stop", "POST", {"X-Team-Say": "1"}, b"")
         t("a team stop empties the stop file", (os.path.exists(TEAM_UP), stopped_at()), (True, {}))
+        t("  and keeps who was running, so a start after a reboot brings back those that had not yet stopped",
+          (names_in(TEAM_WAS_UP), team_up()), ({"Lea"}, ["Lea"]))
         t("  and shows the team and its running agents stopping, and no assistant", [n in _halting for n in ("team", "Lea", "Max")], [True, True, False])
         gone, live = [], {n: {"status": "idle", "startedAt": 1_000_000} for n in ("Lea", "Ada", "Max")}
         run = subprocess.run
@@ -14033,7 +14041,7 @@ def self_test():
             t("the next start brings back those who stopped, and the lead", team_up(), ["Lea", "Ada"])
         finally:
             subprocess.run = run
-        os.remove(TEAM_UP); [os.remove(os.path.join(COMPACT_ON_START, n)) for n in ("Ada", "Lea")]
+        os.remove(TEAM_UP); os.remove(TEAM_WAS_UP); [os.remove(os.path.join(COMPACT_ON_START, n)) for n in ("Ada", "Lea")]
         _team_stop["at"] = 0
         g.update(keep)
         t("a developer is not started from the page", code("/api/agent/Ada/start", "POST", {"X-Team-Say": "1"}, b"")[0], 409)

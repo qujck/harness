@@ -2,8 +2,8 @@
 # team/agent-stopped.sh — records that the calling agent has stopped for a team shutdown, at a clean point with its
 # durable record up to date. It puts "<Name><TAB><now>" in the stop file, ~/.local/state/<project>/team-up, replacing
 # any earlier line for that name. The team page acts on it: it closes the agent's pane once the turn that ran this
-# ends (the lead's only once every other team agent has stopped), and the team's next Start brings back exactly the
-# agents in the file.
+# ends (the lead's only once every other team agent has stopped), and the team's next Start brings back the agents
+# in the file and those running when Stop was pressed.
 #
 #   bash team/agent-stopped.sh                # the name is $AGENT_NAME, else the Claude session this runs under
 #   bash team/agent-stopped.sh --self-test
