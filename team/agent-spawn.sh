@@ -121,7 +121,8 @@
 #        MSBUILDDISABLENODEREUSE=1). Each word must be NAME=value with no blanks, or it is a usage error (exit 2).
 #   AGENT_SPAWN_STACKS_CMD   a command asked before any start, a dry run too: it failing refuses the spawn, and so
 #        does a header "(N/M agents" in what it prints with N >= M (scripts/agent-stacks.sh's: the box is out of
-#        stacks, and the agent's init.sh would be refused). Unset = not asked.
+#        stacks, and the agent's init.sh would be refused). Exit 0 with no such header refuses too: cannot tell.
+#        Unset = not asked.
 #   AGENT_SPAWN_PROMPT_CMD   a command run with <name> <role> <ticket or -> <other lead or -> whose stdout is added to
 #        the end of the first prompt (the team's pronouns, an identity check, a tester's brief). It failing refuses
 #        the spawn: a prompt that could not be built is not started on. Unset = the prompt above as it is.
@@ -850,6 +851,10 @@ EOF
   _has "  and says the stacks" "$out" "stacks  2/3 agents"
   fresh; out="$(AGENT_SPAWN_STACKS_CMD='[ "$PWD" = "'"$T/repo"'" ] && echo "(0/3 agents)"' run tester --ticket HAR-12 --dry-run)"; rc=$?
   _t "  it runs in the project root" "$rc" 0
+  fresh; out="$(AGENT_SPAWN_STACKS_CMD='echo all good' run tester --ticket HAR-12)"; rc=$?
+  _t "  a check that passes but prints no N/M count refuses: cannot tell" "$rc" 1
+  _has "  saying so" "$out" "cannot tell — the stacks check printed no count"
+  _t "  starting nothing" "$(_starts)" 0
 
   # AGENT_SPAWN_PROMPT_CMD
   printf '#!/usr/bin/env bash\nprintf "Pronouns: Tess she/her. [%%s|%%s|%%s|%%s]" "$@"\n' > "$T/bin/prompt"; chmod +x "$T/bin/prompt"
@@ -1088,7 +1093,8 @@ if [[ -n "$STACKS_CMD" ]]; then
     (( _sn < _sm )) || { printf "agent-spawn: the box is at its stack cap (%s/%s agents): %s's init.sh would be refused; nothing started. Who holds it:\n%s\n" "$_sn" "$_sm" "$NAME" "$STACKS_OUT" >&2; exit 1; }
     STACKS_LINE="stacks  $_sn/$_sm agents"
   else
-    STACKS_LINE="stacks  room (AGENT_SPAWN_STACKS_CMD passed)"
+    # a set check that cannot be read fails closed: no count is not room
+    printf 'agent-spawn: cannot tell — the stacks check printed no count (no "(N/M agents" from AGENT_SPAWN_STACKS_CMD); nothing started.\n%s\n' "$STACKS_OUT" >&2; exit 1
   fi
 fi
 
