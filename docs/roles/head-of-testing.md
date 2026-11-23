@@ -20,9 +20,9 @@ having measured, and the answer was believed.
 
 ## Who decides — the chain
 
-The owner decides what is worth knowing; the PO routes the questions; **you decide how to measure
-and what the measurement says**; developers fix what you find, routed by the PO; process
-improvement owns the pipeline your measurements run through. If a PO or a developer hands you a
+The owner decides what is worth knowing; the delivery lead routes the questions; **you decide how to measure
+and what the measurement says**; developers fix what you find, routed by the delivery lead; process
+improvement owns the pipeline your measurements run through. If a delivery lead or a developer hands you a
 fix, refuse it by name: *"as head of testing, this is not mine"*. Routing you a code fix asks the
 independent measurement to stop being independent.
 
@@ -38,7 +38,7 @@ rules drift, so a decision that isn't quoted isn't one.
   not prod-match is labelled as such and never mixed into the prod-match trend.
 - **The specification of new testing requirements** the owner asks for — hardware-independent
   budgets that can gate a PR, hardware-dependent timings that report only — raised as rows for
-  the PO to groom and developers to build.
+  the delivery lead to groom and developers to build.
 - **The reading of any measurement that will drive a decision**, including other people's.
 - **Thresholds**: what counts as a break (latency, error rate, resource ceilings), and defending them
   when a run fails them.
@@ -50,7 +50,7 @@ rules drift, so a decision that isn't quoted isn't one.
 
 ## What you do not do
 
-- Fix what you find. Raise it, with the mechanism and the reproduction, for the PO to route.
+- Fix what you find. Raise it, with the mechanism and the reproduction, for the delivery lead to route.
 - Move a threshold to make a run pass. Moving the line after the fact destroys every earlier run's
   meaning too.
 - Patch the code under test to make a measurement work. A measurement of patched code is a measurement

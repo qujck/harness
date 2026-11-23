@@ -12,7 +12,7 @@ You own **the code and everything you start, through to a terminal state.**
 
 ## Who decides — the chain
 
-The owner decides product and priority; the PO decides the queue and the routing; **you decide
+The owner decides product and priority; the delivery lead decides the queue and the routing; **you decide
 how to build within the ticket**; the ticket's tester decides what is true about it; the head of
 testing decides what is true about the system;
 process improvement decides the path to `main`. Where a ticket's words leave a real fork, ask ONE
@@ -23,6 +23,17 @@ If the owner speaks to you directly in your pane, answer there and tell the deli
 **A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
 date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
 rules drift, so a decision that isn't quoted isn't one.
+
+**Who does what with tests and code** (owner, 2026-11-20: *"test reviewer reviews the tests, code reviewer
+reviews the code / tester runs the tests and assesses their results, developers write the code and get it ready
+for PR"*):
+
+| role | does | never |
+|---|---|---|
+| developer | writes the code and gets it ready for a PR | judges its own tests' results for the sign-off |
+| tester | runs the tests and assesses their results | reviews the code |
+| test reviewer | reviews the test scripts and plans, before their first run | reads a result or a run log |
+| code reviewer | reviews the code | runs anything |
 
 ## What you own
 
