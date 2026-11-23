@@ -13,9 +13,9 @@ is on:
 |---|---|---|
 | `delivery-lead` | [delivery-lead.md](delivery-lead.md) | the ledger, the pipeline's routing, who works on what |
 | `developer` | [developer.md](developer.md) | the code and everything they start, to a terminal state |
-| `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; runs no tests, directs no testers, fixes nothing it finds |
+| `head-of-testing` | [head-of-testing.md](head-of-testing.md) | what is TRUE about the system under load, and pre-prod; a red `main` until it is fixed; runs the verification day; runs no tests, directs no testers on a development day, fixes nothing it finds |
 | `head-of-operations` *(optional)* | [head-of-operations.md](head-of-operations.md) | the released product and what it runs on: production reports, P1s, alerts, backups, the dev/test box; a standing chief with a release sign-off |
-| `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main`, recovery from a red `main`, the gates and the scheduled jobs |
+| `process-improvement` | [process-improvement.md](process-improvement.md) | the path to `main` (CI, lanes, runners, gates) and the scheduled jobs; not recovery from a red `main` |
 | `code-reviewer` *(optional)* | [code-reviewer.md](code-reviewer.md) | a review of every PR, posted on the PR; talks only to the delivery lead |
 | `test-reviewer` *(optional)* | [test-reviewer.md](test-reviewer.md) | a read of every tester's plan and tests before their first run on a shared environment; runs nothing; talks only to the delivery lead |
 | `tester` *(optional)* | [tester.md](tester.md) | what is true about the one ticket it is started for; fixes nothing it finds |
@@ -27,14 +27,25 @@ that `bash scripts/agent-onboard.sh --launch-line <Name>` prints from the roster
 stamps commits, claims and session entries with *you*. A `.agent/name` file says who a **directory**
 belongs to; it cannot say who a **session** is, and a project that read it as identity once had five
 live sessions resolve to one name. Resolution order is the session first, the directory never for a
-write: `agent_name_resolved` must print your name and `agent_name_source` must print `session`
-before anything writes.
+write: `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`
+must print your name and `session` before anything writes.
 
 ## `evidence` is the field that makes the register honest
 
 Every row says *how we know* its role: `declared — <who>, <date>: "<words>"`, or
 `inferred — <what was read>`. A role nobody declared is a guess, and the router should know it is
-routing on a guess. Count the inferred rows with the register, never in prose here.
+routing on a guess. Count the inferred rows with the register, never in prose here. Only the owner
+turns `inferred` into `declared`.
+
+## `remit` is a responsibility on top of a role, and routing reads it
+
+A row may carry a **`remit`**: a standing responsibility the owner assigned on top of the role, named
+the way a role is, so it names `docs/roles/<remit>.md`. `roster_remit <name> <remit> <date> [evidence]`
+(`scripts/lib/roster.sh`) records it, appends its evidence, and refuses one whose terms of reference
+are not written yet. A role is the whole truth only when the row has no remit: read it with
+`roster_lookup_remit <name>` before routing, and route a name with a remit by the remit first.
+`roster_role` drops a remit equal to the row's new role, because a role is not a remit on top of
+itself. A remit is **what you are for, never what you hold**: no ownership field, whatever it is called.
 
 ## Retired names are never reused
 
@@ -75,5 +86,7 @@ the reason on stderr) a retired name, an empty address and a missing tree, and f
 the one `git worktree add` that makes it. Onboarding a standing role makes that tree, and
 `bash scripts/agent-onboard.sh --make-tree <Name>` makes it for an agent rostered earlier and then prints
 the line; the team page's Start uses it. Only an empty path becomes a tree: a file, a directory or another
-clone already there is left alone and refused. `roster_role` (same library) records a change of role. Never edit a
-row's `name` or `email`.
+clone already there is left alone and refused. `roster_role` (same library) records a change of role. **Never
+edit the roster by hand**: onboarding, retiring, `roster_role` and `roster_remit` are the only writers, and a
+second writer with its own idea of the schema is how a register drifts from what reads it. Never change a row's
+`name` or `email`.

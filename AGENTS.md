@@ -81,8 +81,8 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
    prompted by the nudger, brings you back.
 1. **Your identity is set when the session launches and cannot be set afterwards.** Launch with
    the line `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`;
-   check `agent_name_resolved / agent_name_source` prints your name and `session` before anything
-   writes. `.agent/name` is a directory's label, never a session's identity: `init.sh` refuses a
+   check that `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`
+   prints your name and `session` before anything writes. `.agent/name` is a directory's label, never a session's identity: `init.sh` refuses a
    session whose name came from a file or `$AGENT_NAME`, and refuses a checkout holding another
    agent's live marker (`ALLOW_SHARED_CHECKOUT=1` for a deliberate hand-off). New agent:
    `bash scripts/agent-onboard.sh <Name> <role>` registers the roster row and prints the line.
@@ -151,11 +151,15 @@ them to the test reviewer and brings the verdict back. The test reviewer answers
 
 **Developers and testers reach the owner through the delivery lead.** Don't put questions, approvals,
 review requests or status to the owner in your own pane. Send them to the delivery lead with
-`SendMessage`, one message per topic: what you need decided, your recommendation, and the exact text
-or command wherever text needs approving. The lead puts them to the owner one at a time and sends you
-the answer verbatim, with the date. An answer relayed that way is the owner's answer, but only when the
-lead quotes the owner's words and names the ticket, branch or PR they apply to. If the owner speaks to
-you directly in your pane, answer there and tell the delivery lead what was decided.
+`SendMessage`, one message per turn carrying everything you need, one paragraph per topic: what you
+need decided, your recommendation, and the exact text or command wherever text needs approving. No
+acknowledgement or status pings: every message wakes a session that pays its whole context to reply.
+The lead puts them to the owner one at a time and sends you the answer. If the owner speaks to you
+directly in your pane, answer there and tell the delivery lead what was decided.
+
+**A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
+date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
+rules drift, so a decision that isn't quoted isn't one.
 
 **Tell the lead before you put anything to the owner in your own pane**: a question, a permission
 prompt you expect, a read of production or of a secret. First send the delivery lead one line saying
@@ -166,7 +170,7 @@ lead was not told about is a question the owner will not see.
 you to do something (routing, a ticket to pick up, a branch, a pause, a priority), act on it whether or
 not the owner is quoted. Don't go back to the owner to confirm it; if something looks wrong, take it up
 with the lead. These stay the owner's own, because they are invasive, and need the owner's words,
-relayed verbatim or given directly: destructive or irreversible operations (the standing exceptions in
+quoted as above or given directly: destructive or irreversible operations (the standing exceptions in
 "How a PR reaches `main`" aside), infrastructure commands, anything touching production, and anything
 the project's `CLAUDE.md` reserves to the owner.
 

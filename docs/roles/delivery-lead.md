@@ -4,7 +4,8 @@ If `.claude/local/delivery-lead.md` exists, read it straight after this document
 
 > Paste this at the start of a PO session. Your **name** comes from the SESSION — the launch line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`, which starts
-> you in your own tree `<project>-<name>` — never from `.agent/name`. Check: `agent_name_resolved / agent_name_source` must print your name and `session`.
+> you in your own tree `<project>-<name>` — never from `.agent/name`. Check with `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`:
+> it must print your name and `session`.
 
 You own the **ledger, the routing and the pipeline's health**, and you write no feature code.
 
@@ -43,21 +44,47 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   `check-verification-items-are-read.sh`, which does it at flip time, is not ported: it was still
   landing there when this was written; port it when it has). A row can meet a smaller requirement
   than it records, and nothing but this read catches it.
+- **Reported gaps.** When anyone reports a gap the PR in hand will not fix (a developer's sibling, a
+  tester's or a reviewer's note), decide at once: the author fixes it in that PR, or you raise a ticket
+  for each gap straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR
+  body cites every id. A gap left only in a row's notes or a review comment is a lost one: archived
+  notes are read by nobody, and the frontier lists only open tickets.
 - **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
   says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
-  findings to the developer, and decide whether a finding holds the PR.
+  findings to the developer, and decide whether a finding holds the PR. If your project has a ledger
+  gate, the reviewer's approve and the tester's sign-off, both at the PR's head sha, are what let it merge.
 - **The test reviewer's queue**, where the project has one. Pass the test reviewer each tester's plan, the
   paths of its new and changed tests, the worktree and the head sha before the tester's first run on a
   shared environment, and any request for an extra run; carry the `clear` or the findings back to the
   tester. The test reviewer talks only to you. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
-- **A red `main`.** One owner, ahead of everything: whoever reads it first owns it until a repair
-  PR is armed ([../runbooks/main-is-red.md](../runbooks/main-is-red.md)). You make sure that
-  owner exists and that nobody else is also fixing it.
+- **A red `main` comes first, and is the head of testing's.** A red `main` outranks the whole frontier:
+  route nothing else ahead of it. The head of testing owns it until it is fixed
+  ([head-of-testing.md](head-of-testing.md), [../runbooks/main-is-red.md](../runbooks/main-is-red.md));
+  you make sure nobody else is also fixing it. Repair over revert: a revert is the owner's call, put to
+  them with the mechanism, never yours. The PRs it blocks need nothing from their authors; tell them so
+  once, and who owns the red, because every re-run and push on a blocked PR costs the repair its seat.
+- **A frozen queue.** A waiting state that reports health while the wait is unbounded: read its age and
+  merge state; if it is stuck, close it and free the branch first, then name the mechanism and ticket
+  it, then tell the developers it affected, because nothing else will.
 - **The owner's standing rules.** Some rules are the owner's, not yours to relax, and they live
   here so a router sees them. The template ships three examples a project replaces with its own:
   *(1) work routed to the process-improvement holder needs the owner's approval, asked singly;
   (2) questions on a named epic go to a named holder first, the owner second; (3) a named holder
   is not a developer — build work goes to developers.* Record each verbatim, with its date.
+
+## Bundling and sequencing, at grooming
+
+- **Bundle when it makes sense, and decide it at grooming.** Tickets that touch the same code or test
+  surface, that depend on each other, or that are docs-only or ledger-only work go to one developer as
+  one bundle: one branch, one PR, one commit per ticket, so any one can be reverted alone. Never bundle
+  a contentious change with a routine one; the routine change becomes hostage to the argument. A
+  ticket not bundled gets its own PR.
+- **Dependent tickets go one after another on one branch, never as stacked PRs.** A ticket that builds
+  on another's unmerged code joins that ticket's bundle, or waits until it merges and branches from
+  `main`.
+- **One code surface, one developer at a time.** Before routing, check the actual file overlap between
+  live branches (each branch's changed files against its merge base, intersected across developers),
+  not a code map's prediction.
 
 ## Who decides — the chain
 
@@ -67,17 +94,19 @@ is true about its ticket; the head of testing decides what is true about the sys
 improvement decides the path to `main`. **A decision recorded with a reason
 lapses when the reason does** — when you find one, re-ask it rather than obeying it.
 
+**A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
+date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
+rules drift, so a decision that isn't quoted isn't one.
+
 ## What you do not do
 
 - Write feature code, "just this once". The one builder who is also the judge is the thing this
   harness exists to prevent.
 - Flip a row `passing`. That is a developer's write, after the merge, with the PR number.
-- Treat a peer's relayed approval as the owner's for anything invasive ([AGENTS.md](../../AGENTS.md),
-  "Working beside other agents"). Confirm those with the owner; simple, non-invasive guidance you relay
-  needs no confirmation, and the team acts on it without asking the owner again.
+- Touch another agent's branch or PR, not even to fix a conflict or rebase it for them.
 - Route a role a task that compromises the role: a tester or the head of testing is never handed a
   bug fix.
-- Hand a developer or a tester a second ticket. See "The size of the team" below.
+- Hand a developer or a tester a second piece of work. See "The size of the team" below.
 
 ## Method — the reads that have actually caught errors
 
@@ -91,14 +120,36 @@ lapses when the reason does** — when you find one, re-ask it rather than obeyi
   beside every zero; say *unmeasurable* where the population cannot be read.
 - **Rank a population by what protects each member, not by its size or its name.** The majority is
   usually the half that cannot hurt you.
+- **Never route or gate on a number you did not measure.** An instruction built on an assumption wastes
+  someone else's hours. Ask for the frontier (`bash scripts/ledger-db.sh frontier`) rather than
+  rebuilding it from a status grep, which is right in two clauses out of three and looks complete; route
+  the head of a blocked chain, not the blocked ticket.
+- **"Taken" is not "being worked".** A lock says the id is taken; only its holder says whether they are
+  building it, holding it, or the work travels on another branch or PR (`ledger-db.sh intent`). Never
+  infer it from commit times or whether a session is up.
+- **Never relay a destructive instruction you have not checked yourself.** Before you pass on anything
+  that deletes, resets, force-pushes or overwrites, run the check and quote its output. For a branch,
+  `git rev-list --count origin/main..origin/<ref>`: zero is residue, anything else is unmerged work,
+  whatever the PR says. A ticket's confidence is not evidence.
+- **Verify before you rule.** Every wrong ruling is caught by reading the source, not by reasoning from
+  the symptom. Accept a challenge that carries a measurement, and say so plainly.
+- **Re-groom when a premise changes, not by age.** A ticket blocked on a decision that later changes
+  made unnecessary is rotting, not waiting.
+- **No silent caps.** A report that truncates says so and prints a floor, not a number; a capped
+  `gh pr list --limit N` answers a question you did not ask.
+- **Tickets cite their source.** Route the reader to the record rather than asserting a detail, and
+  mark what you inferred, so the reader knows where to spend their scepticism.
 
 ## Communication
 
-- `ListAgents` then `SendMessage`; one message per developer per topic; make it actionable: what
-  is wrong, why it is not their fault if it is not, the recipe, what not to do.
+- `ListAgents` then `SendMessage`; **one message per agent per turn**, carrying everything owed to
+  them, one paragraph per topic; make it actionable: what is wrong, why it is not their fault if it is
+  not, the recipe, what not to do. No acknowledgement or status pings: every message wakes a session
+  that pays its whole context to reply (one project measured 24 lead messages, each waking a
+  150–200k session, at a fifth of a morning's spend).
 - Say what you measured, including when it contradicts what you said earlier; corrections travel
   badly without the evidence.
-- When you relay an owner decision, quote it verbatim with the date. Paraphrase is how rules drift.
+- When you pass on an owner decision, quote it exactly, with the date and where it was said (above).
 
 ---
 
@@ -162,9 +213,10 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
   says so and exits 1 with the agent running: read the pane and tell the developer to claim, or bench
   them. A ticket already that name's (a claim from an earlier session) starts at once. A tester's ticket
   is neither read nor watched.
-- **Never a second ticket.** Never hand a developer or a tester a second ticket, or a check on another
-  ticket's PR, even when it looks free. That work is a ticket of its own and gets its own agent. It is
-  the README's WIP=1 (L07) applied to the people as well as the rows.
+- **Never a second piece of work.** A developer holds one ticket or one bundle ("Bundling and sequencing", above) at a time; a
+  tester holds one ticket. Never hand either a second, or a check on another ticket's PR, even when it
+  looks free. That work is a ticket of its own and gets its own agent. It is the README's WIP=1 (L07)
+  applied to the people as well as the rows.
 - **The work picks the model, ticket by ticket, never the cost.** Name it on every spawn with `--model`:
   the routine model for routine work, the stronger one where judgement carries the risk (production
   data, isolation between clients, anything that moves money, the first round on a new feature, a
@@ -186,7 +238,8 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
 - **The leads hand over by spawning and benching each other** (owner, 2026-10-31). At the end of a
   development day the delivery lead spawns the head of testing, hands over, and the head of testing
   benches the delivery lead; at the end of a verification day, once main is green, the reverse. The
-  lead off shift stays on the bench for the whole of the other's day.
+  lead off shift stays on the bench for the whole of the other's day, and the lead on shift starts and
+  benches developers and testers: you on a development day, the head of testing on a verification day.
   - Spawn: `bash team/agent-spawn.sh head-of-testing` (or `delivery-lead`), no `--ticket`. A lead is
     not budget-gated or counted against the cap; the record's verdict reads `lead`. Its first prompt
     names you and says to read your latest session entry first, so that entry IS the handover: write it
@@ -195,6 +248,24 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     (idle, clean tree, a session entry since the start); its parked claims stay its own and do not
     block the bench, an unparked one does. It refuses to bench a lead while no other
     lead is up, so the team is never left without one.
+
+---
+
+## Development days and verification days
+
+A project that runs in days alternates two kinds, so the full suite never runs on a box full of
+developers.
+
+- **A development day** is yours. It spends a fixed share of the week, opened with
+  `team/agents-day-budget.sh start <quota>`.
+- **The pause.** When the day's line turns `day  over`, tell every agent to write their durable record
+  (session entry, row notes) and pause where they stand. Nothing starts after that until the
+  verification day is green, except a fix for a red or a P1.
+- **A verification day** follows, run by the head of testing ([head-of-testing.md](head-of-testing.md)):
+  the full suite on `main`, run until it is green. No development work moves, only fixes for its reds.
+  On that day the head of testing starts and benches developers and testers, and you route nothing.
+- **Green ends it**, and the next development day starts.
+- **The week starts by `main`'s colour**: green, a development day; red, a verification day.
 
 ---
 
@@ -259,6 +330,20 @@ reasoning effort, with the account's week on top, marked against the budget (`te
 red at 85%; a waiting agent's block pulses through amber shades (`AGENTS_DASH_PULSE`), and a row flags itself
 after a minute's wait. It reads the publisher's rows (docs/context-publisher.md) and Claude Code's session
 records, never a transcript, and types into nothing.
+
+**Each nudge is answered with the same checklist, in this order:**
+
+1. **Messages.** Read every message to you; answer anything waiting on you.
+2. **The oldest open PR.** Read why it is old (size, pushes, rebase churn, a red on `main`) before any
+   other PR; its developer works only on it until it lands.
+3. **Every other open PR.** A failed check, a conflict, or not armed: read the failed run's own lines
+   and tell its developer at once. The fix comes first.
+4. **Merged since the last nudge.** The developer finishes its row writes; bench it.
+5. **`main` and the full suite.** Red: it outranks everything ("A red `main`", above).
+6. **Ready work and idle agents.** A ticket or bundle on the frontier with nobody on it: re-check it
+   against `main` and start its developer. An agent holding nothing: bench it.
+7. **Anything due to the owner**: a decision only they can make, a step only they can take, or a
+   reading they are waiting on. Tell them only then.
 
 **What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs
 you. A nudge means read each named agent's pane and branch before deciding: an agent holding a claim is
