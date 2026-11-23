@@ -27,7 +27,7 @@
 #
 # ⚠ THIS IS THE DURABLE RECORD, NOT THE TIMELINESS, and the distinction is load-bearing. A pull is
 # only as timely as the puller. Nothing here shortens an overnight freeze on its own — what makes a
-# reader exist at 02:00 is strength-agent-nudge restarting an agent that stopped between turns.
+# reader exist at 02:00 is the waiting-agents nudger, when set on, waking an agent that stopped between turns.
 # **Neither half is sufficient alone**, and describing this one as the answer to overnight would be
 # the same defect in a third costume.
 #

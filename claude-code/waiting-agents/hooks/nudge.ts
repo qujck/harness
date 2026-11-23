@@ -203,6 +203,6 @@ export function dayTripText(statusLine: string): string {
     + 'to write its durable record, pause where it stands and reply to you with SendMessage; count the pause by their '
     + 'session entries (bash scripts/progress.sh list), not by replies; armed PRs stay armed. Then hand the shift to the '
     + 'head of testing without asking the owner (docs/roles/delivery-lead.md, the shift handover): write your session '
-    + 'entry and run bash scripts/agent-spawn.sh spawn head-of-testing --name <Name>. They start the verification day '
+    + 'entry and run bash team/agent-spawn.sh head-of-testing --name <Name> --why "verification day". They start the verification day '
     + 'and bench you. The nudger now nudges the head of testing.'
 }
