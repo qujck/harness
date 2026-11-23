@@ -6,15 +6,16 @@ suite on `main` failed, so `scripts/full-suite-gate.sh` exits 1 and the merge qu
 
 ## One owner, ahead of everything
 
-**Whoever reads the red first owns it** until a repair PR is armed — and says so where the team
-can see it, so nobody else is also fixing it. A red `main` outranks every ticket: the merge queue is
-blocked, so every other PR is waiting on this one. The PO makes sure the owner exists; the owner
-does not hand it back without a named successor.
+**The head of testing owns a red `main`** until it is fixed, and says so where the team can see it,
+so nobody else is also fixing it ([head-of-testing.md](../roles/head-of-testing.md)). A red `main`
+outranks every ticket: the merge queue is blocked, so every other PR is waiting on this one. The head
+of testing may ask the delivery lead for a developer to write the repair; ownership stays with the head of testing.
 
 ## Repair over revert
 
-Repair in place; revert only when the repair is not findable within the cap *({{e.g. 90 minutes}}
-— the owner sets it)*. Ship the runbook or lane change WITH the fix when the red exposed one.
+Repair in place. A revert is the owner's decision: when no repair is in sight within the cap
+*({{e.g. 90 minutes}} — the owner sets it)*, or the mechanism says the merged change is wrong in itself,
+put the question to the owner. Ship the runbook or lane change WITH the fix when the red exposed one.
 
 ## The repair lane
 
