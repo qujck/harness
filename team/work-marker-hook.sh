@@ -15,7 +15,8 @@
 #   release | sign-off | hand-over <id>   (ledger-db.sh, feature-ticket.sh release)   work off <id>
 #   handoff.sh                (the end of a session)                        work off           (every ticket)
 # and at SessionStart (a spawn, a resume, after a compaction) a tree whose branch is <id> or <id>-pt<N>: work on <id>;
-# on any other branch or a detached head, the ticket agent-spawn.sh named in STRENGTH_TICKET, if it set one.
+# on any other branch or a detached head, the ticket agent-spawn.sh named in HARNESS_TICKET (STRENGTH_TICKET from
+# strength's own spawner, before it called this harness's), if it set one.
 # A command that already runs `ledger-db.sh work` is left alone: the agent marked it by hand.
 #
 # It writes through the tree's own scripts/ledger-db.sh, so the ledger checks who is asking (the session identity)
@@ -83,7 +84,8 @@ run() {
     # the branch first; else the ticket agent-spawn.sh started this session for (a tester's tree starts detached)
     local how="this tree's branch"
     id="$(ticket_of_branch "$(git -C "$top" branch --show-current 2>/dev/null)")"
-    if [[ -z "$id" && "${STRENGTH_TICKET:-}" =~ ^#?[A-Za-z0-9_.-]+$ ]]; then id="${STRENGTH_TICKET#\#}"; how="the ticket this session was spawned for"; fi
+    local spawned="${HARNESS_TICKET:-${STRENGTH_TICKET:-}}"
+    if [[ -z "$id" && "$spawned" =~ ^#?[A-Za-z0-9_.-]+$ ]]; then id="${spawned#\#}"; how="the ticket this session was spawned for"; fi
     [[ -n "$id" ]] || return 0
     ans="$(mark "$top" on "$id")"
     [[ "$ans" == ok:* ]] && said+=("on $id ($how)")
@@ -168,6 +170,9 @@ self_test() {
   : > "$d/calls"; git -C "$d" switch -q --detach
   out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= STRENGTH_TICKET=feat_spawned bash "$HERE/work-marker-hook.sh" SessionStart)"
   _t "a detached tree marks the ticket it was spawned for" "$(cat "$d/calls")" "work on feat_spawned"
+  : > "$d/calls"
+  out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= HARNESS_TICKET=feat_harness bash "$HERE/work-marker-hook.sh" SessionStart)"
+  _t "  and so does harness agent-spawn.sh's HARNESS_TICKET" "$(cat "$d/calls")" "work on feat_harness"
   : > "$d/calls"; git -C "$d" switch -q fix_a_thing-pt1
   jq -nc --arg w "$d" '{session_id: "s", cwd: $w}' | GIT_AUTHOR_NAME= STRENGTH_TICKET=feat_spawned bash "$HERE/work-marker-hook.sh" SessionStart >/dev/null
   _t "a ticket's branch wins over the spawn ticket" "$(cat "$d/calls")" "work on fix_a_thing"

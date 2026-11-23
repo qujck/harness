@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh bench <Name> [--dry-run] [--by-hand]   (team/agent-bench.sh)
 #   bash team/agent-spawn.sh --self-test
 #
 # The delivery lead's way to grow the team for a ticket (docs/roles/delivery-lead.md, "The size of the
@@ -96,6 +97,42 @@
 # Measured 2026-10-29: twelve sessions woke together at 06:03 and read 52 M tokens by 06:40; every one of them
 # pays its whole context on every call, so the number working at once is the rate.
 #
+# THE SESSION IS MARKED. The started command carries HARNESS_SPAWNED=1 and HARNESS_TICKET=<id> (a lead:
+# HARNESS_ROLE=<role>) in its environment, and the tmux session holds the same (tmux set-environment), with
+# HARNESS_OWNER_OK=<the words> when there were some. team/work-marker-hook.sh reads HARNESS_TICKET at SessionStart;
+# team/agent-bench.sh reads the session's markers (AGENT_BENCH_SPAWNED_ONLY, AGENT_BENCH_PRECHECK_CMD).
+#
+# A LEADING VERB is accepted and changes nothing: `agent-spawn.sh spawn <role> …` is `agent-spawn.sh <role> …`, and
+# `agent-spawn.sh bench <Name> …` runs team/agent-bench.sh with the rest of the line, so a project's one spawn-and-bench
+# command can be this script.
+#
+# PROJECT SETTINGS (harness.env, HARNESS_ENV_FILE, or the environment). Every one defaults to the behaviour above, so
+# a project that sets none sees no change. Commands are run by bash in HARNESS_ROOT with stdin closed, so a
+# relative `bash scripts/x.sh` names the project's own script.
+#   AGENT_TREE_MODE=claude-worktree|sibling   where the agent works. claude-worktree (the default): `claude --worktree
+#        <project>-<name>` from HARNESS_ROOT, as above. sibling: its own git worktree beside the main checkout,
+#        <dir of the main checkout>/<project>-<name>, and `claude` started in it with no --worktree. A missing tree is
+#        added detached at a freshly fetched origin/main. An existing one is RE-ENTERED: it must be a worktree of this
+#        repository; it is fetched (`fetch --no-tags`, a dry run too), refused while `git status --porcelain` shows
+#        anything or while HEAD holds a commit no origin branch has and main holds no copy of (spawn_commits_only_here),
+#        and otherwise detached at origin/main. No branch is created, moved or deleted, and nothing is reset. Trust is
+#        then asked of the tree or a folder above it below $HOME.
+#   AGENT_LAUNCH_ENV="NAME=value …"   more environment for the started agent, after its identity (e.g.
+#        MSBUILDDISABLENODEREUSE=1). Each word must be NAME=value with no blanks, or it is a usage error (exit 2).
+#   AGENT_SPAWN_STACKS_CMD   a command asked before any start, a dry run too: it failing refuses the spawn, and so
+#        does a header "(N/M agents" in what it prints with N >= M (scripts/agent-stacks.sh's: the box is out of
+#        stacks, and the agent's init.sh would be refused). Unset = not asked.
+#   AGENT_SPAWN_PROMPT_CMD   a command run with <name> <role> <ticket or -> <other lead or -> whose stdout is added to
+#        the end of the first prompt (the team's pronouns, an identity check, a tester's brief). It failing refuses
+#        the spawn: a prompt that could not be built is not started on. Unset = the prompt above as it is.
+#   AGENT_SPAWN_TICKET_RESOLVE_CMD   a command run with the --ticket as given (an id, or a number like 6854) that
+#        prints the ticket's id: exit 0 the id (every later step uses it), 1 no such ticket (refused), anything else
+#        cannot tell (refused). Unset = the ticket is used as given.
+#   AGENT_SPAWN_LEAD_NEEDS_PEER=1   a lead is refused when no lead of the OTHER lead role is active on the roster:
+#        there would be no handover to read. Its prompt names that lead. Unset or 0 = any other lead, or none.
+#   AGENT_SPAWN_REQUIRE_NAME=1   --name is required (a dry run and the real run then cannot pick different people).
+#   AGENT_SPAWN_REQUIRE_TICKET=1   a developer or tester needs --ticket.
+#
 # Exit: 0 started (or a dry run said what it would start) · 1 refused, or started but the claim never appeared ·
 # 2 a usage error.
 set -uo pipefail
@@ -104,6 +141,7 @@ SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 # shellcheck source=lib/selftest-flag.sh
 . "$_here/../scripts/lib/selftest-flag.sh"
 PROJECT_GIVEN="${HARNESS_PROJECT:-}"   # before harness-env.sh derives one from the repo directory's name
+ROOT_GIVEN="${HARNESS_ROOT:-}"         # likewise: a start line printed for a project's tree must carry it
 # shellcheck source=lib/harness-env.sh
 . "$_here/../scripts/lib/harness-env.sh"
 export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
@@ -112,7 +150,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
+USAGE="usage: agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
@@ -122,6 +160,65 @@ CLAIM_POLL_S="${AGENT_SPAWN_CLAIM_POLL_S:-5}"
 # The size of the agent's tmux session, columns x rows: tmux's own default is 80x24, which the agent's screen (and its
 # terminal on the team page) wraps at until someone attaches.
 SIZE="${AGENT_SESSION_SIZE:-240x60}"; [[ "$SIZE" =~ ^[0-9]+x[0-9]+$ ]] || SIZE=240x60
+# The project settings (header, PROJECT SETTINGS). Unset, each is the harness's own behaviour.
+TREE_MODE="${AGENT_TREE_MODE:-claude-worktree}"
+LAUNCH_ENV="${AGENT_LAUNCH_ENV:-}"
+STACKS_CMD="${AGENT_SPAWN_STACKS_CMD:-}"
+PROMPT_CMD="${AGENT_SPAWN_PROMPT_CMD:-}"
+RESOLVE_CMD="${AGENT_SPAWN_TICKET_RESOLVE_CMD:-}"
+LEAD_NEEDS_PEER="${AGENT_SPAWN_LEAD_NEEDS_PEER:-0}"
+REQUIRE_NAME="${AGENT_SPAWN_REQUIRE_NAME:-0}"
+REQUIRE_TICKET="${AGENT_SPAWN_REQUIRE_TICKET:-0}"
+
+# A project command (a setting above), run by bash in HARNESS_ROOT with stdin closed. $1 the command · the rest its
+# arguments. Its exit and output are the command's.
+spawn_project_cmd() {
+  local c="$1"; shift
+  ( cd -- "$HARNESS_ROOT" && bash -c "$c"' "$@"' agent-spawn "$@" ) </dev/null
+}
+# PURE: is this AGENT_LAUNCH_ENV? Words of NAME=value, no blanks inside a word, nothing else. $1 -> 0 | 1
+spawn_launch_env_ok() {
+  local w ws
+  [[ "${1-}" != *[[:cntrl:]]* ]] || return 1
+  read -ra ws <<<"${1-}"
+  for w in ${ws[@]+"${ws[@]}"}; do [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^\'\"\\]*$ ]] || return 1; done
+  return 0
+}
+# PURE: stacks output -> "N M" from its "(N/M agents" header, or nothing when it has none.
+spawn_stacks_nm() { [[ "${1-}" =~ \(([0-9]+)/([0-9]+)\ agents ]] && printf '%s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"; return 0; }
+# PURE: the other lead's role. $1 a lead role -> the other one (nothing for any other role)
+spawn_other_lead_role() { case "${1-}" in delivery-lead) printf head-of-testing ;; head-of-testing) printf delivery-lead ;; esac; }
+# git with no repository inherited from a hook's environment (a spawn run from a hook would otherwise act on the
+# hook's repository, not the tree named with -C).
+spawn_git() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git "$@"; }
+# <tree>: the commits its HEAD holds that no origin branch has and main holds no copy of, one per line (sibling mode).
+# A rebase merge rewrites a PR's commits and deletes its branch, so the tree it leaves behind holds only pre-rebase
+# copies of what is on main. A copy is what `git cherry` marks "-": the same patch id. Each commit must be marked, not
+# merely unmarked "+": cherry never lists a merge, and a merge can carry its own edits.
+spawn_commits_only_here() {
+  local tree="$1" unpushed copies c
+  unpushed="$(spawn_git -C "$tree" rev-list HEAD --not --remotes=origin)" || return 1
+  [[ -n "$unpushed" ]] || return 0
+  copies="$(spawn_git -C "$tree" cherry origin/main HEAD)" || return 1
+  copies=$'\n'"$copies"$'\n'
+  for c in $unpushed; do
+    [[ "$copies" == *$'\n- '"$c"$'\n'* ]] || printf '%s\n' "$c"
+  done
+}
+# Has Claude Code's trust dialog been accepted for <path> exactly (claude-worktree mode), or with $2=up for <path> or
+# a folder above it below $HOME (sibling mode: a tree is trusted through the folder the trees sit in)?
+spawn_trusted() { # <path> [up]
+  local state p home
+  state="${CLAUDE_CONFIG_DIR:+$CLAUDE_CONFIG_DIR/.claude.json}"; state="${state:-$HOME/.claude.json}"
+  [[ "${2-}" == up ]] || { jq -e --arg r "$1" '.projects[$r].hasTrustDialogAccepted == true' "$state" >/dev/null 2>&1; return; }
+  [[ -r "$state" ]] || return 1
+  p="$(realpath -m -- "$1")"; home="$(realpath -m -- "$HOME")"
+  while [[ -n "$p" && "$p" != / && "$p" != "$home" ]]; do
+    jq -e --arg p "$p" '.projects[$p].hasTrustDialogAccepted == true' "$state" >/dev/null 2>&1 && return 0
+    p="${p%/*}"
+  done
+  return 1
+}
 
 # PURE: are these the owner's words? Not blank; not another flag (--dry-run after --owner-ok must not become the
 # words, and start a real spawn); not the script's own "<their words>" placeholder pasted unedited; one line (a tab or
@@ -342,11 +439,11 @@ EOF
   chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/day" "$T/bin/ledger"
   : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
-  run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="$T/repo" HARNESS_PROJECT="${PROJ-proj}" ROSTER_DOMAIN=proj.local \
+  run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="${ROOT:-$T/repo}" HARNESS_PROJECT="${PROJ-proj}" ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
             AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_DAY_BUDGET="$T/bin/day" AGENT_SPAWN_LOG="${LOGF-$T/spawns.tsv}" \
             AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
-            bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
+            AGENT_SPAWN_FIXTURE_BIN="${FB:-$T/bin}" bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
   local WHYARGS=(--why "routine test")   # every run in this test says why its model, unless a test empties it
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
@@ -644,10 +741,10 @@ EOF
   _t "  and records nothing, not even under a derived project" "$(find "$T/home" -name agent-spawns.tsv | wc -l)$(wc -l < "$T/spawns.tsv")" "0$before"
   out="$(PROJ='' LOGF='' HOME="$T/home" run tester --ticket HAR-12 --model opus --dry-run)"; rc=$?
   _t "a dry run needs neither" "$rc" 0
-  _has "  and its start line asks for the project" "$out" 'start exactly this one with: HARNESS_PROJECT=<project> bash team/agent-spawn.sh tester'
+  _has "  and its start line asks for the project" "$out" "start exactly this one with: HARNESS_PROJECT=<project> HARNESS_ROOT=$T/repo bash $SELF tester"
   printf 'proj-ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12 --model opus --dry-run)"
-  _has "a dry run's start line carries the project it was given" "$out" 'start exactly this one with: HARNESS_PROJECT=proj bash team/agent-spawn.sh tester'
+  _has "a dry run's start line carries the project it was given" "$out" "start exactly this one with: HARNESS_PROJECT=proj HARNESS_ROOT=$T/repo bash $SELF tester"
   printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
   WHYARGS=()
   out="$(run tester --ticket HAR-12 --model opus)"; rc=$?
@@ -674,6 +771,169 @@ EOF
   out="$(run developer --name Ben --dry-run)"; rc=$?
   _t "a record whose pid is dead does not" "$rc" 0
 
+  # ── PROJECT SETTINGS: each one unset is the behaviour above, and each one set is shown to bite ──
+  kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; child=""; rm -f "$T/claude/sessions"/*.json
+  : > "$T/repo/harness.env"; printf 'on\n' > "$T/budget.mode"
+  fresh() { : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"; }
+  _starts() { grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true; }
+
+  # unset: the start line as before, with the session's markers added to its environment and to the tmux session
+  fresh; out="$(run tester --ticket HAR-12)"; rc=$?; line="$(grep '^new-session' "$T/tmux.log")"
+  _t "settings unset: a tester starts" "$rc" 0
+  _has "  in claude's worktree, from the project root, as before" "$line" "-c $T/repo env GIT_AUTHOR_NAME=Tess"
+  _has "  marked in its environment with the ticket it was spawned for" "$line" "GIT_COMMITTER_EMAIL=tess@proj.local HARNESS_SPAWNED=1 HARNESS_TICKET=HAR-12 claude --worktree proj-tess --name Tess"
+  _has "  and on the tmux session, for the bench" "$(cat "$T/tmux.log")" "set-environment -t =proj-tess HARNESS_SPAWNED 1"
+  _has "  the ticket too" "$(cat "$T/tmux.log")" "set-environment -t =proj-tess HARNESS_TICKET HAR-12"
+  _not "  no stacks line (AGENT_SPAWN_STACKS_CMD unset)" "$out" "stacks  "
+  _has "  the prompt ends as before (AGENT_SPAWN_PROMPT_CMD unset)" "$line" "tell the delivery lead you are ready to test HAR-12."
+  fresh; out="$(run head-of-testing --owner-ok 'fine, Peter')"; rc=$?
+  _has "a lead is marked with its role, and the owner's words ride on the session" "$(cat "$T/tmux.log")" "set-environment -t =proj-vi HARNESS_OWNER_OK fine, Peter"
+  _has "  its role" "$(cat "$T/tmux.log")" "set-environment -t =proj-vi HARNESS_ROLE head-of-testing"
+  fresh; out="$(run tester --ticket HAR-12 --dry-run)"
+  _has "a start line names this script by its absolute path (it was a relative team/agent-spawn.sh)" "$out" "bash $SELF tester --name Tess"
+  [[ "$SELF" == /* ]] && _t "  which is absolute" abs abs || _t "  which is absolute" "$SELF" abs
+
+  # the leading verb: spawn changes nothing; bench is agent-bench.sh
+  fresh; out="$(run spawn tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "'spawn <role> …' is '<role> …'" "$rc" 0
+  _has "  and says the same" "$out" "would start Tess (tester) for HAR-12"
+  out="$(WHYARGS=(); run bench Nobody --dry-run)"; rc=$?
+  _t "'bench <Name>' runs agent-bench.sh" "$rc" 1
+  _has "  whose refusal it is" "$out" "agent-bench: Nobody is not on the roster"
+
+  # AGENT_SPAWN_REQUIRE_NAME / AGENT_SPAWN_REQUIRE_TICKET
+  fresh; out="$(AGENT_SPAWN_REQUIRE_NAME=1 run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "AGENT_SPAWN_REQUIRE_NAME=1: no --name is a usage error" "$rc" 2
+  _has "  saying why" "$out" "AGENT_SPAWN_REQUIRE_NAME=1"
+  out="$(AGENT_SPAWN_REQUIRE_NAME=1 run tester --name Tess --ticket HAR-12 --dry-run)"; rc=$?
+  _t "  with --name it runs" "$rc" 0
+  out="$(AGENT_SPAWN_REQUIRE_TICKET=1 run tester --dry-run)"; rc=$?
+  _t "AGENT_SPAWN_REQUIRE_TICKET=1: a tester with no --ticket is a usage error" "$rc" 2
+  out="$(run tester --dry-run)"; rc=$?
+  _t "  unset, it runs and asks the lead for one" "$rc" 0
+  out="$(AGENT_SPAWN_REQUIRE_TICKET=1 run head-of-testing --dry-run)"; rc=$?
+  _t "  a lead needs none" "$rc" 0
+
+  # AGENT_LAUNCH_ENV
+  fresh; out="$(AGENT_LAUNCH_ENV='MSBUILDDISABLENODEREUSE=1 X_Y=a/b' run tester --ticket HAR-12)"; rc=$?
+  _t "AGENT_LAUNCH_ENV: the spawn starts" "$rc" 0
+  _has "  with the extra environment after the identity" "$(grep '^new-session' "$T/tmux.log")" "GIT_COMMITTER_EMAIL=tess@proj.local MSBUILDDISABLENODEREUSE=1 X_Y=a/b HARNESS_SPAWNED=1"
+  for bad in 'NOEQUALS' '1X=y' "A='b c'" 'A=ok -x'; do
+    fresh; out="$(AGENT_LAUNCH_ENV="$bad" run tester --ticket HAR-12)"; rc=$?
+    _t "  AGENT_LAUNCH_ENV=$bad is a usage error" "$rc" 2
+  done
+  _t "  and none of them started anything" "$(_starts)" 0
+
+  # HARNESS_ENV_FILE: read after harness.env; a file that is not plain settings is not read
+  printf '# the owner'"'"'s values\nAGENT_LAUNCH_ENV="FROM_ENV_FILE=1"\n\n' > "$T/settings.env"
+  fresh; out="$(HARNESS_ENV_FILE="$T/settings.env" run tester --ticket HAR-12)"; rc=$?
+  _has "HARNESS_ENV_FILE: its settings are read" "$(grep '^new-session' "$T/tmux.log")" "FROM_ENV_FILE=1 HARNESS_SPAWNED=1"
+  printf 'AGENT_LAUNCH_ENV="FROM_ENV_FILE=1"\ntouch %s/ran\n' "$T" > "$T/settings.env"
+  fresh; out="$(HARNESS_ENV_FILE="$T/settings.env" run tester --ticket HAR-12)"; rc=$?
+  _has "  a file with a line that is not a setting is not read, and says so" "$out" "is not NAME=value, a comment or blank"
+  _not "  none of its settings apply" "$(grep '^new-session' "$T/tmux.log")" "FROM_ENV_FILE"
+  _t "  and its command never ran" "$([[ -e "$T/ran" ]] && echo ran || echo never)" never
+  printf 'AGENT_LAUNCH_ENV="X=$(touch %s/ran)"\n' "$T" > "$T/settings.env"
+  fresh; out="$(HARNESS_ENV_FILE="$T/settings.env" run tester --ticket HAR-12 --dry-run)"
+  _t "  nor does a setting that runs a command" "$([[ -e "$T/ran" ]] && echo ran || echo never)" never
+
+  # AGENT_SPAWN_STACKS_CMD
+  fresh; out="$(AGENT_SPAWN_STACKS_CMD='echo "live agent stacks (3/3 agents)"' run tester --ticket HAR-12)"; rc=$?
+  _t "AGENT_SPAWN_STACKS_CMD: a box at its stack cap refuses" "$rc" 1
+  _has "  naming the cap" "$out" "the box is at its stack cap (3/3 agents)"
+  _t "  starting nothing" "$(_starts)" 0
+  fresh; out="$(AGENT_SPAWN_STACKS_CMD='echo nope; exit 4' run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "  a stack check that fails refuses, a dry run too" "$rc" 1
+  _has "  as cannot tell" "$out" "cannot tell whether there is room"
+  fresh; out="$(AGENT_SPAWN_STACKS_CMD='echo "live agent stacks (2/3 agents)"' run tester --ticket HAR-12)"; rc=$?
+  _t "  with room it starts" "$rc" 0
+  _has "  and says the stacks" "$out" "stacks  2/3 agents"
+  fresh; out="$(AGENT_SPAWN_STACKS_CMD='[ "$PWD" = "'"$T/repo"'" ] && echo "(0/3 agents)"' run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "  it runs in the project root" "$rc" 0
+
+  # AGENT_SPAWN_PROMPT_CMD
+  printf '#!/usr/bin/env bash\nprintf "Pronouns: Tess she/her. [%%s|%%s|%%s|%%s]" "$@"\n' > "$T/bin/prompt"; chmod +x "$T/bin/prompt"
+  fresh; out="$(AGENT_SPAWN_PROMPT_CMD="bash $T/bin/prompt" run tester --ticket HAR-12)"; rc=$?
+  _has "AGENT_SPAWN_PROMPT_CMD: its output ends the first prompt, given name, role, ticket, other lead" \
+    "$(grep '^new-session' "$T/tmux.log")" "ready to test HAR-12. Pronouns: Tess she/her. [Tess|tester|HAR-12|-]"
+  fresh; out="$(AGENT_SPAWN_PROMPT_CMD='exit 3' run tester --ticket HAR-12)"; rc=$?
+  _t "  a prompt command that fails refuses" "$rc" 1
+  _t "  starting nothing" "$(_starts)" 0
+
+  # AGENT_SPAWN_TICKET_RESOLVE_CMD
+  printf '#!/usr/bin/env bash\ncase "$1" in 6854) echo feat_resolved ;; 404) exit 1 ;; 77) echo "x;y" ;; *) exit 3 ;; esac\n' > "$T/bin/resolve"
+  chmod +x "$T/bin/resolve"
+  fresh; out="$(AGENT_SPAWN_TICKET_RESOLVE_CMD="$T/bin/resolve" run tester --ticket '#6854' --dry-run)"; rc=$?
+  _has "AGENT_SPAWN_TICKET_RESOLVE_CMD: a number becomes the ticket's id" "$out" "would start Tess (tester) for feat_resolved"
+  out="$(AGENT_SPAWN_TICKET_RESOLVE_CMD="$T/bin/resolve" run tester --ticket 404 --dry-run)"; rc=$?
+  _t "  no such ticket refuses" "$rc" 1
+  _has "  saying so" "$out" "no ticket 404"
+  out="$(AGENT_SPAWN_TICKET_RESOLVE_CMD="$T/bin/resolve" run tester --ticket 999 --dry-run)"; rc=$?
+  _t "  a resolver that cannot tell refuses" "$rc" 1
+  out="$(AGENT_SPAWN_TICKET_RESOLVE_CMD="$T/bin/resolve" run tester --ticket 77 --dry-run)"; rc=$?
+  _t "  an answer that is not an id refuses" "$rc" 1
+  out="$(run tester --ticket 6854 --dry-run)"
+  _has "  unset, the ticket is used as given" "$out" "would start Tess (tester) for 6854"
+
+  # AGENT_SPAWN_LEAD_NEEDS_PEER: a roster with two heads of testing and no delivery lead
+  printf '{"agents":[{"name":"Vi","email":"vi@proj.local","role":"head-of-testing","status":"active"},{"name":"Hal","email":"hal@proj.local","role":"head-of-testing","status":"active"},{"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"retired"}]}\n' > "$T/leads.json"
+  fresh; out="$(RF="$T/leads.json" run head-of-testing --name Vi --dry-run)"; rc=$?
+  _t "unset, a lead starts with no delivery lead active" "$rc" 0
+  _has "  taking over from the other active lead" "$out" "to take over from Hal"
+  out="$(AGENT_SPAWN_LEAD_NEEDS_PEER=1 RF="$T/leads.json" run head-of-testing --name Vi --dry-run)"; rc=$?
+  _t "AGENT_SPAWN_LEAD_NEEDS_PEER=1: with no delivery lead active it refuses" "$rc" 1
+  _has "  naming the role it needs" "$out" "no delivery-lead is active on the roster"
+  out="$(AGENT_SPAWN_LEAD_NEEDS_PEER=1 run head-of-testing --dry-run)"; rc=$?
+  _t "  with one active it starts" "$rc" 0
+  _has "  and its prompt names that lead" "$out" "to take over from Lea"
+
+  # the fixture's stand-ins only: a self-test whose PATH reached a real tmux or claude starts nothing
+  fresh; out="$(FB="$T/elsewhere" run tester --ticket HAR-12)"; rc=$?
+  _t "AGENT_SPAWN_FIXTURE_BIN: a tmux that is not the fixture's refuses" "$rc" 1
+  _t "  starting nothing" "$(_starts)" 0
+
+  # AGENT_TREE_MODE=sibling: a project with an origin, the agents' trees beside its main checkout
+  fresh; out="$(AGENT_TREE_MODE=elsewhere run tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "AGENT_TREE_MODE that is not a mode is a usage error" "$rc" 2
+  local S="$T/sib"; mkdir -p "$S"
+  git init -q --bare "$S/origin.git"
+  git clone -q "$S/origin.git" "$S/main" 2>/dev/null
+  mkdir -p "$S/main/agents"; cp "$T/repo/agents/roster.json" "$S/main/agents/"
+  git -C "$S/main" add -A; git -C "$S/main" -c user.name=t -c user.email=t@t commit -q -m init; git -C "$S/main" push -q origin HEAD:main 2>/dev/null
+  git -C "$S/main" fetch -q origin
+  sib() { AGENT_TREE_MODE=sibling ROOT="$S/main" run "$@"; }
+  fresh; out="$(sib tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "sibling: a tree folder Claude Code has not been trusted in refuses" "$rc" 1
+  _has "  saying where to trust it" "$out" "has not been trusted in $S/proj-tess or any folder above it"
+  jq --arg s "$S" '.projects[$s] = {hasTrustDialogAccepted: true}' "$T/claude/.claude.json" > "$T/cj" && mv "$T/cj" "$T/claude/.claude.json"
+  fresh; out="$(sib tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "sibling: trusted through the folder above, a dry run passes" "$rc" 0
+  _has "  and says it would add the tree" "$out" "add $S/proj-tess, detached at origin/main"
+  _t "  adding nothing" "$([[ -e "$S/proj-tess" ]] && echo added || echo none)" none
+  fresh; out="$(sib tester --ticket HAR-12)"; rc=$?; line="$(grep '^new-session' "$T/tmux.log")"
+  _t "sibling: a spawn exits 0" "$rc" 0
+  _has "  starting in the agent's own tree" "$line" "-c $S/proj-tess env"
+  _not "  with no claude --worktree" "$line" "--worktree"
+  _t "  the tree is a worktree, detached at origin/main" \
+    "$(git -C "$S/proj-tess" rev-parse HEAD)|$(git -C "$S/proj-tess" branch --show-current)" "$(git -C "$S/main" rev-parse origin/main)|"
+  touch "$S/proj-tess/wip.txt"
+  fresh; out="$(sib tester --ticket HAR-12)"; rc=$?
+  _t "sibling: re-entering a tree with uncommitted work refuses" "$rc" 1
+  _has "  naming it" "$out" "$S/proj-tess has uncommitted changes"
+  _t "  starting nothing" "$(_starts)" 0
+  rm -f "$S/proj-tess/wip.txt"
+  git -C "$S/proj-tess" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "only here"
+  fresh; out="$(sib tester --ticket HAR-12 --dry-run)"; rc=$?
+  _t "sibling: a tree holding a commit no origin branch has refuses" "$rc" 1
+  _has "  saying so" "$out" "commit(s) no origin branch has"
+  git -C "$S/proj-tess" checkout -q --detach origin/main
+  fresh; out="$(sib tester --ticket HAR-12)"; rc=$?
+  _t "sibling: a clean tree is re-entered" "$rc" 0
+  _has "  and says so" "$out" "re-enter $S/proj-tess, detached at origin/main"
+  mkdir -p "$S/proj-ada"
+  fresh; out="$(sib developer --name Ada --dry-run)"; rc=$?
+  _t "sibling: a folder in the tree's place that is not a worktree refuses" "$rc" 1
+
   if (( fails == 0 )); then echo "agent-spawn --self-test: PASS"; return 0; fi
   echo "agent-spawn --self-test: FAIL ($fails)"; return 1
 }
@@ -683,6 +943,11 @@ if selftest_is_flag "${1:-}"; then
   [[ $# -eq 1 ]] || { printf 'unknown argument: %s\n' "$2" >&2; exit 2; }
   spawn_self_test; exit $?
 fi
+# A leading verb (header): `spawn` changes nothing; `bench` is team/agent-bench.sh with the rest of the line.
+case "${1:-}" in
+  spawn) shift ;;
+  bench) shift; exec bash "$_here/agent-bench.sh" "$@" ;;
+esac
 
 ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
 while (( $# )); do
@@ -708,12 +973,23 @@ done
 [[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
 LEAD=0; [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]] && LEAD=1
 (( LEAD )) && [[ -n "$TICKET" ]] && { printf 'agent-spawn: a lead takes over from the other lead and holds no ticket; drop --ticket\n%s\n' "$USAGE" >&2; exit 2; }
+# The project settings that are usage: a mode that is not one, an environment that is not NAME=value words, a
+# name or ticket the project requires (header, PROJECT SETTINGS).
+case "$TREE_MODE" in claude-worktree|sibling) ;;
+  *) printf "agent-spawn: AGENT_TREE_MODE='%s' is not claude-worktree or sibling; nothing started.\n" "$TREE_MODE" >&2; exit 2 ;; esac
+spawn_launch_env_ok "$LAUNCH_ENV" \
+  || { printf "agent-spawn: AGENT_LAUNCH_ENV='%s' is not NAME=value words; nothing started.\n" "$LAUNCH_ENV" >&2; exit 2; }
+[[ "$REQUIRE_NAME" != 1 || -n "$WANT" ]] \
+  || { printf 'agent-spawn: this project names who starts: --name <Name> (AGENT_SPAWN_REQUIRE_NAME=1), so a dry run and the real run start the same agent\n%s\n' "$USAGE" >&2; exit 2; }
+[[ "$REQUIRE_TICKET" != 1 ]] || (( LEAD )) || [[ -n "$TICKET" ]] \
+  || { printf 'agent-spawn: this project starts a %s for a ticket: --ticket <id> (AGENT_SPAWN_REQUIRE_TICKET=1)\n%s\n' "$ROLE" "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$WHY" ]] \
   || { printf 'agent-spawn: a real spawn says why it runs on its model: --why "<the reason for that model>"\n%s\n' "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$PROJECT_GIVEN" || -n "${AGENT_SPAWN_LOG:-}" ]] \
   || { printf 'agent-spawn: a real spawn needs HARNESS_PROJECT=<project> (or AGENT_SPAWN_LOG), to record it where the project reads it\n%s\n' "$USAGE" >&2; exit 2; }
-# The start lines this prints carry the project, so pasting one from the harness checkout is not refused.
-RUN_AS="HARNESS_PROJECT=${PROJECT_GIVEN:-<project>} bash team/agent-spawn.sh"
+# The start lines this prints carry the project (and the project's tree, when one was given) and this script's
+# absolute path, so pasting one from the harness checkout or from a project's tree is not refused, nor runs nothing.
+RUN_AS="HARNESS_PROJECT=${PROJECT_GIVEN:-<project>}${ROOT_GIVEN:+ HARNESS_ROOT=$(printf '%q' "$ROOT_GIVEN")} bash $SELF"
 WHY_ARG=""; [[ -n "$WHY" ]] && WHY_ARG=" --why $(printf '%q' "$WHY")"
 [[ -z "$TICKET" ]] || spawn_ticket_ok "$TICKET" \
   || { printf 'agent-spawn: %q is not a ticket id (a ledger id like feat_x_y, or a Jira key like HAR-12)\n' "$TICKET" >&2; exit 2; }
@@ -723,12 +999,27 @@ fi
 [[ -z "$MODEL" ]] || spawn_model_ok "$MODEL" || { printf 'agent-spawn: %q is not a model name\n' "$MODEL" >&2; exit 2; }
 [[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
 # `claude --worktree` exits at once in a folder whose trust dialog was never accepted, so the session would die
-# unseen behind tmux. Claude Code records the acceptance in .claude.json, per exact folder.
-CLAUDE_STATE="${CLAUDE_CONFIG_DIR:+$CLAUDE_CONFIG_DIR/.claude.json}"; CLAUDE_STATE="${CLAUDE_STATE:-$HOME/.claude.json}"
-jq -e --arg r "$HARNESS_ROOT" '.projects[$r].hasTrustDialogAccepted == true' "$CLAUDE_STATE" >/dev/null 2>&1 || {
-  printf 'agent-spawn: Claude Code has not been trusted in %s, so `claude --worktree` would exit at once.\n' "$HARNESS_ROOT" >&2
-  printf '  Run `claude` there once, accept the trust prompt, and spawn again.\n' >&2
-  exit 1; }
+# unseen behind tmux. Claude Code records the acceptance in .claude.json, per exact folder. (Sibling mode asks of the
+# agent's own tree, once its name is known, below.)
+if [[ "$TREE_MODE" == claude-worktree ]]; then
+  spawn_trusted "$HARNESS_ROOT" || {
+    printf 'agent-spawn: Claude Code has not been trusted in %s, so `claude --worktree` would exit at once.\n' "$HARNESS_ROOT" >&2
+    printf '  Run `claude` there once, accept the trust prompt, and spawn again.\n' >&2
+    exit 1; }
+fi
+
+# The ticket, by the project's own ledger when it says how (AGENT_SPAWN_TICKET_RESOLVE_CMD): a number becomes its id,
+# and a ticket that does not exist starts nothing.
+if [[ -n "$TICKET" && -n "$RESOLVE_CMD" ]]; then
+  _tk="$(spawn_project_cmd "$RESOLVE_CMD" "$TICKET" 2>/dev/null)"; _tkrc=$?
+  case "$_tkrc" in
+    0) spawn_ticket_ok "$_tk" && [[ "$_tk" != *$'\n'* ]] \
+         || { printf 'agent-spawn: the ticket resolver said %q for %s, which is not a ticket id: CANNOT TELL; nothing started.\n' "$_tk" "$TICKET" >&2; exit 1; }
+       TICKET="$_tk" ;;
+    1) printf 'agent-spawn: no ticket %s (AGENT_SPAWN_TICKET_RESOLVE_CMD found none); nothing started.\n' "$TICKET" >&2; exit 1 ;;
+    *) printf 'agent-spawn: could not resolve ticket %s (AGENT_SPAWN_TICKET_RESOLVE_CMD exit %s): CANNOT TELL; nothing started.\n' "$TICKET" "$_tkrc" >&2; exit 1 ;;
+  esac
+fi
 
 mapfile -t FREE < <(spawn_free_names "$ROLE")
 if [[ -n "$WANT" ]]; then
@@ -741,7 +1032,7 @@ else
     else
       printf 'agent-spawn: no active %s is onboarded, so there is nobody to start.\n' "$ROLE" >&2
     fi
-    printf '  Bench one whose ticket has merged (bash team/agent-bench.sh <Name>), or onboard another\n' >&2
+    printf '  Bench one whose ticket has merged (bash %s <Name>), or onboard another\n' "$_here/agent-bench.sh" >&2
     printf '  (bash scripts/agent-onboard.sh <Name> %s) and commit the roster.\n' "$ROLE" >&2
     exit 1
   fi
@@ -750,14 +1041,75 @@ fi
 
 SESSION="$(agent_session_name "$NAME")"
 OTHER_LEAD=""
-(( LEAD )) && OTHER_LEAD="$(roster_list_active | awk -F'\t' -v me="$NAME" '($2 == "delivery-lead" || $2 == "head-of-testing") && $1 != me { print $1; exit }')"
+if (( LEAD )) && [[ "$LEAD_NEEDS_PEER" == 1 ]]; then
+  # the handover is the OTHER lead role's latest entry: with none active there is nothing to take over from
+  OTHER_ROLE="$(spawn_other_lead_role "$ROLE")"
+  OTHER_LEAD="$(roster_list_active | awk -F'\t' -v r="$OTHER_ROLE" '$2 == r { print $1; exit }')"
+  [[ -n "$OTHER_LEAD" ]] || { printf 'agent-spawn: no %s is active on the roster, so there is no handover for %s to read (AGENT_SPAWN_LEAD_NEEDS_PEER=1); nothing started.\n' "$OTHER_ROLE" "$NAME" >&2; exit 1; }
+elif (( LEAD )); then
+  OTHER_LEAD="$(roster_list_active | awk -F'\t' -v me="$NAME" '($2 == "delivery-lead" || $2 == "head-of-testing") && $1 != me { print $1; exit }')"
+fi
+
+# Sibling mode (header): the agent's own tree beside the main checkout, trusted, and clean if it is re-entered.
+TREE="" REENTER=0 HOW=""
+if [[ "$TREE_MODE" == sibling ]]; then
+  COMMON="$(spawn_git -C "$HARNESS_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || { echo "agent-spawn: $HARNESS_ROOT is not a git tree, so there is no main checkout to put $NAME's tree beside; nothing started." >&2; exit 1; }
+  MAIN="${COMMON%/.git}"
+  TREE="${MAIN%/*}/$SESSION"
+  spawn_trusted "$TREE" up || {
+    printf 'agent-spawn: Claude Code has not been trusted in %s or any folder above it below $HOME, so the session would exit at once.\n' "$TREE" >&2
+    printf '  Run `claude` in %s once, accept the trust prompt, and spawn again.\n' "${MAIN%/*}" >&2
+    exit 1; }
+  if [[ -e "$TREE" ]]; then
+    REENTER=1
+    [[ "$(spawn_git -C "$TREE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" == "$COMMON" \
+       && "$(realpath -m -- "$(spawn_git -C "$TREE" rev-parse --show-toplevel 2>/dev/null)")" == "$(realpath -m -- "$TREE")" ]] \
+      || { echo "agent-spawn: $TREE exists but is not a worktree of $MAIN: move it aside by hand; nothing started." >&2; exit 1; }
+    spawn_git -C "$TREE" fetch -q --no-tags origin </dev/null || { echo "agent-spawn: cannot fetch origin in $TREE; nothing started." >&2; exit 1; }
+    [[ -z "$(spawn_git -C "$TREE" status --porcelain)" ]] \
+      || { echo "agent-spawn: $TREE has uncommitted changes: $NAME commits and pushes them, or discards them, first; nothing started." >&2; exit 1; }
+    UNPUSHED="$(spawn_commits_only_here "$TREE")" || { echo "agent-spawn: cannot list $TREE's unpushed commits; nothing started." >&2; exit 1; }
+    [[ -z "$UNPUSHED" ]] \
+      || { echo "agent-spawn: $TREE's HEAD holds $(grep -c . <<<"$UNPUSHED") commit(s) no origin branch has and main holds no copy of: $NAME pushes them first; nothing started." >&2; exit 1; }
+    HOW="re-enter $TREE, detached at origin/main"
+  else
+    HOW="add $TREE, detached at origin/main"
+  fi
+fi
+
+# The box's stacks (AGENT_SPAWN_STACKS_CMD): out of them, the agent's init.sh would be refused.
+STACKS_LINE=""
+if [[ -n "$STACKS_CMD" ]]; then
+  STACKS_OUT="$(spawn_project_cmd "$STACKS_CMD" 2>&1)" \
+    || { printf 'agent-spawn: the stack check failed (AGENT_SPAWN_STACKS_CMD), so cannot tell whether there is room; nothing started.\n%s\n' "$STACKS_OUT" >&2; exit 1; }
+  read -r _sn _sm <<<"$(spawn_stacks_nm "$STACKS_OUT")"
+  if [[ -n "${_sn:-}" ]]; then
+    (( _sn < _sm )) || { printf "agent-spawn: the box is at its stack cap (%s/%s agents): %s's init.sh would be refused; nothing started. Who holds it:\n%s\n" "$_sn" "$_sm" "$NAME" "$STACKS_OUT" >&2; exit 1; }
+    STACKS_LINE="stacks  $_sn/$_sm agents"
+  else
+    STACKS_LINE="stacks  room (AGENT_SPAWN_STACKS_CMD passed)"
+  fi
+fi
+
 PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET" "$OTHER_LEAD")"
+if [[ -n "$PROMPT_CMD" ]]; then
+  EXTRA="$(spawn_project_cmd "$PROMPT_CMD" "$NAME" "$ROLE" "${TICKET:--}" "${OTHER_LEAD:--}")" \
+    || { echo "agent-spawn: the first prompt's project part failed (AGENT_SPAWN_PROMPT_CMD), so the prompt is not whole; nothing started." >&2; exit 1; }
+  [[ -z "$EXTRA" ]] || PROMPT+=" $EXTRA"
+fi
 # the row's own address, or nothing starts (a session under an address no row holds is no agent)
 IDENT_TXT="$(roster_launch_env "$NAME")" || exit 1
 mapfile -t IDENT <<<"$IDENT_TXT"
-CMD=(env "${IDENT[@]}" claude --worktree "$SESSION" --name "$NAME")
+read -ra XENV <<<"$LAUNCH_ENV"
+MARKS=(HARNESS_SPAWNED=1)
+if (( LEAD )); then MARKS+=("HARNESS_ROLE=$ROLE"); elif [[ -n "$TICKET" ]]; then MARKS+=("HARNESS_TICKET=$TICKET"); fi
+CMD=(env "${IDENT[@]}" ${XENV[@]+"${XENV[@]}"} "${MARKS[@]}" claude)
+[[ "$TREE_MODE" == sibling ]] || CMD+=(--worktree "$SESSION")
+CMD+=(--name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
 CMD+=(--remote-control "$SESSION" "$PROMPT")
+START_DIR="$HARNESS_ROOT"; [[ "$TREE_MODE" == sibling ]] && START_DIR="$TREE"
 WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}"
 
 # The ticket, for a developer: the row must be one this developer could claim, or nothing starts.
@@ -776,7 +1128,6 @@ if [[ "$ROLE" == developer && -n "$TICKET" ]]; then
     refused:held-by:*)     echo "agent-spawn: $TICKET is held by ${VERDICT_T#refused:held-by:}, so $NAME could not claim it; nothing started." >&2; exit 1 ;;
   esac
 fi
-
 # The budget line, and what it means for THIS role (header: developers are gated, testers are not). An open day
 # (agents-day-budget.sh: a development day's fixed share) answers instead of the week's even pacing; exit 3 is no
 # day open, and only then is agents-budget.sh asked.
@@ -806,13 +1157,14 @@ fi
 [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
-  printf 'would start %s in tmux session %s, on %s, with Remote Control on\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}"
+  printf 'would start %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "${HOW:+: $HOW}"
   printf '  start exactly this one with: %s %s --name %s%s%s%s%s\n' \
     "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "${WHY_ARG:- --why \"<why that model>\"}" \
     "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   [[ -n "$WHY" ]] || printf '  the real spawn needs --why: the reason for the model it starts on.\n'
   printf '  first prompt: %s\n' "$PROMPT"
   [[ -z "$TICKET_LINE" ]] || printf '%s\n' "$TICKET_LINE"
+  [[ -z "$STACKS_LINE" ]] || printf '%s\n' "$STACKS_LINE"
   printf '%s\n' "$BUDGET_LINE"
   printf '%s\n' "$CAP_LINE"
   if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]]; then
@@ -843,15 +1195,40 @@ fi
 
 command -v tmux >/dev/null 2>&1 || { echo "agent-spawn: tmux is not on PATH" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "agent-spawn: claude is not on PATH" >&2; exit 1; }
-tmux new-session -d -s "$SESSION" -x "${SIZE%x*}" -y "${SIZE#*x}" -c "$HARNESS_ROOT" "${CMD[@]}" \
+# The self-test names its stand-ins' folder: then only those may run, never a real tmux or claude a reordered PATH
+# put first (strength, 2026-10-24: a mutant's PATH started three real sessions under fixture names).
+if [[ -n "${AGENT_SPAWN_FIXTURE_BIN:-}" ]]; then
+  for _b in tmux claude; do
+    [[ "$(command -v "$_b")" == "$AGENT_SPAWN_FIXTURE_BIN/$_b" ]] \
+      || { echo "agent-spawn: a self-test reached a $_b that is not the fixture's ($(command -v "$_b")): nothing started." >&2; exit 1; }
+  done
+fi
+# Sibling mode: the tree is put at origin/main now, after every gate (header). Re-entering was checked clean above.
+if [[ "$TREE_MODE" == sibling ]]; then
+  if (( REENTER )); then
+    spawn_git -C "$TREE" checkout -q --detach origin/main </dev/null \
+      || { echo "agent-spawn: could not detach $TREE at origin/main; nothing started." >&2; exit 1; }
+  else
+    spawn_git -C "$HARNESS_ROOT" fetch -q --no-tags origin </dev/null || { echo "agent-spawn: cannot fetch origin; nothing started." >&2; exit 1; }
+    spawn_git -C "$HARNESS_ROOT" worktree add -q --detach "$TREE" origin/main </dev/null \
+      || { echo "agent-spawn: could not add $TREE; nothing started." >&2; exit 1; }
+  fi
+fi
+tmux new-session -d -s "$SESSION" -x "${SIZE%x*}" -y "${SIZE#*x}" -c "$START_DIR" "${CMD[@]}" \
   || { echo "agent-spawn: tmux could not start session $SESSION for $NAME" >&2; exit 1; }
 tmux has-session -t "=$SESSION" 2>/dev/null \
   || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
+# The session's markers (header): what team/agent-bench.sh reads to know this script started it, and for what.
+for _m in "${MARKS[@]}" ${OWNER_OK:+"HARNESS_OWNER_OK=$OWNER_OK"}; do
+  tmux set-environment -t "=$SESSION" "${_m%%=*}" "${_m#*=}" 2>/dev/null \
+    || echo "agent-spawn: could not mark session $SESSION with ${_m%%=*} (the agent is running; a bench that asks for it needs --by-hand)" >&2
+done
 # The record: who was started, against which budget line, on whose word.
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
-printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')"
+printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
+[[ -z "$STACKS_LINE" ]] || printf '  %s\n' "$STACKS_LINE"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  %s\n' "$CAP_LINE"
 printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"

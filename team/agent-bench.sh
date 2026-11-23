@@ -2,7 +2,7 @@
 # team/agent-bench.sh — stop a developer's or tester's session once its ticket has merged, or a lead's once it has
 # handed over: onto the bench.
 #
-#   bash team/agent-bench.sh <Name> [--dry-run]
+#   bash team/agent-bench.sh [bench] <Name> [--dry-run] [--by-hand]
 #   bash team/agent-bench.sh --self-test
 #
 # The delivery lead's way to shrink the team (docs/roles/delivery-lead.md, "The size of the team"); the
@@ -33,6 +33,21 @@
 # (team/agent-containers.sh: those labelled agents.owner=<Name>). An agent with no running session is already on
 # the bench, and that is said and exits 0. --dry-run runs every check and stops nothing.
 #
+# A leading `bench` is accepted and changes nothing (`agent-spawn.sh bench <Name>` runs this with it dropped).
+#
+# PROJECT SETTINGS (harness.env, HARNESS_ENV_FILE, or the environment). Unset, each is the behaviour above.
+#   AGENT_BENCH_SPAWNED_ONLY=1   refuse a session agent-spawn.sh did not start: one with no tmux session
+#        <project>-<name> carrying HARNESS_SPAWNED=1 (the spawn's marker). --by-hand says it was started by hand and
+#        benches it all the same. Unset or 0 = any running session is benched, and --by-hand changes nothing.
+#   AGENT_BENCH_PRECHECK_CMD   a command asked after the roster and lead checks, a dry run too, run by bash in
+#        HARNESS_ROOT with the name as its argument and AGENT_BENCH_NAME, AGENT_BENCH_ROLE, AGENT_BENCH_SESSION,
+#        AGENT_BENCH_SPAWNED (1 = the session carries HARNESS_SPAWNED=1), AGENT_BENCH_TICKET (the session's
+#        HARNESS_TICKET, or empty) and AGENT_BENCH_TREE (the agent's worktree, or empty) in its environment. It failing
+#        refuses the bench, with what it printed: the project's own "is this agent's work done" (its stack is down, its
+#        ticket's row is merged, a tester's sign-off is in). Unset = not asked.
+#   LDB (else AGENT_SPAWN_LEDGER, else scripts/ledger-db.sh beside this section)   the ledger script asked for the
+#        board and the session entries.
+#
 # Exit: 0 benched (or already benched, or a dry run passed) · 1 refused · 2 a usage error.
 set -uo pipefail
 _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,9 +61,21 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 . "$_here/../scripts/lib/roster.sh"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
-LDB="${LDB:-bash $_here/ledger-db.sh}"   # overridable so the self-test can stand in for the ledger
+# The ledger: LDB, else the spawn's AGENT_SPAWN_LEDGER, else the harness's own (scripts/, beside this section: there
+# was never a team/ledger-db.sh, so the old default could not run). Overridable so the self-test can stand in for it.
+bench_default_ldb() { printf 'bash %s' "$_here/../scripts/ledger-db.sh"; }
+LDB="${LDB:-${AGENT_SPAWN_LEDGER:-$(bench_default_ldb)}}"
+SPAWNED_ONLY="${AGENT_BENCH_SPAWNED_ONLY:-0}"
+PRECHECK_CMD="${AGENT_BENCH_PRECHECK_CMD:-}"
 
-USAGE="usage: agent-bench.sh <Name> [--dry-run]"
+USAGE="usage: agent-bench.sh [bench] <Name> [--dry-run] [--by-hand]"
+
+# A tmux session's own environment value (agent-spawn.sh's tmux set-environment), or nothing.
+bench_tmux_env() { # <session> <key>
+  local v; v="$(tmux show-environment -t "=$1" "$2" 2>/dev/null)" || return 0
+  [[ "$v" == "$2="* ]] && printf '%s\n' "${v#*=}"
+  return 0
+}
 
 # PURE: board lines (id|area|claimed_by[  <= note]) on stdin -> the ids claimed by <name> and not marked PARKED, one per
 # line. A board that marks none leaves them all in, so it refuses.
@@ -101,6 +128,7 @@ case "\$1" in
   has-session)  grep -qxF -- "\${3#=}" "$T/tmux.sessions" 2>/dev/null ;;
   kill-session) grep -vxF -- "\${3#=}" "$T/tmux.sessions" > "$T/tmux.tmp"; mv "$T/tmux.tmp" "$T/tmux.sessions" ;;
   display-message) echo 1792156000 ;;
+  show-environment) grep -m1 "^\$4=" "$T/tmux.env.\${3#=}" 2>/dev/null || { echo "unknown variable: \$4" >&2; exit 1; } ;;
 esac
 EOF
   cat > "$T/bin/ledger-db.sh" <<EOF
@@ -117,7 +145,7 @@ EOF
   chmod +x "$T/bin/tmux" "$T/bin/ledger-db.sh" "$T/bin/docker"
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { HARNESS_ROOT="$T/repo" HARNESS_PROJECT=proj ROSTER_DOMAIN=proj.local ROSTER_FILE="$T/repo/agents/roster.json" \
-            CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" LDB=ledger-db.sh AGENTS_DOCKER="$T/bin/docker" bash "$SELF" "$@" 2>&1; }
+            CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" LDB="${LDBV-ledger-db.sh}" AGENTS_DOCKER="$T/bin/docker" bash "$SELF" "$@" 2>&1; }
   # Ada: running in agent-spawn's tmux session AND a live record (idle, started at a known ms), finished.
   reset() {
     printf 'proj-ada\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; : > "$T/ledger.log"; rm -f "$T/ledger.down"
@@ -240,6 +268,42 @@ EOF
   kill -0 "$child" 2>/dev/null && _t "  and the process is gone" alive gone || _t "  and the process is gone" gone gone
   child=""
 
+  # ── PROJECT SETTINGS: unset, each is the behaviour above; set, each is shown to bite ──
+  _t "the default ledger is a script that exists (it named a team/ledger-db.sh there never was)" \
+     "$([[ -r "$(bench_default_ldb | sed 's/^bash //')" ]] && echo exists || echo "missing: $(bench_default_ldb)")" exists
+  reset; out="$(LDBV='' AGENT_SPAWN_LEDGER=ledger-db.sh run Ada --dry-run)"; rc=$?
+  _t "with no LDB the spawn's AGENT_SPAWN_LEDGER is asked" "$rc" 0
+  _has "  for the board" "$(cat "$T/ledger.log")" "board"
+  reset; out="$(run bench Ada --dry-run)"; rc=$?
+  _t "a leading 'bench' changes nothing" "$rc" 0
+  _has "  the same bench" "$out" "would bench Ada (developer): stop tmux session proj-ada"
+  reset; rm -f "$T/tmux.env.proj-ada"
+  out="$(run Ada --dry-run)"; rc=$?
+  _t "unset AGENT_BENCH_SPAWNED_ONLY: a session with no spawn marker is benched" "$rc" 0
+  out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run)"; rc=$?
+  _t "AGENT_BENCH_SPAWNED_ONLY=1: a session with no spawn marker is refused" "$rc" 1
+  _has "  saying how to bench it" "$out" "not started by agent-spawn.sh (no tmux session proj-ada carrying HARNESS_SPAWNED=1)"
+  out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run --by-hand)"; rc=$?
+  _t "  --by-hand benches it" "$rc" 0
+  printf 'HARNESS_SPAWNED=1\nHARNESS_TICKET=HAR-12\n' > "$T/tmux.env.proj-ada"
+  out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run)"; rc=$?
+  _t "  a session agent-spawn.sh marked is benched" "$rc" 0
+  reset; : > "$T/tmux.sessions"
+  out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run)"; rc=$?
+  _t "  a hand-started session (no tmux session) is refused" "$rc" 1
+  out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run --by-hand)"; rc=$?
+  _t "  and benched with --by-hand" "$rc" 0
+  reset
+  out="$(AGENT_BENCH_PRECHECK_CMD='echo "ada-feat_a stack is still up"; exit 1' run Ada --dry-run)"; rc=$?
+  _t "AGENT_BENCH_PRECHECK_CMD failing refuses the bench, a dry run too" "$rc" 1
+  _has "  with what it said" "$out" "not ready to bench (AGENT_BENCH_PRECHECK_CMD): ada-feat_a stack is still up"
+  out="$(AGENT_BENCH_PRECHECK_CMD='echo "$1|$AGENT_BENCH_NAME|$AGENT_BENCH_ROLE|$AGENT_BENCH_SESSION|$AGENT_BENCH_SPAWNED|$AGENT_BENCH_TICKET|$AGENT_BENCH_TREE|$PWD"; exit 1' run Ada --dry-run)"
+  _has "  given the name, role, session, marker, ticket, tree, in the project root" "$out" "Ada|Ada|developer|proj-ada|1|HAR-12|$T/wt/proj-ada|$T/repo"
+  out="$(AGENT_BENCH_PRECHECK_CMD='true' run Ada)"; rc=$?
+  _t "  passing, the bench goes on" "$rc" 0
+  _has "  and stops the session" "$(cat "$T/tmux.log")" "kill-session -t =proj-ada"
+  rm -f "$T/tmux.env.proj-ada"
+
   out="$(run --slef-test)"; rc=$?; _t "a mistyped self-test flag exits 2, never runs" "$rc" 2
   out="$(run Ada --frobnicate)"; rc=$?; _t "an unknown argument is refused" "$rc" 2
 
@@ -253,10 +317,12 @@ if selftest_is_flag "${1:-}"; then
   bench_self_test; exit $?
 fi
 
-NAME="" DRY=0
+[[ "${1:-}" == bench ]] && shift   # a leading verb (header)
+NAME="" DRY=0 BYHAND=0
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
+    --by-hand) BYHAND=1 ;;
     -*|'') printf 'agent-bench: unknown argument: %s\n%s\n' "$a" "$USAGE" >&2; exit 2 ;;
     *) [[ -z "$NAME" ]] || { echo "$USAGE" >&2; exit 2; }; NAME=$a ;;
   esac
@@ -292,6 +358,22 @@ if [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]]; then
   [[ -n "$OTHER" ]] || refuse "$NAME is the $ROLE and no other lead is up: spawn the other lead and hand over first, so the team is never left without one"
 fi
 
+# ── started by agent-spawn.sh, or said to be by hand (AGENT_BENCH_SPAWNED_ONLY) ───────────────────────────
+SPAWNED=0
+(( TMUX_UP )) && [[ "$(bench_tmux_env "$SESSION" HARNESS_SPAWNED)" == 1 ]] && SPAWNED=1
+[[ "$SPAWNED_ONLY" != 1 ]] || (( SPAWNED || BYHAND )) \
+  || refuse "$NAME's session was not started by agent-spawn.sh (no tmux session $SESSION carrying HARNESS_SPAWNED=1). A session started by hand is benched with --by-hand, after its handoff"
+
+# ── the project's own check (AGENT_BENCH_PRECHECK_CMD) ──────────────────────────────────────────────────
+WTS="$(bench_worktrees_of "$NAME")" || refuse "cannot list the worktrees of $HARNESS_ROOT"
+if [[ -n "$PRECHECK_CMD" ]]; then
+  PRE_TICKET=""; (( SPAWNED )) && PRE_TICKET="$(bench_tmux_env "$SESSION" HARNESS_TICKET)"
+  PRE_OUT="$(cd -- "$HARNESS_ROOT" && AGENT_BENCH_NAME="$NAME" AGENT_BENCH_ROLE="$ROLE" AGENT_BENCH_SESSION="$SESSION" \
+             AGENT_BENCH_SPAWNED="$SPAWNED" AGENT_BENCH_TICKET="$PRE_TICKET" AGENT_BENCH_TREE="$(head -1 <<<"$WTS")" \
+             bash -c "$PRECHECK_CMD"' "$@"' agent-bench "$NAME" </dev/null 2>&1)" \
+    || refuse "$NAME is not ready to bench (AGENT_BENCH_PRECHECK_CMD): ${PRE_OUT:-it said nothing}"
+fi
+
 # ── what is still open ────────────────────────────────────────────────────────────────────────────────
 BOARD="$($LDB board 2>&1)" || refuse "cannot read the board (ledger-db.sh board), so cannot tell whether $NAME holds a claim: $BOARD"
 CLAIMS="$(bench_claims_of "$NAME" <<<"$BOARD" | paste -sd' ' -)"
@@ -301,7 +383,6 @@ case "$STATUS" in
   busy|waiting|shell) refuse "$NAME is mid-turn ($STATUS); bench it once it is idle" ;;
 esac
 
-WTS="$(bench_worktrees_of "$NAME")" || refuse "cannot list the worktrees of $HARNESS_ROOT"
 DIRTY=()
 while IFS= read -r w; do
   [[ -n "$w" ]] || continue
