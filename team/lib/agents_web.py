@@ -14,6 +14,8 @@
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/answer  {"n": 3, "label": "Type something.", "text": "..."} the prompt open in its pane
                              answered with option n: its digit, or for a typed option the text, then Enter
+  /api/shell?kind=&cols=&rows=   a Terminal pane's shell: a WebSocket on the owner's login shell, or PowerShell, in a terminal of its own (see "terminal")
+  /api/shells       the shells a Terminal pane can open, as [{"kind", "name"}]
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
   POST /api/team/start       team/repos-update.sh (develop, main and master of the local repositories fast-forwarded where they safely can be), then team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
@@ -66,7 +68,10 @@ import re
 import shlex
 import shutil
 import stat
+import socket
+import socketserver
 import subprocess
+import sys
 import threading
 import tempfile
 import time
@@ -3948,6 +3953,261 @@ def access_ok(token):
     return good
 
 
+# ── terminal ────────────────────────────────────────────────────────────────────────────────────────────────────
+# A Terminal pane (owner, 2026-11-23: "an actual terminal, that I can type whatever I want in, not tmux"): the owner's
+# login shell in a pseudo-terminal of its own, one per pane, spoken to over a WebSocket. The page sends what is typed
+# as binary messages and the terminal's size as a text one, {"cols": 80, "rows": 24}; the shell's output comes back as
+# binary. Closing the socket hangs the shell up. A pane opens the login shell, or PowerShell where there is one: under
+# WSL, Windows's own, started in the Windows user's folder as Windows Terminal starts it. The socket is the page's own like every send: addressed here, with
+# Access's token under the public name, and an Origin of this page's, which a browser always names on a WebSocket.
+WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+def ws_frame(op, data):
+    n = len(data)
+    head = bytes([0x80 | op]) + (bytes([n]) if n < 126 else bytes([126]) + n.to_bytes(2, "big") if n < 65536 else bytes([127]) + n.to_bytes(8, "big"))
+    return head + data
+
+
+def ws_read(rf):
+    """The next whole message from a page (op, bytes), its fragments joined; None once the socket ends."""
+    op, buf = None, b""
+    while True:
+        h = rf.read(2)
+        if len(h) < 2:
+            return None
+        fin, o, n = h[0] & 0x80, h[0] & 0x0F, h[1] & 0x7F
+        if n == 126:
+            n = int.from_bytes(rf.read(2), "big")
+        elif n == 127:
+            n = int.from_bytes(rf.read(8), "big")
+        mask = rf.read(4) if h[1] & 0x80 else b""
+        data = rf.read(n)
+        if mask:
+            data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+        if o >= 8:   # a control message, which may come between a message's fragments
+            return o, data
+        op, buf = o or op, buf + data
+        if fin:
+            return op, buf
+
+
+def shell_kinds():
+    """The shells a Terminal pane can open, by kind: "sh" the owner's login shell, "pwsh" PowerShell where there is one."""
+    sh = os.environ.get("SHELL") or pwd.getpwuid(os.getuid()).pw_shell or "/bin/sh"
+    kinds = {"sh": {"name": os.path.basename(sh).capitalize(), "argv": [sh, "-l"]}}
+    win = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    ps = shutil.which("pwsh") or next(iter(sorted(glob.glob("/mnt/c/Program Files/PowerShell/*/pwsh.exe"), reverse=True)), None) \
+        or (win if os.path.exists(win) else None)
+    if ps:
+        kinds["pwsh"] = {"name": "PowerShell", "argv": [ps, "-NoLogo"]}
+    return kinds
+
+
+_win_home = {}
+
+
+def win_home(ps):
+    """The Windows user's folder as this machine names it (/mnt/c/Users/NAME), asked of PowerShell once; else home."""
+    if ps not in _win_home:
+        try:
+            w = subprocess.run([ps, "-NoProfile", "-Command", "[Environment]::GetFolderPath('UserProfile')"], capture_output=True, text=True, timeout=20).stdout.strip()
+            u = subprocess.run(["wslpath", "-u", w], capture_output=True, text=True, timeout=5).stdout.strip() if w else ""
+            _win_home[ps] = u if u and os.path.isdir(u) else HOME
+        except (OSError, subprocess.SubprocessError):
+            _win_home[ps] = HOME
+    return _win_home[ps]
+
+
+# The shells are held by the terminal keeper, this script run as `agents-web --term-keeper`: a process of its own that
+# the page starts the first time a terminal is opened, in a session of its own, so a restart of the page (each deploy)
+# or a reload of the page leaves every shell running. A pane joins its shell again by its id, and is sent what the
+# shell printed last (TERM_KEEP bytes) so its screen comes back. A shell ends when it exits, when its tab or pane is
+# closed, or when nothing has joined it for a day (TERM_IDLE). The page and the keeper talk on a socket only the owner
+# can open, in frames of a type byte and a length: i (typed), r (a size), k (end it) to the keeper; o (output) and
+# p (what it printed last, sent on joining), x (the shell has ended) back. To the page each message of the shell's
+# carries a first byte: 0 its output, 1 that replay, whose questions to the terminal (where is the cursor?) were
+# answered long ago and are not answered again.
+TERM_SOCK = os.path.join(HOME, f".local/state/agents/term-{PORT}.sock")
+TERM_KEEP = 256 * 1024
+TERM_IDLE = 24 * 3600
+
+
+def term_put(sock, lock, t, data):
+    with lock:
+        sock.sendall(t + len(data).to_bytes(4, "big") + data)
+
+
+def term_get(rf):
+    h = rf.read(5)
+    if len(h) < 5:
+        return None
+    n = int.from_bytes(h[1:], "big")
+    data = rf.read(n) if n else b""
+    return None if len(data) < n else (h[:1], data)
+
+
+def term_connect():
+    """A socket to the terminal keeper, starting it when none is running; None if it will not start."""
+    for i in range(30):
+        try:
+            k = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            k.connect(TERM_SOCK)
+            return k
+        except OSError:
+            k.close()
+        if i == 0:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), "--term-keeper"], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.1)
+    return None
+
+
+class TermShell:
+    """One shell in its own terminal, with what it printed last and the pages joined to it."""
+    def __init__(self, tid, kind, cols, rows):
+        import pty
+        kinds = shell_kinds()
+        argv = (kinds.get(kind) or kinds["sh"])["argv"]
+        cwd = win_home(argv[0]) if argv[0].endswith(".exe") else HOME
+        env = {k: v for k, v in os.environ.items() if k not in ("AGENT_WEB_PORT", "INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID")}
+        env.update(TERM="xterm-256color", COLORTERM="truecolor")
+        self.id, self.buf, self.pages, self.lock, self.alone = tid, bytearray(), {}, threading.Lock(), None
+        self.pid, self.fd = pty.fork()
+        if self.pid == 0:   # the shell, where a new terminal opens it
+            try:
+                os.chdir(cwd)
+                os.execvpe(argv[0], argv, env)
+            finally:
+                os._exit(127)
+        shell_size(self.fd, cols, rows)
+        threading.Thread(target=self.pump, daemon=True).start()
+
+    def send(self, t, data):
+        for sock, lock in list(self.pages.items()):
+            try:
+                term_put(sock, lock, t, data)
+            except OSError:
+                self.pages.pop(sock, None)
+
+    def pump(self):
+        try:
+            while data := os.read(self.fd, 65536):
+                with self.lock:
+                    self.buf += data
+                    if len(self.buf) > TERM_KEEP:   # cut at a line's start, never inside an escape sequence
+                        cut = self.buf.find(b"\n", len(self.buf) - TERM_KEEP)
+                        del self.buf[:cut + 1 if cut >= 0 else len(self.buf) - TERM_KEEP]
+                    self.send(b"o", data)
+        except OSError:
+            pass
+        with _term_lock:
+            if _terms.get(self.id) is self:
+                del _terms[self.id]
+        with self.lock:
+            self.send(b"x", b"")
+        try:
+            os.waitpid(self.pid, 0)
+        except ChildProcessError:
+            pass
+        os.close(self.fd)
+
+    def join(self, sock, lock):
+        with self.lock:   # what it printed last, then all it prints, with nothing between them lost
+            if self.buf:
+                term_put(sock, lock, b"p", bytes(self.buf))
+            self.pages[sock] = lock
+            self.alone = None
+
+    def leave(self, sock):
+        with self.lock:
+            self.pages.pop(sock, None)
+            if not self.pages:
+                self.alone = time.time()
+
+    def end(self):
+        import signal
+        for sig in (signal.SIGHUP, signal.SIGKILL):
+            try:
+                os.killpg(self.pid, sig)
+            except OSError:
+                return
+            time.sleep(0.5)
+
+
+_terms, _term_lock = {}, threading.Lock()
+
+
+class TermKeeper(socketserver.StreamRequestHandler):
+    def handle(self):
+        try:
+            hello = json.loads(self.rfile.readline() or b"{}")
+        except ValueError:
+            return
+        if hello.get("op") != "attach":
+            return
+        tid, lock = str(hello.get("id")), threading.Lock()
+        cols, rows = int(hello.get("cols") or 80), int(hello.get("rows") or 24)
+        with _term_lock:
+            t = _terms.get(tid)
+            if not t:
+                t = _terms[tid] = TermShell(tid, hello.get("kind") or "sh", cols, rows)
+        try:
+            shell_size(t.fd, cols, rows)
+        except OSError:
+            pass
+        t.join(self.connection, lock)
+        try:
+            while (m := term_get(self.rfile)) is not None:
+                kind, data = m
+                if kind == b"i":
+                    os.write(t.fd, data)
+                elif kind == b"r":
+                    d = json.loads(data)
+                    shell_size(t.fd, int(d["cols"]), int(d["rows"]))
+                elif kind == b"k":
+                    threading.Thread(target=t.end, daemon=True).start()
+                    break
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        finally:
+            t.leave(self.connection)
+
+
+def term_keeper():
+    """The terminal keeper's life: the socket, and every day-long unjoined shell ended."""
+    try:
+        k = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        k.connect(TERM_SOCK)
+        return   # one is already running
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(TERM_SOCK), exist_ok=True)
+    try:
+        os.unlink(TERM_SOCK)
+    except FileNotFoundError:
+        pass
+    old = os.umask(0o177)
+    server = socketserver.ThreadingUnixStreamServer(TERM_SOCK, TermKeeper)
+    os.umask(old)
+    server.daemon_threads = True
+
+    def reap():
+        while True:
+            time.sleep(600)
+            with _term_lock:
+                idle = [t for t in _terms.values() if t.alone and time.time() - t.alone > TERM_IDLE]
+            for t in idle:
+                t.end()
+    threading.Thread(target=reap, daemon=True).start()
+    server.serve_forever()
+
+
+def shell_size(fd, cols, rows):
+    import struct, termios
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(2, min(rows, 500)), max(2, min(cols, 1000)), 0, 0))
+
+
 class Handler(BaseHTTPRequestHandler):
     def here(self):
         """Whether the request is the page's own: addressed to this host and port, or to the public name with
@@ -3968,10 +4228,87 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def shell(self):
+        """A Terminal pane's shell, joined to the page for as long as its socket is open (see "terminal")."""
+        origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
+        key = self.headers.get("Sec-WebSocket-Key")
+        if self.headers.get("Origin") not in origins or not key or "websocket" not in (self.headers.get("Upgrade") or "").lower():
+            return self.send(403, b"only the team page can open a terminal\n", "text/plain")
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        arg = lambda k: q.get(k, [""])[0]
+        if not re.fullmatch(r"[a-z0-9]{4,32}", arg("id")):
+            return self.send(400, b"a terminal needs its id\n", "text/plain")
+        k = term_connect()
+        if not k:
+            return self.send(503, b"the terminal keeper could not be started\n", "text/plain")
+        size = lambda n, d: int(arg(n)) if arg(n).isdigit() else d
+        k.sendall(json.dumps({"op": "attach", "id": arg("id"), "kind": arg("kind") or "sh", "cols": size("cols", 80), "rows": size("rows", 24)}).encode() + b"\n")
+        accept = base64.b64encode(hashlib.sha1(key.encode() + WS_GUID).digest()).decode()
+        self.send_response(101)
+        for h, v in (("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Accept", accept)):
+            self.send_header(h, v)
+        self.end_headers()
+        self.wfile.flush()
+        self.close_connection = True
+        out, wlock, klock = self.connection, threading.Lock(), threading.Lock()
+
+        def put(op, data):
+            with wlock:
+                out.sendall(ws_frame(op, data))
+
+        def pump():   # the keeper's output to the page; the shell's end closes the socket normally (1000), the keeper's loss abnormally (1011)
+            code, kf = 1011, k.makefile("rb")
+            try:
+                while (m := term_get(kf)) is not None:
+                    t, data = m
+                    if t in (b"o", b"p"):
+                        put(2, (b"\x01" if t == b"p" else b"\x00") + data)
+                    elif t == b"x":
+                        code = 1000
+                        break
+            except OSError:
+                pass
+            try:
+                put(8, code.to_bytes(2, "big"))
+                out.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        threading.Thread(target=pump, daemon=True).start()
+        try:
+            while (m := ws_read(self.rfile)) is not None:
+                op, data = m
+                if op == 2:
+                    term_put(k, klock, b"i", data)
+                elif op == 1:
+                    try:
+                        d = json.loads(data)
+                    except ValueError:
+                        continue
+                    if d.get("kill"):   # its tab or pane closed: the shell is ended, not left to be joined again
+                        term_put(k, klock, b"k", b"")
+                    elif "cols" in d:
+                        term_put(k, klock, b"r", json.dumps({"cols": d["cols"], "rows": d["rows"]}).encode())
+                elif op == 9:
+                    put(10, data)
+                elif op == 8:
+                    break
+        except OSError:
+            pass
+        finally:
+            try:
+                k.close()
+            except OSError:
+                pass
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if not self.here():   # any other name, the public one unset among them, is refused, reads as well as sends
             return self.send(403, b"sign in through Cloudflare Access\n", "text/plain")
+        if path == "/api/shell":
+            return self.shell()
+        if path == "/api/shells":
+            return self.send(200, json.dumps([{"kind": k, "name": v["name"]} for k, v in shell_kinds().items()]).encode(), "application/json")
         if path == "/":
             self.send(200, PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/api/team":
@@ -5583,6 +5920,25 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 .phth > .phthback{display:grid;place-items:center;width:32px;height:32px;margin-left:-6px;border-radius:16px;color:var(--text);cursor:pointer}
 .phth > .phthback svg{width:20px;height:20px}
 .phth > .phthback ~ .thask{grid-column:1/-1}
+.shellwrap{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 10px 10px;gap:6px;--shbg:#0c0c0c;--shfg:#cccccc}
+.shellbox{flex:1;min-height:0;display:flex;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--shbg);overflow:hidden}
+.shellwrap.light{--shbg:#fafafa;--shfg:#383a42}
+.shellhost{flex:1;min-height:0;display:flex;padding:6px 0 6px 8px;overflow:hidden}
+.shtools{flex:none;display:flex;align-items:center;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}   /* above the terminal, outside its box */
+.shtab{display:flex;align-items:center;gap:6px;height:26px;padding:0 8px;flex:none;border-radius:var(--r-s);color:var(--mute);font:500 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer}
+.shtab svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.shtab:hover{background:var(--on);color:var(--text)}
+.shtab.on{background:var(--on);color:var(--text);font-weight:650}
+.shtab i{font-style:normal;margin-left:2px;padding:0 3px;border-radius:4px;color:var(--mute)}
+.shtab i:hover{background:var(--line2);color:var(--text)}
+.shadd{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:var(--r-s);color:var(--mute);font:400 18px/1 var(--sans);cursor:pointer}
+.shadd:hover{background:var(--on);color:var(--text)}
+.shthemebtn{display:grid;place-items:center;width:26px;height:26px;flex:none;margin-left:auto;border-radius:13px;color:var(--mute);cursor:pointer}
+.shthemebtn:hover{background:var(--on);color:var(--text)}
+#shmenu{position:fixed;z-index:60;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
+.shellterm{flex:1;min-width:0;min-height:0}
+.shellterm .xterm{height:100%}
+.shellterm .xterm-viewport{background:var(--shbg) !important}   /* xterm.css's own is black, under the last part-row */
 .phframe{display:block;flex:1;min-height:0;width:calc(100% - 20px);margin:10px;border:1px solid var(--line2);border-radius:var(--r-m);overflow:hidden;background:var(--bg)}   /* where its card would be, shaped as one */
 .newline{display:flex;align-items:center;gap:8px;color:var(--amber);font:650 11px var(--sans);letter-spacing:.07em;text-transform:uppercase}
 .newline::before,.newline::after{content:"";flex:1;border-top:1px solid currentColor;opacity:.6}
@@ -5615,8 +5971,8 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .retag.ask{border-color:var(--amber);color:var(--amber)}
 .retag.fixed{cursor:default}
 #dremenu{position:absolute;bottom:100%;left:16px;z-index:6;display:flex;flex-direction:column;max-width:min(520px,90vw);max-height:280px;overflow:auto;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
-#thsortmenu .remi,#dremenu .remi{padding:6px 10px;border-radius:6px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
-:is(#dremenu,#thsortmenu) .remi:hover{background:var(--on)}
+#shmenu .remi,#thsortmenu .remi,#dremenu .remi{padding:6px 10px;border-radius:6px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+:is(#dremenu,#thsortmenu,#shmenu) .remi:hover{background:var(--on)}
 :is(#dremenu,#thsortmenu) .remi.on{font-weight:650}
 #dremenu .remi.ask{color:var(--amber)}
 #detail .box.termdock .left .conv{padding-right:16px}   /* the terminal docked under a conversation too narrow to have it beside */
@@ -7249,6 +7605,123 @@ function holding(el) {
 // A redraw brings the page in line with new HTML by changing only the nodes that differ, so the browser lays out
 // only what changed, and unchanged turns keep their place, focus and animations. A node that now stands for another
 // agent is replaced, and a message box keeps what is typed in it, its height and the images pasted into it.
+// ── Terminal panes ──
+// A Terminal pane is a shell on this machine (see "terminal" in the server): xterm.js draws it, fetched from the CDN
+// pinned and checked by its hash the first time one is shown. Each pane's terminal lives as long as the pane does,
+// moved back into its place whenever a redraw rebuilds round it; a pane removed from every view hangs its shell up.
+// Its keys are the shell's (Esc never closes the page's views); Ctrl+C (Cmd+C on a Mac) copies while text is
+// selected, Ctrl+V (Cmd+V) pastes, as in Windows Terminal and the Mac's Terminal.
+const XTERM = [["@xterm/xterm@6.0.0/css/xterm.css", "sha384-n2n7twoohnW+d3myBKaUgl7DSiwidw6MkQy9oesGzkPpMjejKRR3XlnD+5yCdtBD"],
+  ["@xterm/xterm@6.0.0/lib/xterm.js", "sha384-f/1U6Z9wM4D71a5eRXEZnyOTMOvjqxr2XLwh+Go1OvIl3L3tOcvUrzudnhbECwl4"],
+  ["@xterm/addon-fit@0.11.0/lib/addon-fit.js", "sha384-txoiwu4RR2GD3qySbaj+BbzibkLbSJRcfqGYMu6z1EqHil4A2dyBiBW5dlacG6OR"],
+  ["@xterm/addon-web-links@0.12.0/lib/addon-web-links.js", "sha384-0IIwkXq0LAkIxEVKxlOxWbje2g/VT+5CzVTZiEukyiZ02pOl/O+M0fkpEKAYqto9"]];
+let xtermLoad = null;
+const xtermReady = () => xtermLoad ||= Promise.all(XTERM.map(([u, h]) => new Promise((ok, no) => {
+  const css = u.endsWith(".css"), el = document.createElement(css ? "link" : "script");
+  if (css) el.rel = "stylesheet";
+  el[css ? "href" : "src"] = "https://cdn.jsdelivr.net/npm/" + u; el.integrity = h; el.crossOrigin = "anonymous";
+  el.onload = ok; el.onerror = no; document.head.append(el);
+}))).catch(e => { xtermLoad = null; throw e; });
+const shells = {}, shellEnc = new TextEncoder();
+let shellKinds = [];   // the shells this machine has for a pane, its bar's switch when more than one
+fetch("/api/shells").then(r => r.json()).then(k => { shellKinds = k; draw(); }).catch(() => {});
+function shellMount() {
+  const hosts = [...document.querySelectorAll(".shellhost[data-sh]")], saved = localStorage.getItem("views") || "";
+  for (const id of Object.keys(shells)) if (!saved.includes(`"sh":"${id}"`)) shellEnd(id);
+  if (!hosts.length) return;
+  xtermReady().then(() => hosts.forEach(h => {
+    if (!h.isConnected) return;
+    const s = shells[h.dataset.sh] || shellNew(h.dataset.sh, h.dataset.kind);
+    if (s.el.parentNode !== h) h.replaceChildren(s.el);
+    const th = h.closest(".shellwrap")?.classList.contains("light") ? "light" : "dark";   // from its wrapper: a kept host's own attributes stay as first drawn
+    if (s.theme !== th) { s.theme = th; s.term.options.theme = SH_THEMES[th]; }
+    s.fit.fit();
+    if (!s.ws && !s.ended && !s.wait) shellOpen(s);
+    if (shFocus === h.dataset.sh) { shFocus = null; s.term.focus(); }
+  }), () => hosts.forEach(h => { h.textContent = "The terminal could not be loaded: xterm.js comes from cdn.jsdelivr.net, which this browser could not reach."; }));
+}
+// A pane's terminal is light or dark by its own toggle, else as the page is, in Windows Terminal's Campbell and
+// One Half Light colours.
+const SH_THEMES = {
+  dark: {background: "#0c0c0c", foreground: "#cccccc", cursor: "#cccccc", selectionBackground: "#ffffff40", black: "#0c0c0c", red: "#c50f1f", green: "#13a10e", yellow: "#c19c00",
+    blue: "#0037da", magenta: "#881798", cyan: "#3a96dd", white: "#cccccc", brightBlack: "#767676", brightRed: "#e74856", brightGreen: "#16c60c",
+    brightYellow: "#f9f1a5", brightBlue: "#3b78ff", brightMagenta: "#b4009e", brightCyan: "#61d6d6", brightWhite: "#f2f2f2"},
+  light: {background: "#fafafa", foreground: "#383a42", cursor: "#4f525d", selectionBackground: "#0000002a", black: "#383a42", red: "#e45649", green: "#50a14f", yellow: "#c18301",
+    blue: "#0184bc", magenta: "#a626a4", cyan: "#0997b3", white: "#a0a1a7", brightBlack: "#4f525d", brightRed: "#df6c75", brightGreen: "#4d8f3a",
+    brightYellow: "#986801", brightBlue: "#4078f2", brightMagenta: "#a626a4", brightCyan: "#0e7c8b", brightWhite: "#383a42"}};
+const shellTheme = n => n.shtheme || (document.documentElement.classList.contains("light") ? "light" : "dark");
+const SH_SUN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1"/></svg>`;
+const SH_MOON = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>`;
+const shellId = () => Math.random().toString(36).slice(2, 10);
+let shFocus = null;   // the terminal to take the keyboard once drawn: one just opened or picked
+// above a pane's terminals: a tab picks one, its × closes it (its shell hung up), + opens another (Bash or PowerShell,
+// from a menu where there are both), and light or dark
+document.addEventListener("click", e => {
+  const m = $("#shmenu"), b = e.target.closest?.("[data-shtheme], [data-shtab], [data-shclose], [data-shadd], [data-shnew]");
+  if (!b?.matches("[data-shadd]")) m?.remove();
+  const path = (b?.closest(".pane[data-path]") || b && m && $(`#main .pane[data-path="${m.dataset.path}"]`))?.dataset.path;
+  if (!path) return;
+  e.stopPropagation();
+  const l = layout(), n = nodeAt(l.root, path), add = kind => { n.terms.push({sh: shFocus = shellId(), shell: kind}); n.termAt = n.terms.length - 1; };
+  if (b.dataset.shtheme) n.shtheme = b.dataset.shtheme;
+  else if (b.dataset.shclose) { const i = +b.dataset.shclose; n.terms.splice(i, 1); n.termAt = Math.max(0, Math.min((n.termAt || 0) - (i < (n.termAt || 0)), n.terms.length - 1)); shFocus = n.terms[n.termAt].sh; }
+  else if (b.dataset.shtab) { n.termAt = +b.dataset.shtab; shFocus = n.terms[n.termAt].sh; }
+  else if (b.dataset.shnew) add(b.dataset.shnew);
+  else if (shellKinds.length < 2) add(shellKinds[0]?.kind || "sh");
+  else {
+    if (m) { m.remove(); return; }
+    const r = b.getBoundingClientRect(), menu = document.createElement("div"); menu.id = "shmenu"; menu.dataset.path = path;
+    menu.innerHTML = shellKinds.map(k => `<b class="remi" data-shnew="${esc(k.kind)}">${esc(k.name)}</b>`).join("");
+    menu.style.cssText = `top:${r.bottom + 4}px;left:${Math.max(8, Math.min(r.left, innerWidth - 168))}px`;
+    document.body.append(menu); return;
+  }
+  m?.remove(); saveLayout(l); draw();
+}, true);
+function shellNew(id, kind) {
+  const css = getComputedStyle(document.documentElement), v = k => css.getPropertyValue(k).trim();
+  const el = document.createElement("div"); el.className = "shellterm";
+  const term = new Terminal({cursorBlink: true, fontFamily: v("--mono") || "monospace", fontSize: 13, scrollback: 10000, macOptionIsMeta: true, theme: SH_THEMES.dark});
+  const fit = new FitAddon.FitAddon(), s = shells[id] = {id, term, fit, el, kind, theme: "dark", ws: null, ended: false, tries: 0};
+  term.loadAddon(fit); term.loadAddon(new WebLinksAddon.WebLinksAddon());
+  term.open(el);
+  const send = data => { if (s.ws?.readyState === 1) s.ws.send(data); };
+  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } send(shellEnc.encode(d)); });
+  term.onBinary(d => s.replay || send(Uint8Array.from(d, c => c.charCodeAt(0))));
+  term.onResize(({cols, rows}) => send(JSON.stringify({cols, rows})));
+  term.attachCustomKeyEventHandler(e => {
+    const k = e.key.toLowerCase(), mod = MAC ? e.metaKey : e.ctrlKey;
+    if (e.type === "keydown" && mod && k === "c" && (MAC || e.shiftKey || term.hasSelection())) {   // copy, never ^C, with text selected
+      if (term.hasSelection()) { navigator.clipboard?.writeText(term.getSelection()); term.clearSelection(); }
+      e.preventDefault(); return false;
+    }
+    return !(mod && k === "v");   // the browser pastes, and the terminal takes it as typed
+  });
+  new ResizeObserver(() => { if (el.isConnected && el.clientWidth) fit.fit(); }).observe(el);
+  el.addEventListener("keydown", e => e.stopPropagation());
+  return s;
+}
+// A pane joins its shell by its id, and the keeper sends what it printed last, so the screen is cleared first. A socket
+// lost (the page's server restarted) is joined again by itself; one closed normally is the shell's end.
+function shellOpen(s) {
+  const ws = s.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/shell?id=${s.id}&kind=${encodeURIComponent(s.kind)}&cols=${s.term.cols}&rows=${s.term.rows}`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { s.tries = 0; s.term.reset(); };
+  ws.onmessage = e => { const d = new Uint8Array(e.data);
+    if (d[0] !== 1) return s.term.write(d.subarray(1));
+    s.replay = true; s.term.write(d.subarray(1), () => { s.replay = false; }); };
+  ws.onclose = e => {
+    if (s.ws !== ws || s.gone) return;
+    s.ws = null;
+    if (e.code === 1000) { s.ended = true; s.term.write("\r\n\x1b[2m[The shell has ended: press Enter for a new one]\x1b[0m\r\n"); return; }
+    s.wait = true;
+    setTimeout(() => { s.wait = false; if (!s.gone && !s.ws && !s.ended) shellOpen(s); }, Math.min(5000, 500 * 2 ** s.tries++));
+  };
+}
+function shellEnd(id) {
+  const s = shells[id]; delete shells[id]; s.gone = true;
+  if (s.ws?.readyState === 1) s.ws.send(JSON.stringify({kill: true}));
+  s.ws?.close(); s.term.dispose(); s.el.remove();
+}
 function patch(el, html) {
   const t = document.createElement("template");
   t.innerHTML = html;
@@ -7299,6 +7772,7 @@ function patchNode(a, b) {
 }
 
 function draw() {
+  requestAnimationFrame(shellMount);
   requestAnimationFrame(() => { document.querySelectorAll(".card.full .thlist").forEach(thEdges); document.querySelectorAll(".card.full.thon .feed").forEach(edges); });
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")
     || document.activeElement?.classList.contains("wkfilter")) return;   // nor while a tab is being named, or the Work pane filtered
@@ -7534,7 +8008,7 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log (deprecated)", search: "Search", workqueue: "Work queue (deprecated)", foryou: "For you", pipeline: "Pipeline (deprecated)", work: "Work", tokens: "Token usage"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log (deprecated)", search: "Search", workqueue: "Work queue (deprecated)", foryou: "For you", pipeline: "Pipeline (deprecated)", work: "Work", tokens: "Token usage", shell: "Terminal"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
@@ -7543,6 +8017,7 @@ const PANE_GROUPS = [
   ["Work", [["work", "Every ticket by what it needs: you, in flight, next, done, and the stand-up"], ["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["foryou", "What is waiting on you, kept by the delivery lead"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
   ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
+  ["Tools", [["shell", "A terminal on this machine: your own shell, to type anything in"]]],
 ];
 const PANE_ICON = Object.fromEntries(Object.entries({
   grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/>',
@@ -7559,6 +8034,7 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   daylog: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4l3.6 3.6"/>',
   meeting: '<rect x="4" y="6" width="8" height="4" rx="2"/><circle cx="8" cy="2.8" r="1.3"/><circle cx="8" cy="13.2" r="1.3"/><circle cx="2.2" cy="8" r="1.3"/><circle cx="13.8" cy="8" r="1.3"/>',
+  shell: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5"/>',
   file: '<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13M6.2 8.5h4.6M6.2 11h4.6"/>',
   gauges: '<path d="M2.5 12a5.5 5.5 0 1 1 11 0"/><path d="M8 12l2.6-3.6"/>',
   perf: '<path d="M2.5 13.5h11M4.5 11V7.5M8 11V4M11.5 11V9"/>',
@@ -9375,6 +9851,18 @@ function customHtml(ceil, tabRow) {
       const a = S.agents.find(x => x.name === n.name);
       body = a ? paneAgentHtml(a, path, () => `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`)
         : `<div class="blank">${n.name ? `<span>${esc(shown(n.name))} is not running</span>` : ""}${agentPick(n, true)}</div>`;
+    } else if (n.show === "shell") {
+      // the pane's terminals (n.terms, n.termAt the one showing), each kept whole across redraws, its id going with it
+      // through the pane's tabs and page loads; above them, a tab for each, + for another, and light or dark
+      if (!n.terms?.length) { n.terms = [{sh: n.sh || shellId(), shell: n.shell || "sh"}]; delete n.sh; delete n.shell; n.termAt = 0; saveLayout(l); }
+      const th = shellTheme(n), at = Math.min(n.termAt || 0, n.terms.length - 1), t = n.terms[at];
+      const kindName = k => shellKinds.find(x => x.kind === k)?.name || (k === "pwsh" ? "PowerShell" : "Shell");
+      const label = (x, i) => { const same = n.terms.filter(y => y.shell === x.shell); return kindName(x.shell) + (same.length > 1 ? " " + (same.indexOf(x) + 1) : ""); };
+      const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">${PANE_ICON.shell}<span>${esc(label(x, i))}</span>` +
+        (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
+      body = `<div class="shellwrap ${th}"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal">+</b>` +
+        `<b class="shthemebtn" data-shtheme="${th === "light" ? "dark" : "light"}" title="${th === "light" ? "Dark" : "Light"} terminal">${th === "light" ? SH_MOON : SH_SUN}</b></div>` +
+        `<div class="shellbox"><div class="shellhost" data-kept data-key="shell:${t.sh}" data-sh="${t.sh}" data-kind="${esc(t.shell)}"></div></div></div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
     } else if (n.show === "characters") {
@@ -9431,7 +9919,7 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "foryou", "pipeline", "work", "tokens"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "foryou", "pipeline", "work", "tokens", "shell"].includes(n.show);
     const own = [
       CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
@@ -14956,4 +15444,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    term_keeper() if "--term-keeper" in sys.argv[1:] else main()
