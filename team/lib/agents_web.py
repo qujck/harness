@@ -5929,6 +5929,7 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 .shtab svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
 .shtab:hover{background:var(--on);color:var(--text)}
 .shtab.on{background:var(--on);color:var(--text);font-weight:650}
+.shtab .shname{width:9em;height:20px;padding:0 4px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-s);outline:none}
 .shtab i{font-style:normal;margin-left:2px;padding:0 3px;border-radius:4px;color:var(--mute)}
 .shtab i:hover{background:var(--line2);color:var(--text)}
 .shadd{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:var(--r-s);color:var(--mute);font:400 18px/1 var(--sans);cursor:pointer}
@@ -6939,14 +6940,20 @@ document.addEventListener("click", async e => {
   b.classList.add("done"); setTimeout(() => b.classList.remove("done"), 1200);
 }, true);
 // Text selected on the page goes straight to the clipboard and the selection is cleared, with a note by the pointer
-// to say so. Text being selected in a message box is left alone, to edit.
+// to say so, in a terminal as well (its own selection, not the page's). Text being selected in a message box is left
+// alone, to edit.
+// A terminal's selection is its own from the press, wherever the pointer is let go.
+let shDown = null;
+document.addEventListener("mousedown", e => { shDown = e.button === 0 && shells[e.target.closest?.(".shellhost")?.dataset.sh] || null; }, true);
 document.addEventListener("mouseup", e => {
-  if (e.button !== 0 || e.target.closest("textarea,input,select")) return;
+  const sh = e.button === 0 && (shDown || shells[e.target.closest?.(".shellhost")?.dataset.sh]);
+  shDown = null;
+  if (e.button !== 0 || !sh && e.target.closest("textarea,input,select")) return;
   setTimeout(async () => {
-    const sel = getSelection(), text = sel.toString();
-    if (sel.isCollapsed || !text.trim() || document.activeElement?.matches("textarea,input")) return;
-    try { await navigator.clipboard.writeText(text); } catch (err) { return; }
-    sel.removeAllRanges();
+    const sel = getSelection(), text = sh ? sh.term.getSelection() : sel.toString();
+    if (!text.trim() || !sh && (sel.isCollapsed || document.activeElement?.matches("textarea,input"))) return;
+    try { await (sh ? shellCopy(text) : navigator.clipboard.writeText(text)); } catch (err) { return; }
+    if (sh) sh.term.clearSelection(); else sel.removeAllRanges();
     const note = $("#copied");
     note.style.left = Math.min(e.clientX + 12, innerWidth - 70) + "px"; note.style.top = Math.max(8, e.clientY - 28) + "px";
     note.classList.add("on"); clearTimeout(note.hide); note.hide = setTimeout(() => note.classList.remove("on"), 900);
@@ -7637,7 +7644,7 @@ function shellMount() {
     if (s.theme !== th) { s.theme = th; s.term.options.theme = SH_THEMES[th]; }
     s.fit.fit();
     if (!s.ws && !s.ended && !s.wait) shellOpen(s);
-    if (shFocus === h.dataset.sh) { shFocus = null; s.term.focus(); }
+    if (shFocus === h.dataset.sh) { shFocus = null; if (!document.activeElement?.classList.contains("ctname")) s.term.focus(); }
   }), () => hosts.forEach(h => { h.textContent = "The terminal could not be loaded: xterm.js comes from cdn.jsdelivr.net, which this browser could not reach."; }));
 }
 // A pane's terminal is light or dark by its own toggle, else as the page is, in Windows Terminal's Campbell and
@@ -7652,7 +7659,35 @@ const SH_THEMES = {
 const shellTheme = n => n.shtheme || (document.documentElement.classList.contains("light") ? "light" : "dark");
 const SH_SUN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1"/></svg>`;
 const SH_MOON = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>`;
+// Text copied from a terminal is marked as the terminal's (an HTML copy beside the text, a <pre> any app may take), so
+// a paste of it into a message box goes in fenced as code, whatever it reads as (see pasteCode).
+const shellCopy = text => typeof ClipboardItem === "undefined" ? navigator.clipboard.writeText(text) : navigator.clipboard.write([new ClipboardItem({
+  "text/plain": new Blob([text], {type: "text/plain"}), "text/html": new Blob([`<pre data-agents-terminal>${esc(text)}</pre>`], {type: "text/html"})})]);
 const shellId = () => Math.random().toString(36).slice(2, 10);
+// a right-click in a terminal pastes, as in Windows Terminal (the browser asks once to let the page read the clipboard)
+document.addEventListener("contextmenu", e => {
+  const s = shells[e.target.closest?.(".shellhost")?.dataset.sh]; if (!s) return;
+  e.preventDefault(); e.stopPropagation();
+  navigator.clipboard?.readText().then(t => { if (t) { s.term.paste(t); s.term.focus(); } }).catch(() => {});
+}, true);
+// a double-click on a terminal's tab renames it: Enter keeps the name, Esc leaves it as it was, and a name cleared is
+// its shell's again ("Bash 2"). The box is a .ctname, as a pane tab's is, so no redraw comes while it is open.
+document.addEventListener("dblclick", e => {
+  const tab = e.target.closest?.("[data-shtab]"), path = tab?.closest(".pane[data-path]")?.dataset.path;
+  if (!path || e.target.closest("[data-shclose]") || tab.querySelector("input")) return;
+  e.stopPropagation();
+  const label = tab.querySelector("span"), box = Object.assign(document.createElement("input"), {className: "ctname shname", value: label.textContent});
+  let done = false;
+  const finish = keep => { if (done) return; done = true;
+    const l = layout(), n = nodeAt(l.root, path), t = n.terms?.[+tab.dataset.shtab];
+    if (keep && t) { const v = box.value.trim(); if (v) t.name = v; else delete t.name; saveLayout(l); }
+    box.blur(); draw(); };
+  box.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); else if (ev.key === "Escape") finish(false); };
+  box.onblur = () => finish(true);
+  box.onclick = ev => ev.stopPropagation();
+  shFocus = null;   // the tab's first click asked for its terminal to take the keyboard: the name box has it
+  label.replaceWith(box); box.focus(); box.select();
+}, true);
 let shFocus = null;   // the terminal to take the keyboard once drawn: one just opened or picked
 // above a pane's terminals: a tab picks one, its × closes it (its shell hung up), + opens another (Bash or PowerShell,
 // from a menu where there are both), and light or dark
@@ -7691,7 +7726,7 @@ function shellNew(id, kind) {
   term.attachCustomKeyEventHandler(e => {
     const k = e.key.toLowerCase(), mod = MAC ? e.metaKey : e.ctrlKey;
     if (e.type === "keydown" && mod && k === "c" && (MAC || e.shiftKey || term.hasSelection())) {   // copy, never ^C, with text selected
-      if (term.hasSelection()) { navigator.clipboard?.writeText(term.getSelection()); term.clearSelection(); }
+      if (term.hasSelection()) { shellCopy(term.getSelection()).catch(() => {}); term.clearSelection(); }
       e.preventDefault(); return false;
     }
     return !(mod && k === "v");   // the browser pastes, and the terminal takes it as typed
@@ -9857,7 +9892,7 @@ function customHtml(ceil, tabRow) {
       if (!n.terms?.length) { n.terms = [{sh: n.sh || shellId(), shell: n.shell || "sh"}]; delete n.sh; delete n.shell; n.termAt = 0; saveLayout(l); }
       const th = shellTheme(n), at = Math.min(n.termAt || 0, n.terms.length - 1), t = n.terms[at];
       const kindName = k => shellKinds.find(x => x.kind === k)?.name || (k === "pwsh" ? "PowerShell" : "Shell");
-      const label = (x, i) => { const same = n.terms.filter(y => y.shell === x.shell); return kindName(x.shell) + (same.length > 1 ? " " + (same.indexOf(x) + 1) : ""); };
+      const label = (x, i) => { if (x.name) return x.name; const same = n.terms.filter(y => y.shell === x.shell && !y.name); return kindName(x.shell) + (same.length > 1 ? " " + (same.indexOf(x) + 1) : ""); };
       const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">${PANE_ICON.shell}<span>${esc(label(x, i))}</span>` +
         (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
       body = `<div class="shellwrap ${th}"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal">+</b>` +
@@ -11711,7 +11746,7 @@ async function upload(files, name, box) {
 // Text pasted into a message box goes in as a fenced code block when it reads as code, a log, a diff, JSON or a shell
 // session (owner, 2026-11-18: "when I paste into the input box can it establish whether the text should be wrapped in
 // code blocks?"), so the agent reads it as it was. Prose, a single line, and text already fenced or pasted inside a
-// fence go in as pasted, as does any paste with Ctrl+Shift+V. Ctrl+Z undoes the wrapping as any typing, and a chip by
+// fence go in as pasted, as does any paste with Ctrl+Shift+V. Text copied from a Terminal pane is always code. Ctrl+Z undoes the wrapping as any typing, and a chip by
 // the box offers Unwrap for a few seconds.
 let pastePlain = false;
 document.addEventListener("keydown", e => { pastePlain = (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v"; }, true);
@@ -11742,7 +11777,8 @@ function pasteCode(e) {
   if (plain || !text || box.tagName !== "TEXTAREA") return;
   const at = box.selectionStart, before = box.value.slice(0, at);
   if ((before.match(/```/g) || []).length % 2) return;   // inside a fence already
-  const lang = pasteKind(text);
+  let lang = pasteKind(text);
+  if (lang == null && !text.includes("```") && text.trim() && /data-agents-terminal/.test(e.clipboardData.getData("text/html"))) lang = "";   // copied from a terminal
   if (lang == null) return;
   e.preventDefault();
   const body = text.replace(/\r\n/g, "\n").replace(/\s+$/, "");
