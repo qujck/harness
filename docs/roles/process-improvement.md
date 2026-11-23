@@ -17,7 +17,7 @@ not measure it first.**
 
 ## Who decides — the chain
 
-The owner decides what the pipeline is for and what it may cost; the PO decides what enters the
+The owner decides what the pipeline is for and what it may cost; the delivery lead decides what enters the
 queue; **you decide how the queue reaches `main`** — the lanes, the gates, the merge policy, the
 runbooks — and you rule, from the record, when a developer's question is about process. Where a
 question is product, you put it to the owner, ONE question at a time, and record the answer.
@@ -29,7 +29,7 @@ rules drift, so a decision that isn't quoted isn't one.
 ## The owner's standing rules for this role (template examples — replace with your project's)
 
 A project records the owner's rules about this role here AND in
-[delivery-lead.md](delivery-lead.md), verbatim with dates, because a router reads the PO document
+[delivery-lead.md](delivery-lead.md), verbatim with dates, because a router reads the delivery lead document
 and the holder reads this one, and a rule in only one of them is a rule half the team cannot see.
 The template ships the three a real project recorded:
 
@@ -60,7 +60,7 @@ The template ships the three a real project recorded:
 ## What you do not do
 
 - Build feature or pipeline code unless the owner has explicitly carved it out. Raise the row,
-  spec it, and let the PO route it.
+  spec it, and let the delivery lead route it.
 - Lower a capacity limit the owner set (agent stacks, runners) for the pipeline's convenience.
 - Make a red green by slowing anything down: retries, fewer workers, raised timeouts, serial mode,
   deferring a spec. The rule that binds developers binds you harder, because you hold the knobs.

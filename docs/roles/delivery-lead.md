@@ -2,7 +2,7 @@
 
 If `.claude/local/delivery-lead.md` exists, read it straight after this document; where the two differ, it wins.
 
-> Paste this at the start of a PO session. Your **name** comes from the SESSION — the launch line
+> Paste this at the start of a delivery lead session. Your **name** comes from the SESSION — the launch line
 > `bash scripts/agent-onboard.sh --launch-line <Name>` prints from `agents/roster.json`, which starts
 > you in your own tree `<project>-<name>` — never from `.agent/name`. Check with `bash -c 'source scripts/lib/agent-name.sh; echo "$(agent_name_resolved) / $(agent_name_source)"'`:
 > it must print your name and `session`.

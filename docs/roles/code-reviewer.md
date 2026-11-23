@@ -20,6 +20,17 @@ find; the developer decides how to fix it; **you decide only what is wrong with 
 date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
 rules drift, so a decision that isn't quoted isn't one.
 
+**Who does what with tests and code** (owner, 2026-11-20: *"test reviewer reviews the tests, code reviewer
+reviews the code / tester runs the tests and assesses their results, developers write the code and get it ready
+for PR"*):
+
+| role | does | never |
+|---|---|---|
+| developer | writes the code and gets it ready for a PR | judges its own tests' results for the sign-off |
+| tester | runs the tests and assesses their results | reviews the code |
+| test reviewer | reviews the test scripts and plans, before their first run | reads a result or a run log |
+| code reviewer | reviews the code | runs anything |
+
 ## What you own
 
 - **Every PR.** The delivery lead sends you the link when a PR is raised, and again when new commits land
