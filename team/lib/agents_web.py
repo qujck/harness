@@ -4761,7 +4761,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 PAGE = r"""<!doctype html>
-<html lang="en-GB">
+<html lang="en-GB" writingsuggestions="false">
 <head>
 <meta charset="utf-8">
 <!-- interactive-widget: the on-screen keyboard shrinks the page, not just the view, so the footer sits on the keyboard
@@ -5989,6 +5989,9 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .thclr{float:right;margin:0 0 4px 10px;padding:2px 10px;border:1px solid currentColor;border-radius:12px;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer;opacity:.85}
 .thclr:hover{opacity:1;background:color-mix(in srgb,var(--amber) 18%,transparent)}
 .phqa{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.phqa.dqa{gap:8px;margin-top:8px}
+.phqa.dqa button{min-height:28px;min-width:52px;padding:0 12px;border-radius:14px;font-size:13px}
+.phqa.dqa button:hover{background:#d2992222}
 .phqa button{min-height:36px;min-width:64px;padding:0 16px;border:1.5px solid var(--amber);border-radius:18px;background:transparent;color:var(--text);font:650 14px var(--sans);cursor:pointer}
 .ph-asks{padding:1px 8px;border-radius:10px;background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber);font:650 11px var(--sans);white-space:nowrap}
 #dre{position:relative;display:flex;gap:6px;padding:0 16px 4px}
@@ -7548,7 +7551,7 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const all = conv && thMode(a.name) === "threads" && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2, pick = thr ? thPick(all, a.name) : null;
   const shownList = thr ? thHoldOrder(all, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
   const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
-    : thr ? thHeadHtml(pick.t) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
+    : thr ? thHeadHtml(pick.t, a.name) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
     : feedHtml(turns, a.name, !conv, laneOf(a.name), null, conv ? newMarkAt(a.name, EVERY) : null);
   const fold = folded().includes(a.name);
   const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
@@ -7825,6 +7828,11 @@ function shellNew(id, kind) {
   const fit = new FitAddon.FitAddon(), s = shells[id] = {id, term, fit, el, kind, theme: "dark", ws: null, ended: false, tries: 0};
   term.loadAddon(fit); term.loadAddon(new WebLinksAddon.WebLinksAddon());
   term.open(el);
+  // the terminal's input is keystrokes for a shell: no browser writing help on it (Edge's "help me write" dot, its
+  // suggestions, spelling, Grammarly)
+  const ta = el.querySelector("textarea");
+  if (ta) for (const [k, v] of Object.entries({writingsuggestions: "false", spellcheck: "false", autocomplete: "off", autocorrect: "off",
+    autocapitalize: "off", "data-gramm": "false", "data-gramm_editor": "false", "data-enable-grammarly": "false"})) ta.setAttribute(k, v);
   const send = data => { if (s.ws?.readyState === 1) s.ws.send(data); };
   term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } shellTyped(s, d); send(shellEnc.encode(d)); });
   term.onBinary(d => s.replay || send(Uint8Array.from(d, c => c.charCodeAt(0))));
@@ -11391,11 +11399,15 @@ function thAskLine(text) {
   const flat = q.replace(/\*\*/g, "").replace(/\s+/g, " ");
   return flat.length > 240 ? flat.slice(0, 239) + "…" : flat;
 }
-function thHeadHtml(t) {
+function thHeadHtml(t, name) {
   if (!t) return "";
-  const ask = t.ask ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
-      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
-    : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
+  // an open ask, answered with a press: Yes, No or Ask why for a yes-or-no question, else Reply (to the box below)
+  const done = phAnswered[name + "\n" + t.name], open_ = t.ask && !(done > (Date.parse(t.ask._asked.at(-1)) || 0));
+  const qa = !open_ ? "" : `<div class="phqa dqa">${(thYesNo(t.ask.text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
+    .map(([w, l]) => `<button data-thqa="${w}" data-thqth="${esc(t.name)}">${l}</button>`).join("")}</div>`;
+  const ask = open_ ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
+      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small>${qa}</div>`
+    : done ? `<div class="thask ok">Answered ${thWhen(done)}</div>` : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
   return `<div class="thhead"><div class="thname"><b>${esc(t.key || t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key ? (t.title !== t.key ? t.title : "") : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
 }
 document.addEventListener("click", e => {
@@ -11558,6 +11570,17 @@ document.addEventListener("click", e => {
   if (!word) { box.focus(); return; }
   box.value = word; phAnswered[open + "\n" + phTh[open]] = Date.now(); say(open, box); renderConv();
 }, true);
+// a quick answer to an open ask in a desktop thread: sent in that thread from the box beneath it, as if typed there
+document.addEventListener("click", e => {
+  const q = e.target.closest?.("[data-thqa]"); if (!q) return;
+  e.stopPropagation(); e.preventDefault();
+  const card = q.closest(".card.full[data-name]"), name = card ? card.dataset.name : open, th = q.dataset.thqth, word = q.dataset.thqa;
+  const box = card ? card.querySelector("textarea.say") : $("#dsay");
+  if (!name || !box) return;
+  if (!word) { box.focus(); return; }
+  box.value = `Re ${th}: ${word}`; phAnswered[name + "\n" + th] = Date.now(); say(name, box);
+  if (card) draw(); else renderConv();
+}, true);
 // a banner on the Agents tab opens its agent in the thread it names
 document.addEventListener("click", e => { const b = e.target.closest?.("[data-thopen]"); if (b) phThNext = {name: b.dataset.open, th: b.dataset.thopen}; }, true);
 function renderConv() {
@@ -11584,7 +11607,7 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, squeezed);
     patch(list, html);
     thEdges(list);
-    patch(conv, thHeadHtml(all.find(t => t.name === sel)) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
+    patch(conv, thHeadHtml(all.find(t => t.name === sel), open) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
   } else {
     patch(conv, convFeed.length ? feedHtml(convFeed, open, false, laneOf(open), null, newMarkAt(open, EVERY)) : `<div class="empty">no conversation yet</div>`);
   }
