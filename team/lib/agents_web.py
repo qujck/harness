@@ -4025,8 +4025,8 @@ def win_home(ps):
 # shell printed last (TERM_KEEP bytes) so its screen comes back. A shell ends when it exits, when its tab or pane is
 # closed, or when nothing has joined it for a day (TERM_IDLE). The page and the keeper talk on a socket only the owner
 # can open, in frames of a type byte and a length: i (typed), r (a size), k (end it) to the keeper; o (output) and
-# p (what it printed last, sent on joining), x (the shell has ended) back. To the page each message of the shell's
-# carries a first byte: 0 its output, 1 that replay, whose questions to the terminal (where is the cursor?) were
+# p (what it printed last, sent on joining), n (the shell is new), x (the shell has ended) back. To the page each message of the shell's
+# carries a first byte: 0 its output, 2 that it is new, 1 that replay, whose questions to the terminal (where is the cursor?) were
 # answered long ago and are not answered again.
 TERM_SOCK = os.path.join(HOME, f".local/state/agents/term-{PORT}.sock")
 TERM_KEEP = 256 * 1024
@@ -4150,13 +4150,16 @@ class TermKeeper(socketserver.StreamRequestHandler):
         cols, rows = int(hello.get("cols") or 80), int(hello.get("rows") or 24)
         with _term_lock:
             t = _terms.get(tid)
-            if not t:
+            fresh = not t
+            if fresh:
                 t = _terms[tid] = TermShell(tid, hello.get("kind") or "sh", cols, rows)
         try:
             shell_size(t.fd, cols, rows)
         except OSError:
             pass
         t.join(self.connection, lock)
+        if fresh:   # a new shell, which a pinned tab gives its command
+            term_put(self.connection, lock, b"n", b"")
         try:
             while (m := term_get(self.rfile)) is not None:
                 kind, data = m
@@ -4263,6 +4266,8 @@ class Handler(BaseHTTPRequestHandler):
                     t, data = m
                     if t in (b"o", b"p"):
                         put(2, (b"\x01" if t == b"p" else b"\x00") + data)
+                    elif t == b"n":
+                        put(2, b"\x02")
                     elif t == b"x":
                         code = 1000
                         break
@@ -5930,6 +5935,14 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 .shtab:hover{background:var(--on);color:var(--text)}
 .shtab.on{background:var(--on);color:var(--text);font-weight:650}
 .shtab .shname{width:9em;height:20px;padding:0 4px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-s);outline:none}
+.shtab .shpinbtn{display:grid;width:13px;height:13px;margin:0;padding:0;line-height:0;color:inherit;cursor:pointer}
+.shtab .shpinbtn svg{grid-area:1/1;width:13px;height:13px}
+.shtab .shpinbtn svg + svg,.shtab:hover .shpinbtn svg:first-child,.shtab .shpinbtn.on svg:first-child{display:none}
+.shtab:hover .shpinbtn svg + svg,.shtab .shpinbtn.on svg + svg{display:block}
+.shtab .shpinbtn.on svg + svg{fill:currentColor}
+#shpin{position:fixed;z-index:60;display:flex;flex-direction:column;gap:6px;width:320px;padding:10px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008;font:calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--text)}
+#shpin input{width:100%;box-sizing:border-box;height:28px;padding:0 8px;font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-s);outline:none}
+#shpin small{color:var(--mute)}
 .shtab i{font-style:normal;margin-left:2px;padding:0 3px;border-radius:4px;color:var(--mute)}
 .shtab i:hover{background:var(--line2);color:var(--text)}
 .shadd{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:var(--r-s);color:var(--mute);font:400 18px/1 var(--sans);cursor:pointer}
@@ -7434,7 +7447,10 @@ function feedHtml(items, name, compact, on = laneOf(name), only = null, newAfter
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
-    if (newAfter && SEEN_KINDS.includes(shown[i].kind) && (shown[i].ts || "") > newAfter) { out.push(`<div class="newline"><span>New</span></div>`); newAfter = null; }
+    if (newAfter && SEEN_KINDS.includes(shown[i].kind) && (shown[i].ts || "") > newAfter) {
+      const n = shown.filter(it => SEEN_KINDS.includes(it.kind) && (it.ts || "") > newAfter).length;
+      out.push(`<div class="newline"><span>${n} new message${n > 1 ? "s" : ""}</span></div>`); newAfter = null;
+    }
     if (j === i) { out.push(one(shown[i])); continue; }
     const run = shown.slice(i, j + 1), key = run[0].ts + run[0].who, n = {};
     run.forEach(it => n[it.who] = (n[it.who] || 0) + 1);
@@ -7501,7 +7517,8 @@ function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, le
   const all = conv && thMode(a.name) === "threads" && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2, pick = thr ? thPick(all, a.name) : null;
   const shownList = thr ? thHoldOrder(all, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
   const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
-    : thr ? thHeadHtml(pick.t) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name) : feedHtml(turns, a.name, !conv);
+    : thr ? thHeadHtml(pick.t) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
+    : feedHtml(turns, a.name, !conv, laneOf(a.name), null, conv ? newMarkAt(a.name, EVERY) : null);
   const fold = folded().includes(a.name);
   const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
     ${a.live ? sayRow(a) : ""}`;
@@ -7689,6 +7706,62 @@ document.addEventListener("dblclick", e => {
   label.replaceWith(box); box.focus(); box.select();
 }, true);
 let shFocus = null;   // the terminal to take the keyboard once drawn: one just opened or picked
+// A tab's pin: a command its terminal runs whenever its shell is new (a reboot, an exit), as if typed. The pin's box
+// offers the command it was set to, else the first one typed in that terminal (kept in this browser by its id).
+const SH_PIN = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9.5 1.8l4.7 4.7-1.9.8-2.6 2.6-.4 3.2-6.4-6.4 3.2-.4 2.6-2.6z"/><path d="M5.2 10.8L1.8 14.2"/></svg>';
+function termOf(id) {   // a terminal's entry in the saved views (its name, kind and pin)
+  let hit = null;
+  const walk = o => { if (hit || !o || typeof o !== "object") return; if (Array.isArray(o.terms)) hit = o.terms.find(t => t.sh === id) || null; Object.values(o).forEach(walk); };
+  walk(views()); return hit;
+}
+const shFirst = JSON.parse(localStorage.getItem("shfirst") || "{}");   // terminal id -> the first command typed in it
+// the command on the cursor's line as Enter is pressed, after the shell's prompt ("PS C:\Users\x> ", "me@box:~$ "),
+// so one found with the arrow keys or Tab counts as well as one typed; with no prompt seen, what was typed
+const SH_PROMPT = /^(?:PS [^>]*>|\S*[$#%>]) (.*)$/;
+function shellLine(term, y = term.buffer.active.baseY + term.buffer.active.cursorY) {
+  const buf = term.buffer.active;
+  let text = buf.getLine(y)?.translateToString(true) || "";
+  while (y > 0 && buf.getLine(y)?.isWrapped) text = (buf.getLine(--y)?.translateToString(true) || "") + text;
+  const m = text.match(SH_PROMPT);
+  return m ? m[1].trim() : null;
+}
+// the first command on a terminal's screen and in its scrollback, for one whose first command was never seen typed
+function shellFirstShown(term) {
+  const buf = term?.buffer.active;
+  for (let y = 0; buf && y < buf.length; y++) { if (buf.getLine(y + 1)?.isWrapped) continue; const v = shellLine(term, y); if (v) return v; }
+  return "";
+}
+function shellTyped(s, d) {
+  if (shFirst[s.id]) return;
+  if (d === "\r") {
+    const v = shellLine(s.term) ?? (!s.bad ? s.line?.trim() : "");
+    if (v) { shFirst[s.id] = v; localStorage.setItem("shfirst", JSON.stringify(shFirst)); }
+    s.line = ""; s.bad = false;
+  }
+  else if (d === "\x7f") s.line = (s.line || "").slice(0, -1);
+  else if (d === "\x03" || d === "\x15") { s.line = ""; s.bad = false; }
+  else if (/[\x00-\x1f]/.test(d)) s.bad = true;   // an arrow or Tab: the line is no longer what was typed
+  else s.line = (s.line || "") + d;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-shpin]"), path = b?.closest(".pane[data-path]")?.dataset.path;
+  if (!path) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  $("#shpin")?.remove();
+  const i = +b.dataset.shpin, n0 = nodeAt(layout().root, path), t0 = n0.terms?.[i]; if (!t0) return;
+  const r = b.closest(".shtab").getBoundingClientRect(), pop = document.createElement("div"); pop.id = "shpin";
+  pop.innerHTML = `<div>Run in a fresh shell here</div><input class="ctname" spellcheck="false" placeholder="a command, e.g. attach geminio"><small>Enter pins it · empty unpins · Esc leaves it</small>`;
+  pop.style.cssText = `top:${r.bottom + 6}px;left:${Math.max(8, Math.min(r.left, innerWidth - 330))}px`;
+  document.body.append(pop);
+  const box = pop.querySelector("input"); box.value = t0.pin || shFirst[t0.sh] || shellFirstShown(shells[t0.sh]?.term);
+  let done = false;
+  const finish = keep => { if (done) return; done = true;
+    if (keep) { const l = layout(), t = nodeAt(l.root, path).terms?.[i]; if (t) { const v = box.value.trim(); if (v) t.pin = v; else delete t.pin; saveLayout(l); } }
+    pop.remove(); draw(); };
+  box.onkeydown = ev => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); else if (ev.key === "Escape") finish(false); };
+  box.onblur = () => finish(false);
+  box.focus(); box.select();
+}, true);
 // above a pane's terminals: a tab picks one, its × closes it (its shell hung up), + opens another (Bash or PowerShell,
 // from a menu where there are both), and light or dark
 document.addEventListener("click", e => {
@@ -7720,7 +7793,7 @@ function shellNew(id, kind) {
   term.loadAddon(fit); term.loadAddon(new WebLinksAddon.WebLinksAddon());
   term.open(el);
   const send = data => { if (s.ws?.readyState === 1) s.ws.send(data); };
-  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } send(shellEnc.encode(d)); });
+  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } shellTyped(s, d); send(shellEnc.encode(d)); });
   term.onBinary(d => s.replay || send(Uint8Array.from(d, c => c.charCodeAt(0))));
   term.onResize(({cols, rows}) => send(JSON.stringify({cols, rows})));
   term.attachCustomKeyEventHandler(e => {
@@ -7742,6 +7815,7 @@ function shellOpen(s) {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { s.tries = 0; s.term.reset(); };
   ws.onmessage = e => { const d = new Uint8Array(e.data);
+    if (d[0] === 2) { const pin = termOf(s.id)?.pin; if (pin) ws.send(shellEnc.encode(pin + "\r")); return; }
     if (d[0] !== 1) return s.term.write(d.subarray(1));
     s.replay = true; s.term.write(d.subarray(1), () => { s.replay = false; }); };
   ws.onclose = e => {
@@ -7754,6 +7828,7 @@ function shellOpen(s) {
 }
 function shellEnd(id) {
   const s = shells[id]; delete shells[id]; s.gone = true;
+  if (id in shFirst) { delete shFirst[id]; localStorage.setItem("shfirst", JSON.stringify(shFirst)); }
   if (s.ws?.readyState === 1) s.ws.send(JSON.stringify({kill: true}));
   s.ws?.close(); s.term.dispose(); s.el.remove();
 }
@@ -9873,7 +9948,7 @@ function customHtml(ceil, tabRow) {
     const big = path === maxed;
     if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
     const t = big && termOn() && paneTerm[a.name];
-    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort()].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
+    const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort(), newMarksKey(a.name)].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
     return card(a, ceil, paneConv[a.name] || a.feed,
       (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
@@ -9893,9 +9968,11 @@ function customHtml(ceil, tabRow) {
       const th = shellTheme(n), at = Math.min(n.termAt || 0, n.terms.length - 1), t = n.terms[at];
       const kindName = k => shellKinds.find(x => x.kind === k)?.name || (k === "pwsh" ? "PowerShell" : "Shell");
       const label = (x, i) => { if (x.name) return x.name; const same = n.terms.filter(y => y.shell === x.shell && !y.name); return kindName(x.shell) + (same.length > 1 ? " " + (same.indexOf(x) + 1) : ""); };
-      const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">${PANE_ICON.shell}<span>${esc(label(x, i))}</span>` +
-        (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
-      body = `<div class="shellwrap ${th}"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal">+</b>` +
+      // its icon turns to the pin under the pointer, and is the pin while one is set
+      const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">` +
+        `<i class="shpinbtn${x.pin ? " on" : ""}" data-shpin="${i}" title="${x.pin ? `Pinned: a fresh shell here runs ${esc(x.pin)}` : "Pin a command for a fresh shell here to run"}">${PANE_ICON.shell}${SH_PIN}</i>` +
+        `<span>${esc(label(x, i))}</span>` + (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
+      body = `<div class="shellwrap ${th}"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></b>` +
         `<b class="shthemebtn" data-shtheme="${th === "light" ? "dark" : "light"}" title="${th === "light" ? "Dark" : "Light"} terminal">${th === "light" ? SH_MOON : SH_SUN}</b></div>` +
         `<div class="shellbox"><div class="shellhost" data-kept data-key="shell:${t.sh}" data-sh="${t.sh}" data-kind="${esc(t.shell)}"></div></div></div>`;
     } else if (n.show === "others") {
@@ -10890,12 +10967,37 @@ async function load() {
 // it, newer than that is unseen. It is counted only in the lanes the agent's card shows (unseenBy).
 const seen = JSON.parse(localStorage.getItem("seen") || "{}");
 const SEEN_KINDS = ["said", "peer", "sent"];
+// A conversation shown on lines not seen before (a thread with a count opened, or lines arriving while it is shown)
+// marks where they begin with "N new messages", for a few seconds (NEW_FOR), as long as a count shows. The mark is
+// taken as they are marked seen, and kept by agent and thread ("" General, EVERY all of them).
+const newMarks = {}, NEW_FOR = 6000;
+const newMarkAt = (name, th) => { const m = newMarks[name + "\n" + th]; return m && Date.now() < m.until ? m.after : null; };
+const newMarksKey = name => Object.entries(newMarks).filter(([k, m]) => k.startsWith(name + "\n") && Date.now() < m.until).map(([k]) => k).join(",");
+const backAgain = () => { if (!S || !looking()) return; draw(); if (open) markSeen([open]); };
+addEventListener("focus", backAgain); document.addEventListener("visibilitychange", backAgain);
+function noteNew(name, th, feed) {
+  const k = name + "\n" + th, mark = th === EVERY ? seen[name] || "" : thSeen(name, th);
+  if (!seen[name] || newMarkAt(name, th) != null) return;
+  if (!threadItems(feed, name).some(it => SEEN_KINDS.includes(it.kind) && (it.ts || "") > mark && (th === EVERY || (it._thread || "") === th))) return;
+  newMarks[k] = {after: mark, until: Date.now() + NEW_FOR};
+  const redraw = () => { draw(); if (open === name) renderConv(); };   // drawn with the mark at once (it is taken as a draw ends), and again without it
+  setTimeout(redraw); setTimeout(() => { delete newMarks[k]; redraw(); }, NEW_FOR + 50);
+}
+// Lines are seen only while the page is looked at: its window in front and focused (a page in a pane's frame asks the
+// page round it). Away, the counts stay and the new lines wait, marked when the owner is back.
+function looking() {
+  if (document.hidden) return false;
+  try { return (window.top === window ? document : window.top.document).hasFocus(); } catch (e) { return document.hasFocus(); }
+}
 function markSeen(names) {
+  const here = looking();
   for (const a of S.agents) {
-    if (!names.includes(a.name)) continue;
+    if (!names.includes(a.name) || !here && seen[a.name]) continue;   // away: only an agent never seen gets where it starts
     const newest = a.feed.reduce((m, it) => it.ts && it.ts > m ? it.ts : m, "");
     if (a.name === open && seen[a.name] && phThOn(open) && !phThOpen(open)) continue;   // the phone's inbox: nothing in it read yet
     const threads = thMode(a.name) === "threads" && (a.name === open ? thOn() || phThOpen(open) : !!document.querySelector(`.card.full.thon[data-name="${CSS.escape(a.name)}"]`));
+    const shownTh = threads && thSel[a.name]?.name !== EVERY ? thSel[a.name]?.name ?? "" : EVERY;
+    if (a.name === open || document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"]`)) noteNew(a.name, shownTh, (a.name === open ? convFeed : paneConv[a.name]) || a.feed);
     if (threads && seen[a.name] && thSel[a.name]?.name !== EVERY) {
       const th = thSel[a.name]?.name ?? "", m = threadItems(paneConv[a.name] || a.feed, a.name).filter(it => (it._thread || "") === th)
         .reduce((m, it) => { const t = (it._asked || [it.ts]).at(-1) || ""; return t > m ? t : m; }, "");
@@ -11440,9 +11542,9 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, squeezed);
     patch(list, html);
     thEdges(list);
-    patch(conv, thHeadHtml(all.find(t => t.name === sel)) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel));
+    patch(conv, thHeadHtml(all.find(t => t.name === sel)) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
   } else {
-    patch(conv, convFeed.length ? feedHtml(convFeed, open, false) : `<div class="empty">no conversation yet</div>`);
+    patch(conv, convFeed.length ? feedHtml(convFeed, open, false, laneOf(open), null, newMarkAt(open, EVERY)) : `<div class="empty">no conversation yet</div>`);
   }
   const a = S.agents.find(x => x.name === open);
   if (a) shutBox($("#dsay"), a);
