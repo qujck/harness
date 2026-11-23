@@ -4,7 +4,7 @@
 # run inside those two scripts' self-tests.
 #
 # A session is RUNNING when either holds:
-#   - the tmux session `<project>-<name, lowercased>` exists (the one agent-spawn.sh starts), or
+#   - the tmux session named for the agent, `Ada`, exists (the one agent-spawn.sh starts), or
 #   - a Claude Code record ~/.claude/sessions/<pid>.json has a live pid whose process carries the
 #     name's roster address in GIT_AUTHOR_EMAIL (read from /proc/<pid>/environ), or, where /proc
 #     cannot be read, whose record is named <name>. This finds a session started by hand from the
@@ -19,8 +19,11 @@
 #
 # Needs: jq, roster.sh sourced first (roster_lookup_email, roster_email_of_name), HARNESS_PROJECT.
 
-# The tmux session and the worktree an agent's session uses: one name for both.
+# The worktree and the Remote Control name an agent's session uses: <project>-<name, lowercased>.
 agent_session_name() { printf '%s-%s\n' "${HARNESS_PROJECT:?}" "${1,,}"; }
+# The tmux session an agent runs in: its name, capitalised, and nothing else. byobu's session menu lists only a
+# session whose name has no "-", so this is the name the owner picks from when he runs `byobu`.
+agent_tmux_session() { printf '%s\n' "${1^}"; }
 
 # agent_session_pid_since <pid> <startedAt-ms> -> 0 when the process started no later than the session did.
 agent_session_pid_since() {
@@ -41,7 +44,7 @@ agent_session_claude_for() {
 
 agent_session_tmux_up() { # <name>
   command -v tmux >/dev/null 2>&1 || return 1
-  tmux has-session -t "=$(agent_session_name "$1")" 2>/dev/null
+  tmux has-session -t "=$(agent_tmux_session "$1")" 2>/dev/null
 }
 
 # agent_session_record <name> -> "pid<TAB>status<TAB>startedAt-ms" of the newest live record that is

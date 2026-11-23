@@ -199,7 +199,7 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
   verbs: you ask for the number and the words, you never run them for the owner.
 
   The budget decides only whether to ask; it never decides the model (below). A name no longer free
-  is refused: dry-run again. The agent starts in its own tmux session (`tmux attach -t =<project>-<name>`
+  is refused: dry-run again. The agent starts in its own tmux session (named for it: `tmux attach -t =<Name>`
   to watch it) and its own worktree, with Remote Control on under that session's name (so the owner can
   reach it from claude.ai/code or the Claude mobile app; owner, 2026-10-25), reads its role, runs
   `init.sh` and tells you it is ready. A developer claims the ticket itself, because

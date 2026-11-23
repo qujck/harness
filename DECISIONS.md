@@ -312,7 +312,8 @@ record. A board or entry list that cannot be read refuses. `harness.env.example`
 with stand-in `tmux`, `claude` and ledger on PATH and a fixture roster (`selftest-tiers.txt`: both scripts
 `verify`; `scripts/lib/agent-session.sh`, the shared "is it running" helper, `nowhere` with its reason).
 
-**How a session is started, and why not `--tmux`.** Spawn runs `tmux new-session -d -s <project>-<name>`
+**How a session is started, and why not `--tmux`.** Spawn runs `tmux new-session -d -s <Name>` (`<project>-<name>` until 2026-11-23, when the owner asked for
+byobu's own session menu, which hides any name with a `-`)
 with `env <roster_launch_env> claude --worktree <project>-<name> --name <Name> [--model M] "<first prompt>"`:
 the same identity as the printed launch line, but spawn owns the tmux session instead of passing `--tmux`,
 because `--tmux` expects a terminal to attach and spawn runs from the lead's session, which has none. The

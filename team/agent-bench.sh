@@ -148,7 +148,7 @@ EOF
             CLAUDE_CONFIG_DIR="$T/claude" PATH="$T/bin:$PATH" LDB="${LDBV-ledger-db.sh}" AGENTS_DOCKER="$T/bin/docker" bash "$SELF" "$@" 2>&1; }
   # Ada: running in agent-spawn's tmux session AND a live record (idle, started at a known ms), finished.
   reset() {
-    printf 'proj-ada\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; : > "$T/ledger.log"; rm -f "$T/ledger.down"
+    printf 'Ada\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; : > "$T/ledger.log"; rm -f "$T/ledger.down"
     printf 'feat_other|ci|Ben\n' > "$T/board"; printf '[{"agent":"Ada","title":"done"}]\n' > "$T/entries"
     [[ -n "$child" ]] && kill -0 "$child" 2>/dev/null || { GIT_AUTHOR_EMAIL=ada@proj.local sleep 60 & child=$!; }
     printf '{"pid":%s,"sessionId":"s1","status":"idle","startedAt":%s}\n' "$child" "$started" > "$T/claude/sessions/$child.json"
@@ -161,12 +161,12 @@ EOF
   out="$(run Rex)"; rc=$?;      _t "a role that is not a developer, tester or lead is never benched" "$rc" 1
   _has "  and says who is" "$out" "only a developer, a tester or a lead is benched"
   # the leads hand over by benching each other: never while the other lead is down
-  printf 'proj-ada\nproj-lea\n' > "$T/tmux.sessions"
+  printf 'Ada\nLea\n' > "$T/tmux.sessions"
   out="$(run Lea --dry-run)"; rc=$?; _t "a lead with no other lead up is refused" "$rc" 1
   _has "  and says to hand over first" "$out" "no other lead is up"
-  printf 'proj-ada\nproj-lea\nproj-vi\n' > "$T/tmux.sessions"
+  printf 'Ada\nLea\nVi\n' > "$T/tmux.sessions"
   out="$(run Lea --dry-run)"; rc=$?; _t "a lead with the other lead up is benched" "$rc" 0
-  _has "  like anyone else" "$out" "would bench Lea (delivery-lead): stop tmux session proj-lea"
+  _has "  like anyone else" "$out" "would bench Lea (delivery-lead): stop tmux session Lea"
   out="$(run Vi --dry-run)"; rc=$?; _t "and the head of testing likewise, the delivery lead up" "$rc" 0
   printf 'feat_park|ci|Lea  <= PARKED\n' >> "$T/board"
   out="$(run Lea --dry-run)"; rc=$?; _t "a lead holding only a parked claim is benched" "$rc" 0
@@ -222,14 +222,14 @@ EOF
 
   reset; out="$(run Ada --dry-run)"; rc=$?
   _t "a dry run of a finished agent passes" "$rc" 0
-  _has "  and says what it would stop" "$out" "would bench Ada (developer): stop tmux session proj-ada"
+  _has "  and says what it would stop" "$out" "would bench Ada (developer): stop tmux session Ada"
   _has "  and which containers it would remove" "$out" "remove its containers (ada-feat_a-mysql)"
   _t "  and stops nothing" "$(grep -c '^kill-session' "$T/tmux.log")" 0
   _t "  and removes nothing" "$(cat "$T/rm.log" 2>/dev/null)" ""
 
   reset; out="$(run Ada)"; rc=$?
   _t "a bench exits 0" "$rc" 0
-  _has "  and stops the agent's tmux session, exactly" "$(cat "$T/tmux.log")" "kill-session -t =proj-ada"
+  _has "  and stops the agent's tmux session, exactly" "$(cat "$T/tmux.log")" "kill-session -t =Ada"
   _has "  and says what stays" "$out" "benched Ada"
   _has "  and removes its containers" "$out" "removed ada-feat_a-mysql"
   _t "  with their volumes" "$(cat "$T/rm.log")" "rm -f -v ada-feat_a-mysql"
@@ -276,16 +276,16 @@ EOF
   _has "  for the board" "$(cat "$T/ledger.log")" "board"
   reset; out="$(run bench Ada --dry-run)"; rc=$?
   _t "a leading 'bench' changes nothing" "$rc" 0
-  _has "  the same bench" "$out" "would bench Ada (developer): stop tmux session proj-ada"
-  reset; rm -f "$T/tmux.env.proj-ada"
+  _has "  the same bench" "$out" "would bench Ada (developer): stop tmux session Ada"
+  reset; rm -f "$T/tmux.env.Ada"
   out="$(run Ada --dry-run)"; rc=$?
   _t "unset AGENT_BENCH_SPAWNED_ONLY: a session with no spawn marker is benched" "$rc" 0
   out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run)"; rc=$?
   _t "AGENT_BENCH_SPAWNED_ONLY=1: a session with no spawn marker is refused" "$rc" 1
-  _has "  saying how to bench it" "$out" "not started by agent-spawn.sh (no tmux session proj-ada carrying HARNESS_SPAWNED=1)"
+  _has "  saying how to bench it" "$out" "not started by agent-spawn.sh (no tmux session Ada carrying HARNESS_SPAWNED=1)"
   out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run --by-hand)"; rc=$?
   _t "  --by-hand benches it" "$rc" 0
-  printf 'HARNESS_SPAWNED=1\nHARNESS_TICKET=HAR-12\n' > "$T/tmux.env.proj-ada"
+  printf 'HARNESS_SPAWNED=1\nHARNESS_TICKET=HAR-12\n' > "$T/tmux.env.Ada"
   out="$(AGENT_BENCH_SPAWNED_ONLY=1 run Ada --dry-run)"; rc=$?
   _t "  a session agent-spawn.sh marked is benched" "$rc" 0
   reset; : > "$T/tmux.sessions"
@@ -298,11 +298,11 @@ EOF
   _t "AGENT_BENCH_PRECHECK_CMD failing refuses the bench, a dry run too" "$rc" 1
   _has "  with what it said" "$out" "not ready to bench (AGENT_BENCH_PRECHECK_CMD): ada-feat_a stack is still up"
   out="$(AGENT_BENCH_PRECHECK_CMD='echo "$1|$AGENT_BENCH_NAME|$AGENT_BENCH_ROLE|$AGENT_BENCH_SESSION|$AGENT_BENCH_SPAWNED|$AGENT_BENCH_TICKET|$AGENT_BENCH_TREE|$PWD"; exit 1' run Ada --dry-run)"
-  _has "  given the name, role, session, marker, ticket, tree, in the project root" "$out" "Ada|Ada|developer|proj-ada|1|HAR-12|$T/wt/proj-ada|$T/repo"
+  _has "  given the name, role, session, marker, ticket, tree, in the project root" "$out" "Ada|Ada|developer|Ada|1|HAR-12|$T/wt/proj-ada|$T/repo"
   out="$(AGENT_BENCH_PRECHECK_CMD='true' run Ada)"; rc=$?
   _t "  passing, the bench goes on" "$rc" 0
-  _has "  and stops the session" "$(cat "$T/tmux.log")" "kill-session -t =proj-ada"
-  rm -f "$T/tmux.env.proj-ada"
+  _has "  and stops the session" "$(cat "$T/tmux.log")" "kill-session -t =Ada"
+  rm -f "$T/tmux.env.Ada"
 
   out="$(run --slef-test)"; rc=$?; _t "a mistyped self-test flag exits 2, never runs" "$rc" 2
   out="$(run Ada --frobnicate)"; rc=$?; _t "an unknown argument is refused" "$rc" 2
@@ -338,7 +338,7 @@ ROLE="$(roster_lookup_role "$NAME")"
 case "$ROLE" in developer|tester|delivery-lead|head-of-testing) ;;
   *) refuse "$NAME is the $ROLE; only a developer, a tester or a lead is benched" ;; esac
 
-SESSION="$(agent_session_name "$NAME")"
+SESSION="$(agent_tmux_session "$NAME")"
 TMUX_UP=0; agent_session_tmux_up "$NAME" && TMUX_UP=1
 REC="$(agent_session_record "$NAME")"
 PID="" STATUS="" STARTED=""

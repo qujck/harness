@@ -438,7 +438,7 @@ case "\$(cat "$T/day.mode" 2>/dev/null)" in
 esac
 EOF
   chmod +x "$T/bin/tmux" "$T/bin/claude" "$T/bin/budget" "$T/bin/day" "$T/bin/ledger"
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"   # Ben is already running, in agent-spawn's own tmux session
   local sum0; sum0="$(cksum < "$T/repo/agents/roster.json")"
   run() { env -u AGENT_MODEL_DEV -u AGENT_MODEL_TESTER HARNESS_ROOT="${ROOT:-$T/repo}" HARNESS_PROJECT="${PROJ-proj}" ROSTER_DOMAIN=proj.local \
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
@@ -513,7 +513,7 @@ EOF
   _t "a tester spawn off budget starts without any OK" "$rc" 0
   _t "  and is recorded with no owner words" "$(awk -F'\t' '$2=="Tess"{print $3"|"$6"|"$7}' "$T/spawns.tsv")" 'tester|over|-'
   # ── THE CAP GATES EVERY ROLE (owner, 2026-10-29) ──
-  printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx" "$T/claude/sessions"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Tess is free again
+  printf 'on\n' > "$T/budget.mode"; mkdir -p "$T/ctx" "$T/claude/sessions"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"   # Tess is free again
   # Session records are what count: three live busy/shell ones, one busy whose process is gone, and a context row
   # left at "working" for an agent with no busy record (the activity hook leaves that behind after Stop).
   sleep 300 & local SLP=$!; trap 'kill "$SLP" 2>/dev/null' RETURN
@@ -540,11 +540,11 @@ EOF
   _t "a tester spawn at the cap WITH the owner's OK starts" "$rc" 0
   _has "  and prints the cap line" "$out" "working 3 of up to 3 sessions"
   printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=4\n' > "$T/repo/harness.env"
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12)"; rc=$?
   _t "below the cap a tester starts as before" "$rc" 0
   printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=ten\n' > "$T/repo/harness.env"
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12 --dry-run)"; rc=$?
   _t "a cap that is not a number is a usage error" "$rc" 2
   printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=10\n' > "$T/repo/harness.env"
@@ -558,7 +558,7 @@ EOF
   out="$(run tester --ticket HAR-12 --owner-ok 'go on, Peter')"; rc=$?
   _t "  the owner's words start it" "$rc" 0
   kill "$SLP" 2>/dev/null; rm -f "$T/ctx"/*.json "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; printf 'over\n' > "$T/budget.mode"
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --owner-ok 'yes, start her, Peter')"; rc=$?
   _t "a developer spawn off budget WITH the owner's OK starts" "$rc" 0
   _has "  and the start line quotes the OK" "$out" 'owner OK: "yes, start her, Peter"'
@@ -566,25 +566,25 @@ EOF
   _has "  and the budget line itself" "$(tail -1 "$T/spawns.tsv")" "budget  over: week 61%"
 
   # ── VERIFICATION SUPPORT LIFTS THE BUDGET GATE, NOT THE CAP (owner, 2026-10-31) ──
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --verification-support --dry-run)"
   _has "a developer dry run off budget with --verification-support says to start it" "$out" "developer, verification support: start it"
   out="$(run developer --ticket HAR-12 --verification-support)"; rc=$?
   _t "a developer spawn off budget with --verification-support starts without the owner's words" "$rc" 0
   _has "  and the start line says so" "$out" "; verification support"
   _t "  and the record's verdict says how it went past the line" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'over:verification-support|-'
-  mk $$ s1 busy; printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=1\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  mk $$ s1 busy; printf 'AGENT_MODEL_DEV=sonnet\nAGENT_MAX_WORKING=1\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run developer --ticket HAR-12 --verification-support)"; rc=$?
   _t "  and at the cap it starts too, with no owner's words" "$rc" 0
   _has "  and the cap line says the cap was lifted" "$out" "at the cap, lifted for verification support"
   _t "  and the record's verdict says it went past the cap" "$(awk -F'\t' '{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'over:verification-support:over-cap|-'
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   printf 'on\n' > "$T/budget.mode"; out="$(run developer --ticket HAR-12)"; rc=$?
   _t "  without the flag, a developer ON budget at the cap is refused" "$rc" 1
   _t "  starting nothing" "$(grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true)" 0
   printf 'over\n' > "$T/budget.mode"
   # ── THE LEADS HAND OVER BY SPAWNING EACH OTHER (owner, 2026-10-31): no ticket, no budget gate, no cap ──
-  : > "$T/tmux.log"; printf 'proj-ben\nproj-lea\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; printf 'Ben\nLea\n' > "$T/tmux.sessions"
   out="$(run head-of-testing --dry-run)"; rc=$?
   _t "a lead dry run with no ticket passes" "$rc" 0
   _has "  its prompt names the lead it takes over from" "$out" "the head-of-testing, started by team/agent-spawn.sh to take over from Lea"
@@ -596,7 +596,7 @@ EOF
   _t "a lead spawn off budget AND at the cap starts with no owner's words" "$rc" 0
   _has "  and the cap line says it is not counted" "$out" "a lead is not counted against the cap"
   _t "  and the record's verdict is lead" "$(awk -F'\t' '{v=$3"|"$4"|"$6"|"$7} END{print v}' "$T/spawns.tsv")" 'head-of-testing|-|lead|-'
-  rm -f "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  rm -f "$T/claude/sessions"/*.json; printf 'AGENT_MODEL_DEV=sonnet\n' > "$T/repo/harness.env"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run developer --owner-ok '' --dry-run)"; rc=$?
   _t "--owner-ok with no words is a usage error" "$rc" 2
   # F1 (from the review of the spawn gate): "--owner-ok --dry-run" must not take "--dry-run" as the owner's words and then
@@ -613,7 +613,7 @@ EOF
   done
   _t "  and nothing was started by any of them" "$(grep -c '^new-session' "$T/tmux.log")" 0
   _t "  nor recorded" "$(wc -l < "$T/spawns.tsv")" "$before"
-  : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"   # Ada's spawn above is over; she is free again
+  : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"   # Ada's spawn above is over; she is free again
   out="$(run developer --ticket HAR-12 --owner-ok 'yes <go ahead> - Peter' --dry-run 2>&1)"; rc=$?
   _t "words that merely contain brackets or a dash are words" "$rc" 0
   # Follow-ups from the same review: the trailing trim is what refuses a placeholder pasted
@@ -632,15 +632,15 @@ EOF
     || _t "a leading dash after blanks is still a flag, not words" 1 1
 
   # a real start, on budget, with the role's model from harness.env; the row is selected and unclaimed again
-  printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"; printf 'selected\t\n' > "$T/ledger.state"
+  printf 'on\n' > "$T/budget.mode"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"; printf 'selected\t\n' > "$T/ledger.state"
   out="$(run developer --ticket HAR-12)"; rc=$?
   _t "a spawn exits 0" "$rc" 0
-  _has "  and says how to watch it" "$out" "tmux attach -t =proj-ada"
+  _has "  and says how to watch it" "$out" "tmux attach -t =Ada"
   _has "  and that Remote Control is on" "$out" "with Remote Control on"
   _t "  on budget, recorded with no owner words" "$(awk -F'\t' '$2=="Ada"{v=$6"|"$7} END{print v}' "$T/spawns.tsv")" 'on|-'
   local line; line="$(grep '^new-session' "$T/tmux.log")"
   _has "  the session starts claude with Remote Control on, named for the tmux session" "$line" "--remote-control proj-ada"
-  _has "it starts a detached tmux session named for the agent, at AGENT_SESSION_SIZE, in the project root" "$line" "new-session -d -s proj-ada -x 240 -y 60 -c $T/repo env"
+  _has "it starts a detached tmux session named for the agent, at AGENT_SESSION_SIZE, in the project root" "$line" "new-session -d -s Ada -x 240 -y 60 -c $T/repo env"
   _has "  with the roster identity" "$line" "GIT_AUTHOR_NAME=Ada GIT_AUTHOR_EMAIL=ada@proj.local GIT_COMMITTER_NAME=Ada GIT_COMMITTER_EMAIL=ada@proj.local"
   _has "  in the agent's own worktree, named in the session" "$line" "claude --worktree proj-ada --name Ada"
   _has "  on the role's model (AGENT_MODEL_DEV)" "$line" "--model sonnet"
@@ -651,7 +651,7 @@ EOF
   _t "a spawn writes no roster" "$(cksum < "$T/repo/agents/roster.json")" "$sum0"
 
   # ── THE TICKET IS CHECKED BEFORE THE START, AND THE CLAIM AFTER (owner, 2026-10-26) ──
-  : > "$T/tmux.log"; : > "$T/ledger.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  : > "$T/tmux.log"; : > "$T/ledger.log"; printf 'Ben\n' > "$T/tmux.sessions"
   for row in $'\t' $'archived\t' $'not_started\t' $'in_progress\tBen'; do
     printf '%s\n' "$row" > "$T/ledger.state"
     out="$(run developer --ticket HAR-12 --dry-run)"; rc=$?
@@ -676,7 +676,7 @@ EOF
   _t "a row already this name's starts without waiting" "$rc" 0
   _has "  and says the claim is from before" "$out" "HAR-12 is already Ada's"
   _t "  the agent started" "$(grep -c '^new-session' "$T/tmux.log")" 1
-  printf 'selected\t\n' > "$T/ledger.state"; rm -f "$T/ledger.claims-on-start"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  printf 'selected\t\n' > "$T/ledger.state"; rm -f "$T/ledger.claims-on-start"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   before=$(wc -l < "$T/spawns.tsv")
   out="$(run developer --ticket HAR-12)"; rc=$?
   _t "a claim that never appears exits 1 with the agent running" "$rc" 1
@@ -684,14 +684,14 @@ EOF
   _has "  with how to tell them" "$out" "bash scripts/feature-ticket.sh claim HAR-12"
   _t "  the agent did start" "$(grep -c '^new-session' "$T/tmux.log")" 1
   _t "  and the spawn is recorded" "$(( $(wc -l < "$T/spawns.tsv") - before ))" 1
-  printf 'selected\t\n' > "$T/ledger.state"; : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"
+  printf 'selected\t\n' > "$T/ledger.state"; : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"
   out="$(CW=0 run developer --ticket HAR-12)"; rc=$?
   _t "AGENT_SPAWN_CLAIM_WAIT_S=0 starts without watching" "$rc" 0
   _has "  and says the claim is unwatched" "$out" "not watched (AGENT_SPAWN_CLAIM_WAIT_S=0)"
   touch "$T/ledger.claims-on-start"; printf 'selected\t\n' > "$T/ledger.state"; : > "$T/ledger.log"
   run tester --ticket HAR-12 >/dev/null
   _t "a tester's ticket is neither read nor watched" "$(grep -c . "$T/ledger.log")" 0
-  printf 'proj-ben\nproj-ada\n' > "$T/tmux.sessions"   # as after the real start above: Ben and Ada running
+  printf 'Ben\nAda\n' > "$T/tmux.sessions"   # as after the real start above: Ben and Ada running
 
   # a project root Claude Code has not been trusted in: refused before anything starts
   cp "$T/claude/.claude.json" "$T/trusted.json"; printf '{"projects":{}}\n' > "$T/claude/.claude.json"
@@ -723,7 +723,7 @@ EOF
   _t "  and is not told to claim" "$(grep -c 'feature-ticket.sh claim' <<<"$line")" 0
 
   # no model anywhere: no --model at all, so the account default applies
-  : > "$T/repo/harness.env"; printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
+  : > "$T/repo/harness.env"; printf 'Ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
   run developer >/dev/null
   line="$(grep '^new-session' "$T/tmux.log")"
   _t "with no model set, no --model is passed" "$(grep -c -- '--model' <<<"$line")" 0
@@ -731,7 +731,7 @@ EOF
 
   # ── EVERY REAL SPAWN SAYS WHY THIS MODEL (owner, 2026-10-26) ──
   _t "the record's last column is why that model" "$(awk -F'\t' 'END{print $9}' "$T/spawns.tsv")" "routine test"
-  printf 'on\n' > "$T/budget.mode"; printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
+  printf 'on\n' > "$T/budget.mode"; printf 'Ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"
   out="$(WHYARGS=(); run tester --ticket HAR-12 --model opus --why 'first round of a new feature')"
   _has "the start line says the model and why" "$out" "on opus (first round of a new feature)"
   mkdir -p "$T/home"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
@@ -740,13 +740,15 @@ EOF
   _has "  saying what it needs" "$out" 'a real spawn needs HARNESS_PROJECT=<project>'
   _t "  and starts nothing" "$(grep -c '^new-session' "$T/tmux.log" || true)" 0
   _t "  and records nothing, not even under a derived project" "$(find "$T/home" -name agent-spawns.tsv | wc -l)$(wc -l < "$T/spawns.tsv")" "0$before"
+  cp "$T/tmux.sessions" "$T/tmux.sessions.kept"; : > "$T/tmux.sessions"   # a tester free to pick, whatever the project
   out="$(PROJ='' LOGF='' HOME="$T/home" run tester --ticket HAR-12 --model opus --dry-run)"; rc=$?
+  mv "$T/tmux.sessions.kept" "$T/tmux.sessions"
   _t "a dry run needs neither" "$rc" 0
   _has "  and its start line asks for the project" "$out" "start exactly this one with: HARNESS_PROJECT=<project> HARNESS_ROOT=$T/repo bash $SELF tester"
-  printf 'proj-ben\n' > "$T/tmux.sessions"
+  printf 'Ben\n' > "$T/tmux.sessions"
   out="$(run tester --ticket HAR-12 --model opus --dry-run)"
   _has "a dry run's start line carries the project it was given" "$out" "start exactly this one with: HARNESS_PROJECT=proj HARNESS_ROOT=$T/repo bash $SELF tester"
-  printf 'proj-ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
+  printf 'Ben\n' > "$T/tmux.sessions"; : > "$T/tmux.log"; before=$(wc -l < "$T/spawns.tsv")
   WHYARGS=()
   out="$(run tester --ticket HAR-12 --model opus)"; rc=$?
   _t "a real spawn without --why is a usage error" "$rc" 2
@@ -775,7 +777,7 @@ EOF
   # ── PROJECT SETTINGS: each one unset is the behaviour above, and each one set is shown to bite ──
   kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; child=""; rm -f "$T/claude/sessions"/*.json
   : > "$T/repo/harness.env"; printf 'on\n' > "$T/budget.mode"
-  fresh() { : > "$T/tmux.log"; printf 'proj-ben\n' > "$T/tmux.sessions"; }
+  fresh() { : > "$T/tmux.log"; printf 'Ben\n' > "$T/tmux.sessions"; }
   _starts() { grep -c '^new-session' "$T/tmux.log" 2>/dev/null || true; }
 
   # unset: the start line as before, with the session's markers added to its environment and to the tmux session
@@ -783,13 +785,13 @@ EOF
   _t "settings unset: a tester starts" "$rc" 0
   _has "  in claude's worktree, from the project root, as before" "$line" "-c $T/repo env GIT_AUTHOR_NAME=Tess"
   _has "  marked in its environment with the ticket it was spawned for" "$line" "GIT_COMMITTER_EMAIL=tess@proj.local HARNESS_SPAWNED=1 HARNESS_TICKET=HAR-12 claude --worktree proj-tess --name Tess"
-  _has "  and on the tmux session, for the bench" "$(cat "$T/tmux.log")" "set-environment -t =proj-tess HARNESS_SPAWNED 1"
-  _has "  the ticket too" "$(cat "$T/tmux.log")" "set-environment -t =proj-tess HARNESS_TICKET HAR-12"
+  _has "  and on the tmux session, for the bench" "$(cat "$T/tmux.log")" "set-environment -t =Tess HARNESS_SPAWNED 1"
+  _has "  the ticket too" "$(cat "$T/tmux.log")" "set-environment -t =Tess HARNESS_TICKET HAR-12"
   _not "  no stacks line (AGENT_SPAWN_STACKS_CMD unset)" "$out" "stacks  "
   _has "  the prompt ends as before (AGENT_SPAWN_PROMPT_CMD unset)" "$line" "tell the delivery lead you are ready to test HAR-12."
   fresh; out="$(run head-of-testing --owner-ok 'fine, Peter')"; rc=$?
-  _has "a lead is marked with its role, and the owner's words ride on the session" "$(cat "$T/tmux.log")" "set-environment -t =proj-vi HARNESS_OWNER_OK fine, Peter"
-  _has "  its role" "$(cat "$T/tmux.log")" "set-environment -t =proj-vi HARNESS_ROLE head-of-testing"
+  _has "a lead is marked with its role, and the owner's words ride on the session" "$(cat "$T/tmux.log")" "set-environment -t =Vi HARNESS_OWNER_OK fine, Peter"
+  _has "  its role" "$(cat "$T/tmux.log")" "set-environment -t =Vi HARNESS_ROLE head-of-testing"
   fresh; out="$(run tester --ticket HAR-12 --dry-run)"
   _has "a start line names this script by its absolute path (it was a relative team/agent-spawn.sh)" "$out" "bash $SELF tester --name Tess"
   [[ "$SELF" == /* ]] && _t "  which is absolute" abs abs || _t "  which is absolute" "$SELF" abs
@@ -1045,6 +1047,7 @@ else
 fi
 
 SESSION="$(agent_session_name "$NAME")"
+TSESSION="$(agent_tmux_session "$NAME")"
 OTHER_LEAD=""
 if (( LEAD )) && [[ "$LEAD_NEEDS_PEER" == 1 ]]; then
   # the handover is the OTHER lead role's latest entry: with none active there is nothing to take over from
@@ -1163,7 +1166,7 @@ fi
 [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
-  printf 'would start %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "${HOW:+: $HOW}"
+  printf 'would start %s in tmux session %s, on %s, with Remote Control on%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "${HOW:+: $HOW}"
   printf '  start exactly this one with: %s %s --name %s%s%s%s%s\n' \
     "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}" "${WHY_ARG:- --why \"<why that model>\"}" \
     "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
@@ -1220,24 +1223,24 @@ if [[ "$TREE_MODE" == sibling ]]; then
       || { echo "agent-spawn: could not add $TREE; nothing started." >&2; exit 1; }
   fi
 fi
-tmux new-session -d -s "$SESSION" -x "${SIZE%x*}" -y "${SIZE#*x}" -c "$START_DIR" "${CMD[@]}" \
-  || { echo "agent-spawn: tmux could not start session $SESSION for $NAME" >&2; exit 1; }
-tmux has-session -t "=$SESSION" 2>/dev/null \
+tmux new-session -d -s "$TSESSION" -x "${SIZE%x*}" -y "${SIZE#*x}" -c "$START_DIR" "${CMD[@]}" \
+  || { echo "agent-spawn: tmux could not start session $TSESSION for $NAME" >&2; exit 1; }
+tmux has-session -t "=$TSESSION" 2>/dev/null \
   || { echo "agent-spawn: session $SESSION ended at once; start it by hand to see why: bash scripts/agent-onboard.sh --launch-line $NAME" >&2; exit 1; }
 # The session's markers (header): what team/agent-bench.sh reads to know this script started it, and for what.
 for _m in "${MARKS[@]}" ${OWNER_OK:+"HARNESS_OWNER_OK=$OWNER_OK"}; do
-  tmux set-environment -t "=$SESSION" "${_m%%=*}" "${_m#*=}" 2>/dev/null \
+  tmux set-environment -t "=$TSESSION" "${_m%%=*}" "${_m#*=}" 2>/dev/null \
     || echo "agent-spawn: could not mark session $SESSION with ${_m%%=*} (the agent is running; a bench that asks for it needs --by-hand)" >&2
 done
 # The record: who was started, against which budget line, on whose word.
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
-printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$SESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
+printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
 [[ -z "$STACKS_LINE" ]] || printf '  %s\n' "$STACKS_LINE"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  %s\n' "$CAP_LINE"
-printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$SESSION" "$SPAWN_LOG"
+printf '  watch it: tmux attach -t =%s · recorded in %s\n' "$TSESSION" "$SPAWN_LOG"
 [[ -z "$TICKET_LINE" ]] || printf '  %s\n' "$TICKET_LINE"
 
 # The claim: the developer's own, watched here until it is on the row. An unclaimed ticket is work the board
@@ -1255,7 +1258,7 @@ if [[ "$ROLE" == developer && -n "$TICKET" && "$CLAIM_STATE" != yours ]]; then
       fi
       (( waited < CLAIM_WAIT_S )) || {
         printf 'agent-spawn: %s has NOT claimed %s after %ss: the row is still unclaimed and the board does not show the work.\n' "$NAME" "$TICKET" "$waited" >&2
-        printf '  Read the pane (tmux attach -t =%s). Tell %s, as developer, to claim it: bash scripts/feature-ticket.sh claim %s. Or bench them.\n' "$SESSION" "$NAME" "$TICKET" >&2
+        printf '  Read the pane (tmux attach -t =%s). Tell %s, as developer, to claim it: bash scripts/feature-ticket.sh claim %s. Or bench them.\n' "$TSESSION" "$NAME" "$TICKET" >&2
         exit 1; }
       sleep "$CLAIM_POLL_S"; waited=$(( waited + CLAIM_POLL_S ))
     done
