@@ -4974,8 +4974,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thx:hover{color:var(--text)}
 .thitem:hover > .thx{visibility:visible}
 .thitem:not(.thmini) > .thx{position:absolute;top:2px;right:2px}
-.thitem > .thkey{font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text);padding-right:16px}
-.thitem > .thtop + .thkey{display:flex;align-items:center;gap:6px;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}   /* a ticket's key under its title */
+.thitem > .thtop + .thkey{font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}   /* a ticket's title under its key */
 .thl.thclosed{display:inline-block;margin:0;padding:0 7px;border-radius:10px;font:650 .72em/1.6 var(--sans);background:var(--track);color:var(--mute);align-self:center}
 .thitem > .thtop{display:flex;align-items:baseline;gap:6px;align-self:stretch}
 .thitem > .thtop > .unseen{align-self:center;margin:0}
@@ -4983,7 +4982,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thitem:not(.thmini) > .wkpin:hover{background:none}
 .thitem:has(> .wkpin) > :is(b, .thsum){padding-right:16px}   /* lines clear of the pin */
 .thtop > .thago{margin-left:auto;flex:none;font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);font-style:normal;color:var(--mute)}   /* the title is the bold thing, a ticket's key under it */
-.thitem > .thkey > .unseen,.thitem > b > .unseen{position:static;display:inline-block;margin-right:6px;vertical-align:1px}   /* the count first, as elsewhere */
+.thitem > b > .unseen{position:static;display:inline-block;margin-right:6px;vertical-align:1px}   /* the count first, as elsewhere */
 .thitem.thmini > .thx{margin-left:auto}
 #detail .left.thon #dthreads{position:absolute;left:0;top:0;bottom:0;width:240px;display:flex;flex-direction:column;gap:2px;padding:10px 8px;overflow:auto;border-right:1px solid var(--line)}
 .thitem{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:1px solid transparent;border-radius:var(--r-m,8px);cursor:pointer}
@@ -5596,7 +5595,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .phthrow .l1{grid-column:1;display:flex;align-items:baseline;gap:8px;min-width:0}
 .phthrow .l1 b{flex:1;min-width:0;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .phthrow .l1 i{flex:none;font:400 12px var(--mono);font-style:normal;color:var(--mute)}
-.phthrow .l2{grid-column:1;font:12px var(--mono);color:var(--mute)}
+.phthrow .l2{grid-column:1;font:12px var(--mono);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .phthrow .l3{grid-column:1;font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .phthrow .r{grid-column:2;grid-row:1/4;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:6px}
 .phthrow .r .unseen{position:static;margin:0}
@@ -5604,7 +5603,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .phthrow .r .thl.ask{background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber)}
 .phth .phthname{display:flex;flex-direction:column;gap:2px;min-width:0}
 .phth .phthname b{font-size:calc(var(--t-l)*var(--fs,1));font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.phth .phthname span{color:var(--mute);font:12px var(--mono)}
+.phth .phthname span{color:var(--mute);font:12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thclr{float:right;margin:0 0 4px 10px;padding:2px 10px;border:1px solid currentColor;border-radius:12px;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer;opacity:.85}
 .thclr:hover{opacity:1;background:color-mix(in srgb,var(--amber) 18%,transparent)}
 .phqa{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
@@ -10708,10 +10707,9 @@ function thListHtml(list, sel, un = {}, squeezed = false) {
       : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
       : t.name && t.name !== EVERY && t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : "";   // All and General: their names alone
     const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "", meta = t.name && t.name !== EVERY && !t.key ? "not a ticket" : "";
-    // its title first, with the count and the time since its last line, then a ticket's key under it
+    // a ticket's key first (else the thread's name), with the count and the time since its last line, then the ticket's title under it
     const closed = t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : "";
-    const head = t.key && t.title === t.key ? `<span class="thkey thtop">${badge}<span>${esc(t.key)}</span>${closed}${ago}</span>`
-      : `<b class="thtop">${badge}<span>${esc(t.title)}</span>${ago}</b>` + (t.key ? `<span class="thkey">${esc(t.key)}${closed}</span>` : "");
+    const head = `<b class="thtop">${badge}<span>${esc(t.key || t.title)}</span>${closed}${ago}</b>` + (t.key && t.title !== t.key ? `<span class="thkey">${esc(t.title)}</span>` : "");
     return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}` +
       (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
   }).join("");
@@ -10731,7 +10729,7 @@ function thHeadHtml(t) {
   const ask = t.ask ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
       `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small></div>`
     : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
-  return `<div class="thhead"><div class="thname"><b>${esc(t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key && t.title !== t.key ? t.key : t.key ? "" : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
+  return `<div class="thhead"><div class="thname"><b>${esc(t.key || t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key ? (t.title !== t.key ? t.title : "") : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
 }
 document.addEventListener("click", e => {
   const x = e.target.closest?.("[data-thx]"), pin = e.target.closest?.("[data-thpin]");
@@ -10850,8 +10848,8 @@ function phInboxHtml(all, un) {
     return `<button class="phthrow plain${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b></span>` +
       `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
   const row = t => { const u = un[t.name], text = phPlain(t.ask ? thAskLine(t.ask.text) : t.latest);
-    const where = t.key ? esc(t.key) + (t.closed ? " · closed" : t.stage ? ` · ${esc(t.stage)}` : "") : t.name ? "not a ticket" : "anything else";
-    return `<button class="phthrow${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b><i>${phAgo(t)}</i></span>` +
+    const where = t.key ? [t.title !== t.key && esc(t.title), t.closed ? "closed" : t.stage && esc(t.stage)].filter(Boolean).join(" · ") : t.name ? "not a ticket" : "anything else";
+    return `<button class="phthrow${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.key || t.title)}</b><i>${phAgo(t)}</i></span>` +
       `<span class="l2">${where}</span>${text ? `<span class="l3">${esc(text)}</span>` : ""}` +
       `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
   // a prompt open in the agent's pane is answered from the inbox too
@@ -10870,8 +10868,8 @@ function phThHeadHtml(t) {
   const clr = open_ ? thClrBtn(t) : "";
   const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
     : done || t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(Math.max(done || 0, t.answered || 0))}</div>` : "";
-  const who = t.key ? `${esc(t.key)} · ${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
-  return `<div class="thhead phth">${EMBED ? `<b class="phthback" data-phthback title="Back to the threads" aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></b>` : ""}<div class="phthname"><b>${esc(t.title)}</b><span>${who}${t.closed ? ` <span class="thl thclosed">closed</span>` : ""}</span></div>${ask}</div>`;
+  const who = t.key ? `${t.title !== t.key ? esc(t.title) + " · " : ""}${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
+  return `<div class="thhead phth">${EMBED ? `<b class="phthback" data-phthback title="Back to the threads" aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></b>` : ""}<div class="phthname"><b>${esc(t.key || t.title)}</b><span>${who}${t.closed ? ` <span class="thl thclosed">closed</span>` : ""}</span></div>${ask}</div>`;
 }
 function phThGo(th) {
   const ag = S.agents.find(a => a.name === open), u = ag && thUn(unseenBy(ag, convFeed), th);
