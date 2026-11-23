@@ -1,5 +1,7 @@
 # Roster — which name holds which role
 
+If `.claude/local/roster.md` exists, read it straight after this document; where the two differ, it wins.
+
 The register is `agents/roster.json`, written by `bash scripts/agent-onboard.sh <Name> <role>`
 (which also prints the launch line that gives the session its identity). One row per agent that has ever
 worked in the repo: `name`, `role`, `email`, `status` (`active` | `retired`), `onboarded`,
