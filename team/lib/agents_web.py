@@ -4420,7 +4420,7 @@ PAGE = r"""<!doctype html>
 <title>Team</title>
 <!-- The phone layout from the first paint: the same test as phoneOn(), made before the body draws, so a phone never
      shows the empty desktop page while the first state loads (owner, 2026-11-09). -->
-<script>try { if (matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)").matches && !new URLSearchParams(location.search).has("only") && localStorage.getItem("phone") !== "off") document.documentElement.classList.add("phone"); } catch (e) {}</script>
+<script>try { const q = new URLSearchParams(location.search), fr = q.has("frame"); if ((fr || matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)").matches) && !q.has("only") && (fr || localStorage.getItem("phone") !== "off")) document.documentElement.classList.add("phone"); if (fr && q.get("agent")) document.documentElement.classList.add("phembed"); } catch (e) {}</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&display=swap">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='40' fill='%2312161C'/%3E%3Ccircle cx='52' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='52' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='52' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='148' cy='148' r='28' fill='%235EEAD4'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23F4F4F0'/%3E%3C/svg%3E">
 <style>
@@ -5534,7 +5534,7 @@ table.md th{background:var(--line);font-weight:650}
   .card.full > svg.spark{height:16px}
 }
 @container (min-width:720px){
-  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
+  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .top > .cctl > *,.card.full > .row2{grid-row:1;align-self:center}
@@ -5543,9 +5543,10 @@ table.md th{background:var(--line);font-weight:650}
   .card.full > .top + .row2{grid-column:3/5;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
   .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top .lanes{grid-column:8;align-self:start;margin:10px -8px 0 4px}
-  .card.full > .top > .maxbtn{grid-column:9;align-self:start;margin:10px 10px 0 0;position:static}
-  .card.full > .top .foldbtn{grid-column:7;align-self:start;margin:10px 0 0 4px}
+  .card.full > .top .lanes{grid-column:8;align-self:center;margin:0 -8px 0 4px}
+  .card.full > .top .thseg{grid-column:9;align-self:center;margin:0 0 0 8px}   /* Threads | All, in a column of its own */
+  .card.full > .top > .maxbtn{grid-column:10;align-self:center;margin:0 10px 0 0;position:static}
+  .card.full > .top .foldbtn{grid-column:7;align-self:center;margin:0 0 0 4px}   /* the header's controls on one line, centred on it */
   .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
   .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
@@ -5578,6 +5579,12 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
 #detail .box.noterm .termwrap{display:none}
 #detail .box.noterm .conv{padding-right:16px}
+html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{display:none !important}   /* in a pane: its conversation alone */
+.phth:has(> .phthback){display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;align-items:start}
+.phth > .phthback{display:grid;place-items:center;width:32px;height:32px;margin-left:-6px;border-radius:16px;color:var(--text);cursor:pointer}
+.phth > .phthback svg{width:20px;height:20px}
+.phth > .phthback ~ .thask{grid-column:1/-1}
+.phframe{display:block;flex:1;min-height:0;width:calc(100% - 20px);margin:10px;border:1px solid var(--line2);border-radius:var(--r-m);overflow:hidden;background:var(--bg)}   /* where its card would be, shaped as one */
 .newline{display:flex;align-items:center;gap:8px;color:var(--amber);font:650 11px var(--sans);letter-spacing:.07em;text-transform:uppercase}
 .newline::before,.newline::after{content:"";flex:1;border-top:1px solid currentColor;opacity:.6}
 html.phone #detail.phthread .box .rail{display:none !important}   /* a thread full screen */
@@ -6461,6 +6468,26 @@ html.phoneoff #phoneback{display:block}
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
+// the page inside a Phone pane's frame: always the phone's layout, whatever the frame's width
+const FRAME = new URLSearchParams(location.search).has("frame");
+// An Agent or Agent tabs pane as narrow as a phone (owner, 2026-11-23: "it switches to mobile when 700px") shows its agent as the phone
+// does, the page in a frame opened on it; widened again, it is a card. Each pane's width is watched, and the page redrawn
+// when one crosses the line.
+const PANE_PHONE_W = 700, paneNarrow = {};
+const paneSeen = new WeakSet(), paneRO = new ResizeObserver(es => {
+  if (es.some(e => { const path = e.target.closest(".pane")?.dataset.path; return path in paneNarrow && (e.target.clientWidth <= PANE_PHONE_W) !== paneNarrow[path]; })) draw();
+});
+// an agent in a pane: as on a phone when the pane is that narrow, else its card
+const paneAgentHtml = (a, path, card) => { const el = $(`#main .pane[data-path="${path}"] .pbody`);
+  paneWatch(path); paneNarrow[path] = !!el && el.clientWidth <= PANE_PHONE_W;
+  return paneNarrow[path] && !FRAME ? `<iframe class="phframe" src="/?frame&agent=${encodeURIComponent(a.name)}" title="${esc(shown(a.name))}, as on a phone"></iframe>` : card(); };
+const paneWatch = path => requestAnimationFrame(() => { const el = $(`#main .pane[data-path="${path}"] .pbody`); if (el && !paneSeen.has(el)) { paneSeen.add(el); paneRO.observe(el); } });
+// opened in a pane's frame on an agent: that agent's conversation alone, once the team is read, never closed (the pane
+// has its own header and picker), its threads' back going to their list
+const EMBED = FRAME && new URLSearchParams(location.search).get("agent");
+if (EMBED) {
+  const go = setInterval(() => { if (S?.agents?.some(a => a.name === EMBED)) { clearInterval(go); openDetail(EMBED); } }, 200);
+}
 if (ONLY) document.documentElement.classList.add("only");
 // Light or dark, remembered in this browser; dark unless chosen.
 // The favicon follows the page's theme too: the dark icon is in the page head, the light one here.
@@ -9347,7 +9374,7 @@ function customHtml(ceil, tabRow) {
     let body = `<div class="blank">${pageLocked() ? "" : `<button class="pchoose" data-cur="">Choose a view${MENU_ICON.down}</button>`}</div>`;
     if (n.show === "agent") {
       const a = S.agents.find(x => x.name === n.name);
-      body = a ? `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`
+      body = a ? paneAgentHtml(a, path, () => `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, a, path)}</div>`)
         : `<div class="blank">${n.name ? `<span>${esc(shown(n.name))} is not running</span>` : ""}${agentPick(n, true)}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
@@ -9397,7 +9424,7 @@ function customHtml(ceil, tabRow) {
         ? `<div class="cell">${paneCard(n, a, path)}</div>` : paneCard(n, a, path)).join("")}</div>`;
     } else if (n.show === "tabs" && of.length) {
       const [sel, row] = tabRow("pane:" + path, of, n.badge);
-      body = `${row}<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, sel, path)}</div>`;
+      body = row + paneAgentHtml(sel, path, () => `<div class="cards" style="grid-template-columns:minmax(0,1fr)">${paneCard(n, sel, path)}</div>`);
     } else if (n.show === "meeting") {
       body = `${meetBar(path, n, path === maxed)}${meetFaces(n)}${meetingHtml(path, n)}`;
     } else if (n.show === "grid" || n.show === "tabs") {
@@ -10844,7 +10871,7 @@ function phThHeadHtml(t) {
   const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
     : done || t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(Math.max(done || 0, t.answered || 0))}</div>` : "";
   const who = t.key ? `${esc(t.key)} · ${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
-  return `<div class="thhead phth"><div class="phthname"><b>${esc(t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${who}</span></div>${ask}</div>`;
+  return `<div class="thhead phth">${EMBED ? `<b class="phthback" data-phthback title="Back to the threads" aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></b>` : ""}<div class="phthname"><b>${esc(t.title)}</b><span>${who}${t.closed ? ` <span class="thl thclosed">closed</span>` : ""}</span></div>${ask}</div>`;
 }
 function phThGo(th) {
   const ag = S.agents.find(a => a.name === open), u = ag && thUn(unseenBy(ag, convFeed), th);
@@ -10857,10 +10884,11 @@ addEventListener("popstate", () => {   // back, from a thread to the inbox
   if (open && phoneOn() && history.state?.ph && history.state.th == null && phTh[open] != null) { delete phTh[open]; renderConv(); $("#dconv").scrollTop = 0; }
 });
 document.addEventListener("click", e => {
-  const r = e.target.closest?.("#dconv [data-phth]"), q = e.target.closest?.("#dconv [data-phqa]");
+  const r = e.target.closest?.("#dconv [data-phth]"), q = e.target.closest?.("#dconv [data-phqa], #dconv [data-phthback]");
   if (!r && !q) return;
   e.stopPropagation();
   if (r) return phThGo(r.dataset.phth);
+  if (q.dataset.phthback != null) return history.back();
   const box = $("#dsay"), word = q.dataset.phqa;
   if (!word) { box.focus(); return; }
   box.value = word; phAnswered[open + "\n" + phTh[open]] = Date.now(); say(open, box); renderConv();
@@ -12165,7 +12193,7 @@ addEventListener("mousedown", e => { if (e.button === 1 && liveAt(e)) e.preventD
 // and bars ("views", "bar"), the phone its toolbar and tab ("phonetabs", "phonetab"), so the one never changes the other
 // and each device shows its own automatically (owner, 2026-11-13: "layouts per device").
 const PHONE_MQ = matchMedia("(max-width:700px), (hover:none) and (pointer:coarse) and (max-height:500px)");
-const phoneOn = () => PHONE_MQ.matches && !ONLY && localStorage.getItem("phone") !== "off";
+const phoneOn = () => (PHONE_MQ.matches || FRAME) && !ONLY && (FRAME || localStorage.getItem("phone") !== "off");
 // The toolbar: up to PH_MAX of the panels, chosen and put in order in the team menu and kept in this browser; until
 // chosen, the first four (owner, 2026-11-10: "let me choose up to 5 for my toolbar", then "can the toolbar items be
 // reorderable"). The tab showing is one of them.
@@ -13407,7 +13435,7 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
     const d = $("#detail");
     if (d.classList.contains("docked")) { d.classList.remove("docked"); d.style.inset = ""; open = null; d.classList.remove("open"); }
   };
-  closeDetail = function () { if (phoneOn() && history.state?.ph) history.back(); else _close(); };
+  closeDetail = function () { if (EMBED) return; if (phoneOn() && history.state?.ph) history.back(); else _close(); };
 }
 // Back (a phone's swipe, the browser's button) closes the overlay on top - a picture, a document, a graph, a sheet, a
 // menu opened by a click - instead of moving the page under it. Each overlay takes a history entry as it opens, kept
