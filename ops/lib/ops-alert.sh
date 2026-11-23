@@ -90,7 +90,7 @@ ops_alert_env_val() { # <key>
 #
 # ⚠ THIS IS THE DURABLE RECORD, NOT THE TIMELINESS. A pull is only as timely as the puller, and a
 # reader who runs when a human talks to them does not shorten an overnight freeze. What makes a
-# reader exist at 02:00 is strength-agent-nudge. Neither half is sufficient alone, and describing
+# reader exist at 02:00 is the waiting-agents nudger, when it is set on. Neither half is sufficient alone, and describing
 # this one as a solution to overnight would be the third costume of the same defect.
 
 # ops_spool <class> <subject> <body> — append one alert to the durable queue. Never fails a caller:
