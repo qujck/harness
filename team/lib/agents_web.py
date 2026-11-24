@@ -1078,7 +1078,25 @@ def ask_tickets(question):
         a = json.loads(r.stdout) if r.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    return a if isinstance(a, dict) else None
+    if isinstance(a, dict):
+        _tickets_heard["yes"] = True
+        return a
+    return None
+
+
+_tickets_heard = {"yes": False, "at": 0.0}
+
+
+def tickets_on():
+    """Whether the page has tickets to show: a plug-in that has answered since the page started. Until one does it is
+    asked each minute, off the caller's thread, so a project with no ledger has no Backlog; one that stops answering
+    later keeps its tab, which says so."""
+    if not tickets_plugin():
+        return False
+    if not _tickets_heard["yes"] and time.time() - _tickets_heard["at"] >= 60:
+        _tickets_heard["at"] = time.time()
+        threading.Thread(target=backlog, daemon=True).start()
+    return _tickets_heard["yes"]
 
 
 def ticket_card(t):
@@ -3982,7 +4000,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(), "tickets": bool(tickets_plugin()),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(), "tickets": tickets_on(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -5662,6 +5680,9 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkhead em{font:650 1.15em var(--mono);font-style:normal;color:var(--pq)}
 .wkhead em.g{color:var(--pg)}
 .blhead{cursor:pointer}
+#phone .wkrow.open .pp-mid .tt{white-space:normal;overflow:visible}   /* a tapped row's title in full: the phone has no tooltip */
+#phone .wk .wkfilter{font-size:16px}   /* smaller, and an iPhone zooms the page in as the box is tapped */
+@media (max-width:380px){#phone .wktabs b{padding:2px 4px}}   /* its seven tabs on the narrowest phone */
 .blhead .blfold{margin-left:auto;display:grid;place-items:center;color:var(--mute)}
 .wkpark > summary{cursor:pointer;list-style:none}
 .wkpark > summary::-webkit-details-marker{display:none}
@@ -9892,7 +9913,7 @@ const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" t
 const wkQueued = (d, i, n, tags = []) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
   wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : ""), tags) + wkTicketFaces(d, i.key, i.who));
 // a ticket known only from the tickets plug-in: its status in the place of a queue row's number
-const wkKnown = (d, lt) => wkRow(d, lt.key, wkMid(wkLink(lt.href, lt.key, lt.id), "", esc(lt.title), [{text: lt.status, tone: "grey"}]) + wkTicketFaces(d, lt.key, lt.who));
+const wkKnown = (d, lt, under = "") => wkRow(d, lt.key, wkMid(wkLink(lt.href, lt.key, lt.id), "", esc(lt.title), lt.status.toLowerCase() === under.toLowerCase() ? [] : [{text: lt.status, tone: "grey"}]) + wkTicketFaces(d, lt.key, lt.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
   wkMid(e.key ? wkLink(wkJira(e.key), wkKey(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
@@ -9947,10 +9968,11 @@ async function blGet(group, n, from) {
   if (!r.ok) throw new Error("no answer");
   return r.json();
 }
-const blDraw = () => document.querySelectorAll('.wklist[data-wktab="backlog"]').forEach(list => { wkOpened = false; list.innerHTML = wkBacklog(wkData()); });
+// (held: a list read again on its own holds still under the pointer, as the other lists do, and is drawn as it leaves)
+const blDraw = held => document.querySelectorAll('.wklist[data-wktab="backlog"]').forEach(list => { if (held === true && !phoneOn() && list.matches(":hover")) return; wkOpened = false; list.innerHTML = wkBacklog(wkData()); });
 // the counts, then the rows of each group drawn open, as far down as it was shown
 async function blRead() {
-  const sig = blSig(), mine = bl;
+  const sig = blSig(), mine = bl, again = !!bl.groups;
   if (mine.busy) return;
   mine.busy = true;
   try {
@@ -9960,7 +9982,7 @@ async function blRead() {
     for (const {key: k, n} of top.groups) if (blShows(k) && n) await blRows(k, 0, mine.rows[k]?.rows.length || BL_PAGE, mine);
   } catch (e) { mine.err = true; mine.at = Date.now(); }
   finally { mine.busy = false; }
-  if (bl === mine) blDraw();
+  if (bl === mine) blDraw(again);
 }
 // `n` more of a group's rows after the first `from`, a call for each 400 of them; a ticket that moved between two calls is drawn once
 async function blRows(k, from, n, mine = bl) {
@@ -9986,7 +10008,7 @@ function wkBacklog(d) {
   const groups = bl.groups.filter(g => g.n).map(({key: k, name, n}) => {
     const open = blShows(k), g = bl.rows[k];
     return `<div class="wkhead wkgo blhead" data-blgroup="${esc(k)}" title="${open ? "Fold" : "Open"}"><b>${esc(name)}</b><em>${n}</em><span class="blfold">${foldIcon(!open)}</span></div>` + (!open ? "" :
-      !g ? `<div class="calm">Reading…</div>` : g.rows.map(lt => wkKnown(d, lt)).join("") +
+      !g ? `<div class="calm">${bl.err ? "The tickets plug-in did not answer." : "Reading…"}</div>` : g.rows.map(lt => wkKnown(d, lt, name)).join("") +
         (g.more ? `<div class="wkmore" data-blmore="${esc(k)}">Show ${Math.max(1, Math.min(BL_PAGE, n - g.rows.length))} more of ${n}</div>` : "")); }).join("");
   return (bl.err ? `<div class="calm">The tickets plug-in did not answer just now: this is what it last said.</div>` : "") + (groups || `<div class="calm">${find || blWho() ? "Nothing matches." : "No open ticket."}</div>`) +
     (find && total ? `<div class="calm">${total} open ${total === 1 ? "ticket matches" : "tickets match"}.</div>` : "");
@@ -15411,7 +15433,7 @@ def self_test():
         # the tickets plug-in: a thread's ticket and the Backlog, from one executable that is asked in JSON
         plug, saved_plug = f"{T}/tickets-plug", os.environ.get("AGENT_TICKETS")
         os.environ["AGENT_TICKETS"] = plug
-        t("tickets plug-in: with none at $AGENT_TICKETS there is none, and nothing is known", (tickets_plugin(), ticket_cards(["#9"]), backlog()), ("", {}, None))
+        t("tickets plug-in: with none at $AGENT_TICKETS there is none, and nothing is known", (tickets_plugin(), ticket_cards(["#9"]), backlog(), tickets_on()), ("", {}, None, False))
         with open(plug, "w") as f:
             f.write('#!/usr/bin/env python3\nimport json, os, sys\nq = json.load(sys.stdin)\nT = %r\n'
                     'open(T + "/tickets-asked", "a").write(json.dumps(q) + "\\n")\n'
@@ -15421,6 +15443,8 @@ def self_test():
                     'else: print(json.dumps({"groups": [{"key": "s", "name": "Selected", "n": 3}, "odd"], "rows": [tk("#3"), {"key": "a b"}, 7] if q["group"] else [], "more": q["n"] < 3}))\n' % T)
         os.chmod(plug, 0o755)
         _ticket_cards.clear()
+        _tickets_heard.update(yes=False, at=time.time())   # asked a moment ago, so no thread asks again in the test
+        t("  one that has never answered gives the page no Backlog", tickets_on(), False)
         card = {"key": "#7071", "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "closed": False, "active": False, "href": ""}
         t("  a thread's ticket by the key asked, its fields bounded, only an https link kept; an unknown one is left out",
           ticket_cards(["#7071", "AB-1", "#9", "x;rm -rf /", ""]), {"#7071": card, "AB-1": {**card, "key": "AB-1"}})
@@ -15434,6 +15458,7 @@ def self_test():
         b2 = backlog("s", 2, "a 'b", "Ada", 50)
         t("  the Backlog: its groups and a page of one, anything else the plug-in printed left out",
           (b2["groups"], [r["key"] for r in b2["rows"]], b2["more"]), ([{"key": "s", "name": "Selected", "n": 3}], ["#3"], True))
+        t("  one that has answered keeps its Backlog", tickets_on(), True)
         t("  the words, the holder and the page are asked whole", asked()[-1], {"want": "backlog", "group": "s", "from": 50, "n": 2, "find": "a 'b", "who": "Ada"})
         # the harness's own plug-in, over a ledger
         own = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tickets")
