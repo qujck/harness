@@ -60,6 +60,7 @@ import calendar
 import datetime
 import fcntl
 import glob
+import gzip
 import hashlib
 import html
 import json
@@ -1083,9 +1084,16 @@ def ticket_facts(ids):
     return {i: _tickets[i] for i in ids if i in _tickets}
 
 
+_budget = {"at": 0, "plan": None}
+
+
 def budget_plan():
-    m = re.search(r" of (\d+)% planned", run(BUDGET))
-    return int(m.group(1)) if m else None
+    """The percentage of the week's allowance agents-budget plans by now, kept for 30 seconds: the program takes longer
+    to run than the rest of the state takes to build. No answer is not kept."""
+    if _budget["plan"] is None or time.time() - _budget["at"] >= 30:
+        m = re.search(r" of (\d+)% planned", run(BUDGET))
+        _budget.update(at=time.time(), plan=int(m.group(1)) if m else None)
+    return _budget["plan"]
 
 
 def day_budget():
@@ -4223,6 +4231,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", cache)
+        # the page's data compressed, at the quickest level: a conversation shrinks to a third or less
+        if ctype == "application/json" and len(body) > 1024 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            body = gzip.compress(body, 1)
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         if version:   # a document's sha256, for a File pane's edit to say which version it began from
             self.send_header("X-Doc-Version", version)
         if save_as:   # a download, not a page: the browser saves it under this name
@@ -10229,11 +10242,15 @@ function combinedHtml(path, n, full, big) {
     : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(shown(x))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
 }
+// What the layout's panes show, read with every load; an agent's conversation only for a pane that draws it. A page in a
+// pane's frame draws its one agent, and reads what names its threads (the work queue and the Day log).
 async function loadPaneConvs() {
   if ((localStorage.getItem("page") || "grid") !== "custom") return;
+  if (EMBED) { await Promise.all([loadDayLog(), loadWorkQueue()]); return; }
   await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
   const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
-    n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : []) : paneAgents(n).map(a => a.name)))];
+    n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : [])
+      : ["grid", "tabs"].includes(n.show) ? paneAgents(n).map(a => a.name) : []))];
   await Promise.all(names.map(async name => {
     try {
       const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
