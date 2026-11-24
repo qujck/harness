@@ -2488,11 +2488,22 @@ def short(s, n):
 _socket_names = {}
 
 
+# A command that claims or releases the ticket its agent holds (feature-ticket.sh), as a command of its own in a shell line.
+SET_TICKET = re.compile(r"(?:^|[\n;&|])\s*(?:bash\s+)?(?:[~\w./${}\"-]*/)?feature-ticket\.sh\s+(claim|release)\s+([A-Za-z0-9][\w-]*)")
+
+
+def took_ticket(command):
+    """The ticket a shell command takes up, "" where it puts it down, None where it does neither."""
+    hits = SET_TICKET.findall(command) if isinstance(command, str) and "feature-ticket.sh" in command else []
+    return None if not hits else "" if hits[-1][0] == "release" else hits[-1][1]
+
+
 def tool_line(block):
     name, inp = block.get("name", "tool"), block.get("input") or {}
     if name == "SendMessage":
         to = str(inp.get("to", ""))
         to = _socket_names.get(to.removeprefix("uds:"), to)
+        to = re.sub(r"\s+\[\w+\]$", "", to)   # "Harvey [907500]", a name told from another session's of the same name
         return {"kind": "sent", "who": to, "text": str(inp.get("message", ""))}
     if name == "Bash":
         what = inp.get("description") or inp.get("command", "")
@@ -2513,6 +2524,9 @@ def tool_line(block):
     line = {"kind": "tool", "who": name.replace("mcp__", "").split("__")[-1], "text": short(str(what), 140)}
     if name == "Bash" and block.get("id"):
         line["tid"] = str(block["id"])   # the page opens the command and its output by it (/api/tool)
+    took = took_ticket(inp.get("command")) if name == "Bash" else None
+    if took is not None:
+        line["took"] = took
     if name == "AskUserQuestion" and isinstance(inp.get("questions"), list):
         line["asked"] = [q for q in inp["questions"] if isinstance(q, dict)]   # the pane cuts a question's previews; this has them whole
     return line
@@ -2664,6 +2678,11 @@ def parse_into(lines, items, queue):
                     new.append({"kind": "said", "who": "", "text": b["text"].strip()})
                 elif b.get("type") == "tool_use":
                     new.append(tool_line(b))
+                elif b.get("type") == "thinking" and e.get("thinkingDisplay") == "updates" and str(b.get("thinking") or "").strip():
+                    # Claude Code's own line on what the agent is doing ("· summary" in the pane), sometimes recorded twice
+                    text = b["thinking"].strip()
+                    if not any(it.get("summary") and it["text"] == text for it in items[-12:] + new):
+                        new.append({"kind": "said", "who": "", "text": text, "summary": True})
         for it in new:
             it["ts"] = ts
             it["text"] = it["text"][:6000]
@@ -2675,6 +2694,13 @@ def finish(items, queue, limit):
     for it in items:
         it["lane"] = LANE[it["kind"]]
         it["with"] = it["who"] if it["lane"] == "team" else ""
+    # The agent's words, and messages to and from it, carry the ticket it held then, "" for none, where its transcript tells.
+    held = None
+    for it in items:
+        held = it.get("held", held)
+        if it["kind"] in ("said", "peer", "sent") and held is not None:
+            it["ticket"] = held
+        held = it.get("took", held)
     # Runs of tool calls fold into one line, so the words carry the flow.
     folded = []
     for it in items:
@@ -2701,8 +2727,18 @@ def trim_turns(items, keep):
         if items[i]["kind"] != "tool" or i == 0 or items[i - 1]["kind"] != "tool":
             groups += 1
             if groups == keep:
-                del items[:i]
+                drop_turns(items, i)
                 return
+
+
+def drop_turns(items, n):
+    """Drops the first n parsed turns, the first kept one carrying the ticket held by then (held)."""
+    held = None
+    for it in items[:n]:
+        held = it.get("took", it.get("held", held))
+    del items[:n]
+    if items and held is not None:
+        items[0].setdefault("held", held)
 
 
 class Tail:
@@ -2764,7 +2800,7 @@ class Tail:
             parse_into(lines, items, queue)
             if len(items) > TAIL_KEEP * 3:
                 trim_turns(items, TAIL_KEEP)
-                del items[:-TAIL_KEEP * 20]   # a tool run with no end in sight is still not kept whole
+                drop_turns(items, max(0, len(items) - TAIL_KEEP * 20))   # a tool run with no end in sight is still not kept whole
         if "model" in self.has:
             ids = MODEL_ID.findall(data)
             if ids:
@@ -2826,7 +2862,48 @@ class Tail:
                 break
             span *= 4
         trim_turns(items, TAIL_KEEP)
+        if items and "held" not in items[0] and self.off > span:
+            held = self.find_held(self.off - span)
+            if held is not None:
+                items[0]["held"] = held
         return items, queue
+
+    def find_held(self, end):
+        """The ticket the agent held at `end`: what it last took up in the TAIL_MAX bytes before, read back a chunk at a
+        time (a line cut short by a chunk's start is stepped over), None when nothing there tells."""
+        stop, chunk = max(0, end - TAIL_MAX), 4_000_000
+        with open(self.path, "rb") as f:
+            while end > stop:
+                start = max(stop, end - chunk)
+                f.seek(start)
+                lines = f.read(end - start).split(b"\n")
+                end = start
+                for raw in reversed(lines):
+                    if b"feature-ticket.sh" not in raw or b'"tool_use"' not in raw:
+                        continue
+                    try:
+                        blocks = (json.loads(raw).get("message") or {}).get("content")
+                    except (ValueError, AttributeError):
+                        continue
+                    for b in reversed(blocks if isinstance(blocks, list) else []):
+                        took = took_ticket((b.get("input") or {}).get("command")) if isinstance(b, dict) and b.get("type") == "tool_use" else None
+                        if took is not None:
+                            return took
+        return None
+
+    def tickets(self):
+        self.turns(TAIL_TURNS)
+        with self.lock:
+            if "turns" not in self.has:
+                return []
+            if "tickets" not in self.made:
+                out = []
+                for it in self.has["turns"][0]:
+                    for at, key in (("", it.get("held")), (it.get("ts") or "", it.get("took"))):
+                        if key is not None and (not out or out[-1][1] != key):
+                            out.append([at, key])
+                self.made["tickets"] = out[-40:]
+            return self.made["tickets"]
 
     def turns(self, limit):
         with self.lock:
@@ -2859,6 +2936,12 @@ def followed(sid):
             for p in [p for p, x in _tails.items() if now - x.used > TAIL_IDLE]:
                 del _tails[p]
     return t
+
+
+def tickets_held(sid):
+    """The tickets a session has taken up, as far as its turns kept tell: [[time, ticket or ""], ...], oldest first."""
+    t = followed(sid) if sid else None
+    return t.tickets() if t else []
 
 
 def feed(sid, limit):
@@ -3183,8 +3266,9 @@ def by_lane(items, n):
     """The newest n turns of each lane, in order, so a filtered view still has n turns to show."""
     keep, seen = [], {}
     for it in reversed(items):
-        seen[it["lane"]] = seen.get(it["lane"], 0) + 1
-        if seen[it["lane"]] <= n:
+        lane = "summary" if it.get("summary") else it["lane"]   # summaries apart, so that they push no message out
+        seen[lane] = seen.get(lane, 0) + 1
+        if seen[lane] <= n:
             keep.append(it)
     return keep[::-1]
 
@@ -3777,7 +3861,8 @@ def state():
                 row = rows.get(was, {}) if was else {}
                 bench.append({"name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
                               "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
-                              "lastCompact": last_compact(was), "standing": role in STANDING})
+                              "lastCompact": last_compact(was), "standing": role in STANDING,
+                              "tickets": tickets_held(was) if role in ("dev", "tester") else []})
             continue
         sid = (rec or {}).get("sessionId")
         # a stopped agent's model, effort, context and last compaction are its last session's, as it left them
@@ -3798,6 +3883,7 @@ def state():
             "model": row.get("model", ""), "effort": row.get("effort", ""),
             "ticket": held.get(name.lower(), ""),
             "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("ref"),
+            "tickets": tickets_held(sid) if role in ("dev", "tester") else [],
             "ticketIssue": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
             "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
@@ -5643,6 +5729,10 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .it .thl{display:inline-block;margin-right:6px;padding:0 7px;border-radius:10px;font-size:.78em;font-weight:650;line-height:1.6;vertical-align:1px;background:var(--track);color:var(--mute);white-space:nowrap}
 .it .thl[data-thread]{cursor:pointer}
 .it .thl[data-thread]:hover{color:var(--text)}
+.it .thl.guess{background:none;box-shadow:inset 0 0 0 1px var(--line2);font-style:italic;font-weight:400}   /* worked out, not tagged */
+.it.guess{border-left-style:dashed !important}
+.it.summary .tx{color:var(--mute)}
+.it.summary .sumtag{color:var(--faint);font-size:.85em}
 /* the agent view's threads: the list on the left of the conversation, the open thread's head at the top of it */
 #dthreads{display:none}
 .thseg b{display:grid;place-items:center}
@@ -5652,7 +5742,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto auto;position:relative}
 .thbody > .thlist{display:none}
 .thbody > .thchips{display:flex;gap:4px;overflow-x:auto;padding:6px 12px;border-top:1px solid var(--line)}
-.thbody > .thchips .thl{flex:none;cursor:pointer;margin:0}
+.thbody > .thchips .thl{flex:none;cursor:pointer;margin:0;padding:1px 9px;border-radius:10px;font-size:calc(var(--t-m)*var(--fs,1));font-weight:650;white-space:nowrap;max-width:24em;overflow:hidden;text-overflow:ellipsis}
+.thbody > .thchips .thl:not(.on, .ask){background:var(--track);color:var(--mute)}
 .thbody > .thchips .thl.on{background:var(--text);color:var(--box)}
 .thbody > .feed{grid-row:2}
 .card.full .feed > .thhead{top:-8px;margin-top:-8px}   /* the open thread's head at the top, its lines from the bottom */
@@ -5672,7 +5763,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 #detail .left.thon.thfold #dthreads{width:var(--thfoldw)}
 @container thcard (min-width:720px){ .thbody.thfold{grid-template-columns:var(--thfoldw) minmax(0,1fr)} }
 /* the list's fold button, and a folded list: each thread as its key (or name) badge with its new-message count */
-.thtools{display:flex;justify-content:flex-end;align-items:center;gap:2px;flex:none}
+.thtools{position:sticky;top:-10px;z-index:3;display:flex;justify-content:flex-end;align-items:center;gap:2px;flex:none;margin:-10px -8px 0;padding:10px 8px 4px;background:var(--box)}   /* at the top of the list, however far it is scrolled */
 .thsortbtn{display:flex;align-items:center;gap:4px;height:20px;padding:0 5px;flex:none;border-radius:var(--r-s);color:var(--mute);font:400 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer}
 .thsortbtn:hover{background:var(--on);color:var(--text)}
 .phthh{display:flex;align-items:center}
@@ -5691,7 +5782,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 /* unread threads scrolled out of the list's view: a count at that edge, which brings the nearest into view */
 .thmore{position:sticky;z-index:3;align-self:center;display:none;cursor:pointer;box-shadow:0 3px 10px #0005}
 .thmore.on{display:block}
-.thmore.up{top:0;margin-bottom:-18px}
+.thmore.up{top:28px;margin-bottom:-18px;z-index:4}   /* under the list's buttons */
 .thmore.down{bottom:0;margin-top:-18px;order:9}
 .thx{display:grid;visibility:hidden;place-items:center;width:18px;height:18px;flex:none;border-radius:var(--r-s);color:var(--mute);font-weight:400;cursor:pointer;line-height:1}
 .thx:hover{color:var(--text)}
@@ -6091,6 +6182,7 @@ code.flat{padding:0;background:none;color:var(--mute)}
 #wkcard{position:fixed;z-index:30;display:none;padding:18px;border-radius:0 0 var(--r-l) var(--r-l);
   background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:grayscale(1) blur(1.5px)}
 #wkcard.on{display:flex}
+#wkcard.float{padding:6vh max(18px,12vw)}
 #wkcard .wkc{container-type:inline-size;width:100%;height:100%;border:1px solid var(--line2);border-radius:var(--r-l);
   background:linear-gradient(var(--box),var(--box)),var(--bg);box-shadow:0 12px 36px #0009}
 #wkcard .thead a{color:inherit;text-decoration:none}
@@ -6205,6 +6297,12 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
 .teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans)}
 .teamlog .thead .name{font-size:calc(var(--t-m)*var(--fs,1));line-height:13px;padding:0 6px 2px;cursor:pointer}
+/* a Combined pane's agents share a line with its buttons where both fit, else have a line of their own under them, its icons on one row however many */
+.teamlog.combined > .thead{flex-wrap:wrap-reverse}
+.teamlog.combined > .thead > .cnames{flex:0 1 auto;max-width:100%}
+.teamlog.combined > .thead > .cnames.iconrow{flex-wrap:nowrap}
+.teamlog.combined .iconrow .face{flex:0 1 34px;min-width:16px;height:auto;aspect-ratio:1}
+.teamlog.combined .cbtns{flex:none;align-self:flex-end;display:flex;align-items:center;gap:8px;margin-left:auto;font-weight:400}
 /* agents as their Characters tiles: a Tabs pane's tabs, the picked one ringed in its colour, or a Combined pane's agents under its header */
 .tabbar.chrtabs{gap:8px}
 .chrtabs .chr.sel{outline:2px solid var(--c);outline-offset:2px}
@@ -6220,6 +6318,7 @@ table.md th{background:var(--line);font-weight:650}
 .icontabs .ftab .unseen{position:absolute;z-index:1;top:-6px;right:-7px;min-width:15px;height:15px;padding:0 4px;font-size:calc(var(--t-xs)*var(--fs,1));line-height:15px;pointer-events:none;background:var(--ownerfg);color:var(--c);box-shadow:0 0 0 1px var(--c)}
 .teamlog .thead > .cnames.iconrow{gap:10px}
 .teamlog .thead > .cnames.chrrow{gap:8px;margin:0 0 4px}
+.chrrow .chr{flex:none}
 .teamlog .it[data-agent]{cursor:pointer}
 .teamlog.combined .it.said{border-left:2px solid var(--pc,var(--line2));padding-left:7px}
 /* in a wide pane the card's name, state and model lines sit on one row, and in a middling one on two, with a slimmer
@@ -6432,6 +6531,18 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 #menu .mi.warn svg{color:var(--red)}
 #menu .ask{padding:6px 8px 4px;font-size:calc(var(--t-m)*var(--fs,1));line-height:1.45;color:var(--mute);white-space:normal}
 #menu .hd{padding:5px 8px 8px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+#menu .thmhd{max-width:360px}
+#menu .thmhd b{font-weight:650}
+#menu a.mi{color:inherit;text-decoration:none}
+#menu .micopy{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:-3px -3px -3px auto;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
+#menu .micopy:hover{background:var(--on);color:var(--text)}
+#menu .micopy.done{color:var(--green)}
+#menu .micopy svg{width:14px;height:14px}
+#menu[data-key^="thread:"]{max-height:calc(100vh - 12px);overflow:auto}
+#menu[data-key^="thread:"] .wtxt{min-width:0;max-width:320px;display:flex;flex-direction:column;line-height:1.3}
+#menu[data-key^="thread:"] .wtxt b{font-weight:500;overflow:hidden;text-overflow:ellipsis}
+#menu[data-key^="thread:"] .wtxt span{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));overflow:hidden;text-overflow:ellipsis}
+#menu[data-key^="thread:"] :is(.ph-por.pp,.ph-por.pp img,.pp-ini){flex:none;width:22px;height:22px;border-radius:50%;object-fit:cover;font-size:9px}
 #menu .hd .name{display:inline-block;margin-bottom:4px}
 #menu .hd div{font-size:calc(var(--t-m)*var(--fs,1));color:var(--mute);line-height:1.45}
 #menu .mi{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--r-s);cursor:pointer;white-space:nowrap}
@@ -6628,6 +6739,29 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .ctabs .ctname{width:9em;padding:0 4px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:var(--r-s);outline:none}
 #menu .mi .face{width:20px;height:20px;border-radius:var(--r-s);border-bottom-width:2px}
 .teamlog.combined{container:sayroom/size}
+.teamlog.combined.thon{container:sayroom thcard / size}
+.teamlog.combined.thon .feed{border-top:1px solid var(--line)}
+.teamlog.combined:not(.summary) .feed > .thhead{top:-8px;margin-top:-8px}   /* as a card's: the open thread's head at the top, its lines from the bottom */
+.teamlog.combined:not(.summary) .feed > .thhead + *{margin-top:auto}
+.teamlog.combined .thhead .thask > .name{padding:0 6px 1px;font-size:calc(var(--t-m)*var(--fs,1))}
+.teamlog .cnames .name.benched{opacity:.5}
+.teamlog.combined :is(.thlist, .thchips){--c:var(--ownerbg)}   /* the unread counts' colour, which an agent's card has from its agent */
+.thbody > .thlist{overflow-x:hidden}
+.thitem > *{max-width:100%;overflow-wrap:anywhere}
+/* a turn's reply, in place of its age while the pointer is on it */
+.teamlog.combined .it{position:relative}
+.it > .rep{position:absolute;right:0;top:-1px;display:none;place-items:center;width:26px;height:20px;border-radius:var(--r-s);background:var(--on);color:var(--text);cursor:pointer}
+.it > .rep svg{width:14px;height:14px}
+.it > .rep:hover{background:var(--text);color:var(--box)}
+#main .teamlog.combined .it:hover > .rep{display:grid}
+#main .teamlog.combined .it:hover:has(> .rep) > .ago{visibility:hidden}
+.feed > .earlier{flex:none;width:auto !important;margin-bottom:8px;padding:4px 14px;border:1px solid var(--line2);border-radius:999px;background:none;color:var(--mute);font:calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
+.feed > .earlier:hover{color:var(--text);border-color:var(--mute)}
+.teamlog .chead .cto{color:var(--mute);font-size:calc(var(--t-m)*var(--fs,1))}
+.thitem .thwho{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:3px;margin:2px 0;padding:0}
+.thitem .thwho > span{display:flex}
+#main .thitem .thwho :is(.ph-por.pp,.pp-ini){width:20px;height:20px;font-size:8px}
+.thitem .thwho i{font:normal calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}
 .teamlog .chead .x{margin-left:auto;display:flex;padding:3px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .teamlog .chead .x:hover{color:var(--text);background:var(--line2)}
 .teamlog .chead .x svg{width:14px;height:14px}
@@ -7535,7 +7669,7 @@ function item(it, compact, agent, tag) {
   const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
   // the badges open the text's first line, and its later lines run the full width beneath them (not a live line's)
   const inline = !!heads && it.kind !== "live";
-  return `<div class="it ${it.kind}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  return `<div class="it ${it.kind}${it.summary ? " summary" : ""}${it._guess ? " guess" : ""}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}${it.summary ? ` <span class="sumtag" title="Written by Claude Code from what the agent is doing, not a message of the agent's">· summary</span>` : ""}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
 // An open prompt's options in the order shown, one under another, each naming its option by number and label so that it
 // answers only the prompt it was drawn for: a button for each, and for a Type something option a box to write the answer
@@ -7577,7 +7711,9 @@ function shutBox(box, a) {
   if (box._shut !== shut) { box.disabled = shut; box._shut = shut; }
   // in an agent's thread, the plain hint names the thread a message goes to
   const hint = sayHint(a);
-  box.placeholder = thBox(box) && thSel[a.name]?.name !== EVERY && hint === `Message ${shown(a.name)}…` ? `Reply in ${thSel[a.name]?.title || "General"}…` : hint;
+  if (thPane(box) && hint === `Message ${shown(a.name)}…`) return box.placeholder = `Reply to ${shown(a.name)}…`;
+  const th = thBox(box) && thSel[thKey(box, a.name)];
+  box.placeholder = th !== false && th?.name !== EVERY && hint === `Message ${shown(a.name)}…` ? `Reply in ${th?.title || "General"}…` : hint;
 }
 async function answerAsk(b) {
   const name = b.dataset.name, opts = b.closest(".opts"), input = b.dataset.typed ? b.parentElement.querySelector(".askin") : null;
@@ -7698,6 +7834,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   tab: '<path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
   window: '<rect x="4.5" y="1.5" width="10" height="8" rx="1.5"/><path d="M11.5 12v1a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 13V7.5A1.5 1.5 0 0 1 3 6h1.5"/>',
   check: '<path d="M3 8.5 6.5 12 13 4.5"/>',
+  reply: '<path d="M6.5 3.5 2.5 7.5l4 4M2.5 7.5h6.5a4.5 4.5 0 0 1 4.5 4.5v1"/>',
   power: '<path d="M8 1.5v6"/><path d="M4.3 3.6a5.5 5.5 0 1 0 7.4 0"/>',
   close: '<path d="M4 4l8 8M12 4l-8 8"/>',
   pin: '<path d="M5.5 1.5h5M6.5 1.5v4.2L4 9h8L9.5 5.7V1.5M8 9v5.5"/>',
@@ -7765,9 +7902,9 @@ const seekWrap = html => {
   return html.replace(/(^|>)([^<]+)/g, (m, a, t) => a + t.replace(re, x => `<mark class="seekm">${x}</mark>`)).replace(/^<div class="/, '<div class="seek ');
 };
 // Each line's thread (AGENTS_TICKET_TAG; ~/dev/.claude/local/CLAUDE.md): a developer's or tester's words are in the
-// ticket it holds; anyone else's open with their thread in brackets, "[SE-2736]" or "[GitHub billing block · ask]",
+// ticket it held as it said them (the one it holds now, where its transcript does not tell); anyone else's open with their thread in brackets, "[SE-2736]" or "[GitHub billing block · ask]",
 // which is cut from the text shown; the owner's are in the thread their "Re <thread>: " names (cut too), else in the
-// agent's last one; an agent's message to another, in the ticket its "[KEY]" names. The same ask asked again, word for word, in
+// agent's last one; an agent's message to another, in the ticket its "[KEY]" names, and else as peerThread works out. The same ask asked again, word for word, in
 // the same thread before the owner has written there is folded into the first, which keeps the times it was asked (_asked).
 // An ask in other words is a new message and is shown: the owner wrote elsewhere and the agent answered him in the open
 // thread, so folding it hid every word of it (owner, 2026-11-23: "I can't see your messages").
@@ -7781,50 +7918,96 @@ const splitThreads = it => {
   const cuts = at[0] > 0 && text.slice(0, at[0]).trim() ? [0, ...at] : at;
   return cuts.map((c, i) => ({...it, text: text.slice(c, cuts[i + 1] ?? text.length).trim()}));
 };
+// The thread of a line that carries no tag is worked out (_guess: labelled in italics): an agent's words to the owner,
+// the thread of the last it named in the same turn, else the one ticket they name (a developer's or tester's, the ticket
+// held, unless they name one other it has held); a message between two agents, the
+// ticket it opens with or the one it names, else of several the one held then by a developer or tester at either end (the receiver's first) or
+// the first, else, naming none, the ticket held there.
+const NOT_KEY = /^(UTF|SHA|ISO|MD|RFC|CVE|PEP|ES|TLS|HTTP|GPT|COVID)-/;
+// the ledger numbers known: the work queue's and those of the tickets agents hold ("#12" alone may be a pull request)
+let ledgerNosOf = [];
+function ledgerNos() {
+  if (ledgerNosOf[0] !== workQueue || ledgerNosOf[1] !== S) ledgerNosOf = [workQueue, S, new Set([
+    ...(workQueue ? ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []) : []).map(i => i.no), ...(S?.agents || []).map(a => a.ticketNo)].filter(Boolean).map(n => "#" + n))];
+  return ledgerNosOf[2];
+}
+const isTicketKey = k => k.startsWith("#") ? ledgerNos().has(k) : !NOT_KEY.test(k);
+const keysIn = text => [...new Set(String(text || "").match(/(?<![A-Za-z0-9])[A-Z][A-Z0-9]+-\d+(?!\d)|(?<![\w\/&#])#[1-9]\d*(?!\d)/g) || [])].filter(isTicketKey);
+// a ticket's thread from its id: its ledger number where one is known
+const idThread = id => { const k = wkKey(id); return /^[1-9]\d*$/.test(k) ? "#" + k : k; };
+// the id of a thread's ticket, as Work knows it
+const threadId = key => !key.startsWith("#") ? key : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.no && "#" + i.no === key)?.key)
+  || (S?.agents || []).find(a => a.ticketNo && "#" + a.ticketNo === key)?.ticket || key;
+// the ticket a developer or tester held at a time, as its transcript tells, else the one it holds now
+function heldAt(name, ts) {
+  const a = ppAgent(name); if (!["dev", "tester"].includes(a?.role)) return "";
+  const was = (a.tickets || []).findLast(t => t[0] <= ts);
+  return was ? idThread(was[1]) : tk(a);
+}
+function peerThread(it, ag) {
+  const opens = String(it.text || "").match(/^[\s*_\[]*(?:#+\s+)?([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)\b/);
+  if (opens && isTicketKey(opens[1])) return opens[1];
+  const keys = keysIn(it.text), to = it.kind === "peer" ? ag : it.who, from = it.kind === "peer" ? it.who : ag;
+  if (keys.length === 1) return keys[0];
+  const held = [heldAt(to, it.ts), heldAt(from, it.ts)].filter(Boolean);
+  return keys.length ? held.find(k => keys.includes(k)) || keys[0] : held[0] || "";
+}
 function threadItems(items, name) {
-  const open = {}, reply = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered
+  const open = {}, reply = {}, cur = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered; cur: the one its turn is in
   for (const it of items.flatMap(splitThreads)) {
     const ag = it._agent || name, a = ppAgent(ag), text = String(it.text || "");
-    let th = "", ask = false, shownText = text, m;
+    let th = "", ask = false, guess = false, shownText = text, m;
     if (it.kind === "said") {
-      if ((m = text.match(THREAD_TAG))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
-      else if (["dev", "tester"].includes(a?.role)) th = a.ticketNo ? "#" + a.ticketNo : a.ticket || "";   // its ticket's #N, so it joins the owner's [#N] thread
-      else if (reply[ag] != null) th = reply[ag];   // an untagged answer stays in the thread it answers
-      reply[ag] = null;
+      if (!it.summary && (m = text.match(THREAD_TAG))) { th = cur[ag] = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
+      else if (["dev", "tester"].includes(a?.role)) {
+        th = it.ticket != null ? idThread(it.ticket) : tk(a);   // its ticket's #N, so it joins the owner's [#N] thread
+        const keys = keysIn(text);   // about another ticket of its own, and no other, it is that ticket's
+        if (keys.length === 1 && keys[0] !== th && a.tickets?.some(t => idThread(t[1]) === keys[0])) { th = keys[0]; guess = true; }
+      }
+      else if (reply[ag] != null) { th = reply[ag]; cur[ag] ??= th; }   // an untagged answer stays in the thread it answers
+      else if (cur[ag] != null) { th = cur[ag]; guess = true; }
+      else { const keys = keysIn(text); if (keys.length === 1) { th = keys[0]; guess = true; } }
+      if (!it.summary) reply[ag] = null;
     } else if (["owner", "echo", "pending"].includes(it.kind)) {
       if ((m = text.match(THREAD_RE))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); }   // a message with no thread named is General
-      reply[ag] = th;
+      reply[ag] = th; cur[ag] = null;
       open[ag + "\n" + th] = null;   // the owner has written in the thread: an ask after this is a new one
-    } else if (["peer", "sent"].includes(it.kind) && (m = text.match(THREAD_KEY))) th = m[1];
+    } else if (["peer", "sent"].includes(it.kind)) {
+      if ((m = text.match(THREAD_KEY))) th = m[1]; else { th = peerThread(it, ag); guess = true; }
+      if (it.kind === "peer") cur[ag] = null;
+    } else if (it.kind === "event") cur[ag] = null;
     if (ask) {
       const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim();
       if (first && same(first.text) === same(shownText)) { first._asked.push(it.ts); continue; }
       out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
       continue;
     }
-    out.push(th || shownText !== text ? {...it, text: shownText, _thread: th} : it);
+    out.push(th || shownText !== text ? {...it, text: shownText, _thread: th, ...(guess && th ? {_guess: true} : {})} : it);
   }
   return out;
 }
 // a line's thread as a small label in an agent's conversation shown whole, and how many times an ask was asked
-const threadLabel = it => (it._thread ? `<span class="thl" data-thread="${esc(it._thread)}" title="Open the thread ${esc(it._thread)}">${esc(it._thread)}</span>` : "") +
+const threadLabel = it => (it._thread ? `<span class="thl${it._guess ? " guess" : ""}" data-thread="${esc(it._thread)}" title="Open the thread ${esc(it._thread)}${it._guess ? " (not tagged: worked out from the message)" : ""}">${esc(it._thread)}</span>` : "") +
   (it._asked?.length > 1 ? `<span class="thl ask" title="Asked at ${esc(it._asked.map(t => String(t).slice(11, 16)).join(", "))}">asked ${it._asked.length}×</span>` : "");
 function feedHtml(items, name, compact, on = laneOf(name), only = null, newAfter = null) {
   if (name) items = items.concat(echoItems(items, name));
-  items = threadItems(items, name);
-  if (only != null) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
+  if (!items.threaded) items = threadItems(items, name);   // a Combined pane's are threaded agent by agent (combinedLines)
+  if (only != null && !items.threaded) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
   const hit = it => seekTurn(it, it._agent || name);
   // after the name badges at the start of its text, else at the start
   const label = (h, it) => compact || only != null || !(it._thread || it._asked?.length > 1) ? h
     : /<span class="heads">(?:<span[^>]*>[^<]*<\/span>)*<\/span>/.test(h) ? h.replace(/<span class="heads">(?:<span[^>]*>[^<]*<\/span>)*<\/span>/, x => x + threadLabel(it))
     : h.replace('<span class="tx">', '<span class="tx">' + threadLabel(it));
-  const one = it => { const h = label(item(it, compact, it._agent || name, !!it._agent), it); return hit(it) ? seekWrap(h) : h; };
+  // in a Combined pane, a reply to whoever wrote a turn, in its thread
+  const rep = (h, it) => { const to = compact || !items.threaded || !["said", "peer", "sent", "live"].includes(it.kind) ? "" : it.kind === "peer" ? it.who : it._agent;
+    return to && S.agents.some(a => a.name === to && a.live) ? h.replace(/<\/div>$/, `<b class="rep" data-rep="${esc(to)}" data-repth="${esc(it._in ?? it._thread ?? "")}" title="Reply to ${esc(S.shownNames?.[to] || to)}">${MENU_ICON.reply}</b></div>`) : h; };
+  const one = it => { const h = rep(label(item(it, compact, it._agent || name, !!it._agent), it), it); return hit(it) ? seekWrap(h) : h; };
   const shown = items.filter(it => on.includes(it.lane) || ["ask", "live", "pending", "echo"].includes(it.kind) || hit(it)), out = [];
   for (let i = 0; i < shown.length; i++) {
     let j = i;
     while (shown[i].kind === "event" && j + 1 < shown.length && shown[j + 1].kind === "event") j++;
-    if (newAfter && SEEN_KINDS.includes(shown[i].kind) && (shown[i].ts || "") > newAfter) {
-      const n = shown.filter(it => SEEN_KINDS.includes(it.kind) && (it.ts || "") > newAfter).length;
+    if (newAfter && seenKind(shown[i]) && (shown[i].ts || "") > newAfter) {
+      const n = shown.filter(it => seenKind(it) && (it.ts || "") > newAfter).length;
       out.push(`<div class="newline"><span>${n} new message${n > 1 ? "s" : ""}</span></div>`); newAfter = null;
     }
     if (j === i) { out.push(one(shown[i])); continue; }
@@ -8264,7 +8447,7 @@ function patchNode(a, b) {
 
 function draw() {
   requestAnimationFrame(shellMount);
-  requestAnimationFrame(() => { document.querySelectorAll(".card.full .thlist").forEach(thEdges); document.querySelectorAll(".card.full.thon .feed").forEach(edges); });
+  requestAnimationFrame(() => { document.querySelectorAll(":is(.card.full, .teamlog.combined) .thlist").forEach(thEdges); document.querySelectorAll(":is(.card.full, .teamlog.combined).thon .feed").forEach(edges); });
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")
     || document.activeElement?.classList.contains("wkfilter")) return;   // nor while a tab is being named, or the Work pane filtered
   if (!barDrag) placeBar();
@@ -9010,10 +9193,15 @@ const inPick = (n, a) => Array.isArray(n.pick) ? n.pick.includes(a.name) : roles
 const pickedAny = n => Array.isArray(n.pick) || rolesPicked(n).length > 0;
 // a role's chip on Agent tabs or Combined takes in all of that role (that role alone, from All), or leaves them all out.
 // It counts the whole team, benched agents too, so one benched or stopped while the chips change is still picked when
-// it comes back; whether the chip takes in or leaves out goes by whether it is lit (the running agents of its role).
+// it comes back; whether the chip takes in or leaves out goes by whether it is lit: every running agent of its role is
+// picked, or, where the whole role is benched, any of them is.
+function roleLit(n, r) {
+  const run = S.agents.filter(a => a.role === r);
+  return run.length ? run.every(a => inPick(n, a)) : (S.bench || []).some(a => a.role === r && inPick(n, a));
+}
 function pickRole(n, r) {
   const team = [...S.agents, ...S.bench], now = team.filter(a => inPick(n, a)).map(a => a.name), them = team.filter(a => a.role === r).map(a => a.name);
-  const lit = S.agents.some(a => a.role === r) && S.agents.filter(a => a.role === r).every(a => inPick(n, a));
+  const lit = roleLit(n, r);
   const next = !r ? [] : !pickedAny(n) ? them : lit ? now.filter(x => !them.includes(x)) : [...new Set([...now, ...them])];
   delete n.roles;
   if (!next.length || team.every(a => next.includes(a.name))) delete n.pick; else n.pick = next;
@@ -9032,8 +9220,8 @@ const inMeeting = (n, a) => n.who === "all" || (Array.isArray(n.who) ? n.who.inc
 // the meeting it shows (n.meeting) and reads it from /api/meetings with every load while a Meeting pane is on the page.
 const MEET = "~meeting:";
 let dayLog = null;
-async function loadDayLog() {
-  if (!leaves(layout().root).some(([, n]) => ["daylog", "work"].includes(n.show))) return;
+async function loadDayLog(now) {
+  if (!now && !wkCardKey && !leaves(layout().root).some(([, n]) => ["daylog", "work"].includes(n.show))) return;
   try { dayLog = await (await fetch("/api/daylog", {cache: "no-store"})).json(); } catch (e) {}
 }
 const dayLogAt = at => { const d = new Date(at * 1000);
@@ -9336,8 +9524,8 @@ document.addEventListener("click", e => {
   try { localStorage.setItem("workqueue:folded", JSON.stringify(f.includes(k) ? f.filter(x => x !== k) : [...f, k])); } catch (e) {}
   phoneOn() ? phoneDraw() : draw();
 });
-async function loadWorkQueue() {
-  if (!leaves(layout().root).some(([, n]) => ["workqueue", "work"].includes(n.show))) return;
+async function loadWorkQueue(now) {
+  if (!now && !wkCardKey && !leaves(layout().root).some(([, n]) => ["workqueue", "work"].includes(n.show))) return;
   try { workQueue = await (await fetch("/api/workqueue", {cache: "no-store"})).json(); } catch (e) {}
 }
 // The id column shows an item's ledger number ("#6533", served as `no`), else the issue number its title starts with
@@ -9571,8 +9759,7 @@ document.addEventListener("mouseover", e => {
   if (wkRest) { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); }
   wkRest = f;
   if (!f || touched || phoneOn()) return;
-  clearTimeout(menuShow); clearTimeout(menuHide);
-  menuShow = setTimeout(() => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, true), 350);
+  menuRest(f, () => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, true));
 });
 const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"><span class="id">${id}${subHtml || sub ? ` <span>· ${subHtml || esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
@@ -9865,6 +10052,7 @@ document.addEventListener("input", e => {
 // words to whoever is picked, starting "Re KEY:" so they know what is meant, and that line then shows in it too.
 const CARD = "~card:";   // a Work item card's message box: say() sends it to whoever is picked in the card
 let wkCardSeen = null;   // watches the card's conversation change size, to keep it at its newest line
+let wkCardFloat = false;   // the card in the middle of the window, opened from elsewhere with no Work pane in view
 let wkCardKey = "", wkCardTo = [], wkCardPane = 0, wkCardMore = true;    // wkCardMore: the details card open   // wkCardPane: which Work pane on the page (0 the first) the card covers
 // the card sits over the Work pane it came from, kept on it as the page redraws, resizes or the pane moves
 const wkCardTint = () => $("#wkcard .wkc-chat")?.style.setProperty("--c", colours[wkCardTo[0]] || "var(--line2)");
@@ -9872,9 +10060,10 @@ function wkCardPlace() {
   const box = $("#wkcard"), pane = [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent)[wkCardPane];
   if (!box?.classList.contains("on")) return;
   box.querySelectorAll(".wkc-thread, .wkc-more").forEach(edges);   // their fades, as their size or content changes
-  if (!pane) return wkCardClose();
-  // maximised, over the whole window; else over the pane below its head ("Work 5 in flight · …"), which stays in view
-  if (wkCardMax) return Object.assign(box.style, {left: "0px", top: "0px", width: innerWidth + "px", height: innerHeight + "px"});
+  if (!pane && !wkCardFloat) return wkCardClose();
+  box.classList.toggle("float", wkCardFloat && !wkCardMax);
+  // maximised, or opened with no Work pane to cover, over the whole window; else over the pane below its head ("Work 5 in flight · …"), which stays in view
+  if (wkCardMax || wkCardFloat) return Object.assign(box.style, {left: "0px", top: "0px", width: innerWidth + "px", height: innerHeight + "px"});
   const r = pane.getBoundingClientRect(), head = pane.querySelector(":scope > .thead")?.getBoundingClientRect(), top = head ? head.bottom : r.top;
   Object.assign(box.style, {left: r.left + "px", top: top + "px", width: r.width + "px", height: r.bottom - top + "px"});
 }
@@ -9914,7 +10103,7 @@ function wkCardThread(key, names) {
     let answering = false;
     for (const it of a.feed || []) {
       if (it.kind === "owner") answering = re.test(it.text || "");
-      if (!["said", "owner", "peer", "sent"].includes(it.kind) || !(re.test(it.text || "") || answering && it.kind === "said")) continue;
+      if (it.summary || !["said", "owner", "peer", "sent"].includes(it.kind) || !(re.test(it.text || "") || answering && it.kind === "said")) continue;
       // a message between two agents is in both their feeds: kept once
       const from = it.kind === "said" ? a.name : it.kind === "owner" ? "you" : it.kind === "peer" ? it.who : a.name;
       const to = it.kind === "said" ? "you" : it.kind === "owner" ? a.name : it.kind === "peer" ? a.name : it.who;
@@ -9950,7 +10139,7 @@ function wkCardBody(d, key) {
   const chips = `<span class="wkc-tolabel">${wkCardTo.length ? `To ${esc(wkCardTo.map(shown).join(", "))}` : "Pick who it goes to"}</span>` +
     to.map(n => `<span class="wkface wkc-to${wkCardTo.includes(n) ? " on" : ""}" data-wkcto="${esc(n)}"` +
     `${ppAgent(n) ? ` data-wkagent="${esc(n)}" data-menu-name="${esc(n)}"` : ` title="${esc(shown(n))}"`}>${ppFace(n)}</span>`).join("");
-  return {head: `<div class="thead">${wkCompact() ? "" : BACK_BUTTON.replace('class="backbtn" title="Back to Combined"', 'class="backbtn" data-wkcclose title="Back to Work (Esc)"')}<span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
+  return {head: `<div class="thead">${wkCompact() ? "" : BACK_BUTTON.replace('class="backbtn" title="Back to Combined"', `class="backbtn" data-wkcclose title="${wkCardFloat ? "Close" : "Back to Work"} (Esc)"`)}<span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
       `<span class="tsum">${[title && title !== key ? esc(title) : "", stage ? `<b>${esc(stage)}</b>` : ""].filter(Boolean).join(" · ")}</span>${wkCompact() ? "" : `<b class="maxbtn wkc-pin${wkPins().includes(key) ? " on" : ""}" data-wkcpin ` +
       `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>`}${wkCompact() ? `<b class="maxbtn" data-wkcclose title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</b>`
       : maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax')}</div>` +
@@ -9971,8 +10160,15 @@ function wkCardThreadHtml(key, names) {
       `${m.to === "you" ? "" : badge(m.to, true)}</span>${md(m.text)}</span><span class="ago" data-ts="${esc(m.ts || "")}">${since(m.ts)}</span></div>`;
   }).join("") : `<div class="calm">Nothing said about ${esc(key)} in their recent conversations yet.</div>`;
 }
-function wkCardOpen(key) {
+// the card opened from elsewhere on the page: over a Work pane in view, else in the middle of the window
+async function wkCardShow(key) {
+  const panes = open ? [] : [...document.querySelectorAll("#main .teamlog.wk")].filter(e => e.offsetParent);
+  if (!panes.length) await Promise.all([loadWorkQueue(true), loadDayLog(true)]);
+  wkCardPane = 0; wkCardOpen(key, !panes.length);
+}
+function wkCardOpen(key, float = false) {
   if (wkCardKey !== key) wkCardTo = [];
+  wkCardFloat = float;
   wkCardKey = key;
   let box = $("#wkcard");
   if (!box) { document.body.insertAdjacentHTML("beforeend", `<div id="wkcard"></div>`); box = $("#wkcard"); }
@@ -10024,7 +10220,7 @@ function wkCardRefresh() {
   const tos = box.querySelector(".wkc-tos"); if (tos.dataset.html !== c.to) { tos.innerHTML = c.to; tos.dataset.html = c.to; }
 }
 let wkCardMax = false;   // the card maximised over the window (its maximise button; Esc restores it)
-const wkCardClose = () => { $("#wkcard")?.classList.remove("on"); wkCardKey = ""; wkCardMax = false; wkCardSeen?.disconnect(); };
+const wkCardClose = () => { $("#wkcard")?.classList.remove("on"); wkCardKey = ""; wkCardMax = wkCardFloat = false; wkCardSeen?.disconnect(); };
 // A message from the card's box, sent as say() sends one, to each agent picked, with the item named first; the box
 // keeps the words and images when any of them did not take it.
 async function wkCardSay(name, input) {
@@ -10046,7 +10242,7 @@ async function wkCardSay(name, input) {
 document.addEventListener("click", e => {
   if (!$("#wkcard")?.classList.contains("on") || e.target.closest?.("#wkcard")) return;
   const pane = [...document.querySelectorAll(".teamlog.wk")].filter(x => x.offsetParent)[wkCardPane];
-  if (pane && pane.contains(e.target)) wkCardClose();
+  if (!wkCardFloat && pane && pane.contains(e.target)) wkCardClose();
 }, true);
 document.addEventListener("click", e => {
   const box = $("#wkcard");
@@ -10197,7 +10393,7 @@ const roleItems = () => roleList().map(r => [r.role, r.name, `<span class="dot" 
 // The role chips under a pane's tabs: All, then each role with a dot in its colour, lit while the pane shows it. Those
 // that do not fit the row fold into a +N chip, which opens them as a menu (see fitChips).
 const roleChips = (path, n) => { const on = rolesPicked(n), pickView = PICK_VIEWS.includes(n.show);
-  const lit = r => pickView ? pickedAny(n) && S.agents.some(a => a.role === r.role) && S.agents.filter(a => a.role === r.role).every(a => inPick(n, a)) : on.includes(r.role);
+  const lit = r => pickView ? pickedAny(n) && roleLit(n, r.role) : on.includes(r.role);
   return `<span class="chips"><b class="chip${(pickView ? pickedAny(n) : on.length) ? "" : " on"}" data-role="" title="Every role">All</b>${roleList().map(r =>
     `<b class="chip${lit(r) ? " on" : ""}" data-role="${esc(r.role)}" title="Show or leave out the ${esc(r.name)}">${roleMark(r)}${esc(r.name)}</b>`).join("")}` +
     `<b class="chip more" data-menu="chips:${path}" hidden></b></span>`; };
@@ -10526,7 +10722,7 @@ function teamHtml(path, n, full, big) {
   return `<div class="teamlog${full ? "" : " summary"}" data-name="~team"><div class="thead"><span>Team</span><span>${kept.length} message${kept.length === 1 ? "" : "s"} between agents</span>${maxButton(big)}</div>` +
     `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : log.length ? log.map(row).join("") : `<div class="empty">${teamLog.length ? "no messages lately from or to an agent in these roles" : "no messages between agents lately"}</div>`}</div></div>`;
 }
-// The Combined pane: the conversations of the running agents in the roles chosen from its Roles menu as one, in time
+// The Combined pane: the conversations of the agents in the roles chosen from its Roles menu, benched ones too, as one, in time
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
 // Full and Summary as the Team pane. The roles are chosen from the pane bar while the layout is being changed, as a grid's are.
 // Its lanes split the owner's: Owner is the owner's messages, Said each agent's own words, so either can go alone.
@@ -10539,37 +10735,137 @@ const clanesOf = n => Array.isArray(n.clanes) ? n.clanes : Array.isArray(n.lanes
 // of the same kind within two minutes is folded into the first.
 const OWN = ["owner", "echo", "pending"];
 function foldSent(out, it) {
-  const t = Date.parse(it.ts), first = OWN.includes(it.kind) && out.findLast(p => p.kind === it.kind && p.text === it.text && t - Date.parse(p.ts) < 120000);
+  const t = Date.parse(it.ts), first = OWN.includes(it.kind) && out.findLast(p => p.kind === it.kind && p.text === it.text && (p._thread || "") === (it._thread || "") && t - Date.parse(p.ts) < 120000);
   if (first) { if (!(first._agents ||= [first._agent]).includes(it._agent)) first._agents.push(it._agent); } else out.push(it);
   return out;
 }
+// Whose conversations a Combined pane shows: the running agents it has picked, then those benched of the roles lit in its
+// chips (every role, while none is picked), each with its last conversation.
+const combinedAgents = n => [...paneAgents(n), ...byRole((S.bench || []).filter(b => roleLit(n, b.role)))];
+// Their lines in time order, each agent's threaded on its own (threadItems) and kept until its conversation changes. A
+// message between two of them is its recipient's, unless it is older than what is kept of the recipient's. The line of
+// what an agent is doing, or an open prompt, is in the thread the agent is in (_in).
+const combinedMemo = {};
+function combinedLines(chosen) {
+  const of = a => {
+    const ag = ppAgent(a), conv = paneConv[a] || [], echo = echoItems(conv, a), key = [ag?.role, ag?.ticket, ag?.ticketNo, S.agents.map(x => x.tickets?.at(-1)?.join() || "").join(), echo.map(m => m.ts + m.state)].join("|"), m = combinedMemo[a];
+    if (m && m.conv === conv && m.key === key) return m;
+    const lines = threadItems(conv.concat(echo), a).map(it => ({...it, _agent: a}));
+    const last = lines.findLast(it => ["said", ...OWN].includes(it.kind)), now = ["dev", "tester"].includes(ag?.role) ? tk(ag) : last?._thread || "";
+    for (const it of lines) if (["live", "ask"].includes(it.kind)) it._in = now;
+    return combinedMemo[a] = {conv, key, lines, from: lines.find(it => it.kind === "peer")?.ts || "9"};
+  };
+  const all = chosen.map(of), from = Object.fromEntries(chosen.map((a, i) => [a, all[i].from]));
+  return all.flatMap(m => m.lines).filter(it => (it.ts || it.kind === "ask") && !(it.kind === "sent" && from[it.with || it.who] <= it.ts))
+    .sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0).map(it => it._agents ? {...it, _agents: null} : it).reduce(foldSent, []);
+}
+// Its threads: each agent's (threadsOf) of one name together, with who is in it (agents, the latest first), each one's own
+// (parts) and each one's open ask (asks; a benched agent waits for no answer). What is in no thread is left to the whole
+// conversation.
+const COMB = "~combined:", combNode = key => { try { return nodeAt(layout().root, key.slice(COMB.length)); } catch (e) { return null; } };
+function combinedThreads(key, chosen, lines = combinedLines(chosen).filter(it => inCombined(clanesOf(combNode(key)), it))) {
+  const by = new Map(), drawn = new Set(lines.map(it => it._in ?? it._thread ?? "")), sel = localStorage.getItem("thread:" + key);
+  for (const a of chosen) for (const t of threadsOf(paneConv[a] || [], a, sel, key)) {
+    if (!t.name || t.name === EVERY) continue;
+    const ask = ppBenched(a) ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
+    m.parts.push([a, {...t, ask}]);
+    if (t.last) m.agents.push(a);
+    if (t.latest && t.last >= m.said) { m.latest = t.latest; m.said = t.last; }
+    m.last = Math.max(m.last, t.last); m.answered = Math.max(m.answered, t.answered); if ((t.at || "") > m.at) m.at = t.at;
+    if (ask) m.asks.push({agent: a, ask});
+  }
+  // (a message between two agents is drawn once, in its recipient's thread)
+  const all = [...by.values()].filter(t => t.asks.length || drawn.has(t.name));
+  for (const t of all) {
+    const at = a => t.parts.find(p => p[0] === a)[1].last;
+    t.agents.sort((a, b) => at(b) - at(a));
+    t.asks.sort((a, b) => (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || ""));
+    t.ask = t.asks[0]?.ask || null;
+  }
+  return all.sort(thOrder());
+}
+// a Combined pane's unseen messages by thread, as unseenBy counts an agent's
+function combinedUnseen(lines) {
+  const out = {}, counted = new Set();
+  for (const it of lines) {
+    const th = it._thread || "", last = (it._asked || [it.ts]).at(-1), key = it._agent + "\n" + th + "\n" + it.ts;
+    if (!seenKind(it) || !seen[it._agent] || !last || last <= thSeen(it._agent, th) || counted.has(key)) continue;
+    counted.add(key);
+    const o = out[th] || (out[th] = {n: 0, ask: false}); o.n++; o.ask ||= !!it._ask && !ppBenched(it._agent);
+  }
+  return out;
+}
+// Who a message from a Combined pane's open thread goes to: whoever was picked for it, else the agent whose ask is open in
+// it, else the last of its agents to speak that is running, else its chat's. It stays as it is while the thread is
+// shown, so that nobody's speaking changes it under a message being written.
+const combPick = {};   // pane + thread -> agent
+function combTo(key, t, n, chosen) {
+  const k = key + "\n" + t.name, can = x => x && chosen.includes(x) && S.agents.some(a => a.name === x && a.live);
+  if (!can(combPick[k])) combPick[k] = [t.asks[0]?.agent, ...t.agents, n.chat].find(can) || "";
+  return combPick[k];
+}
+// a reply to a turn of the whole conversation is in that turn's thread: pane -> {agent, th}, until it is sent
+const combRe = {};
+// the thread open in a Combined pane, or null in the whole conversation
+const combOpen = key => document.querySelector(`#main .teamlog.combined.thon[data-name="${CSS.escape(key)}"]`) && thSel[key] ? thSel[key].name : null;
+const COMB_LINES = 200, combMore = {};   // how many lines it shows at first, and how many more have been asked for (pane + thread)
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-earlier]"), comb = b && thPane(b); if (!comb) return;
+  e.stopImmediatePropagation();
+  const k = comb.dataset.name + "\n" + b.dataset.earlier, feed = () => $(`#main .teamlog.combined[data-name="${CSS.escape(comb.dataset.name)}"] .feed`), up = feed().scrollHeight - feed().scrollTop;
+  combMore[k] = (combMore[k] || 0) + COMB_LINES; getSelection().removeAllRanges(); feed().dataset.end = "0"; draw();
+  feed().scrollTop = feed().scrollHeight - up;   // the lines that were in view stay there
+}, true);
+// Where its lines not seen before begin ("N new messages", as noteNew's for an agent): found as they are about to be
+// marked seen, and kept for NEW_FOR.
+function combinedNew(key, th, lines) {
+  const k = key + "\n" + th, was = newMarkAt(key, th);
+  if (was != null) return was;
+  const first = lines.find(it => seenKind(it) && it.ts && seen[it._agent] && it.ts > (th === EVERY ? seen[it._agent] : thSeen(it._agent, th)));
+  if (!first) return null;
+  newMarks[k] = {after: new Date(Date.parse(first.ts) - 1).toISOString(), until: Date.now() + NEW_FOR};
+  setTimeout(() => { delete newMarks[k]; draw(); }, NEW_FOR + 50);
+  return newMarks[k].after;
+}
+const inCombined = (on, it) => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
 function combinedHtml(path, n, full, big) {
-  const chosen = paneAgents(n).map(a => a.name), on = clanesOf(n);
-  const lanesOn = it => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
+  const them = combinedAgents(n), chosen = them.map(a => a.name), on = clanesOf(n), key = COMB + path;
   // a message sent from the pane shows at once, as in an agent's own view, until the agent's conversation has it
-  const items = chosen.flatMap(a => (paneConv[a] || []).concat(echoItems(paneConv[a] || [], a)).filter(it => (it.ts || it.kind === "ask") && lanesOn(it) && !(it.kind === "sent" && chosen.includes(it.with || it.who)))
-    .map(it => ({...it, _agent: a}))).sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0)
-    .reduce(foldSent, []);
-  const log = full ? items : items.slice(-30);
-  seenUpTo(log);
-  const key = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, [...openRuns], noImage.size, paintKey].join("|");
-  const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === key;
-  const seg = filterBtn("clanes", "clanes:" + path, on, CALL, CLANES);
-  // the chat opened from an agent's menu in this pane: its badge and its message box, under the conversation
-  const talk = S.agents.find(a => a.live && a.name === n.chat && chosen.includes(a.name));
-  const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Chat with another agent"`;
-  const chat = talk ? `<div class="chat"><div class="chead">${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
-    : `<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(talk.name)}</span>`}<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span></div>${sayRow(talk)}</div>` : "";
-  return `<div class="teamlog combined${full ? "" : " summary"}" data-name="~combined:${path}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(paneAgents(n))}</span>`
-    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${paneAgents(n).map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`)).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? chosen.map(x => `<span class="name" style="--c:${colours[x] || "#888"}" data-name="${esc(x)}">${esc(shown(x))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>` +
-    `<div class="feed" data-key="${esc(key)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : feedHtml(log, "", !full, ALL)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}</div>`;
+  const lines = combinedLines(chosen).filter(it => inCombined(on, it));
+  // in Threads (its own choice, as an agent's card's), its threads at its left, and only the open one's lines
+  const all = full && path !== "phone" ? combinedThreads(key, chosen, lines) : [], thr = all.length > 0 && thMode(key) === "threads", one = thr ? thPick(all, key).t : null;
+  if (one && localStorage.getItem("thread:" + key) !== one.name) localStorage.setItem("thread:" + key, one.name);   // the first, until another is opened
+  // its newest lines, and the earlier ones as they are asked for: a page with thousands of them is slow to draw
+  const of = one ? lines.filter(it => (it._in ?? it._thread ?? "") === one.name) : lines, most = path === "phone" ? Infinity : COMB_LINES + (combMore[key + "\n" + (one ? one.name : "")] || 0);
+  const log = full ? of.slice(-most) : of.slice(-30), before = full ? of.length - log.length : 0;
+  log.threaded = true;
+  const th = one ? one.name : EVERY, mark = full && looking() ? combinedNew(key, th, log) : newMarkAt(key, th);
+  if (!one) { if (!full || looking()) seenUpTo(log); } else if (looking()) thRead(key, one);
+  const head = (one ? thHeadHtml(one, key) : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
+  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey].join("|");
+  const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === fkey;
+  const seg = `<div class="cbtns">${filterBtn("clanes", "clanes:" + path, on, CALL, CLANES)}${all.length ? thSeg(key) : ""}</div>`;
+  // a message box under the conversation, to one agent: the open thread's, to whoever combTo says, else the chat opened
+  // from an agent's menu or a turn's reply; its badge picks another
+  const talk = S.agents.find(a => a.live && chosen.includes(a.name) && a.name === (one ? combTo(key, one, n, chosen) : n.chat));
+  const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Send to another agent"`;
+  const re = one || (combRe[key] && combRe[key].agent === n.chat ? all.find(t => t.name === combRe[key].th) || {name: combRe[key].th, title: combRe[key].th} : null);
+  const chat = talk ? `<div class="chat" style="--c:${talk.colour}"><div class="chead"><span class="cto">To</span>${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
+    : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
+  const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
+  const un = thr ? combinedUnseen(lines) : {};
+  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one.name, un)}</div>` +
+    `<div class="thchips">${thChipsHtml(all, one.name, un)}</div>${feed}</div>` : feed;
+  const off = a => ppBenched(a.name) ? " benched" : "";
+  return `<div class="teamlog combined${full ? "" : " summary"}${thr ? " thon" : ""}" data-name="${key}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(them)}</span>`
+    : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${them.map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}${off(a) ? " (benched)" : ""}"`, off(a) && " benched off")).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? them.map(a => `<span class="name${off(a) && " benched off"}" style="--c:${a.colour || "#888"}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>${body}</div>`;
 }
 // What the layout's panes show, read with every load; an agent's conversation only for a pane that draws it. A page in a
 // pane's frame draws its one agent, and reads what names its threads (the work queue and the Day log).
 async function loadPaneConvs() {
   const custom = (localStorage.getItem("page") || "grid") === "custom", max = localStorage.getItem("custom:max");
   const names = !custom || EMBED ? [] : [...new Set(leaves(layout().root).flatMap(([p, n]) =>
-    n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : [])
+    n.show === "combined" ? combinedAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : [])
       : ["grid", "tabs"].includes(n.show) ? paneAgents(n).map(a => a.name) : []))];
   LV.names = names; lvWatch();
   if (!custom) return;
@@ -10584,8 +10880,8 @@ async function loadPaneConvs() {
     } catch (e) {}
   }));
 }
-// A pane dragged by its grip onto another swaps places with it, the pick of tab in a Tabs pane, and the agent a
-// Combined pane shows, going with it.
+// A pane dragged by its grip onto another swaps places with it, the pick of tab in a Tabs pane, and the agent and the
+// thread a Combined pane shows, going with it.
 // Redraws wait while it is held, as they do while a divider is dragged.
 function movePane(e, grip, from, change) {
   e.preventDefault(); grip.setPointerCapture(e.pointerId);
@@ -10598,7 +10894,7 @@ function movePane(e, grip, from, change) {
     mark(null); grip.onpointermove = grip.onpointerup = grip.onpointercancel = null;
     src.classList.remove("lifted"); document.body.classList.remove("moving-pane"); resizing = false;
     if (!to) return;
-    for (const pre of ["tab:pane:", "focus:pane:"]) {
+    for (const pre of ["tab:pane:", "focus:pane:", "threads:" + COMB, "thread:" + COMB]) {
       const ta = localStorage.getItem(pre + from), tb = localStorage.getItem(pre + to);
       tb == null ? localStorage.removeItem(pre + from) : localStorage.setItem(pre + from, tb);
       ta == null ? localStorage.removeItem(pre + to) : localStorage.setItem(pre + to, ta);
@@ -11212,9 +11508,9 @@ function customClicks() {
   main.querySelectorAll(".teamlog:not(.combined) .thead .name").forEach(el => el.onclick = () => goTo(el.dataset.name));   // a Combined pane's are above
   main.querySelectorAll(".teamlog .feed").forEach(f => f.onclick = e => {
     const row = e.target.closest(".it[data-agent]");
-    if (!row || !getSelection().isCollapsed || e.target.closest("a, img, .thumbs, pre, [data-run]")) return;
-    const named = e.target.closest(".who")?.textContent, name = S.agents.some(a => a.name === named) ? named : row.dataset.agent;
-    if (S.agents.some(a => a.name === name)) pick(f, name);
+    if (!row || !getSelection().isCollapsed || e.target.closest("a, img, .thumbs, pre, [data-run], .thl[data-thread]")) return;
+    const named = e.target.closest(".who")?.textContent, name = ppAgent(named) ? named : row.dataset.agent;
+    if (S.agents.some(a => a.name === name)) pick(f, name); else if (ppBenched(name)) openDetail(name);
   });
   // a card over a Combined view starts below its header, so the agents along it show, greyed, above the card
   main.querySelectorAll(".paneover").forEach(o => {
@@ -11442,7 +11738,7 @@ async function load(tick) {
 // agent whose card is on the page (in tabs, only the picked one), and the open one while its view is. A message from an agent, or to or from
 // it, newer than that is unseen. It is counted only in the lanes the agent's card shows (unseenBy).
 const seen = JSON.parse(localStorage.getItem("seen") || "{}");
-const SEEN_KINDS = ["said", "peer", "sent"];
+const SEEN_KINDS = ["said", "peer", "sent"], seenKind = it => SEEN_KINDS.includes(it.kind) && !it.summary;   // a summary is never unread
 // A conversation shown on lines not seen before (a thread with a count opened, or lines arriving while it is shown)
 // marks where they begin with "N new messages", for a few seconds (NEW_FOR), as long as a count shows. The mark is
 // taken as they are marked seen, and kept by agent and thread ("" General, EVERY all of them).
@@ -11454,7 +11750,7 @@ addEventListener("focus", backAgain); document.addEventListener("visibilitychang
 function noteNew(name, th, feed) {
   const k = name + "\n" + th, mark = th === EVERY ? seen[name] || "" : thSeen(name, th);
   if (!seen[name] || newMarkAt(name, th) != null) return;
-  if (!threadItems(feed, name).some(it => SEEN_KINDS.includes(it.kind) && (it.ts || "") > mark && (th === EVERY || (it._thread || "") === th))) return;
+  if (!threadItems(feed, name).some(it => seenKind(it) && (it.ts || "") > mark && (th === EVERY || (it._thread || "") === th))) return;
   newMarks[k] = {after: mark, until: Date.now() + NEW_FOR};
   const redraw = () => { draw(); if (open === name) renderConv(); };   // drawn with the mark at once (it is taken as a draw ends), and again without it
   setTimeout(redraw); setTimeout(() => { delete newMarks[k]; redraw(); }, NEW_FOR + 50);
@@ -11484,7 +11780,7 @@ function markSeen(names) {
 }
 // a message shown in a Combined pane has been seen, as an agent's card counts its own as seen
 function seenUpTo(items) {
-  for (const it of items) if (SEEN_KINDS.includes(it.kind) && it.ts > (seen[it._agent] || "")) seen[it._agent] = it.ts;
+  for (const it of items) { const ts = (it._asked || [it.ts]).at(-1); if (seenKind(it) && ts > (seen[it._agent] || "")) seen[it._agent] = ts; }
   localStorage.setItem("seen", JSON.stringify(seen));
 }
 const unseenBadge = (n, ask) => `<span class="unseen${ask ? " ask" : ""}" title="${n} message${n > 1 ? "s" : ""} since you last looked${ask ? ", one asking you something" : ""}">${n >= 10 ? "10+" : n}</span>`;
@@ -11500,7 +11796,7 @@ function unseenBy(a, feed = a.feed) {
   if (!seen[a.name]) return out;
   const on = laneOf(a.name);
   for (const it of threadItems(feed, a.name)) {
-    if (!SEEN_KINDS.includes(it.kind) || !on.includes(it.lane)) continue;
+    if (!seenKind(it) || !on.includes(it.lane)) continue;
     const th = it._thread || "", last = (it._asked || [it.ts]).at(-1), key = th + "\n" + it.ts;
     if (!last || last <= thSeen(a.name, th) || counted.has(key)) continue;
     counted.add(key);
@@ -11669,7 +11965,9 @@ let convFeed = [];
 // chosen on the right; All is the whole conversation, each line labelled with its thread.
 const thMode = n => localStorage.getItem("threads:" + n) === "all" ? "all" : "threads";
 // a message box in a thread: the agent view's in Threads, or a card's showing its threads
-const thBox = box => box.id === "dsay" ? thOn() : !!box.closest?.(".card.full.thon");
+const thBox = box => box.id === "dsay" ? thOn() : !!box.closest?.(".card.full.thon, .teamlog.combined.thon");
+// whose open thread a message box is in: its agent's, or its Combined pane's
+const thKey = (box, name) => box.id !== "dsay" && thPane(box)?.dataset.name || name;
 const thWide = () => !!open && thMode(open) === "threads" && $("#detail .left").clientWidth >= 720;
 const thOn = () => thWide() && !thSingle[open];
 // agents whose conversation has one thread only (Everything and General): shown whole, with no list
@@ -11678,24 +11976,26 @@ const ANSWERED_FOR = 60 * 1000;   // how long a thread says "answered" after the
 // Each thread of a conversation, from its lines (threadItems): its name ("" is General), its last line's time, the ask
 // still open in it (the owner has not written there since), when the owner last answered an ask there, and the
 // agent's latest words in it. The ticket's title stands for a ticket key where the Work data knows it.
-function threadsOf(items, name) {
+function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread:" + name), key = name) {
   const by = new Map(), get = th => by.get(th) || by.set(th, {name: th, last: 0, ask: null, answered: 0, latest: ""}).get(th);
-  const ask = {};
+  const ask = {}, cn = key.startsWith(COMB) ? combNode(key) : null, on = cn ? clanesOf(cn) : laneOf(name);
+  // only what its filter shows is in the list: a thread with none of its lines shown is left out, but for an open ask
+  const shows = it => cn ? inCombined(on, it) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
   for (const it of threadItems(items, name)) {
     if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
-    const th = it._thread || "", t = get(th), ts = Date.parse(it.ts) || 0;
+    const th = it._thread || "", ts = Date.parse(it.ts) || 0, t = shows(it) ? get(th) : {};
     t.last = Math.max(t.last, ts, ...(it._asked || []).map(x => Date.parse(x) || 0));
     const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
     if (it._ask) ask[th] = it;
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
-    if (it.kind === "said" && !thNotice(it.text)) t.latest = it.text;
+    if (it.kind === "said" && !it.summary && !thNotice(it.text)) t.latest = it.text;
   }
   // an ask to answer another agent's prompt ("... in Jason's pane") is open only while that agent still waits on the owner
   const paneAsk = it => { const m = String(it.text).match(/\b([A-Z][a-z]+)'s (?:pane|window)\b/), ag = m && S.agents.find(a => a.name === m[1]);
     return ag && !["waiting", "wanted"].includes(stOf(ag)); };
   // and one the owner marked dealt with is closed, until the agent asks again
   const cleared = thCleared[name] || {};
-  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) by.get(th).ask = it;
+  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) { const t = get(th), at = it._asked.at(-1) || ""; t.ask = it; t.last ||= Date.parse(at) || 0; t.at ||= at; }
   get("");
   const d = workQueue || ppData() ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
     title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || "";
@@ -11709,29 +12009,55 @@ function threadsOf(items, name) {
     !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => qk(i, k) && i.list !== "done");
   // Remove closed ticked: a closed ticket's thread is left out while it has no open ask, nothing unread and is not the
   // thread open
-  const sel = phTh[name] ?? localStorage.getItem("thread:" + name), un = thNoClosed() && d ? unseenBy({name}, items) : null;
-  const shut = t => !!un && t.name !== sel && isKey(t.name) && !t.ask && !un[t.name]?.n && closed(t.name);
-  const hid = thHidden[name] || {}, pins = new Set(wkPinned());
+  const un = thNoClosed() && d ? unseenBy({name}, items) : null;
+  const list = un && thListOf(key), stay = thHeld(list) ? new Set([...list.querySelectorAll(".thitem")].map(e => e.dataset.thread)) : null;
+  const shut = t => !!un && t.name !== sel && !stay?.has(t.name) && isKey(t.name) && !t.ask && !un[t.name]?.n && closed(t.name);
+  const hid = thHidden[name] || {};
   return [...by.values()].filter(t => !t.name || !shut(t) && (!hid[t.name] || (t.at || "") > hid[t.name])).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), stage: isKey(t.name) ? stage(t.name) : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
-    // All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
-    .sort((a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
-      pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b))
+    .sort(thOrder())
     .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "All", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
+}
+// All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
+function thOrder() {
+  const pins = new Set(wkPinned());
+  return (a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
+    pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b);
 }
 // asks the owner marked dealt with (agent -> thread -> the time it was last asked then)
 var thCleared = JSON.parse(localStorage.getItem("thclear") || "{}");
-const thClrBtn = t => `<b class="thclr" data-thclr="${esc(t.name)}" title="Dealt with: close this ask until it is asked again">Dealt with</b>`;
+const thClrBtn = (t, agent = "") => `<b class="thclr" data-thclr="${esc(t.name)}" data-agent="${esc(agent)}" title="Dealt with: close this ask until it is asked again">Dealt with</b>`;
 document.addEventListener("click", e => {
   const b = e.target.closest?.("[data-thclr]"); if (!b) return;
   e.stopImmediatePropagation(); e.preventDefault();
-  const card = e.target.closest(".card.full[data-name]"), agent = card ? card.dataset.name : open, th = b.dataset.thclr;
-  if (!agent) return;
-  const t = threadsOf(card ? paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [] : convFeed, agent).find(x => x.name === th);
+  const agent = thAgent(e.target) || open, t = agent && thAll(e.target, agent).find(x => x.name === b.dataset.thclr);
   if (!t?.ask) return;
-  (thCleared[agent] ||= {})[th] = t.ask._asked.at(-1) || "";
-  localStorage.setItem("thclear", JSON.stringify(thCleared));
-  thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false;
+  const part = t.parts?.find(p => p[0] === b.dataset.agent);   // in a Combined pane, that agent's ask alone
+  part?.[1].ask ? thDealt(...part) : thDealt(agent, t); thRedraw();
 }, true);
+// whose threads an element is among (an agent's, or a Combined pane's by its name, "~combined:<path>"), the conversation
+// they are in, the threads and their lines, and what can be done to one of them
+const thPane = el => el.closest("#main .teamlog.combined[data-name^='" + COMB + "']");
+const thAgent = el => el.closest("#detail") ? open : (el.closest(".card.full[data-name]") || thPane(el))?.dataset.name;
+const thFeed = (el, agent) => el.closest(".card.full[data-name]") ? paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [] : convFeed;
+const thChosen = key => { const n = combNode(key); return n ? combinedAgents(n).map(a => a.name) : []; };
+const thAll = (el, agent) => agent.startsWith(COMB) ? combinedThreads(agent, thChosen(agent)) : threadsOf(thFeed(el, agent), agent);
+const thLines = (el, agent) => agent.startsWith(COMB) ? combinedLines(thChosen(agent)) : threadItems(thFeed(el, agent), agent);
+const thRedraw = () => { thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; };
+function thDealt(agent, t) {
+  if (t.parts) { for (const [a, p] of t.parts) if (p.ask) thDealt(a, p); return; }
+  (thCleared[agent] ||= {})[t.name] = t.ask._asked.at(-1) || ""; localStorage.setItem("thclear", JSON.stringify(thCleared));
+}
+function thRead(agent, t) {
+  if (t.parts) { for (const [a, p] of t.parts) thRead(a, p); return; }
+  if (!seen[agent] || (t.at || "") <= thSeen(agent, t.name)) return;
+  (seenTh[agent] ||= {})[t.name] = t.at;
+  localStorage.setItem("seenth", JSON.stringify(seenTh));
+}
+// removed until something new arrives in it, and what it held counts as seen
+function thRemove(agent, t) {
+  if (t.parts) { for (const [a, p] of t.parts) if (p.last) thRemove(a, p); return; }
+  (thHidden[agent] ||= {})[t.name] = t.at || ""; localStorage.setItem("thhide", JSON.stringify(thHidden)); thRead(agent, t);
+}
 // the list's first row: every thread's lines together, each labelled with its thread
 var EVERY = "*";
 // a row's new-message count: its thread's, or for Everything every thread's
@@ -11816,7 +12142,8 @@ function thListHtml(list, sel, un = {}) {
     // a ticket's key first (else the thread's name), with the count and the time since its last line, then the ticket's title under it
     const closed = t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : "";
     const head = `<b class="thtop">${badge}<span>${esc(t.key || t.title)}</span>${closed}${ago}</b>` + (t.key && t.title !== t.key ? `<span class="thkey">${esc(t.title)}</span>` : "");
-    return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}` +
+    const who = t.name && t.agents?.length ? `<span class="thwho ppdesk">${t.agents.slice(0, 8).map(x => `<span title="${esc(shown(x))}${ppBenched(x) ? " (benched)" : ""}">${ppFace(x)}</span>`).join("")}${t.agents.length > 8 ? `<i title="${esc(t.agents.slice(8).map(shown).join(", "))}">+${t.agents.length - 8}</i>` : ""}</span>` : "";
+    return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}${who}` +
       (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
   }).join("");
 }
@@ -11832,12 +12159,14 @@ function thAskLine(text) {
 }
 function thHeadHtml(t, name) {
   if (!t) return "";
-  // an open ask, answered with a press: Yes, No or Ask why for a yes-or-no question, else Reply (to the box below)
-  const done = phAnswered[name + "\n" + t.name], open_ = t.ask && !(done > (Date.parse(t.ask._asked.at(-1)) || 0));
-  const qa = !open_ ? "" : `<div class="phqa dqa">${(thYesNo(t.ask.text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
-    .map(([w, l]) => `<button data-thqa="${w}" data-thqth="${esc(t.name)}">${l}</button>`).join("")}</div>`;
-  const ask = open_ ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${inline(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
-      `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small>${qa}</div>`
+  // an open ask, answered with a press: Yes, No or Ask why for a yes-or-no question, else Reply (to the box below); in a
+  // Combined pane each agent's, with its name
+  const at = a => phAnswered[a + "\n" + t.name] || 0, done = t.parts ? Math.max(0, ...t.parts.map(p => at(p[0]))) : at(name);
+  const asks = (t.asks || (t.ask ? [{agent: "", ask: t.ask}] : [])).filter(x => !(at(x.agent || name) > (Date.parse(x.ask._asked.at(-1)) || 0)));
+  const qa = x => `<div class="phqa dqa">${(thYesNo(x.ask.text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
+    .map(([w, l]) => `<button data-thqa="${w}" data-thqth="${esc(t.name)}" data-agent="${esc(x.agent)}">${l}</button>`).join("")}</div>`;
+  const ask = asks.length ? asks.map(x => `<div class="thask">${thClrBtn(t, x.agent)}<b>Open ask</b>${x.agent ? ` from <span class="name" style="--c:${colours[x.agent] || "#888"}">${esc(shown(x.agent))}</span>` : ""} · ${inline(thAskLine(x.ask.text))}<small>First asked ${thWhen(x.ask._asked[0])}` +
+      `${x.ask._asked.length > 1 ? ` · asked again ${x.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small>${qa(x)}</div>`).join("")
     : done ? `<div class="thask ok">Answered ${thWhen(done)}</div>` : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
   return `<div class="thhead"><div class="thname"><b>${esc(t.key || t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key ? (t.title !== t.key ? t.title : "") : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
 }
@@ -11846,14 +12175,10 @@ document.addEventListener("click", e => {
   if (!x && !pin && !e.target.closest?.("[data-thfold]")) return;
   e.stopImmediatePropagation();
   if (pin) wkPin(pin.dataset.thpin);
-  else if (x) {   // removed, and what it held counts as seen
-    const agent = e.target.closest("#detail") ? open : e.target.closest(".card.full[data-name]")?.dataset.name, th = x.dataset.thx;
-    if (!agent) return;
-    const t = threadsOf(e.target.closest("#detail") ? convFeed : paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [], agent).find(t => t.name === th);
+  else if (x) {
+    const agent = thAgent(e.target), t = agent && thAll(e.target, agent).find(t => t.name === x.dataset.thx);
     if (!t) return;
-    (thHidden[agent] ||= {})[th] = t.at || "";
-    if (seen[agent] && (t.at || "") > (seenTh[agent]?.[th] || "")) (seenTh[agent] ||= {})[th] = t.at;
-    localStorage.setItem("thhide", JSON.stringify(thHidden)); localStorage.setItem("seenth", JSON.stringify(seenTh));
+    thRemove(agent, t);
   } else localStorage.setItem("thfold", thFolded() ? "0" : "1");
   thFlip = true;
   if (open) renderConv();
@@ -11862,30 +12187,156 @@ document.addEventListener("click", e => {
 var thFlip = false;   // the list redrawn under the pointer, as its fold button was pressed
 document.addEventListener("click", e => {
   const m = e.target.closest?.("[data-thm]"), item = e.target.closest?.(".thitem[data-thread]"), label = e.target.closest?.(".thl[data-thread]");
-  const c = e.target.closest?.(".card.full[data-name]"), agent = e.target.closest?.("#detail") ? open : c?.dataset.name;
-  if (!agent || !m && !item && !label) return;
+  const agent = (m || item || label) && thAgent(e.target);
+  if (!agent) return;
   e.stopPropagation();
+  // the thread already open: its menu, put away by the next click on it (so a double click on any other opens it, then its menu)
+  const x = !m && (item || label).classList.contains("on") && threadAt(e.target);
+  if (x) { thOpen(agent, x.th); if (e.detail < 2 && threadShut === x.key || threadMenu(x.el, agent, x.th)) return; }
   if (m) localStorage.setItem("threads:" + agent, m.dataset.thm);
-  if (item || label) {   // opened, the thread's lines are seen
-    const th = (item || label).dataset.thread;
-    localStorage.removeItem("threads:" + agent); localStorage.setItem("thread:" + agent, th);
-    thSel[agent] = {...thSel[agent], name: th}; markSeen([agent]);
-  }
-  thFlip = true;   // the list's order as it now is, though the pointer is over it
-  if (agent === open && e.target.closest("#detail")) {
+  if (item || label) thOpen(agent, (item || label).dataset.thread);
+  thShow(agent, e.target.closest("#detail"));
+}, true);
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-rep]"), comb = b && thPane(b); if (!comb) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  const key = comb.dataset.name;
+  if (combOpen(key) == null) combRe[key] = {agent: b.dataset.rep, th: b.dataset.repth};
+  chatWith(key.slice(COMB.length), b.dataset.rep);
+}, true);
+// a thread opened: its lines are seen
+function thOpen(agent, th) {
+  localStorage.removeItem("threads:" + agent); localStorage.setItem("thread:" + agent, th);
+  thSel[agent] = {...thSel[agent], name: th}; markSeen([agent]);
+}
+function thShow(agent, view) {
+  if (agent === open && view) {
     $("#dhead").querySelectorAll("[data-thm]").forEach(b => b.classList.toggle("on", b.dataset.thm === thMode(open)));
     pinned = true; renderConv(); const conv = $("#dconv"); conv.scrollTop = conv.scrollHeight;
   } else draw();
-  thFlip = false;
-  if (!(agent === open && e.target.closest("#detail"))) { requestAnimationFrame(() => { const f = document.querySelector(`.card.full[data-name="${CSS.escape(agent)}"] .feed`); if (f) f.scrollTop = f.scrollHeight; }); }
+  if (!(agent === open && view)) { requestAnimationFrame(() => { const f = document.querySelector(`#main :is(.card.full, .teamlog.combined)[data-name="${CSS.escape(agent)}"] .feed`); if (f) f.scrollTop = f.scrollHeight; }); }
+}
+// A thread's menu, on a right-click of its row, chip, label or head or a click on it where it is the one open: its card in Work, Jira and its pull requests where
+// it is a ticket, who is on it, the tickets and links said in it, and what can be done to it.
+function threadMenu(el, agent, th) {
+  // (a redraw may replace el while its menu is open, so what is asked of it is asked now)
+  const view = el.closest("#detail"), comb = agent.startsWith(COMB), lines = thLines(el, agent), t = thAll(el, agent).find(x => x.name === th);
+  if (!t || t.name === EVERY) return false;
+  const d = wkData(true), known = key => d.tickets.some(x => (x.id || x.ref) === key) || d.queue.some(i => i.key === key) || d.history.some(h => h.key === key);
+  const key = t.key, id = key && threadId(key), tk = key && d.tickets.find(x => [id, key].includes(x.id || x.ref));   // id: the ticket's in Work, where its thread is its ledger number
+  // who an update is asked of: the agent, or in a Combined pane whoever its box sends to, the one waiting, its chat's where it is in the thread, else the last to speak
+  const can = x => S.agents.find(y => y.name === x && y.live), chat = comb && combNode(agent)?.chat;
+  const a = can(!comb ? agent : [combPick[agent + "\n" + th], t.asks[0]?.agent, t.agents.includes(chat) && chat, ...t.agents].find(can));
+  const text = lines.filter(it => (it._thread || "") === th && ["said", "owner", "peer", "sent"].includes(it.kind)).map(it => it.text || "");
+  // each thing to open has its copy at the end of its row: a link's address, a file's path, a ticket's key
+  const copy = (what, tip) => `<b class="micopy" data-copy="${esc(what)}" title="${tip}">${LINK_COPY}</b>`;
+  const mi = (go, icon, label, small = "", tail = "") => `<div class="mi" data-go="${esc(go)}">${icon}<span class="wtxt"><b>${label}</b>${small ? `<span>${small}</span>` : ""}</span>${tail}</div>`;
+  const act = (go, icon, label) => `<div class="mi" data-go="${esc(go)}">${icon}${label}</div>`;
+  const link = (href, label, small = "", tip = "") => `<a class="mi" href="${esc(href)}" target="_blank" rel="noopener"${tip ? ` title="${esc(tip)}"` : ""}` +
+    `${href.startsWith("/doc?") ? ` onclick="return showDoc(event, this)"` : ""}>${MENU_ICON.open}<span class="wtxt"><b>${label}</b>${small ? `<span>${small}</span>` : ""}</span>` +
+    `${href.startsWith("/doc?") ? copy(tip, "Copy path") : copy(href, "Copy link")}</a>`;
+  const group = (name, rows) => rows.length ? `<div class="mg">${name}</div>${rows.join("")}` : "";
+  const jira = key ? wkJira(id) : "", used = new Set([jira]);
+  // its pull requests: the open ones with their approvals, then the last merged
+  const prs = !key ? [] : [...(tk?.prs || []).map(p => [p.href, p.ref, p.ok ? p.ok.length ? p.ok.map(n => `${shown(n)} ✓`).join(" ") : "no approvals yet" : p.text]),
+    ...d.history.filter(h => h.key === id).slice(0, 4).map(h => [h.href, h.ref, `merged ${wkWhen(h.t)}`])].filter(([h]) => h);
+  prs.forEach(([h]) => used.add(h));
+  // who is on it, but for the agent whose thread this is
+  const qi = key && d.queue.find(i => i.key === id), {own, sup} = key ? wkOn(d, id, tk?.who || qi?.who || "") : {own: [], sup: []};
+  const on = [...new Set([...own, ...sup.filter(x => x.now).map(x => x.name)])].filter(n => n !== agent && !ppIsOwner(n) && S.agents.some(x => x.name === n)).slice(0, 5);
+  // the other tickets its lines name, and the links and files in them, the latest first
+  const said = [...text].reverse().join("\n"), keys = keysIn(said).filter(x => x !== key && known(threadId(x))).slice(0, 4);
+  const links = [...new Set([...said.matchAll(/\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]*]/g)].map(m => m[0]))].filter(u => !used.has(u) && !used.has(u.replace(/#.*$/, ""))).slice(0, 4);
+  const docs = [...new Set([...said.matchAll(DOC)].map(m => m[2]))].slice(0, 4);
+  const un = comb ? combinedUnseen(lines)[th] : unseenBy({name: agent}, thFeed(el, agent))[th], box = comb ? null : view ? $("#dsay") : el.closest(".card")?.querySelector(".say");
+  const free = comb ? a && !draft(a.name) && !openAsk(a) : box && !box.value.trim() && !box.disabled;
+  const title = k => d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title || d.history.find(h => h.key === k)?.title || "";
+  const sub = [key && t.title !== key && t.title, t.closed ? "closed" : t.stage, !key && th && "not a ticket"].filter(Boolean);
+  const top = (key && known(id) ? mi("card:" + id, MENU_ICON.open, "Its card", "", copy(key, `Copy ${esc(key)}`)) : "") + (jira ? link(jira, "Jira") : "");
+  const body = top + group("Pull requests", prs.map(([h, ref, st]) => link(h, esc(ref), esc(st)))) +
+    group("On it now", on.map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
+    group("In this thread", (comb && th ? t.agents : []).filter(n => !on.includes(n)).slice(0, 6).map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), ppBenched(n) ? "benched" : esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
+    group("Tickets it names", keys.map(x => mi("card:" + threadId(x), MENU_ICON.open, esc(x), esc(title(threadId(x))), copy(x, `Copy ${esc(x)}`)))) +
+    group("Links in it", [...links.map(u => link(u, esc(u.replace(/^https?:\/\/(www\.)?/, "").replace(/^(.{20}).{6,}(.{32})$/, "$1…$2")), "", u)),
+      ...docs.map(p => link("/doc?p=" + encodeURIComponent(p), esc(p.split("/").pop()), "", p))]);
+  const acts = (th && a?.live && free ? act("update", MENU_ICON.said, comb ? `Ask ${esc(shown(a.name))} for an update…` : "Ask for an update…") : "") +
+    (t.ask ? act("dealt", MENU_ICON.check, "Dealt with") : "") + (un?.n ? act("read", MENU_ICON.check, "Mark as read") : "") +
+    (key ? act("pin", MENU_ICON.pin, wkPinned().includes(key) ? "Unpin" : "Pin to the top") : "") +
+    (th ? (key && known(id) ? "" : act("copy", LINK_COPY, key ? `Copy ${esc(key)}` : "Copy its name")) + act("remove", MENU_ICON.close, "Remove from the list") : "");
+  if (!body && !acts) return false;
+  menuAt(el, "thread:" + agent + ":" + th, `<div class="hd thmhd"><b>${esc(key || t.title)}</b>${sub.length ? `<div>${sub.map(esc).join(" · ")}</div>` : ""}</div>` +
+    body + (body && acts ? `<div class="sep"></div>` : "") + acts, !!el.closest(".thitem"));
+  menu.querySelectorAll(".micopy").forEach(x => x.onclick = async ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    try { await navigator.clipboard.writeText(x.dataset.copy); x.innerHTML = MENU_ICON.check; x.classList.add("done"); setTimeout(() => { x.innerHTML = LINK_COPY; x.classList.remove("done"); }, 1200); } catch (err) {}
+  });
+  menu.querySelectorAll("a.mi").forEach(x => x.addEventListener("click", () => setTimeout(() => menuOff(true))));
+  menu.querySelectorAll(".mi[data-go]").forEach(x => x.onclick = async ev => {
+    ev.stopPropagation(); menuOff(true);
+    const [go, ...rest] = x.dataset.go.split(":"), arg = rest.join(":");
+    if (go === "card") return wkCardShow(arg);
+    if (go === "agent") return openDetail(arg);
+    if (go === "copy") { try { await navigator.clipboard.writeText(key || t.name); } catch (err) {} return; }
+    if (go === "update") {   // written in the thread's box, to be sent or changed
+      const name = agent; thOpen(name, th); thShow(name, view);
+      if (comb) chatWith(agent.slice(COMB.length), a.name);
+      const b = view ? $("#dsay") : $(comb ? `#main .teamlog.combined[data-name="${CSS.escape(name)}"] .chat .say` : `#main .card.full[data-name="${CSS.escape(name)}"] .say`);
+      if (b && !b.value.trim()) { b.value = "update please"; grow(b); keep(b); aim(b); }
+      return;
+    }
+    if (go === "pin") wkPin(key); else if (go === "dealt") thDealt(agent, t); else if (go === "read") thRead(agent, t); else if (go === "remove") thRemove(agent, t);
+    thRedraw();
+  });
+  return true;
+}
+const threadAt = el => {
+  el = !phoneOn() && !linkAt(el) && el?.closest?.(".thitem[data-thread], .thl[data-thread], .thhead .thname");
+  const agent = el && thAgent(el), th = agent && (el.dataset.thread ?? thSel[agent]?.name);
+  return agent && th != null ? {el, agent, th, key: "thread:" + agent + ":" + th} : null;
+};
+document.addEventListener("contextmenu", e => {
+  const x = threadAt(e.target);
+  if (!x || !threadMenu(x.el, x.agent, x.th)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
 }, true);
+// a press closes an open menu, so the click it ends in is told whose that was; and a double click on a thread selects no words
+// (a selection holds the page's redraw) and opens no agent's view, as one elsewhere on a card does
+let threadShut = null;   // the thread whose menu the press closed
+document.addEventListener("pointerdown", e => { const x = threadAt(e.target); threadShut = x && menuOn(x.key) ? x.key : null; }, true);
+document.addEventListener("mousedown", e => {
+  const x = e.detail > 1 && threadAt(e.target); if (!x) return;
+  e.preventDefault(); if (menuOn(x.key)) clearTimeout(menuHide);   // its second press leaves the menu its first click opened
+}, true);
+document.addEventListener("dblclick", e => { if (threadAt(e.target)) e.stopPropagation(); }, true);
 // the list's order catches up once the pointer leaves it
 document.addEventListener("mouseout", e => { if (e.target.closest?.("#dthreads") && !e.relatedTarget?.closest?.("#dthreads") && open) renderConv(); });
-// while the pointer is over a thread list its rows keep their order, so none moves under a click; what each row says
-// is always current (a new thread joins at the end)
+// while the pointer is over a thread list, or the menu of a thread in it is open, its rows keep their order and none goes,
+// and the row under the pointer stays where it is, so none moves under a click; what each row says is always current (a new
+// thread joins at the end). Where the pointer is is kept here: a list just redrawn is not :hover until the mouse moves
+var thMouse = null;
+for (const t of ["pointermove", "pointerdown"]) addEventListener(t, e => { thMouse = e.pointerType === "touch" ? null : [e.clientX, e.clientY]; }, true);
+document.documentElement.addEventListener("mouseleave", () => { thMouse = null; });
+function thHeld(el) {
+  if (thFlip || !el?.isConnected || phoneOn()) return false;
+  const r = el.getBoundingClientRect(), [x, y] = thMouse || [-1, -1];
+  if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return true;
+  const agent = menu.classList.contains("on") && menu.dataset.key?.startsWith("thread:") && thAgent(el);
+  return !!agent && menu.dataset.key.startsWith("thread:" + agent + ":");
+}
+// the list of an agent's threads, or a Combined pane's, on the page
+const thListOf = key => key === open ? $("#dthreads") : document.querySelector(`#main :is(.card.full, .teamlog.combined)[data-name="${CSS.escape(key)}"] .thlist`);
 function thHoldOrder(all, el) {
-  if (thFlip || !el?.matches(":hover")) return all;
-  const order = [...el.querySelectorAll(".thitem")].map(e => e.dataset.thread), ix = n => { const i = order.indexOf(n); return i < 0 ? 1e9 : i; };
+  if (!thHeld(el)) return all;
+  const rows = [...el.querySelectorAll(".thitem")], order = rows.map(e => e.dataset.thread), ix = n => { const i = order.indexOf(n); return i < 0 ? 1e9 : i; };
+  const [x, y] = thMouse || [-1, -1], at = rows.find(e => { const r = e.getBoundingClientRect(); return x >= r.left && x < r.right && y >= r.top && y < r.bottom; });
+  if (at) {
+    const th = at.dataset.thread, top = at.getBoundingClientRect().top, id = el.id, key = thAgent(el);
+    queueMicrotask(() => {   // once the list is drawn
+      const list = id ? document.getElementById(id) : thListOf(key), row = list && [...list.querySelectorAll(".thitem")].find(e => e.dataset.thread === th);
+      const by = row ? row.getBoundingClientRect().top - top : 0;
+      if (Math.abs(by) >= 1) list.scrollTop += by;
+    });
+  }
   return [...all].sort((a, b) => ix(a.name) - ix(b.name));
 }
 addEventListener("resize", () => { if (open) renderConv(); });
@@ -12011,12 +12462,13 @@ document.addEventListener("click", e => {
 document.addEventListener("click", e => {
   const q = e.target.closest?.("[data-thqa]"); if (!q) return;
   e.stopPropagation(); e.preventDefault();
-  const card = q.closest(".card.full[data-name]"), name = card ? card.dataset.name : open, th = q.dataset.thqth, word = q.dataset.thqa;
-  const box = card ? card.querySelector("textarea.say") : $("#dsay");
+  const comb = thPane(q), card = q.closest(".card.full[data-name]"), name = comb ? q.dataset.agent : card ? card.dataset.name : open, th = q.dataset.thqth, word = q.dataset.thqa;
+  if (comb) chatWith(comb.dataset.name.slice(COMB.length), name);   // answered in the pane's chat with whoever asked
+  const box = comb ? $(`#main .teamlog.combined[data-name="${CSS.escape(comb.dataset.name)}"] .chat .say`) : card ? card.querySelector("textarea.say") : $("#dsay");
   if (!name || !box) return;
   if (!word) { box.focus(); return; }
   box.value = `Re ${th}: ${word}`; phAnswered[name + "\n" + th] = Date.now(); say(name, box);
-  if (card) draw(); else renderConv();
+  if (card || comb) draw(); else renderConv();
 }, true);
 // a banner on the Agents tab opens its agent in the thread it names
 document.addEventListener("click", e => { const b = e.target.closest?.("[data-thopen]"); if (b) phThNext = {name: b.dataset.open, th: b.dataset.thopen}; }, true);
@@ -12260,7 +12712,8 @@ async function say(name, input) {
   // sent from an agent's thread it names the thread, unless the owner already has; from General it names none; from the
   // whole conversation (All, Everything) it names the thread shown over the box
   const view = input.id === "dsay" && name === open;
-  const th = view && phThOpen(name) && phTh[name] !== EVERY ? phTh[name] : view && reShown() ? reTarget(name) : !thBox(input) || thSel[name]?.name === EVERY ? "" : thSel[name]?.name || "";
+  const comb = thPane(input)?.dataset.name, re = comb && combOpen(comb) == null ? combRe[comb]?.agent === name ? combRe[comb].th : "" : null;
+  const th = re != null ? re : view && phThOpen(name) && phTh[name] !== EVERY ? phTh[name] : view && reShown() ? reTarget(name) : !thBox(input) || thSel[thKey(input, name)]?.name === EVERY ? "" : thSel[thKey(input, name)]?.name || "";
   const typed = input.value.trim(), text = th && typed && !THREAD_RE.test(typed) ? `Re ${th}: ${typed}` : typed, sent = atts[name] || [];
   if (!text && !sent.length || input.disabled || saying.has(name)) return;
   // The box empties before the echo redraws the page, so neither the redraw nor the kept draft can bring the text
@@ -12268,6 +12721,7 @@ async function say(name, input) {
   // whichever box is on the page then.
   input.value = ""; grow(input); keep(input); input.disabled = true; saying.add(name);
   if (view) delete reTo[name];
+  if (comb) delete combRe[comb];
   const echo = text && {text, at: Date.now(), state: "sending"};
   if (echo) { (echoes[name] = echoes[name] || []).push(echo); echoed(name); }
   const box = () => input.isConnected ? input : document.querySelector(`#main .say[data-name="${CSS.escape(name)}"]`) || input;
@@ -12648,9 +13102,21 @@ document.addEventListener("mouseover", e => {
   if (linkRest) { clearTimeout(menuShow); if (menu.dataset.rested && menu.dataset.key?.startsWith("link:")) menuOff(); }
   linkRest = a;
   if (!a || touched) return;
-  clearTimeout(menuShow); clearTimeout(menuHide);
-  menuShow = setTimeout(() => linkMenu(a, true), 350);
+  menuRest(a, () => linkMenu(a, true));
 });
+// A menu opened by a moment's rest. A press puts away the one showing and the one about to show, and what was pressed opens
+// none (though a redraw puts it under the pointer anew) until the pointer has been off it
+var menuPress = null;   // where the press was, {x, y, r}: r, what was pressed, until the pointer leaves it
+function menuRest(el, show, wait = 350) {
+  clearTimeout(menuShow); clearTimeout(menuHide);
+  const r = el.getBoundingClientRect(), m = menuPress;
+  if (m && m.x >= r.left && m.x <= r.right && m.y >= r.top && m.y <= r.bottom) { m.r = r; return; }
+  menuShow = setTimeout(() => el.isConnected && show(), wait);   // a redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner
+}
+addEventListener("pointermove", e => {
+  const r = menuPress?.r;
+  if (r && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) menuPress = null;
+}, true);
 const menuOn = key => menu.classList.contains("on") && menu.dataset.key === key;
 function menuOff(now) {
   clearTimeout(menuShow); clearTimeout(menuHide);
@@ -12883,7 +13349,12 @@ addEventListener("keydown", e => {
 addEventListener("mousedown", e => {
   if (typeof phHeld === "number" && Date.now() - phHeld < 800) return;   // a phone's held finger lifting under its new sheet
   if (e.target.closest?.("#phpor")) return;   // the menu's portrait shown large: putting it away leaves the menu open
-  if (menu.classList.contains("on") && !menu.contains(e.target) && e.target.closest?.("[data-menu]")?.dataset.menu !== menu.dataset.key) menuOff(true);
+  clearTimeout(menuShow);
+  menuPress = e.target.getBoundingClientRect ? {x: e.clientX, y: e.clientY, r: e.target.getBoundingClientRect()} : null;
+  if (menu.contains(e.target)) return;
+  // a menu's own button, or the anchor of one opened by a click, has the click to say what becomes of it
+  const own = e.target.closest?.("[data-menu]");
+  if (menu.classList.contains("on") && (own?.dataset.menu !== menu.dataset.key || menu.dataset.rested && !own.menuBtn)) menuOff(true);
 }, true);
 // An agent's menu (a Characters tile's, a List row's, the view header's ⋯): who it is and what it is doing, then Open
 // (as a click on it), Open in a new tab and Open in a new window, and for a standing agent Start, or Stop, which asks
@@ -13161,22 +13632,30 @@ function waitNotify() {
 }
 // one again closes the chat.
 function chatPick(anchor) {
-  const path = anchor.dataset.chat, key = "chatpick:" + path, n = nodeAt(layout().root, path), cur = n?.chat;
+  const path = anchor.dataset.chat, key = "chatpick:" + path, n = nodeAt(layout().root, path), th = combOpen(COMB + path);
+  const cur = th != null ? combPick[COMB + path + "\n" + th] : n?.chat;
   if (menuOn(key)) return menuOff(true);
-  const them = n ? paneAgents(n).filter(a => a.live) : [];
-  menuAt(anchor, key, `<div class="hd"><div>Chat with</div></div>` + them.map(a => `<div class="mi" data-pick="${esc(a.name)}">${face(a, "")}` +
-    `${esc(shown(a.name))}${MENU_ICON.check.replace("<svg", `<svg class="tick${a.name === cur ? "" : " off"}"`)}</div>`).join(""), false);
+  const them = n ? paneAgents(n).filter(a => a.live) : [], t = th != null && combinedThreads(COMB + path, thChosen(COMB + path)).find(x => x.name === th);
+  const row = a => `<div class="mi" data-pick="${esc(a.name)}">${face(a, "")}` +
+    `${esc(shown(a.name))}${MENU_ICON.check.replace("<svg", `<svg class="tick${a.name === cur ? "" : " off"}"`)}</div>`;
+  const inIt = t ? t.agents.map(x => them.find(a => a.name === x)).filter(Boolean) : [], rest = them.filter(a => !inIt.includes(a));
+  menuAt(anchor, key, `<div class="hd"><div>Send to</div></div>` + (inIt.length ? `<div class="mg">In this thread</div>${inIt.map(row).join("")}${rest.length ? `<div class="mg">Everyone else</div>` : ""}` : "") + rest.map(row).join(""), false);
   menu.querySelectorAll(".mi[data-pick]").forEach(mi => mi.onclick = () => {
-    menuOff(true); chatWith(path, mi.dataset.pick === cur ? null : mi.dataset.pick);   // the ticked one closes the chat
+    menuOff(true); if (th != null || mi.dataset.pick !== cur) chatWith(path, mi.dataset.pick); else chatWith(path, null);   // the ticked one closes the chat, but for a thread's
   });
 }
-// A Combined pane's chat (n.chat, kept with the layout and with the pane's tab) opened with an agent, or closed for null.
+// A Combined pane's chat (n.chat, kept with the layout and with the pane's tab) opened with an agent, or closed for null;
+// in an open thread, the thread's box sends to that agent.
 function chatWith(path, name) {
   const l = layout(), n = nodeAt(l.root, path);
   if (!n) return;
-  if (name) n.chat = name; else delete n.chat;
-  saveLayout(l); draw();
-  if (name) aim($(`#main .pane[data-path="${path}"] .chat .say`));
+  const th = combOpen(COMB + path);
+  getSelection().removeAllRanges();   // a redraw waits while text on the page is selected
+  if (th != null && name) { combPick[COMB + path + "\n" + th] = name; draw(); }
+  else { if (name) n.chat = name; else delete n.chat; saveLayout(l); draw(); }
+  const box = name && $(`#main .pane[data-path="${path}"] .chat .say`);
+  if (!box) return;
+  aim(box); box.closest(".chat").animate([{backgroundColor: "color-mix(in srgb, var(--amber) 35%, transparent)"}, {backgroundColor: "transparent"}], 700);   // it shows where the message is to be written, the cursor there already or not
 }
 // Whether the last press was a finger. A tap sends mouseenter too, and a rest's menu must not open on it. Nor does one
 // open on the phone layout, where a menu is a sheet whose backdrop covers what was rested on: it would close and open
@@ -13184,10 +13663,9 @@ function chatWith(path, name) {
 let touched = false;
 document.addEventListener("pointerdown", e => { touched = e.pointerType === "touch"; }, true);
 function menuSoon(el, wait) {
-  if (wait > 0 && (touched || phoneOn())) return;
+  if (wait > 0) { if (!touched && !phoneOn()) menuRest(el, () => agentMenu(el, el.dataset.name, true, true), wait); return; }
   clearTimeout(menuShow); clearTimeout(menuHide);
-  // A redraw in the wait replaces el; a detached one measures as 0,0 and the menu would open in the corner.
-  menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, wait > 0), wait);
+  menuShow = setTimeout(() => el.isConnected && agentMenu(el, el.dataset.name, true, false));   // as menuRest
 }
 // The team's play, pause and stop buttons, one of them on at a time: stop (red) while no agent on the team is running,
 // pause (amber) while the nudger is paused, play (green) while the team runs. Play starts a stopped team (those running when the page last stopped it, else everyone with a Session) or
@@ -13262,10 +13740,11 @@ function filterButton(btn, list, on, tip, flip, head = "Show") {
 }
 // A button whose menu opens after a moment's rest on it or at once on a click (open(rested) draws it).
 function menuButton(btn, open) {
+  btn.menuBtn = true;
   btn.onclick = e => { e.stopPropagation(); clearTimeout(menuShow); open(false); };
   btn.onmouseenter = () => {
     clearTimeout(menuHide); if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;   // see menuSoon
-    clearTimeout(menuShow); menuShow = setTimeout(() => btn.isConnected && open(true), 350);   // as menuSoon
+    menuRest(btn, () => open(true));
   };
   btn.onmouseleave = () => { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); };
 }
@@ -13881,7 +14360,7 @@ async function phLoad(tab) {
   try {
     if (tab === "mix" && Date.now() - phMixAt > 3500) {
       phMixAt = Date.now();
-      await Promise.all(paneAgents(phMixNode()).map(async a => {
+      await Promise.all(combinedAgents(phMixNode()).map(async a => {
         const d = await (await fetch("/api/agent/" + encodeURIComponent(a.name), {cache: "no-store"})).json(), t = JSON.stringify(d.feed);
         if (t !== paneText[a.name]) { paneConv[a.name] = d.feed; paneText[a.name] = t; paneVer[a.name] = (paneVer[a.name] || 0) + 1; }
       }));
@@ -15264,8 +15743,11 @@ def self_test():
           ('panel.classList.add("sheetdrag");' in PAGE, 'const PH_STRIPS = "html.phone #drail, html.phone #detail .head .facts";' in PAGE,
            'e.preventDefault(); el.scrollLeft += e.deltaY;' in PAGE, 'if (e.pointerType !== "mouse" || e.button) return;' in PAGE,
            "html.phone .sheetdrag{cursor:grab}" in PAGE), (True, True, True, True, True))
+        t("a ticket is taken by a claim and put down by a release, as a command and not as a word in one",
+          (took_ticket("cd x && bash scripts/feature-ticket.sh claim 6854"), took_ticket("bash scripts/feature-ticket.sh release 6854"),
+           took_ticket("grep -n 'feature-ticket.sh claim 6854' README.md"), took_ticket("ls")), ("6854", "", None, None))
         t("  resting the mouse opens no menu there, and Open in an agent's menu opens its view",
-          ("if (wait > 0 && (touched || phoneOn())) return;" in PAGE, "if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;" in PAGE,
+          ("if (wait > 0) { if (!touched && !phoneOn()) menuRest(" in PAGE, "if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;" in PAGE,
            "(open || phoneOn() ? openDetail : x => menuGo(x, anchor))" in PAGE), (True, True, True))
         t("a message's badges open its first line and its later lines run the full width beneath them",
           ('const inline = !!heads && it.kind !== "live";' in PAGE, '${inline ? `<span class="heads">${heads}</span>` : ""}' in PAGE,
