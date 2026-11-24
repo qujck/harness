@@ -33,6 +33,8 @@
   /api/meetings      every meeting open or ended in the last hour, with what was said (see "meetings")
   /api/daylog        the Day log pane: days and what happened in each, as a program prints them (see "the day log")
   /api/search?q=     every agent's conversation (a benched one's last) and the Day log, searched for q, by agent
+  /api/backlog       the open tickets: how many in each group, and one group's (?group=), a page of them (&from=, &n=)
+  /api/tickets       title, status and holder of the tickets ?k= names, for their threads; both from the tickets plug-in
   /api/workqueue     the Work queue pane: the work to start, Now, Next and Later, Parked, and Done, as the delivery lead keeps it
   /api/tokens        the Token usage pane: each agent's tokens by day, this week and the two before (see "token usage")
   POST /api/meeting  {"who": [names], "topic", "view"} starts a meeting: a meeting session for each agent in it
@@ -1036,6 +1038,81 @@ def _read_tickets(ids):
     for tid in ids:
         _tickets[tid] = {"ref": None, "issue": None, "title": "", **got.get(tid, {}), "at": now}
         _tickets_busy.discard(tid)
+
+
+# The tickets plug-in: where the page learns about any ticket, whatever its status. The page knows no tracker: it runs
+# one executable, $AGENT_TICKETS, else ~/.config/agents-web/tickets, else the harness's own over its ledger
+# (team/tickets), for at most ten seconds, with one question as JSON on its input, and reads JSON from its output. One
+# that fails, or prints anything else, has not answered, which is never the same as "no such ticket".
+#   {"want": "tickets", "keys": ["#7071", "PROJ-12"]}   (what threads are named by, at most 60)
+#       {"tickets": {"#7071": ticket}}, those it knows, by the key asked
+#   {"want": "backlog", "group": "selected" or "", "from": 0, "n": 50, "find": "words", "who": "an agent's name" or ""}
+#       {"groups": [{"key", "name", "n"}], in the order to draw them, how many open tickets each has (narrowed by find
+#       and who), "rows": [ticket] of the group asked, from that row, "more": whether the group has others after them}
+#   a ticket is {"key" (as a thread is named by), "id" (its other name), "title", "status" (the word shown), "closed",
+#   "active" (its holder is on it now), "who" (its holder), "note" (why it waits), "href" (https)}
+# Only what is looked at is asked for, as a team's open tickets run to a thousand and more (owner, 2026-11-24): the
+# tickets a thread names, each kept TICKET_CARD_EVERY seconds, and a page of the Backlog at a time.
+TICKET_CARD_EVERY = 60
+TICKET_KEY = re.compile(r"#?[A-Za-z0-9][A-Za-z0-9_.-]{0,200}")
+BACKLOG_PAGE = 50
+_ticket_cards = {}       # key as asked -> {"at": when read, "card": the ticket, or None}
+_ticket_cards_lock = threading.Lock()
+
+
+def tickets_plugin():
+    own = os.environ.get("AGENT_TICKETS")
+    for p in [own] if own else [os.path.join(HOME, ".config", "agents-web", "tickets"), os.path.join(ROOT, "team", "tickets")]:
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return ""
+
+
+def ask_tickets(question):
+    """The plug-in's answer, a dict, or None where it did not answer."""
+    p = tickets_plugin()
+    if not p:
+        return None
+    try:
+        r = subprocess.run([p], input=json.dumps(question), capture_output=True, text=True, timeout=10)
+        a = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return a if isinstance(a, dict) else None
+
+
+def ticket_card(t):
+    """A ticket as the plug-in gave it, kept to the fields above, each bounded; None for what is not one."""
+    if not isinstance(t, dict) or not isinstance(t.get("key"), str) or not TICKET_KEY.fullmatch(t["key"]):
+        return None
+    href = str(t.get("href") or "")[:500]
+    return {"key": t["key"], **{f: str(t.get(f) or "")[:300] for f in ("id", "title", "status", "who", "note")}, "closed": t.get("closed") is True,
+            "active": t.get("active") is True, "href": href if href.startswith("https://") else ""}
+
+
+def ticket_cards(keys):
+    """What is known of each of at most 60 tickets, by the key it was asked by; one the plug-in has not is left out."""
+    keys = [k for k in dict.fromkeys(keys) if TICKET_KEY.fullmatch(k)][:60]
+    with _ticket_cards_lock:   # two pages asking at once read once
+        now = time.time()
+        want = [k for k in keys if k not in _ticket_cards or now - _ticket_cards[k]["at"] >= TICKET_CARD_EVERY]
+        if want:
+            got = (ask_tickets({"want": "tickets", "keys": want}) or {}).get("tickets")
+            for k in want:   # with no answer, what was known stays
+                card = ticket_card(got.get(k)) if isinstance(got, dict) else (_ticket_cards.get(k) or {}).get("card")
+                _ticket_cards[k] = {"at": now, "card": card}
+        return {k: _ticket_cards[k]["card"] for k in keys if _ticket_cards[k]["card"]}
+
+
+def backlog(group="", n=BACKLOG_PAGE, find="", who="", start=0):
+    """The plug-in's open tickets: its groups and one group's rows, or None where it did not answer."""
+    a = ask_tickets({"want": "backlog", "group": group[:60], "from": start, "n": max(1, min(400, n)), "find": find[:200], "who": who[:60]})
+    if not a or not isinstance(a.get("groups"), list):
+        return None
+    whole = lambda v: v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+    return {"groups": [{"key": g["key"][:60], "name": str(g.get("name") or g["key"])[:60], "n": whole(g.get("n"))} for g in a["groups"][:20]
+                       if isinstance(g, dict) and isinstance(g.get("key"), str)],
+            "rows": [c for c in map(ticket_card, a["rows"] if isinstance(a.get("rows"), list) else []) if c], "more": a.get("more") is True}
 
 
 def ticket_facts(ids):
@@ -3905,7 +3982,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(), "tickets": bool(tickets_plugin()),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -4806,6 +4883,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, tokens_json(), "application/json")
         elif path == "/api/workqueue":
             self.send(200, workqueue_json(), "application/json")
+        elif path == "/api/backlog":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            one = lambda k: q.get(k, [""])[0]
+            num = lambda k, d: int(one(k)) if re.fullmatch(r"\d{1,5}", one(k)) else d
+            b = backlog(one("group"), num("n", BACKLOG_PAGE), one("find"), one("who"), num("from", 0))
+            self.send(200 if b else 503, json.dumps(b).encode() if b else b"the tickets plug-in did not answer\n", "application/json" if b else "text/plain")
+        elif path == "/api/tickets":
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            self.send(200, json.dumps(ticket_cards(q.get("k", [""])[0].split(","))).encode(), "application/json")
         elif path == "/api/tool":
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             t = tool_json(q.get("name", [""])[0], q.get("id", [""])[0])
@@ -5575,6 +5661,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkhead b{font-weight:650;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .wkhead em{font:650 1.15em var(--mono);font-style:normal;color:var(--pq)}
 .wkhead em.g{color:var(--pg)}
+.blhead{cursor:pointer}
+.blhead .blfold{margin-left:auto;display:grid;place-items:center;color:var(--mute)}
 .wkpark > summary{cursor:pointer;list-style:none}
 .wkpark > summary::-webkit-details-marker{display:none}
 /* a ticket a line: its badge, its ids (and tags) over its title, whose it is; a click opens what is known of it */
@@ -7927,9 +8015,29 @@ const NOT_KEY = /^(UTF|SHA|ISO|MD|RFC|CVE|PEP|ES|TLS|HTTP|GPT|COVID)-/;
 // the ledger numbers known: the work queue's and those of the tickets agents hold ("#12" alone may be a pull request)
 let ledgerNosOf = [];
 function ledgerNos() {
-  if (ledgerNosOf[0] !== workQueue || ledgerNosOf[1] !== S) ledgerNosOf = [workQueue, S, new Set([
-    ...(workQueue ? ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []) : []).map(i => i.no), ...(S?.agents || []).map(a => a.ticketNo)].filter(Boolean).map(n => "#" + n))];
+  if (ledgerNosOf[0] !== workQueue || ledgerNosOf[1] !== S || ledgerNosOf[3] !== tkKnown) ledgerNosOf = [workQueue, S, new Set([...Object.keys(tkKnown).filter(k => k.startsWith("#")).map(k => k.slice(1)),
+    ...(workQueue ? ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []) : []).map(i => i.no), ...(S?.agents || []).map(a => a.ticketNo)].filter(Boolean).map(n => "#" + n)), tkKnown];
   return ledgerNosOf[2];
+}
+// What the tickets plug-in knows of a thread's ticket, by its key ("#7071") and its other name: {key, id, title, status, closed, active, who, note, href}.
+// Asked for as a thread is listed, the new ones together, and again a minute later; a thread's ticket is not in
+// Work's lists more often than it is (a thousand open tickets, a hundred to a list), and this is where the rest are read.
+let tkKnown = {}, tkAsked = {}, tkWants = new Set(), tkTimer = 0;
+const tkStore = (to, lt) => { to[lt.key] = lt; if (lt.id) to[lt.id] = lt; };
+function tkWant(key) {
+  if (!/^([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)$/.test(key) || Date.now() - (tkAsked[key] || 0) < 60000) return;
+  tkAsked[key] = Date.now(); tkWants.add(key);
+  tkTimer ||= setTimeout(tkRead, 200);
+}
+async function tkRead() {
+  const keys = [...tkWants]; tkWants.clear(); tkTimer = 0;
+  const next = {...tkKnown};
+  for (let i = 0; i < keys.length; i += 60) try {
+    const got = await (await fetch("/api/tickets?k=" + encodeURIComponent(keys.slice(i, i + 60).join(",")), {cache: "no-store"})).json();
+    for (const lt of Object.values(got)) tkStore(next, lt);
+  } catch (e) {}
+  if (JSON.stringify(next) === JSON.stringify(tkKnown)) return;
+  tkKnown = next; thRedraw();
 }
 const isTicketKey = k => k.startsWith("#") ? ledgerNos().has(k) : !NOT_KEY.test(k);
 const keysIn = text => [...new Set(String(text || "").match(/(?<![A-Za-z0-9])[A-Z][A-Z0-9]+-\d+(?!\d)|(?<![\w\/&#])#[1-9]\d*(?!\d)/g) || [])].filter(isTicketKey);
@@ -9625,13 +9733,15 @@ document.addEventListener("click", async e => {
 // - Needs you: For you's open questions (those with no ticket under General), and the tickets waiting for your approval.
 // - In flight: the pipeline's tickets, each with its stage on a track and who it waits on; a stage's chip narrows it.
 // - Up next: the work queue's Next and Later, Parked folded under them.
+// - Backlog: every open ticket the tickets plug-in has, by group, a page at a time, narrowed by the find box.
 // - Done: what happened, by day, over Today, 7 days or all the history kept (the pipe's "history", else today's "merged"): merges, the work
 //   queue's Done, the questions you answered, and the Day log's entries, narrowed by the filter box.
 // - Stand-up: for each person, what they did since the last stand-up, what they are on and what they wait for, as
 //   words to say, each with Copy (owner, 2026-11-17: "so the team members know what to say in standup").
 // A click on a ticket opens what is known of it under it: its PRs and approvals, its questions, its log, its queue note.
 // The tab, range, stage, filter and opened ticket are this browser's, for every Work pane.
-const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["done", "Done"], ["standup", "Stand-up"]];
+const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["done", "Done"], ["standup", "Stand-up"]];
+const wkTabs = () => WK_TABS.filter(([k]) => k !== "backlog" || S?.tickets);   // the Backlog needs a tickets plug-in
 const WK_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; } catch (e) { return d; } };
 const wkSet = (k, v) => { try { v == null || v === "" ? localStorage.removeItem("work:" + k) : localStorage.setItem("work:" + k, v); } catch (e) {} };
@@ -9702,6 +9812,7 @@ function wkPeopleStrip() {
     face(x, "", ppBenched(x.name) ? " benched" : "") + `</span>`).join("")}</div>`;
 }
 function wkDetail(d, key, card) {
+  const lt = tkKnown[key];
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
   const qs = [...d.fy.open.map(i => ({...i, open: true})), ...d.fy.cleared].filter(i => i.ticket === key);
   const merges = d.history.filter(h => h.key === key), log = d.log.filter(r => d.keyOf(r.label) === key || d.keyOf(r.text) === key);
@@ -9713,6 +9824,7 @@ function wkDetail(d, key, card) {
     (wkOn(d, key, "").sup.length || card && wkNames(t?.who || qi?.who || "").length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>(assigned)</i>`)
       .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${x.name === "owner" ? "You" : esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
+    lt && line("Ticket", `${esc(lt.status)}${lt.who ? " · " + esc(shown(lt.who)) : ""}${lt.note ? " · " + inline(lt.note) : ""}`),
     ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${i.open && i.ref ? `<span class="fyref">${esc(i.ref)}</span> ` : ""}${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
     ...log.slice(0, 8).map(r => line("Log", `${esc(r.text)} <i>${esc(wkWhen(r.at))}${r.by ? " · " + esc(shown(r.by)) : ""}</i>`)),
@@ -9779,6 +9891,8 @@ const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" t
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n, tags = []) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
   wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : ""), tags) + wkTicketFaces(d, i.key, i.who));
+// a ticket known only from the tickets plug-in: its status in the place of a queue row's number
+const wkKnown = (d, lt) => wkRow(d, lt.key, wkMid(wkLink(lt.href, lt.key, lt.id), "", esc(lt.title), [{text: lt.status, tone: "grey"}]) + wkTicketFaces(d, lt.key, lt.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
   wkMid(e.key ? wkLink(wkJira(e.key), wkKey(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
@@ -9817,6 +9931,79 @@ function wkNext(d) {
     (q.parked?.length ? `<details class="wkpark"><summary>${wkHead("Parked", q.parked.length)}</summary>${q.parked.map((i, n) => row(i, n + 1)).join("")}</details>` : "");
   return body || `<div class="calm">Nothing queued. The delivery lead keeps the work queue with work-queue.</div>`;
 }
+// The Backlog: every open ticket the tickets plug-in has, in its groups with how many, folded until opened; a group's rows are
+// read as it opens, BL_PAGE at a time, and the words in the find box narrow them all and open every group (owner,
+// 2026-11-24: "What's going to work for our volume of data"). Read again a minute later while it is looked at.
+const BL_PAGE = 50;
+let bl = {sig: null, groups: null, at: 0, err: false, rows: {}}, blTimer = 0;
+const blOpened = () => wkGet("blopen", "").split(",").filter(Boolean);
+const blWho = () => wkCompact() ? "" : wkGet("agent", "");
+const blSig = () => wkGet("blfind", "") + "\n" + blWho();
+// (a group is drawn open where it was opened, or every one with a match while words are looked for)
+const blShows = k => wkGet("blfind", "") ? !wkGet("blshut", "").split(",").includes(k) : blOpened().includes(k);
+async function blGet(group, n, from) {
+  const u = new URLSearchParams({find: wkGet("blfind", ""), who: blWho(), ...(group ? {group, n, from} : {})});
+  const r = await fetch("/api/backlog?" + u, {cache: "no-store"});
+  if (!r.ok) throw new Error("no answer");
+  return r.json();
+}
+const blDraw = () => document.querySelectorAll('.wklist[data-wktab="backlog"]').forEach(list => { wkOpened = false; list.innerHTML = wkBacklog(wkData()); });
+// the counts, then the rows of each group drawn open, as far down as it was shown
+async function blRead() {
+  const sig = blSig(), mine = bl;
+  if (mine.busy) return;
+  mine.busy = true;
+  try {
+    const top = await blGet();
+    if (bl !== mine || blSig() !== sig) return;
+    Object.assign(mine, {groups: top.groups, at: Date.now(), err: false});
+    for (const {key: k, n} of top.groups) if (blShows(k) && n) await blRows(k, 0, mine.rows[k]?.rows.length || BL_PAGE, mine);
+  } catch (e) { mine.err = true; mine.at = Date.now(); }
+  finally { mine.busy = false; }
+  if (bl === mine) blDraw();
+}
+// `n` more of a group's rows after the first `from`, a call for each 400 of them; a ticket that moved between two calls is drawn once
+async function blRows(k, from, n, mine = bl) {
+  try {
+    let rows = from ? [...(mine.rows[k]?.rows || [])] : [], got;
+    for (let left = n; left > 0; left -= 400) {
+      got = await blGet(k, Math.min(400, left), from);
+      if (bl !== mine) return;
+      from += got.rows.length; rows = [...new Map([...rows, ...got.rows].map(x => [x.id, x])).values()];
+      if (!got.more) break;
+    }
+    mine.rows[k] = {rows, more: got.more, from}; mine.groups = got.groups; mine.err = false;
+    // a row's card is drawn from the ledger's word on its ticket
+    const next = {...tkKnown}; for (const lt of rows) tkStore(next, lt); tkKnown = next;
+  } catch (e) { if (bl === mine) mine.err = true; }
+}
+function wkBacklog(d) {
+  const sig = blSig();
+  if (bl.sig !== sig) bl = {sig, groups: null, at: 0, err: false, rows: {}};
+  if (Date.now() - bl.at > 60000 && !bl.busy) setTimeout(() => bl.sig === blSig() && blRead());
+  if (!bl.groups) return `<div class="calm">${bl.err ? "The tickets plug-in did not answer." : "Reading the tickets…"}</div>`;
+  const find = wkGet("blfind", ""), total = bl.groups.reduce((sum, g) => sum + g.n, 0);
+  const groups = bl.groups.filter(g => g.n).map(({key: k, name, n}) => {
+    const open = blShows(k), g = bl.rows[k];
+    return `<div class="wkhead wkgo blhead" data-blgroup="${esc(k)}" title="${open ? "Fold" : "Open"}"><b>${esc(name)}</b><em>${n}</em><span class="blfold">${foldIcon(!open)}</span></div>` + (!open ? "" :
+      !g ? `<div class="calm">Reading…</div>` : g.rows.map(lt => wkKnown(d, lt)).join("") +
+        (g.more ? `<div class="wkmore" data-blmore="${esc(k)}">Show ${Math.max(1, Math.min(BL_PAGE, n - g.rows.length))} more of ${n}</div>` : "")); }).join("");
+  return (bl.err ? `<div class="calm">The tickets plug-in did not answer just now: this is what it last said.</div>` : "") + (groups || `<div class="calm">${find || blWho() ? "Nothing matches." : "No open ticket."}</div>`) +
+    (find && total ? `<div class="calm">${total} open ${total === 1 ? "ticket matches" : "tickets match"}.</div>` : "");
+}
+document.addEventListener("click", async e => {
+  const g = e.target.closest?.("[data-blgroup]"), m = e.target.closest?.("[data-blmore]");
+  if (!g && !m) return;
+  const k = (g || m).dataset.blgroup || m.dataset.blmore, mine = bl;
+  if (g) {
+    const open = blShows(k), key = wkGet("blfind", "") ? "blshut" : "blopen", was = wkGet(key, "").split(",").filter(Boolean);
+    wkSet(key, was.includes(k) ? was.filter(x => x !== k).join(",") : [...was, k].join(","));
+    blDraw();
+    if (open || mine.rows[k]) return;
+    await blRows(k, 0, BL_PAGE, mine);
+  } else { m.textContent = "Reading…"; await blRows(k, mine.rows[k]?.from || 0, BL_PAGE, mine); }
+  if (bl === mine) blDraw();
+});
 // What happened: each event {t, key, kind, who, html}, newest first.
 function wkEvents(d) {
   return [
@@ -9989,15 +10176,16 @@ function wkStandup(d, n) {
 }
 function workHtml(big, n) {
   wkOpened = false;
-  const d = wkData(), tab = WK_TABS.some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
+  const d = wkData(), tab = wkTabs().some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
   const tday = wkToday(d);
   const needs = d.fy.open.length + d.tickets.filter(t => t.stage === "lead").length;
   const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0)};
-  const tabs = `<span class="seg wktabs">${WK_TABS.map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
+  const tabs = `<span class="seg wktabs">${wkTabs().map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
   const tools = tab === "done" ? `<span class="seg wkrange">${[["today", "Today"], ["7", "7 days"], ["all", "All kept"]].map(([k, l]) =>
       `<b data-wkrange="${k}" class="${k === wkGet("range", "today") ? "on" : ""}">${l}</b>`).join("")}</span>` +
-      `<input class="wkfilter" placeholder="Filter: a ticket or a word" value="${esc(wkGet("filter", ""))}" autocomplete="off">` : "";
-  const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, done: wkDone, standup: wkStandup}[tab](d, n);
+      `<input class="wkfilter" placeholder="Filter: a ticket or a word" value="${esc(wkGet("filter", ""))}" autocomplete="off">` :
+    tab === "backlog" ? `<input class="wkfilter wkfind" placeholder="Find: a number, a word or a name" value="${esc(wkGet("blfind", ""))}" autocomplete="off">` : "";
+  const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, backlog: wkBacklog, done: wkDone, standup: wkStandup}[tab](d, n);
   const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · ${wkTodaySum(tday)}` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
   return `<div class="teamlog wk${wkCompact() ? "" : " roomy"}" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
@@ -10041,6 +10229,10 @@ document.addEventListener("click", e => {
 // Typing in the filter narrows the list in place; the page does not redraw under the box while it has the focus.
 document.addEventListener("input", e => {
   if (!e.target.matches?.(".wkfilter")) return;
+  if (e.target.matches(".wkfind")) {   // the plug-in is asked once the typing stops
+    wkSet("blfind", e.target.value.trim()); wkSet("blshut", "");
+    clearTimeout(blTimer); blTimer = setTimeout(blDraw, 300); return;
+  }
   wkSet("filter", e.target.value.trim());
   const list = e.target.closest(".wk")?.querySelector(".wklist");
   if (list) { wkOpened = false; list.innerHTML = wkDone(wkData()); }
@@ -10076,7 +10268,7 @@ function wkTicketPrs(t) {
 }
 function wkCardPeople(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
-  const {own, sup} = wkOn(d, key, t?.who || qi?.who || "");
+  const {own, sup} = wkOn(d, key, t?.who || qi?.who || tkKnown[key]?.who || "");
   return [...new Set([...own, ...sup.map(x => x.name)])].filter(n => n && !ppIsOwner(n));
 }
 // The item's names in a message: its ticket id, each PR as "repo #N", "repo#N" or its link, and each PR's branch
@@ -10116,11 +10308,12 @@ function wkCardThread(key, names) {
 }
 function wkCardBody(d, key) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
-  const jira = t?.jira || qi?.url || "", stage = t ? (wkStageName((d.p.stages || []).find(s => s.key === t.stage) || {key: t.stage, name: t.stage})) : qi ? "Queued" : "";
+  const lt = tkKnown[key];
+  const jira = t?.jira || qi?.url || "", stage = t ? (wkStageName((d.p.stages || []).find(s => s.key === t.stage) || {key: t.stage, name: t.stage})) : qi ? "Queued" : lt?.status || "";
   // the item itself, drawn as its row in the list is
-  const row = (t ? wkTicket(d, t) : qi ? wkQueued(d, qi, "") : "").replace(/ data-wkkey="[^"]*"/, "").replace(/<b class="wkpin[^"]*"[\s\S]*?<\/b>/, "");   // the card has its own pin
+  const row = (t ? wkTicket(d, t) : qi ? wkQueued(d, qi, "") : lt ? wkKnown(d, lt) : "").replace(/ data-wkkey="[^"]*"/, "").replace(/<b class="wkpin[^"]*"[\s\S]*?<\/b>/, "");   // the card has its own pin
   // every PR for it: the open ones with where each has got to, then those merged
-  const title = t?.title || qi?.title || "", bare = x => esc(String(x || "").replace(new RegExp(`^${key}\\s*:?\\s*`), ""));
+  const title = t?.title || qi?.title || lt?.title || "", bare = x => esc(String(x || "").replace(new RegExp(`^${key}\\s*:?\\s*`), ""));
   const merged = d.history.filter(h => h.key === key);
   // in full mode, each open PR's approvals as a ticked name each, as its row in the list has them
   const ticks = p => p.tags ? p.tags : !p.ok || wkCompact() ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
@@ -10133,7 +10326,7 @@ function wkCardBody(d, key) {
   const to = [...byRole(named.map(ppAgent).filter(Boolean)).map(a => a.name), ...named.filter(n => !ppAgent(n))];
   // picked at first: the developer it is assigned to (owner, 2026-11-20), else the first on it
   // (a developer gone on to another ticket leaves it unassigned: then the developer who has worked on it)
-  const dev = wkNames(t?.who || qi?.who || "").find(n => to.includes(n)) || to.find(n => ppAgent(n)?.role === "dev");
+  const dev = wkNames(t?.who || qi?.who || lt?.who || "").find(n => to.includes(n)) || to.find(n => ppAgent(n)?.role === "dev");
   if (!wkCardTo.length || !wkCardTo.every(n => to.includes(n))) wkCardTo = [dev || to[0]].filter(Boolean);
   // a face alone, as everywhere else: a click picks who it goes to, and resting on it opens the agent's menu
   const chips = `<span class="wkc-tolabel">${wkCardTo.length ? `To ${esc(wkCardTo.map(shown).join(", "))}` : "Pick who it goes to"}</span>` +
@@ -11998,14 +12191,14 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
   for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) { const t = get(th), at = it._asked.at(-1) || ""; t.ask = it; t.last ||= Date.parse(at) || 0; t.at ||= at; }
   get("");
   const d = workQueue || ppData() ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
-    title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || "";
+    title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || tkKnown[k]?.title || "";
   // where a ticket is: its stage in flight, else its place in the queue
   const stage = k => { const t = d?.tickets.find(x => (x.id || x.ref) === k); if (t) return (d.p.stages || []).find(s => s.key === t.stage)?.name?.toLowerCase() || t.stage || "";
-    return d?.queue.find(i => qk(i, k) && i.list !== "done")?.list || ""; };
+    return d?.queue.find(i => qk(i, k) && i.list !== "done")?.list || (tkKnown[k]?.closed ? "" : tkKnown[k]?.status || ""); };   // a closed one says "closed"
   const isKey = th => /^([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)$/.test(th);   // a Jira key, or a ledger number "#6854"
   // a ticket is closed once it is merged or Work lists it as done, with no pull request of it still open and not
   // listed as work to do
-  const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => qk(i, k) && i.list === "done")) &&
+  const closed = k => !!d && (d.history.some(h => h.key === k) || d.queue.some(i => qk(i, k) && i.list === "done") || tkKnown[k]?.closed) &&
     !d.tickets.some(t => (t.id || t.ref) === k) && !d.queue.some(i => qk(i, k) && i.list !== "done");
   // Remove closed ticked: a closed ticket's thread is left out while it has no open ask, nothing unread and is not the
   // thread open
@@ -12013,6 +12206,7 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
   const list = un && thListOf(key), stay = thHeld(list) ? new Set([...list.querySelectorAll(".thitem")].map(e => e.dataset.thread)) : null;
   const shut = t => !!un && t.name !== sel && !stay?.has(t.name) && isKey(t.name) && !t.ask && !un[t.name]?.n && closed(t.name);
   const hid = thHidden[name] || {};
+  for (const th of by.keys()) tkWant(th);
   return [...by.values()].filter(t => !t.name || !shut(t) && (!hid[t.name] || (t.at || "") > hid[t.name])).map(t => ({...t, key: isKey(t.name) ? t.name : "", closed: isKey(t.name) && closed(t.name), stage: isKey(t.name) ? stage(t.name) : "", title: t.name ? isKey(t.name) && title(t.name) || t.name : "General"}))
     .sort(thOrder())
     .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "All", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
@@ -12222,7 +12416,8 @@ function threadMenu(el, agent, th) {
   // (a redraw may replace el while its menu is open, so what is asked of it is asked now)
   const view = el.closest("#detail"), comb = agent.startsWith(COMB), lines = thLines(el, agent), t = thAll(el, agent).find(x => x.name === th);
   if (!t || t.name === EVERY) return false;
-  const d = wkData(true), known = key => d.tickets.some(x => (x.id || x.ref) === key) || d.queue.some(i => i.key === key) || d.history.some(h => h.key === key);
+  const d = wkData(true), known = key => d.tickets.some(x => (x.id || x.ref) === key) || d.queue.some(i => i.key === key) || d.history.some(h => h.key === key) || !!tkKnown[key];
+  const inWork = k => d.tickets.some(x => (x.id || x.ref) === k) || d.queue.some(i => i.key === k) || d.history.some(h => h.key === k);
   const key = t.key, id = key && threadId(key), tk = key && d.tickets.find(x => [id, key].includes(x.id || x.ref));   // id: the ticket's in Work, where its thread is its ledger number
   // who an update is asked of: the agent, or in a Combined pane whoever its box sends to, the one waiting, its chat's where it is in the thread, else the last to speak
   const can = x => S.agents.find(y => y.name === x && y.live), chat = comb && combNode(agent)?.chat;
@@ -12242,7 +12437,7 @@ function threadMenu(el, agent, th) {
     ...d.history.filter(h => h.key === id).slice(0, 4).map(h => [h.href, h.ref, `merged ${wkWhen(h.t)}`])].filter(([h]) => h);
   prs.forEach(([h]) => used.add(h));
   // who is on it, but for the agent whose thread this is
-  const qi = key && d.queue.find(i => i.key === id), {own, sup} = key ? wkOn(d, id, tk?.who || qi?.who || "") : {own: [], sup: []};
+  const qi = key && d.queue.find(i => i.key === id), {own, sup} = key ? wkOn(d, id, tk?.who || qi?.who || (tkKnown[key]?.active && tkKnown[key].who) || "") : {own: [], sup: []};
   const on = [...new Set([...own, ...sup.filter(x => x.now).map(x => x.name)])].filter(n => n !== agent && !ppIsOwner(n) && S.agents.some(x => x.name === n)).slice(0, 5);
   // the other tickets its lines name, and the links and files in them, the latest first
   const said = [...text].reverse().join("\n"), keys = keysIn(said).filter(x => x !== key && known(threadId(x))).slice(0, 4);
@@ -12250,9 +12445,9 @@ function threadMenu(el, agent, th) {
   const docs = [...new Set([...said.matchAll(DOC)].map(m => m[2]))].slice(0, 4);
   const un = comb ? combinedUnseen(lines)[th] : unseenBy({name: agent}, thFeed(el, agent))[th], box = comb ? null : view ? $("#dsay") : el.closest(".card")?.querySelector(".say");
   const free = comb ? a && !draft(a.name) && !openAsk(a) : box && !box.value.trim() && !box.disabled;
-  const title = k => d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title || d.history.find(h => h.key === k)?.title || "";
+  const title = k => d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => i.key === k)?.title || d.history.find(h => h.key === k)?.title || tkKnown[k]?.title || "";
   const sub = [key && t.title !== key && t.title, t.closed ? "closed" : t.stage, !key && th && "not a ticket"].filter(Boolean);
-  const top = (key && known(id) ? mi("card:" + id, MENU_ICON.open, "Its card", "", copy(key, `Copy ${esc(key)}`)) : "") + (jira ? link(jira, "Jira") : "");
+  const own1 = key && (known(id) || known(key)), top = (own1 ? mi("card:" + ([id, key].find(inWork) || key), MENU_ICON.open, "Its card", "", copy(key, `Copy ${esc(key)}`)) : "") + (jira ? link(jira, "Jira") : "");
   const body = top + group("Pull requests", prs.map(([h, ref, st]) => link(h, esc(ref), esc(st)))) +
     group("On it now", on.map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
     group("In this thread", (comb && th ? t.agents : []).filter(n => !on.includes(n)).slice(0, 6).map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), ppBenched(n) ? "benched" : esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
@@ -12262,7 +12457,7 @@ function threadMenu(el, agent, th) {
   const acts = (th && a?.live && free ? act("update", MENU_ICON.said, comb ? `Ask ${esc(shown(a.name))} for an update…` : "Ask for an update…") : "") +
     (t.ask ? act("dealt", MENU_ICON.check, "Dealt with") : "") + (un?.n ? act("read", MENU_ICON.check, "Mark as read") : "") +
     (key ? act("pin", MENU_ICON.pin, wkPinned().includes(key) ? "Unpin" : "Pin to the top") : "") +
-    (th ? (key && known(id) ? "" : act("copy", LINK_COPY, key ? `Copy ${esc(key)}` : "Copy its name")) + act("remove", MENU_ICON.close, "Remove from the list") : "");
+    (th ? (own1 ? "" : act("copy", LINK_COPY, key ? `Copy ${esc(key)}` : "Copy its name")) + act("remove", MENU_ICON.close, "Remove from the list") : "");
   if (!body && !acts) return false;
   menuAt(el, "thread:" + agent + ":" + th, `<div class="hd thmhd"><b>${esc(key || t.title)}</b>${sub.length ? `<div>${sub.map(esc).join(" · ")}</div>` : ""}</div>` +
     body + (body && acts ? `<div class="sep"></div>` : "") + acts, !!el.closest(".thitem"));
@@ -14937,7 +15132,7 @@ function phBodySwipe(body) {
     e => { const t = e.touches[0]; return t.clientX >= 24 && t.clientX <= innerWidth - 24 && !e.target.closest?.("textarea, input, select, .lightbox") && !phSideways(e.target, body); },
     dir => {
       if (body.dataset.tab === "work") {
-        const keys = WK_TABS.map(([k]) => k), at = keys.indexOf(wkGet("tab", "all")), to = keys[(at < 0 ? 0 : at) + dir];
+        const keys = wkTabs().map(([k]) => k), at = keys.indexOf(wkGet("tab", "all")), to = keys[(at < 0 ? 0 : at) + dir];
         if (to) {
           const list = () => body.querySelector(".ph-pane .wk > [data-wktab]") || body;
           return {el: list(), host: body, go: () => { wkSet("tab", to); body.scrollTop = 0; phoneDraw(); }, after: list};
@@ -15213,6 +15408,56 @@ def self_test():
         with open(f"{T}/ledger-calls") as f:
             t("  each id is read once, a numberless one not again inside TICKET_RETRY, and a non-id never",
               sorted(l.strip() for l in f), ["feat_w", "feat_x"])
+        # the tickets plug-in: a thread's ticket and the Backlog, from one executable that is asked in JSON
+        plug, saved_plug = f"{T}/tickets-plug", os.environ.get("AGENT_TICKETS")
+        os.environ["AGENT_TICKETS"] = plug
+        t("tickets plug-in: with none at $AGENT_TICKETS there is none, and nothing is known", (tickets_plugin(), ticket_cards(["#9"]), backlog()), ("", {}, None))
+        with open(plug, "w") as f:
+            f.write('#!/usr/bin/env python3\nimport json, os, sys\nq = json.load(sys.stdin)\nT = %r\n'
+                    'open(T + "/tickets-asked", "a").write(json.dumps(q) + "\\n")\n'
+                    'if os.path.exists(T + "/plug-down"): sys.exit(1)\n'
+                    'tk = lambda k: {"key": k, "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "active": 1, "href": "javascript:x"}\n'
+                    'if q["want"] == "tickets": print(json.dumps({"tickets": {k: tk(k) for k in q["keys"] if k in ("#7071", "AB-1")}}))\n'
+                    'else: print(json.dumps({"groups": [{"key": "s", "name": "Selected", "n": 3}, "odd"], "rows": [tk("#3"), {"key": "a b"}, 7] if q["group"] else [], "more": q["n"] < 3}))\n' % T)
+        os.chmod(plug, 0o755)
+        _ticket_cards.clear()
+        card = {"key": "#7071", "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "closed": False, "active": False, "href": ""}
+        t("  a thread's ticket by the key asked, its fields bounded, only an https link kept; an unknown one is left out",
+          ticket_cards(["#7071", "AB-1", "#9", "x;rm -rf /", ""]), {"#7071": card, "AB-1": {**card, "key": "AB-1"}})
+        ticket_cards(["#7071", "#9"])
+        asked = lambda: [json.loads(x) for x in open(f"{T}/tickets-asked")]
+        t("  asked once inside TICKET_CARD_EVERY, known or not, and never a non-key", [q["keys"] for q in asked()], [["#7071", "AB-1", "#9"]])
+        open(f"{T}/plug-down", "w").close()
+        _ticket_cards["#7071"]["at"] = 0
+        t("  one that fails keeps what was known, and a Backlog it did not give is None, not empty", (ticket_cards(["#7071"]), backlog("s")), ({"#7071": card}, None))
+        os.remove(f"{T}/plug-down")
+        b2 = backlog("s", 2, "a 'b", "Ada", 50)
+        t("  the Backlog: its groups and a page of one, anything else the plug-in printed left out",
+          (b2["groups"], [r["key"] for r in b2["rows"]], b2["more"]), ([{"key": "s", "name": "Selected", "n": 3}], ["#3"], True))
+        t("  the words, the holder and the page are asked whole", asked()[-1], {"want": "backlog", "group": "s", "from": 50, "n": 2, "find": "a 'b", "who": "Ada"})
+        # the harness's own plug-in, over a ledger
+        own = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tickets")
+        with open(LEDGER, "w") as f:
+            f.write('[ -f "%s/ledger-down" ] && exit 2\necho "$@" >> "%s/ledger-verbs"\n' % (T, T) + """case "$1" in
+ticket-cards) echo '{"ask":"7071","ref":7071,"id":"feat_x","title":"X","status":"archived","who":"Ada","parked":""}';;
+backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2 1; do echo '{"ref":'$i',"id":"f'$i'","title":"T","status":"in_progress","who":"","parked":"w"}'; done;; esac;; esac\n""")
+        def ask_own(q):
+            p = subprocess.run([own], input=json.dumps(q), capture_output=True, text=True, env={**os.environ, "AGENTS_DASH_LEDGER": LEDGER})
+            return json.loads(p.stdout) if p.returncode == 0 else p.stdout + str(p.returncode)
+        t("  the harness's own: a ticket by its number, a closed status as a word", ask_own({"want": "tickets", "keys": ["#7071", "#8", "x y"]}),
+          {"tickets": {"#7071": {"key": "#7071", "id": "feat_x", "title": "X", "status": "done", "closed": True, "active": False, "who": "Ada", "note": ""}}})
+        ob = ask_own({"want": "backlog", "group": "selected", "n": 2, "from": 0})
+        t("  its groups in order with how many, and one more row than the page says there are others",
+          ([(g["key"], g["n"]) for g in ob["groups"]], [r["key"] for r in ob["rows"]], ob["rows"][0]["active"], ob["more"]),
+          ([("in_progress", 0), ("selected", 3), ("not_started", 0), ("parked", 0)], ["#3", "#2"], True, True))
+        open(f"{T}/ledger-down", "w").close()
+        t("  a ledger that does not answer is exit 1 and nothing printed, and an unknown group too",
+          (ask_own({"want": "backlog"}), ask_own({"want": "tickets", "keys": ["#1"]}), ask_own({"want": "backlog", "group": "archived"})), ("1", "1", "1"))
+        os.environ.pop("AGENT_TICKETS") if saved_plug is None else os.environ.update(AGENT_TICKETS=saved_plug)
+        os.environ["AGENT_TICKETS"] = T + "/no-plug"   # from here on no plug-in is run
+        _ticket_cards.clear()
+        t("  the page asks for the tickets its threads name, and draws them and the Backlog, the Backlog only with a plug-in",
+          ("for (const th of by.keys()) tkWant(th);" in PAGE, "lt ? wkKnown(d, lt)" in PAGE, "backlog: wkBacklog" in PAGE, 'class="wkfilter wkfind"' in PAGE, 'k !== "backlog" || S?.tickets' in PAGE), (True,) * 5)
         LEDGER = f"{T}/no-ledger.sh"   # from here on nothing in the self-test reads a real ledger
         _tickets.clear()
 
@@ -15608,8 +15853,8 @@ def self_test():
           ('"forYou": for_you()' in SRC, 'foryou: "For you"' in PAGE, '["foryou", "For you"]' in PAGE, 'class="fyclear" data-n="${i.n}"' in PAGE), (True,) * 4)
         t("work: a pane offered first among Work's views, with Pipeline, Work queue and Day log marked deprecated",
           ('["work", "Every ticket by what it needs' in PAGE, 'work: "Work"' in PAGE, 'pipeline: "Pipeline (deprecated)"' in PAGE), (True,) * 3)
-        t("  its tabs are All, Needs you, In flight, Up next, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
-          ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
+        t("  its tabs are All, Needs you, In flight, Up next, Backlog, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
+          ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
            'const WK_STAGE_NAME = {lead: "For your approval", owner: "Ready to merge"};' in PAGE, "<b>${esc(wkStageName(s))}</b>" in PAGE), (True,) * 3)
         t("  Compact is a desktop box kept per browser, on until cleared; the phone is always full size",
           ('const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";' in PAGE, "data-wkcompact" in PAGE, ':is(#phone,.wk).roomy' in PAGE), (True,) * 3)
@@ -15760,7 +16005,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "tickets", "week"])
         t("the Repositories count: the branches behind, most first, with what keeps one there",
           behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
                           "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"

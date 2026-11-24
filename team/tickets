@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""The team page's tickets plug-in over the harness's own ledger (scripts/ledger-db.sh, or $AGENTS_DASH_LEDGER). What the
+page asks and what it takes back is in team/lib/agents_web.py, at "The tickets plug-in"; a project with another tracker
+puts its own at ~/.config/agents-web/tickets. A ledger that does not answer is exit 1 and nothing printed."""
+import json
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
+GROUPS = [("in_progress", "In progress"), ("selected", "Selected"), ("not_started", "Not started"), ("parked", "Parked")]
+WORDS = {"in_progress": "in progress", "not_started": "not started", "passing": "done", "archived": "done", "wont_do": "won't do"}
+NAME = re.compile(r"[a-z][a-z0-9_-]{1,200}|#?[1-9][0-9]{0,8}")   # an old text id, or a ledger number
+
+
+def ledger(*args):
+    p = subprocess.run(["bash", LEDGER, *args], capture_output=True, text=True, timeout=8)
+    if p.returncode:
+        sys.exit(1)
+    return [json.loads(x) for x in p.stdout.splitlines() if x]
+
+
+def ticket(r):
+    s = r["status"]
+    return {"key": f"#{r['ref']}" if r.get("ref") else r["id"], "id": r["id"], "title": r["title"], "status": WORDS.get(s, s.replace("_", " ")),
+            "closed": s in ("passing", "archived", "wont_do"), "active": s == "in_progress", "who": r.get("who") or "", "note": r.get("parked") or ""}
+
+
+q = json.load(sys.stdin)
+if q.get("want") == "tickets":
+    keys = [k for k in q.get("keys") or [] if isinstance(k, str) and NAME.fullmatch(k)]
+    rows = {r["ask"]: ticket(r) for r in (ledger("ticket-cards", *keys) if keys else [])}
+    print(json.dumps({"tickets": {k: rows[k.lstrip("#")] for k in keys if k.lstrip("#") in rows}}))
+elif q.get("want") == "backlog":
+    group = q.get("group") or ""
+    n = int(q.get("n") or 50)
+    if group and group not in dict(GROUPS):
+        sys.exit(1)
+    args = ["backlog", "--find", q.get("find") or "", "--who", q.get("who") or ""]
+    if group:   # one more than is shown, to say whether there are more
+        args += ["--status", group, "--offset", str(int(q.get("from") or 0)), "--limit", str(n + 1)]
+    top, *rows = ledger(*args)
+    print(json.dumps({"groups": [{"key": k, "name": name, "n": top["counts"].get(k, 0)} for k, name in GROUPS],
+                      "rows": [ticket(r) for r in rows[:n]], "more": len(rows) > n}))
+else:
+    sys.exit(1)

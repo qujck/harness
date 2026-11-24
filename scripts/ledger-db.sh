@@ -2641,6 +2641,54 @@ case "${1:-}" in
               _ti_out+="${_ti_rows:+$_ti_rows$'\n'}"
             fi
             printf '%s' "$_ti_out" ;;
+  # ── A TICKET, FOR THE TEAM PAGE'S THREADS: `ticket-cards <id|N|#N>...` prints one JSON object a line per ticket known,
+  # whatever its status: {"ask" (the id or number as given, without its #), "ref", "id", "title", "status", "who" (its
+  # holder), "parked" (why it is parked)}. JSON, as a title or a reason can hold any separator. Read-only. A failed read
+  # is rc 2 and nothing on stdout, as ticket-refs has it.
+  ticket-cards) shift
+            (( $# )) || { echo "usage: ledger-db.sh ticket-cards <id|N|#N>..." >&2; exit 64; }
+            _tc_ids=""; _tc_nums=""
+            for _tc_id in "$@"; do
+              if [[ "$_tc_id" =~ ^#?([1-9][0-9]{0,8})$ ]]; then _tc_nums+="${_tc_nums:+,}${BASH_REMATCH[1]}"
+              else _tc_ids+="${_tc_ids:+,}$(_sql_lit "$_tc_id")"; fi
+            done
+            _tc_out="$(_as_me "select json_build_object('ask', case when d.ref in (${_tc_nums:-null}) then d.ref::text else d.id end,
+                           'ref', d.ref, 'id', d.id, 'title', d.title, 'status', d.status, 'who', coalesce(d.claimed_by,''),
+                           'parked', case when d.status = 'parked' then left(coalesce(nullif(d.park_summary,''), d.parked_reason, ''), 300) else '' end)::text
+                      from ledger.v_ticket_detail d where d.ref in (${_tc_nums:-null}) or d.id in (${_tc_ids:-null}) order by d.id")" ||
+              { echo "ledger-db: ticket-cards could not read the ledger (rc $?) — cannot tell." >&2; exit 2; }
+            printf '%s' "${_tc_out:+$_tc_out$'\n'}" ;;
+  # ── THE OPEN TICKETS, FOR THE TEAM PAGE'S BACKLOG: `backlog [--status S] [--offset N] [--limit N] [--find "words"]
+  # [--who NAME]` prints first {"counts": {status: n}} over the open statuses (in_progress, selected, not_started,
+  # parked), then, with --status, one JSON object a line, as ticket-cards has it and its "priority", for that status's
+  # tickets from --offset (0), at most --limit (50, up to 500): the most urgent priority first, then the newest. --find
+  # keeps those whose number, title, id or holder has every word, --who those NAME holds; both narrow the counts too.
+  # Read-only; a failed read is rc 2 and nothing on stdout.
+  backlog) shift
+            _bl_status=""; _bl_off=0; _bl_lim=50; _bl_find=""; _bl_who=""
+            while (( $# )); do
+              case "$1" in
+                --status) _bl_status="${2-}" ;; --offset) _bl_off="${2-}" ;; --limit) _bl_lim="${2-}" ;;
+                --find) _bl_find="${2-}" ;; --who) _bl_who="${2-}" ;;
+                *) echo "backlog: unknown argument '$1'" >&2; exit 64 ;;
+              esac
+              shift 2 || { echo "backlog: an option needs its value" >&2; exit 64; }
+            done
+            case "$_bl_status" in ""|in_progress|selected|not_started|parked) ;; *) echo "backlog: --status is in_progress, selected, not_started or parked" >&2; exit 64 ;; esac
+            [[ "$_bl_off" =~ ^[0-9]{1,6}$ && "$_bl_lim" =~ ^[0-9]{1,3}$ && "$_bl_lim" -le 500 ]] || { echo "backlog: --offset and --limit are whole numbers, --limit at most 500" >&2; exit 64; }
+            _bl_where="d.status in ('in_progress','selected','not_started','parked')"
+            [[ -n "$_bl_who" ]] && _bl_where+=" and lower(d.claimed_by) = lower($(_sql_lit "$_bl_who"))"
+            _bl_words=(); read -ra _bl_words <<<"${_bl_find//$'\n'/ }" || true
+            for _bl_w in "${_bl_words[@]:0:8}"; do
+              _bl_w="${_bl_w:0:60}"; _bl_w="${_bl_w//\\/\\\\}"; _bl_w="${_bl_w//%/\\%}"; _bl_w="${_bl_w//_/\\_}"
+              _bl_where+=" and ('#' || coalesce(d.ref::text,'') || ' ' || d.title || ' ' || d.id || ' ' || coalesce(d.claimed_by,'')) ilike $(_sql_lit "%$_bl_w%") escape '\\'"
+            done
+            _bl_out="$(_as_me "select json_build_object('counts', coalesce((select json_object_agg(status, n) from (select d.status, count(*) n from ledger.v_ticket_detail d where $_bl_where group by 1) c), '{}'::json))::text")" &&
+            { [[ -z "$_bl_status" ]] || _bl_rows="$(_as_me "select json_build_object('ask', d.id, 'ref', d.ref, 'id', d.id, 'title', d.title, 'status', d.status, 'who', coalesce(d.claimed_by,''), 'priority', d.priority,
+                           'parked', case when d.status = 'parked' then left(coalesce(nullif(d.park_summary,''), d.parked_reason, ''), 300) else '' end)::text
+                      from ledger.v_ticket_detail d where $_bl_where and d.status = '$_bl_status' order by d.priority nulls last, d.ref desc nulls last, d.id limit $_bl_lim offset $_bl_off")"; } ||
+              { echo "ledger-db: backlog could not read the ledger (rc $?) — cannot tell." >&2; exit 2; }
+            printf '%s\n' "$_bl_out"; [[ -z "${_bl_rows-}" ]] || printf '%s\n' "$_bl_rows" ;;
   # ── THE PIPELINE, FOR THE TEAM PAGE'S PR BAR: `pipeline [<id>|<sha>...]` prints one row per in-flight ticket,
   # `T|id|ref|issue|claimed_by|status|title` (every in_progress ticket and every id named), then one row per live
   # verdict at a named 40-hex sha, `V|ticket|sha|kind|by_agent|pr|`. team/bar/pipeline names each open PR's ticket and
