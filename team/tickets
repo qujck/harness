@@ -25,7 +25,8 @@ def ledger(*args):
 def ticket(r):
     s = r["status"]
     return {"key": f"#{r['ref']}" if r.get("ref") else r["id"], "id": r["id"], "title": r["title"], "status": WORDS.get(s, s.replace("_", " ")),
-            "closed": s in ("passing", "archived", "wont_do"), "active": s == "in_progress", "who": r.get("who") or "", "note": r.get("parked") or ""}
+            "closed": s in ("passing", "archived", "wont_do"), "active": s == "in_progress", "who": r.get("who") or "",
+            "priority": f"P{r['priority']}" if r.get("priority") is not None else "", "note": r.get("parked") or ""}
 
 
 q = json.load(sys.stdin)

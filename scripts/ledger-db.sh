@@ -2643,7 +2643,7 @@ case "${1:-}" in
             printf '%s' "$_ti_out" ;;
   # ── A TICKET, FOR THE TEAM PAGE'S THREADS: `ticket-cards <id|N|#N>...` prints one JSON object a line per ticket known,
   # whatever its status: {"ask" (the id or number as given, without its #), "ref", "id", "title", "status", "who" (its
-  # holder), "parked" (why it is parked)}. JSON, as a title or a reason can hold any separator. Read-only. A failed read
+  # holder), "priority" (a number, or null), "parked" (why it is parked)}. JSON, as a title or a reason can hold any separator. Read-only. A failed read
   # is rc 2 and nothing on stdout, as ticket-refs has it.
   ticket-cards) shift
             (( $# )) || { echo "usage: ledger-db.sh ticket-cards <id|N|#N>..." >&2; exit 64; }
@@ -2653,14 +2653,14 @@ case "${1:-}" in
               else _tc_ids+="${_tc_ids:+,}$(_sql_lit "$_tc_id")"; fi
             done
             _tc_out="$(_as_me "select json_build_object('ask', case when d.ref in (${_tc_nums:-null}) then d.ref::text else d.id end,
-                           'ref', d.ref, 'id', d.id, 'title', d.title, 'status', d.status, 'who', coalesce(d.claimed_by,''),
+                           'ref', d.ref, 'id', d.id, 'title', d.title, 'status', d.status, 'who', coalesce(d.claimed_by,''), 'priority', d.priority,
                            'parked', case when d.status = 'parked' then left(coalesce(nullif(d.park_summary,''), d.parked_reason, ''), 300) else '' end)::text
                       from ledger.v_ticket_detail d where d.ref in (${_tc_nums:-null}) or d.id in (${_tc_ids:-null}) order by d.id")" ||
               { echo "ledger-db: ticket-cards could not read the ledger (rc $?) — cannot tell." >&2; exit 2; }
             printf '%s' "${_tc_out:+$_tc_out$'\n'}" ;;
   # ── THE OPEN TICKETS, FOR THE TEAM PAGE'S BACKLOG: `backlog [--status S] [--offset N] [--limit N] [--find "words"]
   # [--who NAME]` prints first {"counts": {status: n}} over the open statuses (in_progress, selected, not_started,
-  # parked), then, with --status, one JSON object a line, as ticket-cards has it and its "priority", for that status's
+  # parked), then, with --status, one JSON object a line, as ticket-cards has it, for that status's
   # tickets from --offset (0), at most --limit (50, up to 500): the most urgent priority first, then the newest. --find
   # keeps those whose number, title, id or holder has every word, --who those NAME holds; both narrow the counts too.
   # Read-only; a failed read is rc 2 and nothing on stdout.

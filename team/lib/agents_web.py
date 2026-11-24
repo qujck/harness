@@ -1050,7 +1050,8 @@ def _read_tickets(ids):
 #       {"groups": [{"key", "name", "n"}], in the order to draw them, how many open tickets each has (narrowed by find
 #       and who), "rows": [ticket] of the group asked, from that row, "more": whether the group has others after them}
 #   a ticket is {"key" (as a thread is named by), "id" (its other name), "title", "status" (the word shown), "closed",
-#   "active" (its holder is on it now), "who" (its holder), "note" (why it waits), "href" (https)}
+#   "active" (its holder is on it now), "who" (its holder), "priority" (a short word, "P1", drawn after its key), "note"
+#   (why it waits), "href" (https)}
 # Only what is looked at is asked for, as a team's open tickets run to a thousand and more (owner, 2026-11-24): the
 # tickets a thread names, each kept TICKET_CARD_EVERY seconds, and a page of the Backlog at a time.
 TICKET_CARD_EVERY = 60
@@ -1104,7 +1105,8 @@ def ticket_card(t):
     if not isinstance(t, dict) or not isinstance(t.get("key"), str) or not TICKET_KEY.fullmatch(t["key"]):
         return None
     href = str(t.get("href") or "")[:500]
-    return {"key": t["key"], **{f: str(t.get(f) or "")[:300] for f in ("id", "title", "status", "who", "note")}, "closed": t.get("closed") is True,
+    return {"key": t["key"], **{f: str(t.get(f) or "")[:300] for f in ("id", "title", "status", "who", "note")},
+            "priority": str(t.get("priority") or "")[:20], "closed": t.get("closed") is True,
             "active": t.get("active") is True, "href": href if href.startswith("https://") else ""}
 
 
@@ -9912,8 +9914,8 @@ const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" t
   `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n, tags = []) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
   wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : ""), tags) + wkTicketFaces(d, i.key, i.who));
-// a ticket known only from the tickets plug-in: its status in the place of a queue row's number
-const wkKnown = (d, lt, under = "") => wkRow(d, lt.key, wkMid(wkLink(lt.href, lt.key, lt.id), "", esc(lt.title), lt.status.toLowerCase() === under.toLowerCase() ? [] : [{text: lt.status, tone: "grey"}]) + wkTicketFaces(d, lt.key, lt.who));
+// a ticket known only from the tickets plug-in: its priority after its key, and its status as a chip
+const wkKnown = (d, lt, under = "") => wkRow(d, lt.key, wkMid(wkLink(lt.href, lt.key, lt.id), lt.priority, esc(lt.title), lt.status.toLowerCase() === under.toLowerCase() ? [] : [{text: lt.status, tone: "grey"}]) + wkTicketFaces(d, lt.key, lt.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
   wkMid(e.key ? wkLink(wkJira(e.key), wkKey(e.key), e.key) : "", "", e.html, [{text: e.kind, tone: WK_KIND[e.kind]}]) + (e.key ? wkTicketFaces(d, e.key, e.who) : wkFace(e.who)));
 // the tickets in flight, nearest to merged first, and the strip of stages that counts them (a click on a stage: `go`)
@@ -15438,14 +15440,14 @@ def self_test():
             f.write('#!/usr/bin/env python3\nimport json, os, sys\nq = json.load(sys.stdin)\nT = %r\n'
                     'open(T + "/tickets-asked", "a").write(json.dumps(q) + "\\n")\n'
                     'if os.path.exists(T + "/plug-down"): sys.exit(1)\n'
-                    'tk = lambda k: {"key": k, "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "active": 1, "href": "javascript:x"}\n'
+                    'tk = lambda k: {"key": k, "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "priority": "P2" + "x" * 30, "note": "held", "active": 1, "href": "javascript:x"}\n'
                     'if q["want"] == "tickets": print(json.dumps({"tickets": {k: tk(k) for k in q["keys"] if k in ("#7071", "AB-1")}}))\n'
                     'else: print(json.dumps({"groups": [{"key": "s", "name": "Selected", "n": 3}, "odd"], "rows": [tk("#3"), {"key": "a b"}, 7] if q["group"] else [], "more": q["n"] < 3}))\n' % T)
         os.chmod(plug, 0o755)
         _ticket_cards.clear()
         _tickets_heard.update(yes=False, at=time.time())   # asked a moment ago, so no thread asks again in the test
         t("  one that has never answered gives the page no Backlog", tickets_on(), False)
-        card = {"key": "#7071", "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "closed": False, "active": False, "href": ""}
+        card = {"key": "#7071", "id": "feat_x", "title": "X | y", "status": "parked", "who": "Ada", "note": "held", "priority": "P2" + "x" * 18, "closed": False, "active": False, "href": ""}
         t("  a thread's ticket by the key asked, its fields bounded, only an https link kept; an unknown one is left out",
           ticket_cards(["#7071", "AB-1", "#9", "x;rm -rf /", ""]), {"#7071": card, "AB-1": {**card, "key": "AB-1"}})
         ticket_cards(["#7071", "#9"])
@@ -15464,17 +15466,17 @@ def self_test():
         own = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tickets")
         with open(LEDGER, "w") as f:
             f.write('[ -f "%s/ledger-down" ] && exit 2\necho "$@" >> "%s/ledger-verbs"\n' % (T, T) + """case "$1" in
-ticket-cards) echo '{"ask":"7071","ref":7071,"id":"feat_x","title":"X","status":"archived","who":"Ada","parked":""}';;
-backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2 1; do echo '{"ref":'$i',"id":"f'$i'","title":"T","status":"in_progress","who":"","parked":"w"}'; done;; esac;; esac\n""")
+ticket-cards) echo '{"ask":"7071","ref":7071,"id":"feat_x","title":"X","status":"archived","who":"Ada","priority":2,"parked":""}';;
+backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2 1; do echo '{"ref":'$i',"id":"f'$i'","title":"T","status":"in_progress","who":"","priority":null,"parked":"w"}'; done;; esac;; esac\n""")
         def ask_own(q):
             p = subprocess.run([own], input=json.dumps(q), capture_output=True, text=True, env={**os.environ, "AGENTS_DASH_LEDGER": LEDGER})
             return json.loads(p.stdout) if p.returncode == 0 else p.stdout + str(p.returncode)
         t("  the harness's own: a ticket by its number, a closed status as a word", ask_own({"want": "tickets", "keys": ["#7071", "#8", "x y"]}),
-          {"tickets": {"#7071": {"key": "#7071", "id": "feat_x", "title": "X", "status": "done", "closed": True, "active": False, "who": "Ada", "note": ""}}})
+          {"tickets": {"#7071": {"key": "#7071", "id": "feat_x", "title": "X", "status": "done", "closed": True, "active": False, "who": "Ada", "priority": "P2", "note": ""}}})
         ob = ask_own({"want": "backlog", "group": "selected", "n": 2, "from": 0})
         t("  its groups in order with how many, and one more row than the page says there are others",
-          ([(g["key"], g["n"]) for g in ob["groups"]], [r["key"] for r in ob["rows"]], ob["rows"][0]["active"], ob["more"]),
-          ([("in_progress", 0), ("selected", 3), ("not_started", 0), ("parked", 0)], ["#3", "#2"], True, True))
+          ([(g["key"], g["n"]) for g in ob["groups"]], [r["key"] for r in ob["rows"]], ob["rows"][0]["active"], ob["more"], ob["rows"][0]["priority"]),
+          ([("in_progress", 0), ("selected", 3), ("not_started", 0), ("parked", 0)], ["#3", "#2"], True, True, ""))
         open(f"{T}/ledger-down", "w").close()
         t("  a ledger that does not answer is exit 1 and nothing printed, and an unknown group too",
           (ask_own({"want": "backlog"}), ask_own({"want": "tickets", "keys": ["#1"]}), ask_own({"want": "backlog", "group": "archived"})), ("1", "1", "1"))
@@ -15482,7 +15484,7 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
         os.environ["AGENT_TICKETS"] = T + "/no-plug"   # from here on no plug-in is run
         _ticket_cards.clear()
         t("  the page asks for the tickets its threads name, and draws them and the Backlog, the Backlog only with a plug-in",
-          ("for (const th of by.keys()) tkWant(th);" in PAGE, "lt ? wkKnown(d, lt)" in PAGE, "backlog: wkBacklog" in PAGE, 'class="wkfilter wkfind"' in PAGE, 'k !== "backlog" || S?.tickets' in PAGE), (True,) * 5)
+          ("for (const th of by.keys()) tkWant(th);" in PAGE, "lt ? wkKnown(d, lt)" in PAGE, "lt.id), lt.priority, esc(lt.title)" in PAGE, "backlog: wkBacklog" in PAGE, 'class="wkfilter wkfind"' in PAGE, 'k !== "backlog" || S?.tickets' in PAGE), (True,) * 6)
         LEDGER = f"{T}/no-ledger.sh"   # from here on nothing in the self-test reads a real ledger
         _tickets.clear()
 
