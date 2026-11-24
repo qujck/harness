@@ -68,7 +68,7 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agents-budget.sh       # is the account's week inside the owner's budget so far? on (start the developer and tell the owner), over or cannot tell (ask first); testers are not gated; `approve <pct>` / `adjust ±N` are the owner's moves on the plan, cleared by the reset
   agent-context.sh       # every live agent's remaining context and weekly usage (docs/context-publisher.md)
   agents-dash.sh         # the team panel for a pane beside the delivery lead: state, context, ticket, token burn, model and effort per agent (benched ones hidden); the account's week on top, marked against the budget
-  agents-web.sh          # the team as a web page on 127.0.0.1 (python3): a card per running agent in sections by role, its conversation and terminal, a message box that types into its tmux pane; the week amber while it spends the contingency
+  agents-web.sh          # the team as a web page on 127.0.0.1 (python3): a card per running agent in sections by role, its conversation, a message box that types into its tmux pane; the week amber while it spends the contingency
   agents-web.service     # a reference systemd user unit for the page (KillMode=process keeps the agents it started through a restart)
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
   activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
@@ -242,9 +242,9 @@ the Claude Code integration; tier 3 is agent-agnostic (plain git):
 
    **Or watch the team in a browser** (optional, python3). `bash team/agents-web.sh` serves
    `http://127.0.0.1:8787` (`AGENT_WEB_PORT`) until stopped: the same readings as a card per running agent,
-   in sections by role, with each agent's conversation and its terminal, and a message box on each that
+   in sections by role, with each agent's conversation, and a message box on each that
    types into the agent's tmux pane as `agent-spawn.sh` types a first prompt. Only the page itself can send,
-   and it listens on this machine only. To keep it running, make it a `systemd --user` service: `team/agents-web.service` is one to start from, with `KillMode=process` so a restart of the page does not end the agents it started.
+   and it listens on this machine only. To keep it running, make it a `systemd --user` service: `team/agents-web.service` is one to start from, with `KillMode=process` so a restart of the page does not end the agents it started. A line written to a conversation reaches the page as it is written, over a WebSocket, the kernel (inotify) telling the server of it; the panes' screens are read once a second while a page is open, or every five while every agent is at rest. macOS has no inotify and keeps the once-a-second look: the same could be done there with `select.kqueue` behind `FileWatch`, opening and watching each running agent's transcript and session record, as a folder's watch there does not tell of files written.
 
 7. **A custom status line must publish the panel's fields.** The panel, `agent-context.sh` and the
    nudger read the rows the status line writes ([docs/context-publisher.md](docs/context-publisher.md)).

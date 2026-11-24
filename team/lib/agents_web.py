@@ -9,7 +9,8 @@
   /api/team         every message between the running agents, as one transcript
   /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last ten minutes, for Performance panes
   /api/perf/history?key=cpu&span=3600   one of those over 2 minutes, 10, an hour or a day, for the enlarged graph
-  /api/agent/NAME   one agent's longer conversation and its terminal as it is on screen now (HTML); ?all=1 every turn of the 300
+  /api/agent/NAME   one agent's longer conversation; ?all=1 every turn of the 300
+  /api/live         a WebSocket the page is sent all of that over as it changes, instead of asking for it (see "live")
   /doc?p=PATH       a document an agent names by its full path, as text for the page to show over itself
   POST /api/agent/NAME/say   {"text": "...", "images": [pasted paths]} typed into the agent's tmux pane, then Enter
   POST /api/agent/NAME/answer  {"n": 3, "label": "Type something.", "text": "..."} the prompt open in its pane
@@ -39,7 +40,7 @@
   POST /api/meeting/ID/add|pause|end|handover   bring someone in, pause, end, and send or skip a suggestion
 
 It reads what team/agents-dash.sh reads - agents/roster.json, Claude Code's session records, the context rows
-(docs/context-publisher.md), the panel's burn cache and claims board, team/agents-budget.sh - plus tmux for each
+(docs/context-publisher.md), the panel's claims board, team/agents-budget.sh - plus tmux for each
 agent's pane (the session agent-spawn.sh starts, <project>-<name>) and the tail of each agent's transcript for its
 conversation. What it does is type into an agent's pane, as agent-spawn.sh types a first prompt: a message (/say), an
 answer to the question open in it (/answer) or Esc (/stop), and start or stop
@@ -57,20 +58,23 @@ the name is refused like any other, so a tunnel route made before its Access log
 """
 import base64
 import calendar
+import contextlib
+import ctypes
 import datetime
 import fcntl
 import glob
 import gzip
 import hashlib
-import html
 import json
 import os
 import re
+import select
 import shlex
 import shutil
 import stat
 import socket
 import socketserver
+import struct
 import subprocess
 import sys
 import threading
@@ -122,7 +126,7 @@ PROJECTS = os.path.join(CLAUDE, "projects")
 ACTIVITY = os.environ.get("ACTIVITY_DIR") or os.path.join(STATE_DIR, "activity")   # "<state> <epoch>" per session id, from team/activity-hook.sh
 CONTEXT_DIR = os.environ.get("CONTEXT_DIR") or os.path.join(STATE_DIR, "context")
 CACHE = os.environ.get("AGENTS_DASH_CACHE") or os.path.join(STATE_DIR, "dash")
-BURN = os.path.join(CACHE, "burn.json")
+BURN = os.environ.get("AGENT_WEB_BURN") or os.path.join(STATE_DIR, f"burn-{PORT}.json")   # each session's tokens by the minute, as this page counts them (see "burn")
 BOARD = os.path.join(CACHE, "board")   # the claims board as the panel caches it: id|area|claimed_by
 BOARD_EVERY = 60
 TEAM_START_SH = os.environ.get("TEAM_START") or os.path.join(ROOT, "team/team-start.sh")   # starts the team, or named agents
@@ -178,7 +182,6 @@ CC_COLOUR = {"red": 167, "green": 35, "yellow": 178, "blue": 110, "cyan": 37, "p
 
 BASIC = ["#1b1e24", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#d1d7e0",
          "#636e7b", "#ff938a", "#6bc46d", "#daaa3f", "#6cb6ff", "#dcbdfb", "#56d4dd", "#f0f6fc"]
-FG, BG = "#d1d7e0", "#0d1117"
 
 
 def xterm(n):
@@ -193,51 +196,6 @@ def xterm(n):
     return "#%02x%02x%02x" % (v, v, v)
 
 
-# ── the pane on screen, ANSI to HTML ──────────────────────────────────────────
-def sgr(st, params):
-    codes = [int(p) if p.isdigit() else 0 for p in params.replace(":", ";").split(";")] if params else [0]
-    i = 0
-    while i < len(codes):
-        c = codes[i]
-        if c == 0:
-            st.update(fg=None, bg=None, bold=False, dim=False, inv=False, it=False)
-        elif c == 1:
-            st["bold"] = True
-        elif c == 2:
-            st["dim"] = True
-        elif c == 3:
-            st["it"] = True
-        elif c == 22:
-            st.update(bold=False, dim=False)
-        elif c == 23:
-            st["it"] = False
-        elif c == 7:
-            st["inv"] = True
-        elif c == 27:
-            st["inv"] = False
-        elif 30 <= c <= 37:
-            st["fg"] = BASIC[c - 30]
-        elif 90 <= c <= 97:
-            st["fg"] = BASIC[c - 82]
-        elif c == 39:
-            st["fg"] = None
-        elif 40 <= c <= 47:
-            st["bg"] = BASIC[c - 40]
-        elif 100 <= c <= 107:
-            st["bg"] = BASIC[c - 92]
-        elif c == 49:
-            st["bg"] = None
-        elif c in (38, 48) and i + 1 < len(codes):
-            key = "fg" if c == 38 else "bg"
-            if codes[i + 1] == 5 and i + 2 < len(codes):
-                st[key] = xterm(codes[i + 2])
-                i += 2
-            elif codes[i + 1] == 2 and i + 4 < len(codes):
-                st[key] = "#%02x%02x%02x" % tuple(min(255, v) for v in codes[i + 2:i + 5])
-                i += 4
-        i += 1
-
-
 def spelled_screen(text, names):
     """Terminal text with each {name: spelling} written as spelled, where an agent means the person. A URL, a path and a
     name run into a longer word (strength-Ada, --to=Ada, Ada@host) are what a machine reads, so they keep the roster's."""
@@ -247,47 +205,6 @@ def spelled_screen(text, names):
         hit = rf"https?://\S+|(?<![\w.])[~/]\S+|(?<![\w./=-]){re.escape(name)}(?![\w/@=-])(?![ \t]+[A-Z])"
         text = re.sub(hit, lambda m, name=name, spelling=spelling: spelling if m.group(0) == name else m.group(0), text)
     return text
-
-
-def ansi_html(text, names=None):
-    """Terminal text with SGR colours as escaped HTML spans; any other escape sequence is dropped. A run of one colour is
-    spelled whole, so the escape before a coloured name cannot hide it."""
-    out, buf = [], []
-    st = dict(fg=None, bg=None, bold=False, dim=False, inv=False, it=False)
-
-    def flush():
-        if not buf:
-            return
-        fg, bg = st["fg"], st["bg"]
-        if st["inv"]:
-            fg, bg = bg or BG, fg or FG
-        css = ([f"color:{fg}"] if fg else []) + ([f"background:{bg}"] if bg else [])
-        css += ["font-weight:600"] if st["bold"] else []
-        css += ["opacity:.55"] if st["dim"] else []
-        css += ["font-style:italic"] if st["it"] else []
-        t = html.escape(spelled_screen("".join(buf), names or {}))
-        out.append(f'<span style="{";".join(css)}">{t}</span>' if css else t)
-        buf.clear()
-
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if ch == "\x1b" and text[i + 1:i + 2] == "[":
-            j = i + 2
-            while j < len(text) and not ("@" <= text[j] <= "~"):
-                j += 1
-            flush()
-            if j < len(text) and text[j] == "m":
-                sgr(st, text[i + 2:j])
-            i = j + 1
-            continue
-        if ch == "\x1b":
-            i += 2
-            continue
-        buf.append(ch)
-        i += 1
-    flush()
-    return "".join(out)
 
 
 # ── where the numbers come from ───────────────────────────────────────────────
@@ -414,6 +331,13 @@ def wanted(sid):
         return (line or "wants you"), max(0, int(time.time() - os.path.getmtime(path)))
     except (OSError, ValueError):
         return None, None
+
+
+def wanted_since(sid):
+    try:
+        return os.path.getmtime(os.path.join(WANTED, sid))
+    except OSError:
+        return None
 
 
 def live_sessions():
@@ -613,12 +537,55 @@ def account_pct(rows, key):
     return max(v for t, v in vals if t >= fresh - 60)
 
 
+# Each session's output tokens by the minute, for its activity line and tokens a minute: the growth of the running total
+# its status line publishes, booked to the minute of the row's own time, so a row that has not changed adds nothing.
+# Sampled whether or not a page is open, as growth over a gap would all be booked to one minute, and kept in BURN, so a
+# restart of the server loses none of it.
+_burn, BURN_EVERY = {}, 5
+
+
 def burn():
+    with _lock:
+        return dict(_burn)
+
+
+def burn_add(was, rows, now):
+    """The tally with the rows' growth booked: each session in the rows, its total and time as last read, and the buckets
+    ("minute" -> tokens) of the last SPARK_MINS minutes."""
+    out, oldest = {}, int(now // 60) - SPARK_MINS
+    for sid, r in rows.items():
+        p = was.get(sid) or {"total": None, "at": 0, "buckets": {}}
+        total, at, b = (r.get("tokens") or {}).get("output_total"), int(r["_ts"]), dict(p["buckets"])
+        if total is not None and p["total"] is not None and at > p["at"] and total > p["total"]:
+            m = str(at // 60)
+            b[m] = b.get(m, 0) + total - p["total"]
+        out[sid] = {"total": total if total is not None and at >= p["at"] else p["total"], "at": max(at, p["at"]),
+                    "buckets": {k: v for k, v in b.items() if int(k) >= oldest}}
+    return out
+
+
+def burn_watch():
     try:
         with open(BURN) as f:
-            return json.load(f)
+            kept = json.load(f)
     except (OSError, ValueError):
-        return {}
+        kept = {}
+    kept = kept if isinstance(kept, dict) else {}
+    while True:
+        try:
+            now = burn_add(kept, context_rows(), time.time())
+            with _lock:
+                _burn.clear()
+                _burn.update(now)
+            if now != kept:
+                kept = now
+                os.makedirs(os.path.dirname(BURN), exist_ok=True)
+                with open(BURN + ".tmp", "w") as f:
+                    json.dump(now, f)
+                os.replace(BURN + ".tmp", BURN)
+        except Exception as e:   # a sample that fails is missed, not the end of the tally
+            print(f"agents-web: burn: {type(e).__name__}: {e}", file=sys.stderr)
+        time.sleep(BURN_EVERY)
 
 
 def series(entry, now):
@@ -1707,7 +1674,7 @@ def plugins(facts=None):
             if f.startswith(".") or not os.path.isfile(path) or not os.access(path, os.X_OK):
                 continue
             was = _plugged.get(path)
-            if (not was or now - was["at"] >= was.get("every", 60)) and path not in _plugging:
+            if (not was or now - was["at"] >= max(4, was.get("every", 60))) and path not in _plugging:   # the state is built as often as once a second
                 _plugging.add(path)
                 threading.Thread(target=run_plugin, args=(path, name, facts), daemon=True).start()
             item = {k: v for k, v in (was or {"label": name, "value": "…", "title": "", "colour": ""}).items() if k not in ("at", "every")}
@@ -3225,10 +3192,36 @@ def by_lane(items, n):
 SPINNER = re.compile(r"^\s*[·✢✳✶✻✽*]\s+(\S[^()\n]*?…)\s*\(([^)]*)\)")
 
 
+_shots = {"at": 0, "of": {}}   # every agent's pane as it was on screen at that time: (pane, coloured) -> its text
+SHOT_AGE = 0.9
+
+
+def take_shots(ids):
+    """Reads the panes' screens, plain and with colours, in one call of tmux: a call for each takes many times longer."""
+    mark, cmd = uuid.uuid4().hex, ["tmux"]
+    for i in ids:
+        for flags in (["-p"], ["-p", "-e"]):
+            cmd += ["display-message", "-p", f"{mark} {i.lstrip('%')} {len(flags)}", ";", "capture-pane", *flags, "-t", i, ";"]
+    of = {}
+    if ids:
+        for part in run(*cmd[:-1]).split(mark + " ")[1:]:
+            head, _, text = part.partition("\n")
+            n, flags = head.split()
+            of["%" + n, flags == "2"] = text
+    _shots.update(at=time.time(), of=of)
+
+
+def shot(pane, coloured=False):
+    """A pane's screen: as take_shots last read it when that is under a second ago, else read now."""
+    s = dict(_shots)
+    text = s["of"].get((pane, coloured)) if time.time() - s["at"] < SHOT_AGE else None
+    return run("tmux", "capture-pane", "-p", *(["-e"] if coloured else []), "-t", pane) if text is None else text
+
+
 def working_of(pane):
     """The line a working agent's pane shows under its turn - "✢ Pollinating… (10s · ↓ 668 tokens)" - as
     "Pollinating… 10s · ↓ 668 tokens"; None when there is none on screen."""
-    for line in reversed(run("tmux", "capture-pane", "-p", "-t", pane).splitlines()):
+    for line in reversed(shot(pane).splitlines()):
         m = SPINNER.match(line)
         if m:
             return m.group(1) + " " + m.group(2).strip()
@@ -3244,7 +3237,7 @@ def pane_footer(pane):
     """The words of Claude Code's footer under the pane's input box ("⏵⏵ auto mode on · 1 shell"), less its shift+tab
     hint, auto mode and anything right-aligned beside it ("1 shell"); "" when it says nothing else, None while there
     is no input box on screen, as when a prompt is open."""
-    plain = [ESCAPES.sub("", OSC.sub("", l)).rstrip() for l in run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()]
+    plain = [ESCAPES.sub("", OSC.sub("", l)).rstrip() for l in shot(pane, True).splitlines()]
     rules = [i for i, l in enumerate(plain) if BOX_RULE.match(l)]
     if len(rules) < 2 or not any(plain[i].lstrip().startswith("❯") for i in range(rules[-2] + 1, rules[-1])):
         return None
@@ -3255,21 +3248,32 @@ def pane_footer(pane):
     return ""
 
 
-def with_ask(items, status, pane):
-    """The conversation, ending with the pane's open prompt while the agent is waiting on one, or with what its
-    pane shows it doing while it works, then the owner's messages queued behind it."""
+_shown = {}   # pane id -> what it was last seen to show, as pane_shows gave it
+
+
+def pane_shows(items, status, pane):
+    """The pane's open prompt while its agent is waiting on one, or what it shows its agent doing while it works, as the
+    line that ends the conversation; [] for neither."""
+    if status == "waiting":
+        ask = ask_of(pane, latest_asked(items))
+        if ask and ask.get("preview"):
+            ask = {**ask, "text": asked_text(items, ask)}
+        return [{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "cursor": ask.get("cursor"), "ts": None,
+                 "lane": "owner"}] if ask else []
+    now = working_of(pane)
+    return [{"kind": "live", "who": "working", "text": now, "ts": None, "lane": "owner"}] if now else []
+
+
+def with_ask(items, status, pane, look=True):
+    """The conversation, ending with what its pane shows (as last seen, where not to look again), then the owner's
+    messages queued behind it."""
     pending = [it for it in items if it["kind"] == "pending"]
     items = [it for it in items if it["kind"] != "pending"]
     if not pane or status not in ("waiting", "busy"):
         return items   # a queue lasts only as long as the turn it waits behind
-    if status == "waiting":
-        ask = ask_of(pane["pane"], latest_asked(items))
-        if ask and ask.get("preview"):
-            ask = {**ask, "text": asked_text(items, ask)}
-        return items + ([{"kind": "ask", "who": "waiting for you", "text": ask["text"], "options": ask["options"], "cursor": ask.get("cursor"), "ts": None,
-                          "lane": "owner"}] if ask else []) + pending
-    now = working_of(pane["pane"])
-    return items + ([{"kind": "live", "who": "working", "text": now, "ts": None, "lane": "owner"}] if now else []) + pending
+    if look:
+        _shown[pane["pane"]] = pane_shows(items, status, pane["pane"])
+    return items + _shown.get(pane["pane"], []) + pending
 
 
 def asked_text(items, ask):
@@ -3313,7 +3317,7 @@ def latest_asked(items):
 def suggestion(pane):
     """The prompt Claude Code suggests in the pane: the dim text alone on its input line (❯), before anything is typed;
     "" for none."""
-    for line in reversed(run("tmux", "capture-pane", "-p", "-e", "-t", pane).splitlines()):
+    for line in reversed(shot(pane, True).splitlines()):
         if "❯" not in ESCAPES.sub("", line):
             continue
         m = re.fullmatch(r"(?:\x1b\[[0-9;:]*m)*❯[\s\xa0]+\x1b\[2m([^\x1b]+)\x1b\[0m(?:\x1b\[[0-9;:]*m)*\s*", line.rstrip())
@@ -3745,12 +3749,17 @@ def colour(role):
     return xterm(c) if c else "#8b949e"
 
 
+_looked = {"live": {}, "where": {}}   # the running sessions and their panes, as state() last read them
+
+
 def state():
     now = time.time()
     live, rows, burns, last = live_sessions(), context_rows(), burn(), last_sessions()
     note_up(live, {r["name"] for r in roster()})
     note_seen(live, {r["name"] for r in roster()})
     where, held = panes(), claims()
+    _looked.update(live=live, where=where)
+    take_shots([w["pane"] for w in where.values()])
     tfacts = ticket_facts(list(held.values()))
     agents, bench = [], []
     for r in grouped(roster()):
@@ -3782,8 +3791,8 @@ def state():
         agents.append({
             "name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]),
             "tab": tab, "live": bool(rec), "status": (rec or {}).get("status") or ("off" if not rec else "?"),
-            "held": int(now - since) if since else None,
-            "wanted": want, "wantedHeld": want_held,
+            "held": int(now - since) if since else None, "since": since or None,
+            "wanted": want, "wantedHeld": want_held, "wantedSince": wanted_since(sid) if want else None,
             "ctxUsed": used, "ctxWindow": window,
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""),
@@ -3841,43 +3850,55 @@ def portraits(name):
     return {"portrait": portrait(name), "altPortrait": portrait(name, "-alt")}
 
 
-_state = {"at": 0, "body": b""}
+_state = {"at": 0, "st": None, "body": None}
 _state_build = threading.Lock()
 
 
-def state_json():
-    """The state, built at most once every two seconds. One request builds it at a time and those arriving meanwhile
-    wait for its answer: each building its own would multiply the work while the page's polls kept coming, until no
-    request finished."""
+def state_now(age):
+    """The state, built again when the one held is `age` seconds old. One caller builds it at a time and those arriving
+    meanwhile wait for its answer: each building its own would multiply the work while the page's polls kept coming,
+    until no request finished."""
     with _lock:
-        if time.time() - _state["at"] < 2:
-            return _state["body"]
+        if time.time() - _state["at"] < age:
+            return _state["st"]
     with _state_build:
         with _lock:
-            if time.time() - _state["at"] < 2:
-                return _state["body"]
-        body = json.dumps(state()).encode()
+            if time.time() - _state["at"] < age:
+                return _state["st"]
+        st = state()
         with _lock:
-            _state.update(at=time.time(), body=body)
+            _state.update(at=time.time(), st=st, body=None)
+    return st
+
+
+def state_json():
+    """The state as JSON, at most two seconds old."""
+    st = state_now(2)
+    with _lock:
+        if _state["st"] is st and _state["body"]:
+            return _state["body"]
+    body = json.dumps(st).encode()
+    with _lock:
+        if _state["st"] is st:
+            _state["body"] = body
     return body
 
 
-def agent_json(name, every=False):
+def agent_view(name, every=False, live=None, where=None):
     """name's conversation, the newest 60 turns of each lane of its last 300 (all 300 with every, as the page asks while
-    it shows a search's hit, which may be older than a lane's 60), and its pane as it is on screen now. An agent not
-    running gives its last conversation (resting_session)."""
-    rec = live_sessions().get(name)
-    where = panes().get(name)
-    screen = ""
-    if where:
-        screen = ansi_html(run("tmux", "capture-pane", "-p", "-e", "-t", where["pane"]).rstrip("\n"), shown_names())
+    it shows a search's hit, which may be older than a lane's 60). An agent not running gives its last conversation
+    (resting_session). live and where are the running sessions and their panes, where the caller has read them."""
+    rec = (live_sessions() if live is None else live).get(name)
     # one not running shows its last conversation, to read (a name off the roster, nothing)
     sid = rec.get("sessionId") if rec else resting_session(name) if any(r["name"] == name for r in roster()) else None
     turns = feed(sid, 300) if sid else []
     conv = turns if every else by_lane(turns, 60)
-    conv = with_ask(conv, rec.get("status"), where) if rec else conv
-    return json.dumps({"name": name, "feed": conv, "screen": screen,
-                       "cols": (where or {}).get("cols", 0), "rows": (where or {}).get("rows", 0)}).encode()
+    conv = with_ask(conv, rec.get("status"), (panes() if where is None else where).get(name)) if rec else conv
+    return {"name": name, "feed": conv}
+
+
+def agent_json(name, every=False):
+    return json.dumps(agent_view(name, every)).encode()
 
 
 def team_json():
@@ -3998,6 +4019,275 @@ def ws_read(rf):
         op, buf = o or op, buf + data
         if fin:
             return op, buf
+
+
+# ── live ────────────────────────────────────────────────────────────────
+# What the page shows, sent to it as it changes over a WebSocket (/api/live) in place of its polls of /api/state and
+# /api/agent/NAME, which it goes back to whenever the socket is not up. The page names the conversations it shows:
+#   {"names": [agents]}, or {"now": 1} for a look at once
+# Each message to it, gzipped in a binary one when it is long and the page can open it (?gz=1), holds what has changed
+# since the last, the first holding everything:
+#   {"now", "top": {the state's fields}, "order": [agents], "agents": {name: {its fields}},
+#    "conv": {name: {"feed"}}, "drop": [conversations sent no longer]}
+# A feed is sent as how to make it from the one before: [i, n] copies n lines from its i-th, and an object is a new line.
+# One watcher looks for every page, only while a page is joined: at everything once a second, the panes' screens being
+# in no file, and as soon as a session's record changes; and, as soon as a conversation is written to, at that alone.
+# With every session at rest, its screen has settled LIVE_SETTLE seconds later, and the look is every LIVE_REST seconds
+# until a record says one is at work.
+# Each page is sent to by a thread of its own, so a slow one holds up no other: it misses the looks it was too slow for
+# and is sent what changed over them all.
+LIVE_EVERY, LIVE_REST, LIVE_SETTLE, LIVE_TICK, LIVE_DEAD, LIVE_GZ = 1.0, 5.0, 30, 10, 60, 2048
+_live = {"pages": set(), "on": False, "v": 0, "at": 0, "now": 0, "top": {}, "order": "[]", "agents": {}, "conv": {}}
+_live_cv, _live_kick = threading.Condition(), socket.socketpair()   # a byte in the second wakes the watcher, waiting on the first
+for _s in _live_kick:
+    _s.setblocking(False)
+
+
+class LivePage:
+    def __init__(self, put):
+        self.put, self.names, self.ask, self.gone = put, frozenset(), 0, False
+        self.top, self.order, self.agents, self.conv = {}, "", {}, {}   # as last sent
+
+    def change(self):
+        """What the page has not been sent, as JSON, and whether there is anything: called with _live_cv held."""
+        out = [f'"now":{_live["now"]}']
+        if top := [f"{json.dumps(k)}:{v}" for k, v in _live["top"].items() if self.top.get(k) != v]:
+            out.append(f'"top":{{{",".join(top)}}}')
+            self.top = _live["top"]
+        if self.order != _live["order"]:
+            self.order = _live["order"]
+            out.append(f'"order":{self.order}')
+        agents = []
+        for name, a in _live["agents"].items():
+            if d := live_change(self.agents.get(name, {}), a):
+                agents.append(f"{json.dumps(name)}:{d}")
+        if agents:
+            out.append(f'"agents":{{{",".join(agents)}}}')
+        self.agents = _live["agents"]
+        conv = []
+        for name in self.names:
+            if c := _live["conv"].get(name):
+                if d := live_change(self.conv.get(name, {}), c):
+                    conv.append(f"{json.dumps(name)}:{d}")
+                self.conv[name] = {**self.conv.get(name, {}), **c}
+        if conv:
+            out.append(f'"conv":{{{",".join(conv)}}}')
+        if drop := [n for n in self.conv if n not in self.names]:
+            out.append(f'"drop":{json.dumps(drop)}')
+            for n in drop:
+                del self.conv[n]
+        return "{" + ",".join(out) + "}", len(out) > 1
+
+
+def live_change(old, new):
+    """The fields of new that differ from old's, as a JSON object; "" for none. Each is its JSON, a feed its lines'."""
+    out = []
+    for k, v in new.items():
+        if old.get(k) != v:
+            out.append(f"{json.dumps(k)}:{live_feed(old.get(k) or (), v) if k == 'feed' else v}")
+    return "{" + ",".join(out) + "}" if out else ""
+
+
+def live_feed(old, new):
+    at, out, run_ = {line: i for i, line in enumerate(old)}, [], None
+    for line in new:
+        i = at.get(line)
+        if i is None:
+            out.append(line)
+            run_ = None
+        elif run_ and run_[0] + run_[1] == i:
+            run_[1] += 1
+        else:
+            run_ = [i, 1]
+            out.append(run_)
+    return "[" + ",".join(x if isinstance(x, str) else json.dumps(x) for x in out) + "]"
+
+
+def live_lines(items):
+    return tuple(json.dumps(it) for it in items)
+
+
+def live_look(names):
+    """What the watcher sees: the state's fields and each agent's, as JSON, and the conversations named. Left out are the
+    ages the page counts for itself."""
+    st = state_now(0)
+    top = {k: json.dumps(v) for k, v in st.items() if k not in ("now", "agents")}
+    agents = {a["name"]: {k: live_lines(v) if k == "feed" else json.dumps(v) for k, v in a.items() if k not in ("held", "wantedHeld")} for a in st["agents"]}
+    conv = {}
+    if names:
+        seen, known = dict(_looked), {r["name"] for r in roster()}
+        for name in names & known:
+            conv[name] = {"feed": live_lines(agent_view(name, False, seen["live"], seen["where"])["feed"])}
+    return {"now": st["now"], "top": top, "order": json.dumps([a["name"] for a in st["agents"]]), "agents": agents, "conv": conv}
+
+
+def live_glance(said):
+    """What the watcher sees of the conversations of the agents in said (name -> its session's record), and nothing
+    else: what their panes show is as the last look saw it."""
+    agents, conv = dict(_live["agents"]), dict(_live["conv"])
+    for name, rec in said.items():
+        turns, pane = feed(rec["sessionId"], 300), _looked["where"].get(name)
+        lines = lambda n: live_lines(with_ask(by_lane(turns, n), rec.get("status"), pane, False))
+        if name in agents:
+            agents[name] = {**agents[name], "feed": lines(10)}
+        if name in conv:
+            conv[name] = {**conv[name], "feed": lines(60)}
+    return {"now": time.time(), "agents": agents, "conv": conv}
+
+
+class FileWatch:
+    """Tells when a file in the folders followed is written, made, renamed or deleted: by inotify, so on Linux. Elsewhere
+    it tells of nothing, and the watcher's look once a second is what there is."""
+    WRITTEN, OVERFLOW, GONE = 0x2 | 0x40 | 0x80 | 0x100 | 0x200, 0x4000, 0x8000   # IN_MODIFY, _MOVED_FROM, _MOVED_TO, _CREATE, _DELETE
+
+    def __init__(self):
+        self.fd, self.dirs = -1, {}   # watch -> folder
+        try:
+            self.libc = ctypes.CDLL(None, use_errno=True)
+            self.fd = self.libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        except (OSError, AttributeError):
+            pass
+
+    def follow(self, dirs):
+        if self.fd < 0:
+            return
+        for w in [w for w, d in self.dirs.items() if d not in dirs]:
+            self.libc.inotify_rm_watch(self.fd, w)
+            del self.dirs[w]
+        for d in dirs - set(self.dirs.values()):
+            w = self.libc.inotify_add_watch(self.fd, os.fsencode(d), self.WRITTEN)
+            if w >= 0:   # one that is not there yet is tried again at the next look
+                self.dirs[w] = d
+
+    def follows(self, d):
+        return d in self.dirs.values()
+
+    def wait(self, kick, secs):
+        """Waits up to secs for a change or a kick: the files changed, and whether to look at everything."""
+        got, files, all_ = select.select([kick] + ([self.fd] if self.fd >= 0 else []), [], [], max(0, secs))[0], set(), False
+        if kick in got:
+            all_ = True
+            with contextlib.suppress(BlockingIOError):
+                while kick.recv(4096):
+                    pass
+        if self.fd in got:
+            time.sleep(0.02)   # the rest of a line written in parts
+            with contextlib.suppress(BlockingIOError):
+                while buf := os.read(self.fd, 65536):
+                    at = 0
+                    while at < len(buf):
+                        w, mask, _, n = struct.unpack_from("iIII", buf, at)
+                        name = os.fsdecode(buf[at + 16:at + 16 + n].rstrip(b"\0"))
+                        at += 16 + n
+                        if mask & self.OVERFLOW:
+                            all_ = True
+                        elif mask & self.GONE:
+                            self.dirs.pop(w, None)
+                        elif w in self.dirs:
+                            files.add(os.path.join(self.dirs[w], name))
+        return files, all_
+
+    def close(self):
+        if self.fd >= 0:
+            os.close(self.fd)
+
+
+def live_working():
+    """Whether any agent was at work at the last look, or is being started or stopped: a status other than those of one
+    whose turn has ended (shell: with a command of its still running) counts as work."""
+    return any(rec.get("status") not in ("idle", "shell") for rec in _looked["live"].values()) or bool(_starting or _halting or _compacting)
+
+
+def live_watch():
+    watch, due, files, of = FileWatch(), 0, set(), {}   # of: transcript -> the agent whose conversation it is
+    worked = time.time()   # when an agent was last seen at work
+    while True:
+        began = time.time()
+        with _live_cv:
+            pages = list(_live["pages"])
+            if not pages:
+                _live.update(on=False, at=0, conv={})
+                watch.close()
+                return
+            names = frozenset().union(*(p.names for p in pages))
+        whole = began >= due
+        try:
+            if whole:
+                due = began + LIVE_EVERY
+                seen = {**live_look(names), "at": began}
+                of = {t: n for n, rec in _looked["live"].items() if (t := transcript(rec.get("sessionId")))}
+                watch.follow({SESSIONS, WANTED, *map(os.path.dirname, of)})
+                if live_working():
+                    worked = began
+                elif began - worked >= LIVE_SETTLE and watch.follows(SESSIONS):
+                    due = began + LIVE_REST
+            else:
+                seen = live_glance({n: _looked["live"][n] for n in {of[f] for f in files if f in of} if n in _looked["live"]})
+            with _live_cv:
+                _live.update(seen, v=_live["v"] + 1)
+                _live_cv.notify_all()
+        except Exception as e:   # a look that fails (a file half written) is missed, not the end of the watch
+            print(f"agents-web: live: {type(e).__name__}: {e}", file=sys.stderr)
+        if whole:
+            ended = time.time()
+        time.sleep(0.05)
+        while True:
+            files, all_ = watch.wait(_live_kick[0], due - time.time())
+            if all_ or any(os.path.dirname(f) in (SESSIONS, WANTED) for f in files):
+                due = min(due, ended + 0.2)
+            if time.time() >= due or files & of.keys():
+                break
+
+
+def live_kick():
+    with contextlib.suppress(BlockingIOError):
+        _live_kick[1].send(b"k")
+
+
+def live_join(page):
+    with _live_cv:
+        _live["pages"].add(page)
+        if not _live["on"]:
+            _live["on"] = True
+            threading.Thread(target=live_watch, daemon=True).start()
+    live_kick()
+
+
+def live_leave(page):
+    with _live_cv:
+        page.gone = True
+        _live["pages"].discard(page)
+        _live_cv.notify_all()
+
+
+def live_send(page, gz):
+    """Sends the page each change until it goes: at least a tick every LIVE_TICK seconds. As often, whatever else it is
+    sent, a ping, which its browser answers: the page itself may have nothing to say, and a silent one is taken as gone."""
+    seen, last, pinged = 0, 0, 0
+    while True:
+        with _live_cv:
+            _live_cv.wait_for(lambda: page.gone or _live["at"] and _live["v"] != seen, timeout=LIVE_TICK)
+            if page.gone:
+                return
+            if not _live["at"]:
+                continue
+            seen = _live["v"]
+            asked = 0 < page.ask <= _live["at"]
+            text, any_ = page.change()
+            if asked:
+                page.ask = 0
+        now = time.time()
+        if now - pinged >= LIVE_TICK:
+            page.put(9, b"")
+            pinged = now
+        if not any_ and not asked and now - last < LIVE_TICK:
+            continue
+        body = text.encode()
+        if gz and len(body) > LIVE_GZ:
+            page.put(2, gzip.compress(body, 1))
+        else:
+            page.put(1, body)
+        last = now
 
 
 def shell_kinds():
@@ -4215,7 +4505,7 @@ def term_keeper():
 
 
 def shell_size(fd, cols, rows):
-    import struct, termios
+    import termios
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(2, min(rows, 500)), max(2, min(cols, 1000)), 0, 0))
 
 
@@ -4244,11 +4534,98 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def socket_ok(self):
+        """Whether the request is the page's own WebSocket: its Origin this page's, which a browser always names."""
+        origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
+        return self.headers.get("Origin") in origins and bool(self.headers.get("Sec-WebSocket-Key")) and "websocket" in (self.headers.get("Upgrade") or "").lower()
+
+    def socket_open(self):
+        """Opens the WebSocket and returns what sends a frame on it. One that came in on Access's token is closed when
+        the token runs out: the sign-in is checked only as it opens."""
+        accept = base64.b64encode(hashlib.sha1(self.headers["Sec-WebSocket-Key"].encode() + WS_GUID).digest()).decode()
+        self.send_response(101)
+        for h, v in (("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Accept", accept)):
+            self.send_header(h, v)
+        self.end_headers()
+        self.wfile.flush()
+        self.close_connection = True
+        out, lock = self.connection, threading.Lock()
+
+        def put(op, data):
+            with lock:
+                out.sendall(ws_frame(op, data))
+
+        def shut():
+            try:
+                out.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        if bool(PUBLIC_HOST) and self.headers.get("Host") == PUBLIC_HOST:
+            with _lock:
+                until = _access["ok"].get(self.headers.get("Cf-Access-Jwt-Assertion"), 0)
+            self.expiry = threading.Timer(max(0, until - time.time()), shut)
+            self.expiry.daemon = True
+            self.expiry.start()
+        return put
+
+    def finish(self):
+        if getattr(self, "expiry", None):
+            self.expiry.cancel()
+        super().finish()
+
+    def live(self):
+        """What the page shows, sent as it changes for as long as its socket is open (see "live")."""
+        if not self.socket_ok():
+            return self.send(403, b"only the team page can open this\n", "text/plain")
+        gz = "gz=1" in urllib.parse.urlsplit(self.path).query
+        put = self.socket_open()
+        self.connection.settimeout(LIVE_DEAD)   # a page whose browser answers no ping has gone
+        page = LivePage(put)
+
+        def pump():
+            try:
+                live_send(page, gz)
+            except OSError:
+                pass
+            live_leave(page)
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        live_join(page)
+        threading.Thread(target=pump, daemon=True).start()
+        names = lambda v: frozenset(x for x in (v if isinstance(v, list) else [])[:100] if isinstance(x, str))
+        try:
+            while (m := ws_read(self.rfile)) is not None:
+                op, data = m
+                if op == 8:
+                    break
+                if op == 9:
+                    put(10, data)
+                if op != 1:
+                    continue
+                try:
+                    d = json.loads(data)
+                except ValueError:
+                    continue
+                if not isinstance(d, dict):
+                    continue
+                with _live_cv:
+                    if "names" in d:
+                        page.names = names(d["names"])
+                    if d.get("now"):
+                        page.ask = time.time()
+                live_kick()
+        except OSError:
+            pass
+        finally:
+            live_leave(page)
+
     def shell(self):
         """A Terminal pane's shell, joined to the page for as long as its socket is open (see "terminal")."""
-        origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
-        key = self.headers.get("Sec-WebSocket-Key")
-        if self.headers.get("Origin") not in origins or not key or "websocket" not in (self.headers.get("Upgrade") or "").lower():
+        if not self.socket_ok():
             return self.send(403, b"only the team page can open a terminal\n", "text/plain")
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         arg = lambda k: q.get(k, [""])[0]
@@ -4259,18 +4636,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(503, b"the terminal keeper could not be started\n", "text/plain")
         size = lambda n, d: int(arg(n)) if arg(n).isdigit() else d
         k.sendall(json.dumps({"op": "attach", "id": arg("id"), "kind": arg("kind") or "sh", "cols": size("cols", 80), "rows": size("rows", 24)}).encode() + b"\n")
-        accept = base64.b64encode(hashlib.sha1(key.encode() + WS_GUID).digest()).decode()
-        self.send_response(101)
-        for h, v in (("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Accept", accept)):
-            self.send_header(h, v)
-        self.end_headers()
-        self.wfile.flush()
-        self.close_connection = True
-        out, wlock, klock = self.connection, threading.Lock(), threading.Lock()
-
-        def put(op, data):
-            with wlock:
-                out.sendall(ws_frame(op, data))
+        out, put, klock = self.connection, self.socket_open(), threading.Lock()
 
         def pump():   # the keeper's output to the page; the shell's end closes the socket normally (1000), the keeper's loss abnormally (1011)
             code, kf = 1011, k.makefile("rb")
@@ -4325,6 +4691,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, b"sign in through Cloudflare Access\n", "text/plain")
         if path == "/api/shell":
             return self.shell()
+        if path == "/api/live":
+            return self.live()
         if path == "/api/shells":
             return self.send(200, json.dumps([{"kind": k, "name": v["name"]} for k, v in shell_kinds().items()]).encode(), "application/json")
         if path == "/":
@@ -5281,7 +5649,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thseg b svg{width:13px;height:13px}
 /* a full card's threads: chips over the open thread, or in a wide card (720px) the list on its left */
 .card.full.thon{container:sayroom thcard / size}   /* its height for the message box (sayroom), its width for the thread list */
-.thbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto;position:relative}
+.thbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto auto;position:relative}
 .thbody > .thlist{display:none}
 .thbody > .thchips{display:flex;gap:4px;overflow-x:auto;padding:6px 12px;border-top:1px solid var(--line)}
 .thbody > .thchips .thl{flex:none;cursor:pointer;margin:0}
@@ -5290,7 +5658,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .card.full .feed > .thhead{top:-8px;margin-top:-8px}   /* the open thread's head at the top, its lines from the bottom */
 .card.full .feed > .thhead + *{margin-top:auto}
 @container thcard (min-width:720px){
-  .thbody{grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto auto}
+  .thbody{grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto auto auto}
   .thbody > .thlist{display:flex;flex-direction:column;gap:2px;grid-column:1;grid-row:1/-1;min-height:0;overflow:auto;padding:10px 8px;border-top:1px solid var(--line);border-right:1px solid var(--line)}
   .thbody > .thchips{display:none}
   .thbody > :not(.thlist){grid-column:2}
@@ -5618,7 +5986,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .pane .card .top .foldbtn{margin-left:auto}   /* the fold and filter buttons together at the head's end, open or folded */
 .pane .card .top .foldbtn + .lanes{margin-left:0}
 .card .top .cctl{display:contents}
-.termseg b,.railseg b{padding:1px 5px;font-size:calc(var(--t-xs)*var(--fs,1))}
+.railseg b{padding:1px 5px;font-size:calc(var(--t-xs)*var(--fs,1))}
 /* a filter button, flat like the maximise button; its sliders are in the text colour while something is left out */
 .fbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;height:20px;border-radius:var(--r-s);color:var(--mute);cursor:pointer;font-weight:400}
 .fbtn svg{width:13px;height:13px;stroke-width:1.5}
@@ -5863,10 +6231,7 @@ table.md th{background:var(--line);font-weight:650}
 .maxbtn,.backbtn{flex:none;display:grid;place-items:center;width:22px;height:20px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 .maxbtn:hover,.backbtn:hover{background:var(--on);color:var(--text)}
 .card > .top > .lead{display:flex;align-items:center;gap:6px}   /* the back button before the name, in a Combined pane showing one agent */
-/* a maximised pane's card has its terminal at the top right of its conversation, as the agent's own view does */
-.card.full > .termwrap{display:none}
 .card.full:hover{transform:none}
-.pane:has(.termwrap.big){backdrop-filter:none}
 /* A card in a custom Grid or Tabs pane wide enough: its state and its model side by side, so the head is two lines
    (name, then the facts), as an agent pane's is. */
 @container (min-width:440px){
@@ -5887,12 +6252,10 @@ table.md th{background:var(--line);font-weight:650}
   .card.full > *{grid-column:1/-1}
   .card.full > .top + .row2{grid-column:1;grid-row:2;padding-right:0}
   .card.full > .row2 + .row2{grid-column:2;grid-row:2}
-  .card.full > .termwrap{display:block;grid-row:4;grid-column:1/-1}
-  .card.full.term .feed{padding-right:calc(340px + 40px)}
   .card.full > svg.spark{height:16px}
 }
 @container (min-width:720px){
-  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
+  .card.full{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto auto auto auto;grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:10px}
   .card.full > *{grid-column:1/-1}
   .card.full > .top{display:contents}
   .card.full > .top > *,.card.full > .top > .cctl > *,.card.full > .row2{grid-row:1;align-self:center}
@@ -5900,18 +6263,14 @@ table.md th{background:var(--line);font-weight:650}
   .card.full > .top > .role{grid-column:2}
   .card.full > .top + .row2{grid-column:3/5;padding:0}
   .card.full > .row2 + .row2{grid-column:5;padding:0}
-  .card.full > .top > .termseg{grid-column:6}
-  .card.full > .top .lanes{grid-column:8;align-self:center;margin:0 -8px 0 4px}
-  .card.full > .top .thseg{grid-column:9;align-self:center;margin:0 0 0 8px}   /* Threads | All, in a column of its own */
-  .card.full > .top > .maxbtn{grid-column:10;align-self:center;margin:0 10px 0 0;position:static}
-  .card.full > .top .foldbtn{grid-column:7;align-self:center;margin:0 0 0 4px}   /* the header's controls on one line, centred on it */
-  .card.full > .termwrap{display:block;grid-row:3;grid-column:1/-1}
-  .card.full.term .feed{padding-right:calc(340px + 40px)}
+  .card.full > .top .lanes{grid-column:7;align-self:center;margin:0 -8px 0 4px}
+  .card.full > .top .thseg{grid-column:8;align-self:center;margin:0 0 0 8px}   /* Threads | All, in a column of its own */
+  .card.full > .top > .maxbtn{grid-column:9;align-self:center;margin:0 10px 0 0;position:static}
+  .card.full > .top .foldbtn{grid-column:6;align-self:center;margin:0 0 0 4px}   /* the header's controls on one line, centred on it */
   .card.full > svg.spark{height:16px}
 }
 /* folded: no facts or graph, so the conversation takes the second row and the rest follow, the message box in its own */
 .pbody .card.folded,.card.full.folded,.cell > .card.full.folded{grid-template-rows:auto minmax(0,1fr) auto auto}
-.card.full.folded > .termwrap{grid-row:2}
 b.h{display:block;margin-top:2px;font-weight:650}
 .empty{color:var(--faint);font-style:italic;font-size:calc(var(--t-m)*var(--fs,1))}
 /* detail */
@@ -5925,7 +6284,7 @@ html.only #detail{background:none;backdrop-filter:none;padding:0}
 html.only #detail .box{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);border:0;border-radius:0;box-shadow:none}
 html.only #detail .box .left{grid-column:1;grid-row:2}
 #detail .mini:not(.cur)::before,.others .mini::before{display:none}
-#detail .box{--c:#888;--thumb:340px;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:var(--r-l);background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
+#detail .box{--c:#888;--rail:220px;position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) var(--rail);grid-template-rows:auto minmax(0,1fr);border:1px solid var(--line2);border-radius:var(--r-l);background:var(--box);overflow:hidden;box-shadow:0 30px 80px #000c}
 #detail .head{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);border-top:3px solid var(--c)}
 #detail .head .lanes + .x{margin-left:14px}
 #emo{position:fixed;display:none;z-index:60;min-width:220px;max-width:340px;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--box);box-shadow:0 12px 30px #0008;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--text2)}
@@ -5933,10 +6292,7 @@ html.only #detail .box .left{grid-column:1;grid-row:2}
 #emo div span{font-size:calc(var(--t-xl)*var(--fs,1));width:20px;text-align:center}
 #emo div.on,#emo div:hover{background:var(--on);color:var(--text)}
 #detail .head #dmore + .x{margin-left:10px}
-#detail .head .termseg{margin-left:auto;flex:none}
-#detail .head .termseg + .railseg,#detail .head .railseg + .lanes{margin-left:8px}
-#detail .box.noterm .termwrap{display:none}
-#detail .box.noterm .conv{padding-right:16px}
+#detail .head .railseg + .lanes{margin-left:8px}
 html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{display:none !important}   /* in a pane: its conversation alone */
 .phth:has(> .phthback){display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;align-items:start}
 .phth > .phthback{display:grid;place-items:center;width:32px;height:32px;margin-left:-6px;border-radius:16px;color:var(--text);cursor:pointer}
@@ -6001,6 +6357,8 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .ph-asks{padding:1px 8px;border-radius:10px;background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber);font:650 11px var(--sans);white-space:nowrap}
 #dre{position:relative;display:flex;gap:6px;padding:0 16px 4px}
 #dre[hidden]{display:none}
+.card .retagrow{display:flex;padding:0 12px 4px}
+.card .retagrow .retag{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .retag{font:650 calc(var(--t-s)*var(--fs,1)) var(--mono);padding:2px 10px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);cursor:pointer}
 .retag.ask{border-color:var(--amber);color:var(--amber)}
 .retag.fixed{cursor:default}
@@ -6012,9 +6370,6 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 :is(#dremenu,#thsortmenu,#shmenu) .remi:hover{background:var(--on)}
 :is(#dremenu,#thsortmenu) .remi.on{font-weight:650}
 #dremenu .remi.ask{color:var(--amber)}
-#detail .box.termdock .left .conv{padding-right:16px}   /* the terminal docked under a conversation too narrow to have it beside */
-#detail .box.termdock .left .sayrow{margin-right:0}
-#detail .box.termdock .left .termwrap:not(.big){position:static;align-self:flex-end;margin:0 16px 10px}
 /* the header keeps its name, role and switches whole; the facts take the room left and drop whole, from the end,
    when there is not room for them all */
 #detail .head > *{flex:none;white-space:nowrap}
@@ -6277,7 +6632,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .teamlog .chead .x:hover{color:var(--text);background:var(--line2)}
 .teamlog .chead .x svg{width:14px;height:14px}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
-#detail .conv{flex:1;min-height:0;overflow:auto;padding:14px calc(var(--thumb) + 40px) 14px 16px;display:flex;flex-direction:column;gap:9px}
+#detail .conv{flex:1;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 12px 10px}   /* 12px in, as the conversation above it (.feed), so the box lines up with its text */
 .pastechip{position:fixed;z-index:60;display:flex;align-items:center;gap:10px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--box);color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));box-shadow:0 4px 14px #0004}
 .pastechip b{padding:2px 9px;border-radius:999px;background:var(--on);color:var(--text);font-weight:500;cursor:pointer}
@@ -6298,7 +6653,6 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .mini .mtop .mstat{flex:0 1 auto;min-width:0;font:calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--mute);overflow:hidden;text-overflow:ellipsis}
 .mini.busy .mtop .mstat{color:var(--green)}
 .mini.waiting .mtop .mstat,.mini.wanted .mtop .mstat{color:var(--amber)}
-#detail .box:not(.noterm) .sayrow{margin-right:calc(var(--thumb) + 40px)}
 .add{flex:none;position:relative;width:31px;height:31px;padding:0;border-radius:var(--r-m);border:1px solid var(--line2);background:var(--soft);color:var(--mute);cursor:pointer}
 .add::before,.add::after{content:"";position:absolute;inset:0;margin:auto;width:12px;height:1.5px;border-radius:var(--r-xs);background:currentColor}
 .add::after{width:1.5px;height:12px}
@@ -6348,24 +6702,6 @@ html:not(.phone) #detail .sayrow > .say{padding-left:42px}
 /* text shown whole flows as a block, so a message's badges open its first line and its later lines run beneath them */
 .card.full .it .tx,.teamlog:not(.summary) .it .tx,#detail .conv .it .tx,.it.ask .tx{display:block}
 #detail .conv .it.tools .tx{white-space:normal}
-/* the pane as a live thumbnail at the top right, in a terminal window of its own shape; a click expands it over
-   the whole window over a dimmed page, as large as fits, as an image does */
-:is(#detail,.card.full) .termwrap{position:absolute;top:14px;right:16px;z-index:2;cursor:zoom-in}
-:is(#detail,.card.full) .termwrap:hover .term{border-color:var(--c)}
-:is(#detail,.card.full) .termwrap.big{position:fixed;inset:0;z-index:40;display:flex;justify-content:center;align-items:center;padding:40px;cursor:default;
-  background:#000c;backdrop-filter:blur(3px)}
-:is(#detail,.card.full) .termwrap .x{display:none;position:fixed;top:16px;right:22px;color:#ccc;cursor:pointer;font-size:calc(var(--t-xxl)*var(--fs,1));line-height:1}
-:is(#detail,.card.full) .termwrap.big .x{display:block}
-:is(#detail,.card.full) .termwrap .x:hover{color:#fff}
-:is(#detail,.card.full) .term{display:flex;flex-direction:column;border-radius:var(--r-m);overflow:hidden;background:#06080b;border:1px solid #ffffff1f;box-shadow:0 18px 50px #0008;transition:border-color .15s}
-:is(#detail,.card.full) .bar{flex:none;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#161b22;border-bottom:1px solid #ffffff14;font:calc(var(--t-m)*var(--fs,1)) var(--sans);color:#8b949e}
-:is(#detail,.card.full) .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
-:is(#detail,.card.full) .bar i:nth-child(2){background:#febc2e}:is(#detail,.card.full) .bar i:nth-child(3){background:#28c840;margin-right:8px}
-:is(#detail,.card.full) .bar span{flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-:is(#detail,.card.full) .bar b{cursor:pointer;font-weight:400;font-size:calc(var(--t-l)*var(--fs,1));padding:0 2px;color:#8b949e}
-:is(#detail,.card.full) .bar b:hover{color:#e6edf3}
-:is(#detail,.card.full) .screen{overflow:hidden;padding:10px}
-#dscreen,.card.full .termwrap pre{margin:0;font-family:var(--mono);line-height:1.25;color:#d1d7e0;white-space:pre;overflow:hidden}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--thumb);border-radius:var(--r-m)}
 /* On a phone (owner, 2026-11-01: "move to the mobile experience"): the bars wrap; Grid's sections stand one under
    another, two cards across, and the page scrolls; an agent's view fills the screen, the others one row along its
@@ -6387,11 +6723,10 @@ html:not(.phone) #detail .sayrow > .say{padding-left:42px}
   #detail .box .left{grid-column:1 !important;grid-row:3 !important}
   :is(#detail:not(.docked),html.only #detail) .box{grid-template-rows:auto minmax(0,1fr)}   /* no row of others: only a docked view has one */
   :is(#detail:not(.docked),html.only #detail) .box .left{grid-row:2 !important}
-  #detail .termwrap,#detail .head :is(.termseg,.railseg),#detail .head .facts{display:none}
+  #detail .head :is(.railseg,.facts){display:none}
   #detail #dhead .lanes{margin-left:auto}   /* the facts, hidden, were what pushed it and the ✕ to the right */
   #detail .box .conv{padding-right:16px}
   #detail .box .sayrow{margin-right:14px !important}
-  .card.full.term .feed{padding-right:0}
   main > .pane{height:100%;min-height:60vh}   /* a custom view of one pane fills the page, not just its tab strip */
   #main .lay{flex-direction:column}
   #main .lay > .half{flex:none;min-height:75vh}
@@ -6856,7 +7191,7 @@ html.phoneoff #phoneback{display:block}
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbcount"></span><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span><b class="lbnav" id="lbprev" title="Previous image (←)">‹</b><b class="lbnav" id="lbnext" title="Next image (→)">›</b></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="retagrow" id="dre" hidden></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div><div class="termwrap" id="dterm" title="Expand"><div class="term"><div class="bar"><i></i><i></i><i></i><span id="dtitle"></span><b id="dzoom">⤢</b></div><div class="screen" id="dscr"><pre id="dscreen"></pre></div></div><span class="x" id="dtx" title="Close (Esc)">✕</span></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="retagrow" id="dre" hidden></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div></div><div class="rail" id="drail"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -7548,22 +7883,22 @@ document.addEventListener("click", e => {
   try { localStorage.setItem("folded", JSON.stringify(f.includes(name) ? f.filter(x => x !== name) : [...f, name])); } catch (e) {}
   draw();
 }, true);
-function card(a, ceil, conv, extra = "", after = "", {key = "", keep = false, lead = ""} = {}) {
+function card(a, ceil, conv, extra = "", {key = "", keep = false, lead = ""} = {}) {
   const cls = stOf(a);
   const model = a.model ? a.model.split(" ").slice(0, 2).map((p, i) => i ? p : p[0]).join("") : "";
   const ctx = a.ctxPct == null ? "" : `<span class="ctx" title="${a.ctxPct}% of context used"><span class="meter"><i style="width:${Math.min(100, a.ctxPct)}%;background:${gauge(a.ctxPct)}"></i></span><span style="color:${gauge(a.ctxPct)}">${a.ctxPct}%</span></span>`;
   const turns = conv || a.feed;
   // a full card in Threads (the agent's choice, as in its view): its threads as a list on its left when it is wide, as
   // chips over the open thread when narrow (CSS), and the open thread only in its conversation
-  const all = conv && thMode(a.name) === "threads" && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2, pick = thr ? thPick(all, a.name) : null;
+  const all = conv && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2 && thMode(a.name) === "threads", pick = thr ? thPick(all, a.name) : null;
   const shownList = thr ? thHoldOrder(all, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
   const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
     : thr ? thHeadHtml(pick.t, a.name) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
     : feedHtml(turns, a.name, !conv, laneOf(a.name), null, conv ? newMarkAt(a.name, EVERY) : null);
   const fold = folded().includes(a.name);
-  const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${after}
-    ${a.live ? sayRow(a) : ""}`;
-  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${thr ? " thon" : ""}${after ? " term" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
+  const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}
+    ${a.live ? (all.length > 2 ? `<div class="retagrow">${reTag(thr && pick.name !== EVERY ? pick.t : null)}</div>` : "") + sayRow(a) : ""}`;
+  return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${thr ? " thon" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${roleWith(a)}</span><span class="cctl">${foldButton(a.name, fold)}${conv && a.feed.length ? thSeg(a.name) : ""}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
     <div class="row2">${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
@@ -9902,7 +10237,7 @@ function paneTabs(n, locked, path) {
 // one shows it; its pencil renames it in place (Enter or leaving the box keeps the name, Esc drops it) and its × deletes
 // it (never the last) once asked in the menu, as an agent's Stop asks. Add a view, at the bottom, adds an empty custom one and names it straight away.
 // Changes the views and shows the one they leave showing, as a pick from the View menu does.
-function changeViews(f) { const v = views(); f(v); saveViews(v); localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); setTimeout(load); }
+function changeViews(f) { const v = views(); f(v); saveViews(v); localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); draw(); setTimeout(load); }
 // The view keys: Ctrl+Alt (Ctrl+Option on a Mac) with 1 … 9 shows a view, the Nth in the View menu until any key is
 // given a view in Settings, then only the keys given one. A key is given a view by its name, and follows it when renamed.
 const viewMod = () => MAC ? "Ctrl+Option" : "Ctrl+Alt";   // a function: MAC is set further down
@@ -9992,13 +10327,10 @@ function customHtml(ceil, tabRow) {
   // layout is being changed); a maximised one always does. Every card has the maximise button docked at the end of its head.
   const paneCard = (n, a, path, lead = "") => {
     const big = path === maxed;
-    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), "", {lead});
-    const t = big && termOn() && paneTerm[a.name];
+    if (!fullView(n) && !big) return card(a, ceil, null, maxButton(false), {lead});
     const key = paneConv[a.name] && [a.name, a.live, paneVer[a.name], laneOf(a.name), [...openRuns], noImage.size, echoKey(a.name), paintKey, thMode(a.name), localStorage.getItem("thread:" + a.name), thFolded(), JSON.stringify(thHidden[a.name] || {}), wkGet("pins", ""), thMode(a.name) === "threads" && Math.floor(Date.now() / 60000), seen[a.name], JSON.stringify(seenTh[a.name] || {}), JSON.stringify(thCleared[a.name] || {}), thSort(), thNoClosed(), newMarksKey(a.name)].join("|");   // a threaded card redrawn each minute, so "answered" and the times move on
     const keep = !!key && $(`#main .pane[data-path="${path}"] .card.full[data-name="${CSS.escape(a.name)}"] .feed`)?.dataset.key === key;
-    return card(a, ceil, paneConv[a.name] || a.feed,
-      (big ? `<span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span>` : "") + maxButton(big),
-      t ? paneTermHtml(a.name, t) : "", {key, keep, lead});
+    return card(a, ceil, paneConv[a.name] || a.feed, maxButton(big), {key, keep, lead});
   };
   const pane = (n, path) => {
     const of = paneAgents(n);
@@ -10165,20 +10497,10 @@ function maxToggle() {
   at?.querySelector(".maxbtn")?.click();
   return true;
 }
-function unmax() { if (!localStorage.getItem("custom:max")) return false; localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); paneBig = null; draw(); return true; }
-// Each agent pane's longer conversation, as the agent's own view reads it, fetched with every load of the page, and
-// its terminal as it is on screen, shown in a maximised pane. A conversation's version goes up only when it changes,
-// so an unchanged one is not drawn again.
-const paneConv = {}, paneTerm = {}, paneVer = {}, paneText = {};
-let paneBig = null;   // the agent whose maximised pane's terminal is expanded over the page
-function paneTermHtml(name, t) {
-  measureChar();
-  const big = paneBig === name, w = big ? innerWidth - 80 - PAD : THUMB_W - PAD;
-  const h = big ? innerHeight - 80 - PAD - 33 : THUMB_H;
-  const size = Math.max(1, Math.min(big ? BIG : 99, w / (t.cols * charW), h / (t.rows * 1.25)));
-  return `<div class="termwrap${big ? " big" : ""}" title="${big ? "" : "Expand"}"><div class="term"><div class="bar"><i></i><i></i><i></i><span>${esc(shown(name))} — ${t.cols}×${t.rows}</span><b class="pzoom">${big ? "⤡" : "⤢"}</b></div>` +
-    `<div class="screen"><pre style="font-size:${size.toFixed(2)}px;width:${(t.cols * charW * size).toFixed(1)}px;height:${(t.rows * 1.25 * size).toFixed(1)}px">${t.screen || ""}</pre></div></div><span class="x" title="Close (Esc)">✕</span></div>`;
-}
+function unmax() { if (!localStorage.getItem("custom:max")) return false; localStorage.removeItem("custom:max"); localStorage.removeItem("custom:maxname"); draw(); return true; }
+// Each agent pane's longer conversation, as the agent's own view reads it, fetched with every load of the page. A
+// conversation's version goes up only when it changes, so an unchanged one is not drawn again.
+const paneConv = {}, paneVer = {}, paneText = {};
 // The Team pane's transcript: every message between agents, fetched with each load while a Team pane is laid out.
 // Full scrolls through all of them, each whole; Summary shows the newest that fit, each cut to a few lines, as a card does.
 // Its Agents menu, saved with the pane, leaves out or brings back the messages an agent sent or received.
@@ -10245,18 +10567,20 @@ function combinedHtml(path, n, full, big) {
 // What the layout's panes show, read with every load; an agent's conversation only for a pane that draws it. A page in a
 // pane's frame draws its one agent, and reads what names its threads (the work queue and the Day log).
 async function loadPaneConvs() {
-  if ((localStorage.getItem("page") || "grid") !== "custom") return;
-  if (EMBED) { await Promise.all([loadDayLog(), loadWorkQueue()]); return; }
-  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
-  const max = localStorage.getItem("custom:max"), names = [...new Set(leaves(layout().root).flatMap(([p, n]) =>
+  const custom = (localStorage.getItem("page") || "grid") === "custom", max = localStorage.getItem("custom:max");
+  const names = !custom || EMBED ? [] : [...new Set(leaves(layout().root).flatMap(([p, n]) =>
     n.show === "combined" ? paneAgents(n).map(a => a.name) : !fullView(n) && p !== max ? [] : n.show === "agent" ? (n.name ? [n.name] : [])
       : ["grid", "tabs"].includes(n.show) ? paneAgents(n).map(a => a.name) : []))];
+  LV.names = names; lvWatch();
+  if (!custom) return;
+  if (EMBED) { await Promise.all([loadDayLog(), loadWorkQueue()]); return; }
+  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
   await Promise.all(names.map(async name => {
+    if (LV.up && LV.got.conv[name]) return lvPane(name);
     try {
       const d = await (await fetch("/api/agent/" + encodeURIComponent(name), {cache: "no-store"})).json();
       const text = JSON.stringify(d.feed);
       if (text !== paneText[name]) { paneConv[name] = d.feed; paneText[name] = text; paneVer[name] = (paneVer[name] || 0) + 1; }
-      paneTerm[name] = {screen: d.screen, cols: d.cols || 80, rows: d.rows || 24};
     } catch (e) {}
   }));
 }
@@ -10912,14 +11236,6 @@ function customClicks() {
     if (other) return open(other);
     localStorage.removeItem("focus:pane:" + b.closest(".pane").dataset.path); draw();
   });
-  main.querySelectorAll(".pane .termseg b").forEach(b => b.onclick = e => { e.stopPropagation(); localStorage.setItem("term", termOn() ? "off" : "on"); draw(); });
-  main.querySelectorAll(".card.full > .termwrap").forEach(w => w.onclick = e => {
-    e.stopPropagation();
-    if (!w.classList.contains("big")) paneBig = w.closest(".card").dataset.name;
-    else if (e.target === w || e.target.matches(".pzoom, .x")) paneBig = null;
-    else return;
-    draw();
-  });
   main.querySelectorAll(".filelog [data-fe]").forEach(b => b.onclick = () => fileAct(b.dataset.fe, nodeAt(layout().root, b.closest(".pane").dataset.path)?.path));
   main.querySelectorAll(".filelog textarea.fedit").forEach(t => {
     const p = nodeAt(layout().root, t.closest(".pane").dataset.path)?.path;
@@ -10995,12 +11311,122 @@ function paintAgents() {
   colours = Object.fromEntries([...S.agents, ...S.bench].map(a => [a.name, a.colour]));
   paintKey = Object.values(colours).join();   // in the conversations' keys, so a feed kept as drawn is drawn again in new colours
 }
-async function load() {
+function takeState(st) {
+  S = st;
+  for (const a of [...S.agents, ...S.bench]) a.roleColour = a.colour;
+  paintAgents();
+}
+// What the page shows, sent by the server as it changes (its "live"), in place of reading /api/state and /api/agent/NAME
+// over and over. While it is up, load and refreshDetail draw from what it has brought; while it is not, they read as they
+// would without it. `got` is everything brought so far, whole; `names` the conversations the panes show.
+const LV = {ws: null, up: false, at: 0, began: 0, tries: 0, off: 0, got: null, names: [], said: "", asks: [], chain: null, due: 0};
+// Fields that move all the time, with nothing to see at once: they are drawn with the next load, not for themselves.
+const LV_QUIET = new Set(["rate", "series", "ctxUsed", "ctxPct", "pfoot", "plugins"]);
+const lvNow = () => (Date.now() + LV.off) / 1000;
+// the state as /api/state gives it, the ages counted to now
+function lvState() {
+  const now = lvNow(), age = t => t ? Math.max(0, Math.floor(now - t)) : null;
+  return {...LV.got.top, now, bench: LV.got.top.bench.map(a => ({...a})),
+    agents: LV.got.order.map(n => { const a = LV.got.agents[n]; return {...a, held: age(a.since), wantedHeld: age(a.wantedSince)}; })};
+}
+const lvFeed = (old, how) => how.flatMap(x => Array.isArray(x) ? old.slice(x[0], x[0] + x[1]) : [x]);
+// whether a feed has changed in more than the line of what its agent is doing
+const lvSpoke = (old, now) => { const f = xs => xs.filter(it => it.kind !== "live"), a = f(old), b = f(now); return a.length !== b.length || a.some((it, i) => it !== b[i]); };
+function lvTake(m) {
+  const g = LV.got ||= {top: {}, order: [], agents: {}, conv: {}};
+  let loud = !LV.up;
+  LV.off = m.now * 1000 - Date.now();
+  if (m.top) { Object.assign(g.top, m.top); loud ||= Object.keys(m.top).some(k => !LV_QUIET.has(k)); }
+  if (m.order) { g.order = m.order; loud = true; }
+  for (const [n, d] of Object.entries(m.agents || {})) {
+    const was = g.agents[n] || {feed: []}, a = g.agents[n] = {...was, ...d};
+    if (d.feed) a.feed = lvFeed(was.feed, d.feed);
+    if (EMBED && n !== EMBED) continue;   // a framed page shows its one agent
+    loud ||= !!d.feed && lvSpoke(was.feed, a.feed) || Object.keys(d).some(k => k !== "feed" && !LV_QUIET.has(k));
+  }
+  for (const n of Object.keys(g.agents)) if (!g.order.includes(n)) delete g.agents[n];
+  for (const [n, d] of Object.entries(m.conv || {})) {
+    const was = g.conv[n] || {feed: []}, c = g.conv[n] = {...was, ...d};
+    if (d.feed) c.feed = lvFeed(was.feed, d.feed);
+    if (LV.names.includes(n)) { lvPane(n); loud ||= !!d.feed && lvSpoke(was.feed, c.feed); }
+  }
+  for (const n of m.drop || []) delete g.conv[n];
+  LV.up = true;
+  takeState(lvState());
+  for (const f of LV.asks.splice(0)) f();
+  if (open && m.conv?.[open] && !lvSeeking(open)) setTimeout(() => { if (open && LV.got?.conv[open]) showDetail(open, LV.got.conv[open], false); });
+  if (loud && !document.hidden) lvDraw();
+}
+// a pane's conversation as the socket has it
+function lvPane(name) {
+  const c = LV.got.conv[name];
+  if (paneConv[name] !== c.feed) { paneConv[name] = c.feed; paneText[name] = null; paneVer[name] = (paneVer[name] || 0) + 1; }
+}
+const lvSeeking = name => seek?.src === "conversation" && seek.name === name;
+// One draw for changes that come together, and then none for ten times as long as it took (0.3 seconds to four), so
+// a page slow to draw, as one with a Combined pane of everybody is, is drawn no more often than it was by its timer.
+let lvDrawing = 0, lvDrawn = 0;
+function lvDraw() {
+  if (lvDrawing) return;
+  lvDrawing = setTimeout(() => {
+    const t = performance.now();
+    draw(); if (menu.classList.contains("on")) menu.refresh?.();
+    lvDrawing = 0; lvDrawn = Date.now(); LV.due = lvDrawn + 4000;
+    requestAnimationFrame(() => setTimeout(() => { LV.due = Date.now() + Math.min(4000, Math.max(300, 10 * (performance.now() - t))); }));
+  }, Math.max(40, LV.due - Date.now()));
+}
+// the server told what the page shows, when that changes
+function lvWatch() {
+  if (LV.ws?.readyState !== 1) return;
+  const names = [...new Set([...LV.names, ...(open && !open.startsWith(MEET) ? [open] : [])])].sort();
+  const say = JSON.stringify({names});
+  if (say !== LV.said) { LV.said = say; LV.ws.send(say); }
+}
+// a look at once, as after an action: done when what it saw has come, or in a second and a half
+const lvAsk = () => new Promise(done => {
+  if (LV.ws?.readyState !== 1) return done();
+  LV.asks.push(done); setTimeout(done, 1500); LV.ws.send('{"now":1}');
+});
+async function lvText(data) {
+  if (typeof data === "string") return data;
+  return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+}
+function lvShut(ws) {
+  if (LV.ws !== ws) return;
+  if (Date.now() - LV.began > 20000) LV.tries = 0;
+  LV.ws = null; LV.up = false; LV.got = null;
+  for (const f of LV.asks.splice(0)) f();
+  try { ws.close(); } catch (e) {}
+  setTimeout(lvOpen, Math.min(30000, 1000 * 2 ** LV.tries++));
+}
+function lvOpen() {
+  if (LV.ws || !window.WebSocket) return;
+  const ws = LV.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live${"DecompressionStream" in window ? "?gz=1" : ""}`);
+  ws.binaryType = "arraybuffer"; LV.at = LV.began = Date.now(); LV.said = ""; LV.got = null; LV.chain = Promise.resolve();
+  ws.onopen = lvWatch;
+  // one at a time, as each is a change to the one before
+  ws.onmessage = e => { LV.at = Date.now(); LV.chain = LV.chain.then(() => lvText(e.data)).then(t => { if (LV.ws === ws) lvTake(JSON.parse(t)); })
+    .catch(err => { console.error("agents-web live", err); lvShut(ws); }); };
+  ws.onclose = () => lvShut(ws);
+}
+// a socket gone quiet (the machine slept, the network changed) is dropped, and one lost is opened again at once when
+// the page is looked at again
+const lvCheck = () => { if (LV.ws && Date.now() - LV.at > 30000) lvShut(LV.ws); };
+addEventListener("online", () => { lvCheck(); lvOpen(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) return; lvCheck(); lvOpen(); lvDraw(); });
+// tick: the page's own timer, which has the socket's word for what it would read; anything else has just changed something
+async function load(tick) {
   try {
-    S = await (await fetch("/api/state", {cache: "no-store"})).json();
-    await loadPaneConvs();
-    for (const a of [...S.agents, ...S.bench]) a.roleColour = a.colour;
-    paintAgents();
+    lvCheck();
+    if (LV.up) {
+      await Promise.all([tick === true ? null : lvAsk(), loadPaneConvs()]);
+      if (LV.up) takeState(lvState());
+      // the timer's draw is for the ages, and for what the panes read for themselves
+      if (tick === true && LV.up) { if ((localStorage.getItem("page") || "grid") === "custom" || Date.now() - lvDrawn > 3500) lvDraw(); return; }
+    } else {
+      takeState(await (await fetch("/api/state", {cache: "no-store"})).json());
+      await loadPaneConvs();
+    }
     draw();
     if (menu.classList.contains("on")) menu.refresh?.();
   } catch (e) {
@@ -11180,9 +11606,6 @@ function facts() {
     `<span title="Where it sits · the folder it works in">${esc(a.tab || "")} · ${esc(a.cwd || "")}</span>`].filter(Boolean).join(""));
 }
 
-// An open agent's terminal, beside its conversation, is shown or hidden from its header; the choice is remembered.
-const termOn = () => localStorage.getItem("term") !== "off";
-function showTerm() { $("#detail .box").classList.toggle("noterm", !termOn()); }
 // The edge the other agents' column sits on, moved round clockwise from the header and remembered.
 const EDGES = {right: "→", bottom: "↓", left: "←", top: "↑"};
 const railEdge = () => EDGES[localStorage.getItem("rail")] ? localStorage.getItem("rail") : "right";
@@ -11196,17 +11619,16 @@ function showRail() {
 async function openDetail(name) {
   if (seek?.src === "conversation") { if (seek.fresh && seek.name === name) seek.fresh = false; else seek = null; }   // a hit marks only the view it opened
   if ($("#detail").classList.contains("docked")) localStorage.setItem("tab:page", name);
-  open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = ""; $("#dscreen").innerHTML = ""; $("#dterm").classList.remove("big"); $("#dzoom").textContent = "⤢";
+  open = name; pinned = true; $("#dbottom").classList.remove("on"); $("#dconv").innerHTML = "";
   history.replaceState(null, "", "#" + encodeURIComponent(name));
   if (ONLY) document.title = shown(name);
   const a = S.agents.find(x => x.name === name) || S.bench.find(x => x.name === name) || {};   // a benched agent's last conversation is there to read
   $("#detail .box").style.setProperty("--c", a.colour || "#888");
-  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg termseg"><b class="${termOn() ? "on" : ""}" title="Show or hide its terminal">Terminal</b></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${thSeg(name)}${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
+  $("#dhead").innerHTML = `<span class="name" style="--c:${a.colour}">${esc(shown(name))}</span><span class="role">${roleWith(a)}</span>${a.ticket ? `<span class="ticket" style="margin-left:6px" title="${esc(tkTip(a))}">${tkLink(a)}</span>` : ""}<span class="facts" id="dfacts"></span><span class="seg railseg"><b title="Move the other agents' cards to the next edge"></b></span>${thSeg(name)}${laneSeg(name)}<b class="fbtn" id="dmore" data-menu="agent:${esc(name)}" title="More">${MENU_ICON.more}</b><span class="x" title="Close (Esc)">✕</span>`;
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
-  $("#dhead .termseg b").onclick = e => { localStorage.setItem("term", termOn() ? "off" : "on"); e.target.classList.toggle("on", termOn()); showTerm(); renderConv(); };
-  $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); fitTerm(); };
-  showTerm(); showRail();
+  $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); };
+  showRail();
   facts();
   $("#detail").classList.add("open");
   rail();
@@ -11379,8 +11801,8 @@ document.addEventListener("click", e => {
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
-function thListHtml(list, sel, un = {}, squeezed = false) {
-  if (thFolded() || squeezed) return THMORE + `<div class="thtools">${thSortBtn(false)}${squeezed ? "" : thFoldBtn()}</div>` + list.map(t => {
+function thListHtml(list, sel, un = {}) {
+  if (thFolded()) return THMORE + `<div class="thtools">${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
     return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
@@ -11406,7 +11828,7 @@ function thAskLine(text) {
   const paras = String(text || "").split(/\n\s*\n/).map(p => p.trim()).filter(p => p && !p.startsWith("```"));
   const q = paras.filter(p => /\?\s*$/.test(p) || /\?\*\*/.test(p)).at(-1) || paras.find(p => /^\*\*[^*]+\*\*/.test(p)) || paras.at(-1) || "";
   const flat = q.replace(/\*\*/g, "").replace(/\s+/g, " ");
-  return flat.length > 240 ? flat.slice(0, 239) + "…" : flat;
+  return flat.length > 240 ? flat.slice(0, 239).replace(/\s+\S*$/, "") + "…" : flat;   // cut between words: part of a link would open the wrong page
 }
 function thHeadHtml(t, name) {
   if (!t) return "";
@@ -11414,7 +11836,7 @@ function thHeadHtml(t, name) {
   const done = phAnswered[name + "\n" + t.name], open_ = t.ask && !(done > (Date.parse(t.ask._asked.at(-1)) || 0));
   const qa = !open_ ? "" : `<div class="phqa dqa">${(thYesNo(t.ask.text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
     .map(([w, l]) => `<button data-thqa="${w}" data-thqth="${esc(t.name)}">${l}</button>`).join("")}</div>`;
-  const ask = open_ ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
+  const ask = open_ ? `<div class="thask">${thClrBtn(t)}<b>Open ask</b> · ${inline(thAskLine(t.ask.text))}<small>First asked ${thWhen(t.ask._asked[0])}` +
       `${t.ask._asked.length > 1 ? ` · asked again ${t.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small>${qa}</div>`
     : done ? `<div class="thask ok">Answered ${thWhen(done)}</div>` : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
   return `<div class="thhead"><div class="thname"><b>${esc(t.key || t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key ? (t.title !== t.key ? t.title : "") : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
@@ -11482,7 +11904,7 @@ const thSeg = name => `<span class="seg thseg" data-name="${esc(name)}">${[["thr
 const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name);
   return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span>`; }).join("");
 // The thread a message from the open agent's box goes to where the box is not in a thread (All, or Everything): the
-// newest ask still open, unless the owner picked another or none (General), shown over the box as "Re LFE-1493 ▾".
+// newest ask still open, unless the owner picked another or none (General), shown over the box as "Re: LFE-1493 ▾".
 // The pick holds until the message is sent.
 const reTo = {};
 const reShown = () => !!S && !!open && !open.startsWith(MEET) && (!phThOpen(open) || phTh[open] === EVERY) && (!thOn() || thSel[open]?.name === EVERY);
@@ -11492,17 +11914,23 @@ function reTarget(name) {
   return asks[0]?.name || "";
 }
 const reLabel = t => t ? t.key || t.title : "General";
+// the thread a message goes to, over a box whose thread is the one open, or General for none
+const reTag = t => `<span class="retag fixed" title="${t?.name ? `Sent as: Re ${esc(t.name)}: …` : "Sent with no thread named"}">${t?.name ? `Re: ${esc(reLabel(t))}` : "General"}</span>`;
 function reDraw() {
   const box = $("#dre");
   if (!S || !open) return;
   if (phThOpen(open) && phTh[open] !== EVERY) {   // a phone's thread: its replies go to it
-    const t = phThSel(open), html = t?.name ? `<span class="retag fixed">Re ${esc(reLabel(t))}</span>` : "";
+    const t = phThSel(open), html = t?.name ? reTag(t) : "";
     box.hidden = !html; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } return;
+  }
+  if (thOn() && thSel[open]?.name !== EVERY) {   // a thread chosen from the list: its replies go to it
+    const html = reTag(thSel[open]?.t);
+    box.hidden = false; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } return;
   }
   const all = reShown() ? threadsOf(convFeed, open).filter(t => t.name !== EVERY) : [];
   if (all.length < 2 && !all.some(t => t.ask)) { box.hidden = true; box.dataset.html = box.innerHTML = ""; return; }
   const th = reTarget(open), t = all.find(x => x.name === th);
-  const html = `<button class="retag${t?.ask ? " ask" : ""}" data-re title="Where this message goes: a click picks another thread, or General">${th ? `Re ${esc(reLabel(t))}` : "General"} ▾</button>`;
+  const html = `<button class="retag${t?.ask ? " ask" : ""}" data-re title="Where this message goes: a click picks another thread, or General">${th ? `Re: ${esc(reLabel(t))}` : "General"} ▾</button>`;
   box.hidden = false;
   if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
 }
@@ -11554,7 +11982,7 @@ function phThHeadHtml(t) {
   const qa = !open_ ? "" : thYesNo(t.ask.text) ? `<div class="phqa"><button data-phqa="Yes">Yes</button><button data-phqa="No">No</button><button data-phqa="Why?">Ask why</button></div>`
     : `<div class="phqa"><button data-phqa="">Reply</button></div>`;
   const clr = open_ ? thClrBtn(t) : "";
-  const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${esc(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
+  const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${inline(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
     : done || t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(Math.max(done || 0, t.answered || 0))}</div>` : "";
   const who = t.key ? `${t.title !== t.key ? esc(t.title) + " · " : ""}${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
   return `<div class="thhead phth">${EMBED ? `<b class="phthback" data-phthback title="Back to the threads" aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></b>` : ""}<div class="phthname"><b>${esc(t.key || t.title)}</b><span>${who}${t.closed ? ` <span class="thl thclosed">closed</span>` : ""}</span></div>${ask}</div>`;
@@ -11598,13 +12026,8 @@ function renderConv() {
   const all = thWide() ? threadsOf(convFeed, open) : [];
   thSingle[open] = all.length <= 2;
   const on = thOn();
-  // the conversation is never under 360px wide: with the terminal open beside it, the list folds to its badges where
-  // its full width would leave less, and where even that leaves less the terminal docks under the conversation
-  const room = list => left.clientWidth - list - 16 - (termOn() ? THUMB_W + 40 : 16);
-  const squeezed = on && !thFolded() && termOn() && room(240) < 360;
-  $("#detail .box").classList.toggle("termdock", termOn() && room(on ? (thFolded() || squeezed ? 152 : 240) : 0) < 360);
   left.classList.toggle("thon", on);
-  left.classList.toggle("thfold", on && (thFolded() || squeezed));
+  left.classList.toggle("thfold", on && thFolded());
   const phone = phThOn(open);
   if (phone && phTh[open] != null && !phThSel(open)) delete phTh[open];   // its thread gone (removed, or no lines left)
   $("#detail").classList.toggle("phlist", phone && phTh[open] == null);
@@ -11613,7 +12036,7 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), un = ag ? unseenBy(ag, convFeed) : {};
     patch(conv, phTh[open] == null ? phInboxHtml(phThAll(open), un) : phThHeadHtml(phThSel(open)) + feedHtml(convFeed, open, false, laneOf(open), phTh[open] === EVERY ? null : phTh[open], phNew[open]));
   } else if (on) {
-    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, squeezed);
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {});
     patch(list, html);
     thEdges(list);
     patch(conv, thHeadHtml(all.find(t => t.name === sel), open) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
@@ -11626,13 +12049,21 @@ function renderConv() {
   if (conv.scrollHeight <= conv.clientHeight + 30) { pinned = true; $("#dbottom").classList.remove("on"); }   // all of it in view: nothing newer below
   conv.querySelectorAll(".folded").forEach(f => f.onclick = () => { const k = f.dataset.run; openRuns.has(k) ? openRuns.delete(k) : openRuns.add(k); renderConv(); });
 }
-async function refreshDetail(first) {
+async function refreshDetail(first, tick) {
   if (!open) return;
   const name = open;
-  const seeking = seek?.src === "conversation" && seek.name === name;   // all 300 turns, as the hit may be older than a lane's newest 60
+  const seeking = lvSeeking(name);   // all 300 turns, as the hit may be older than a lane's newest 60
+  lvWatch();
+  if (!first && !seeking && LV.up && LV.got.conv[name]) {
+    if (!tick) await lvAsk();
+    if (LV.up && LV.got.conv[name]) { if (name === open) showDetail(name, LV.got.conv[name], false); return; }
+  }
   const d = await (await fetch("/api/agent/" + encodeURIComponent(name) + (seeking ? "?all=1" : ""), {cache: "no-store"})).json();
   if (name !== open) return;   // another agent was opened meanwhile
-  const conv = $("#dconv");
+  showDetail(name, d, first);
+}
+function showDetail(name, d, first) {
+  const conv = $("#dconv"), seeking = lvSeeking(name);
   if (first) pinned = true;
   convFeed = d.feed; renderConv();
   // opened from a search: the hit in the middle of the view, and the view left there, not pinned to the newest turn
@@ -11644,10 +12075,7 @@ async function refreshDetail(first) {
   if (phThOn(open) && phTh[open] == null) { if (first) conv.scrollTop = 0; }   // the phone's inbox reads from the top
   else if (pinned && !holding(conv)) { conv.scrollTop = conv.scrollHeight; requestAnimationFrame(() => { conv.scrollTop = conv.scrollHeight; }); }
   if (first && pinned && !(phThOn(open) && phTh[open] == null)) arrive();
-  if (!holding($("#dscreen"))) $("#dscreen").innerHTML = d.screen || `<span style="color:var(--faint)">not on screen</span>`;
-  term = {cols: d.cols || 80, rows: d.rows || 24};
-  $("#dtitle").textContent = `${open} — ${term.cols}×${term.rows}`;
-  fitTerm(); beat();
+  beat();
 }
 // A message box wraps its words and grows with them, up to its cap, then scrolls. Enter sends; Ctrl+Enter starts a
 // new line.
@@ -12081,30 +12509,6 @@ $("#dsay").onkeydown = e => emoKey(e, $("#dsay")) || keys(e, $("#dsay"), open);
 $("#dsay").onpaste = e => pasted(e, open);
 $("#dadd").onclick = () => pick(open, $("#dsay"));
 
-// The pane in its own terminal window, sized so all its columns and rows fit: within THUMB_W x THUMB_H as a
-// thumbnail, or within the view when expanded (at most BIG px text).
-const THUMB_W = 340, THUMB_H = 240, BIG = 16, PAD = 22;   // PAD: the screen's padding and the window's border
-let term = {cols: 80, rows: 24}, charW = 0;
-function fitTerm() {
-  measureChar();
-  const wrap = $("#dterm"), pre = $("#dscreen"), big = wrap.classList.contains("big");
-  const w = big ? wrap.clientWidth - 80 - PAD : THUMB_W - PAD;
-  const h = big ? wrap.clientHeight - 80 - PAD - $("#detail .bar").offsetHeight : THUMB_H;
-  if (w <= 0 || h <= 0) return;
-  const size = Math.max(1, Math.min(big ? BIG : 99, w / (term.cols * charW), h / (term.rows * 1.25)));
-  pre.style.fontSize = size.toFixed(2) + "px";
-  pre.style.width = (term.cols * charW * size).toFixed(1) + "px";
-  pre.style.height = (term.rows * 1.25 * size).toFixed(1) + "px";
-}
-function measureChar() {
-  if (charW) return;
-  const p = document.createElement("span"); p.style.cssText = "font:100px var(--mono);position:absolute;visibility:hidden;white-space:pre";
-  p.textContent = "M".repeat(50); document.body.append(p); charW = p.getBoundingClientRect().width / 5000; p.remove();
-}
-function zoom(on) { $("#dterm").classList.toggle("big", on); $("#dterm").title = on ? "" : "Expand"; $("#dzoom").textContent = on ? "⤡" : "⤢"; fitTerm(); }
-$("#dterm").onclick = e => { if (!$("#dterm").classList.contains("big")) zoom(true); else if (["dzoom", "dterm", "dtx"].includes(e.target.id)) zoom(false); };
-new ResizeObserver(fitTerm).observe($("#detail .box"));
-
 // In the page's Tabs the open agent's view fills the page's body instead of floating over it: the column beside it
 // picks the agent, remembered under "tab:page", and there is nothing behind it to close back to.
 function dock(a) {
@@ -12122,8 +12526,6 @@ addEventListener("keydown", e => {
   if ($("#lightbox").classList.contains("on")) closeImg();
   else if ($("#graphbox").classList.contains("on")) closeGraph();
   else if ($("#docbox").classList.contains("on")) closeDoc();
-  else if ($("#dterm").classList.contains("big")) zoom(false);
-  else if (paneBig && !open) { paneBig = null; draw(); }
   else if (open || !unmax()) closeDetail();
 });
 addEventListener("resize", () => { draw(); const c = $("#dconv"); if (open && pinned) c.scrollTop = c.scrollHeight; kbKeep(); });
@@ -14043,7 +14445,7 @@ function phNeighbour(step) {
   return i < 0 ? null : names[i + step] || null;
 }
 phSwiper($("#detail"),
-  e => { const t = e.touches[0], el = e.target; return !!open && t.clientX >= 24 && t.clientX <= innerWidth - 24 && !el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") && !phSideways(el, $("#detail")); },
+  e => { const t = e.touches[0], el = e.target; return !!open && t.clientX >= 24 && t.clientX <= innerWidth - 24 && !el.closest("#drail, #dsayrow, #dhead, textarea, input, select, .lightbox") && !phSideways(el, $("#detail")); },
   dir => { const to = phNeighbour(dir); return {el: $("#dconv"), go: to && (() => openDetail(to)), after: () => $("#dconv")}; });
 // The home page: a swipe shows the next or the previous panel of the toolbar, in its order (owner, 2026-11-15: "On the
 // mobile app, the home page, can I swipe left and right here too?"). On the Work queue tab it moves between Doing and
@@ -14185,7 +14587,7 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
 }
 // A poll is skipped while the last one is still out, so a slow server is not sent more work than it can answer.
 const once = f => { let out = false; return () => { if (out) return; out = true; Promise.resolve(f()).catch(() => {}).finally(() => { out = false; }); }; };
-setInterval(once(load), 4000); setInterval(once(() => refreshDetail(false)), 2500);
+lvOpen(); setInterval(once(() => load(true)), 4000); setInterval(once(() => refreshDetail(false, true)), 2500);
 </script>
 </body>
 </html>
@@ -14248,9 +14650,6 @@ def self_test():
                             ("strength-Ada Ada-x --to=Ada Ada@box Adam", "strength-Ada Ada-x --to=Ada Ada@box Adam"),
                             ("Ada Tucker and Ada O'Brian, then Ada said", "Ada Tucker and Ada O'Brian, then A’da said")):
             t(f"screen: {words!r}", spelled_screen(words, shown_names()), want)
-        t("screen: a coloured name is spelled, its colour kept", ansi_html("\x1b[1mAda\x1b[0m said", shown_names()),
-          '<span style="font-weight:600">A’da</span> said')
-        t("screen: no names, as written", ansi_html("Ada said"), "Ada said")
         with open(FULL_NAMES, "w", encoding="utf-8") as f:
             json.dump({"Ada": "Ada O’Tucker", "Max": "Captain Max", "Nobody": "Not On The Roster"}, f, ensure_ascii=False)
         t("full names: an agent or assistant listed shows it, the rest their name, and a stray name adds nobody",
@@ -14819,7 +15218,7 @@ def self_test():
         t("  the phone's agent view brings the opened agent's portrait into its strip, and a sideways swipe opens the next or previous agent",
           ("phCurInView();\n  phWaitInView(list);" in PAGE, "if (phRailFor === open || !b || !rail.clientWidth) return;" in PAGE, "const left = Math.round(Math.max(0, Math.min(rail.scrollWidth - rail.clientWidth, mid)));" in PAGE,
            "open = null; phRailFor = null;" in PAGE, 'dir => { const to = phNeighbour(dir); return {el: $("#dconv"), go: to && (() => openDetail(to)), after: () => $("#dconv")}; });' in PAGE,
-           '!el.closest("#drail, #dsayrow, #dhead, textarea, input, select, #dterm, .lightbox") && !phSideways(el, $("#detail"))' in PAGE,
+           '!el.closest("#drail, #dsayrow, #dhead, textarea, input, select, .lightbox") && !phSideways(el, $("#detail"))' in PAGE,
            'addEventListener("pointercancel", () => { mouseDown = false; }, true);' in PAGE), (True,) * 7)
         t("  a phone swipe moves the content with the finger, one helper for all three: it takes only a mostly-sideways move, follows it (stretching a little with nowhere to go), and on release a still copy of the page slides off with the next edge to edge behind it, or it springs back; reduced motion only switches",
           (PAGE.count("phSwiper(") == 3, "if (Math.abs(mx) <= 10 || Math.abs(mx) <= 1.5 * Math.abs(my)) return;" in PAGE,
@@ -15190,7 +15589,17 @@ def self_test():
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
            'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens", "shell"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
-          ("setInterval(once(load), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
+          ("setInterval(once(() => load(true)), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
+        seen, kick, stir = FileWatch(), socket.socketpair(), os.path.join(T, "stir")
+        os.makedirs(stir)
+        kick[0].setblocking(False)
+        seen.follow({stir})
+        quiet = seen.wait(kick[0], 0)
+        open(os.path.join(stir, "a.jsonl"), "w").close()
+        kick[1].send(b"k")
+        t("  a written file and a kick each wake the watcher, and nothing else does",
+          (quiet, seen.wait(kick[0], 1)), ((set(), False), ({os.path.join(stir, "a.jsonl")} if seen.fd >= 0 else set(), True)))
+        seen.close()
         t("  a prompt's options answer the keyboard as in the terminal: arrows move the highlight, Enter or a digit chooses",
           ('if (plainArrow(e)) n = ns[' in PAGE, '.it.ask .opt.at{' in PAGE, '["Prompts", [' in PAGE), (True, True, True))
         t("  an unnumbered prompt's options are its cursor row and the rows lined up with it, not a list above its rule",
@@ -15647,6 +16056,7 @@ def main():
     threading.Thread(target=for_you_tell, daemon=True).start()
     threading.Thread(target=stop_watch, daemon=True).start()
     threading.Thread(target=repos_watch, daemon=True).start()
+    threading.Thread(target=burn_watch, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
