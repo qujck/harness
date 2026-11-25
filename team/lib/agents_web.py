@@ -6685,8 +6685,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thitem.thmini{flex-direction:row;align-items:center;gap:4px;padding:4px 2px}
 .thitem.thmini .thl{margin:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;background:var(--track);color:var(--mute);font-family:var(--mono)}
 .thitem.thmini .thl.ask{background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}
-.thitem.thmini.on,.thitem.thmini:hover{border-color:transparent;background:none}
-.thitem.thmini.on .thl{outline:1.5px solid var(--text);color:var(--text)}
+.thitem.thmini.on,.thitem.thmini:hover{border-color:transparent;box-shadow:none;background:none}
+.thitem.thmini.on .thl{outline:2px solid var(--c,var(--text));color:var(--text)}
 .thitem.thmini .thl{display:block;white-space:nowrap}
 .thitem.thmini > .unseen{position:static;flex:none}
 /* unread threads scrolled out of the list's view: a count at that edge, which brings the nearest into view */
@@ -6711,7 +6711,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 #detail .left.thon #dthreads{position:absolute;left:0;top:0;bottom:0;width:240px;display:flex;flex-direction:column;gap:2px;padding:10px 8px;overflow:auto;border-right:1px solid var(--line)}
 .thitem{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:1px solid transparent;border-radius:var(--r-m,8px);cursor:pointer}
 .thitem:hover{background:var(--on)}
-.thitem.on{border-color:var(--line2);background:var(--card1)}
+.thitem.on{border-color:var(--c,var(--line2));box-shadow:inset 0 0 0 1px var(--c,transparent);background:var(--card1)}   /* in its agent's colour */
 .thitem{position:relative}
 .thitem > b{font-weight:650;padding-right:16px}
 .thl > .unseen{position:static;display:inline-block;margin-left:6px}
@@ -11878,17 +11878,18 @@ function combinedThreads(key, chosen = thChosen(key), out = [], lines = combined
   const by = new Map(), drawn = new Set(lines.map(it => it._in ?? it._thread ?? "")), sel = localStorage.getItem("thread:" + key);
   for (const a of chosen) for (const t of threadsOf(combinedConv(a), a, sel, key, out)) {
     if (!t.name || t.name === EVERY) continue;
-    const mine = !out.includes(ppAgent(a)?.role), ask = ppBenched(a) || !mine ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
+    const mine = !out.includes(ppAgent(a)?.role), ask = ppBenched(a) || !mine ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, any: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
     m.parts.push([a, {...t, ask}]);
-    if (t.last && (mine || t.name === sel)) m.agents.push(a);
+    if (t.any && (mine || t.name === sel)) m.agents.push(a);
     if (t.latest && t.last >= m.said) { m.latest = t.latest; m.said = t.last; }
-    m.last = Math.max(m.last, t.last); m.answered = Math.max(m.answered, t.answered); if ((t.at || "") > m.at) m.at = t.at;
+    m.last = Math.max(m.last, t.last); m.any = Math.max(m.any, t.any); m.answered = Math.max(m.answered, t.answered); if ((t.at || "") > m.at) m.at = t.at;
     if (ask) m.asks.push({agent: a, ask});
   }
   // (a message between two agents is drawn once, in its recipient's thread)
   const all = [...by.values()].filter(t => t.asks.length || drawn.has(t.name) || t.name === sel);
   for (const t of all) {
-    const at = a => t.parts.find(p => p[0] === a)[1].last;
+    const at = a => t.parts.find(p => p[0] === a)[1].any;
+    t.last ||= t.any;
     t.agents.sort((a, b) => at(b) - at(a));
     t.asks.sort((a, b) => (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || ""));
     t.ask = t.asks[0]?.ask || null;
@@ -11971,7 +11972,7 @@ function combinedHtml(path, n, full, big) {
     : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${termMark(talk.name)}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
   const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : thr && !one ? `<div class="empty">the roles counted have no threads</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
   const un = thr ? combinedUnseen(tl) : {}, tbtn = roleFilter(n, "troles", path, "Counting");
-  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn)}</div>` +
+  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn, talk?.colour || colours[one?.agents[0]] || "")}</div>` +
     `<div class="thchips">${tbtn}${thChipsHtml(all, one?.name, un)}</div>${feed}</div>` : feed;
   const off = a => ppBenched(a.name) ? " benched" : "";
   return `<div class="teamlog combined${full ? "" : " summary"}${thr ? " thon" : ""}" data-name="${key}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(them)}</span>`
@@ -13105,26 +13106,26 @@ const ANSWERED_FOR = 60 * 1000;   // how long a thread says "answered" after the
 // still open in it (the owner has not written there since), when the owner last answered an ask there, and the
 // agent's latest words in it. The ticket's title stands for a ticket key where the Work data knows it.
 function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread:" + name), key = name, out = []) {
-  const by = new Map(), get = th => by.get(th) || by.set(th, {name: th, last: 0, ask: null, answered: 0, latest: ""}).get(th);
+  const by = new Map(), get = th => by.get(th) || by.set(th, {name: th, last: 0, any: 0, ask: null, answered: 0, latest: ""}).get(th);
   const ask = {}, cn = key.startsWith(COMB) ? combNode(key) : null, on = cn ? clanesOf(cn) : laneOf(name);
   // only what its filter shows is in the list: a thread with none of its lines shown is left out, but for an open ask
-  // (in a Combined pane's, from the roles it counts; the thread open stays in it)
-  const shows = it => cn ? inCombined(on, it) && (notOut(it, name, out) || (it._thread || "") === sel) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
+  // (in a Combined pane's, from the roles it counts; the thread open stays in it, at the time of what is counted)
+  const counts = it => !cn || notOut(it, name, out), shows = it => cn ? inCombined(on, it) && (counts(it) || (it._thread || "") === sel) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
   for (const it of cn ? combinedItems(items, name) : threadItems(items, name)) {
     if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
     const th = it._thread || "", ts = Date.parse(it.ts) || 0, t = shows(it) ? get(th) : {};
-    t.last = Math.max(t.last, ts, ...(it._asked || []).map(x => Date.parse(x) || 0));
+    const upto = Math.max(ts, ...(it._asked || []).map(x => Date.parse(x) || 0)); t.any = Math.max(t.any, upto); if (counts(it)) t.last = Math.max(t.last, upto);
     const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
     if (it._ask && !it.past) ask[th] = it;   // one of an earlier conversation's ended with it
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
-    if (it.kind === "said" && !it.summary && !thNotice(it.text)) t.latest = it.text;
+    if (it.kind === "said" && !it.summary && !thNotice(it.text) && counts(it)) t.latest = it.text;
   }
   // an ask to answer another agent's prompt ("... in Jason's pane") is open only while that agent still waits on the owner
   const paneAsk = it => { const m = String(it.text).match(/\b([A-Z][a-z]+)'s (?:pane|window)\b/), ag = m && S.agents.find(a => a.name === m[1]);
     return ag && !["waiting", "wanted"].includes(stOf(ag)); };
   // and one the owner marked dealt with is closed, until the agent asks again
   const cleared = thCleared[name] || {};
-  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) { const t = get(th), at = it._asked.at(-1) || ""; t.ask = it; t.last ||= Date.parse(at) || 0; t.at ||= at; }
+  for (const [th, it] of Object.entries(ask)) if (it && !paneAsk(it) && !(cleared[th] != null && (it._asked.at(-1) || "") <= cleared[th])) { const t = get(th), at = it._asked.at(-1) || ""; t.ask = it; t.last ||= Date.parse(at) || 0; t.any ||= t.last; t.at ||= at; }
   get("");
   const d = workQueue || ppData() ? wkData(true) : null, qk = (i, k) => i.key === k || (!!i.no && "#" + i.no === k),   // a queue item by its key or its ledger number "#6854"
     title = k => d && (d.tickets.find(x => (x.id || x.ref) === k)?.title || d.queue.find(i => qk(i, k))?.title) || "";
@@ -13266,11 +13267,12 @@ document.addEventListener("click", e => {
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
-function thListHtml(list, sel, un = {}, filter = "") {
+function thListHtml(list, sel, un = {}, filter = "", colour = "") {
+  const c = t => colour && t.name === sel ? ` style="--c:${colour}"` : "";   // the open one's, where the list's own place has none
   if (thFolded()) return THMORE + `<div class="thtools">${filter}${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
-    return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
+    return `<div class="thitem thmini${t.name === sel ? " on" : ""}"${c(t)} data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
   }).join("");
   return THMORE + `<div class="thtools">${filter}${thSortBtn()}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
@@ -13282,7 +13284,7 @@ function thListHtml(list, sel, un = {}, filter = "") {
     const closed = t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : "";
     const head = `<b class="thtop">${badge}<span>${esc(t.key || t.title)}</span>${closed}${ago}</b>` + (t.key && t.title !== t.key ? `<span class="thkey">${esc(t.title)}</span>` : "");
     const who = t.name && t.agents?.length ? `<span class="thwho ppdesk">${t.agents.slice(0, 8).map(x => `<span title="${esc(shown(x))}${ppBenched(x) ? " (benched)" : ""}">${ppFace(x)}</span>`).join("")}${t.agents.length > 8 ? `<i title="${esc(t.agents.slice(8).map(shown).join(", "))}">+${t.agents.length - 8}</i>` : ""}</span>` : "";
-    return `<div class="thitem${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}${who}` +
+    return `<div class="thitem${t.name === sel ? " on" : ""}"${c(t)} data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}${who}` +
       (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
   }).join("");
 }
@@ -13448,7 +13450,12 @@ document.addEventListener("mousedown", e => {
 }, true);
 document.addEventListener("dblclick", e => { if (threadAt(e.target)) e.stopPropagation(); }, true);
 // the list's order catches up once the pointer leaves it
-document.addEventListener("mouseout", e => { if (e.target.closest?.("#dthreads") && !e.relatedTarget?.closest?.("#dthreads") && open) renderConv(); });
+const TH_LISTS = "#dthreads, :is(.card.full, .teamlog.combined) .thlist";
+document.addEventListener("mouseout", e => {
+  const l = e.target.closest?.(TH_LISTS); if (!l?.isConnected || e.relatedTarget?.closest?.(TH_LISTS) === l) return;
+  thMouse = null;   // told before the move that says where the pointer is now, and into a frame there is none
+  if (l.id !== "dthreads") draw(); else if (open) renderConv();
+});
 // while the pointer is over a thread list, or the menu of a thread in it is open, its rows keep their order and none goes,
 // and the row under the pointer stays where it is, so none moves under a click; what each row says is always current (a new
 // thread joins at the end). Where the pointer is is kept here: a list just redrawn is not :hover until the mouse moves
@@ -13625,7 +13632,7 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), un = ag ? unseenBy(ag, convFeed) : {};
     patch(conv, phTh[open] == null ? phInboxHtml(phThAll(open), un) : phThHeadHtml(phThSel(open)) + feedHtml(convFeed, open, false, laneOf(open), phTh[open] === EVERY ? null : phTh[open], phNew[open]));
   } else if (on) {
-    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {});
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, "", ag?.colour || "");
     patch(list, html);
     thEdges(list);
     patch(conv, thHeadHtml(all.find(t => t.name === sel), open) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
