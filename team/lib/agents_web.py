@@ -5535,7 +5535,7 @@ header > .bi.div.orph{display:none}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
-/* Waiting: how many agents wait on the owner, a flashing amber badge whose click lists them; nothing while none waits,
+/* Waiting: how many agents wait on the owner, a flashing amber badge whose click shows the question of one, or lists them; nothing while none waits,
    except while the bars are unlocked, where it is named so it can be moved */
 .bi[data-item=waiting]:not(:has(.wbadge)){display:none}
 .editing > .bi[data-item=waiting]:not(:has(.wbadge)){display:flex}
@@ -5576,6 +5576,19 @@ mark.seekm{background:color-mix(in srgb,var(--amber) 45%,transparent);color:inhe
 #docbody .shnote{color:var(--mute)}
 #docbox.dayview #docbody{padding:0;white-space:normal;font-size:inherit;line-height:inherit}
 #menu .srchbtn svg{width:14px;height:14px;margin-right:6px;vertical-align:-2px}
+/* one agent's question in the waiting list, with its options: still, as it is being read */
+#menu .it.ask{width:min(520px,calc(100vw - 24px));padding:8px 10px;animation:none;white-space:normal}
+#menu .it.ask::after{content:none}
+#menu .it.ask .who{display:none}
+#menu .it.ask .tx{max-height:45vh;overflow:auto;overscroll-behavior:contain}
+#menu .it.ask .opt{text-align:left;white-space:normal}
+html.phone #menu .it.ask{width:auto}
+#menu .wbtns{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 2px}
+#menu .wbtns button{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--text);font:calc(var(--t-m)*var(--fs,1)) var(--sans);cursor:pointer}
+#menu .wbtns button:hover{background:var(--on)}
+#menu .wbtns svg{flex:none;width:14px;height:14px;color:var(--mute)}
+html.phone #menu .wbtns button{min-height:44px}
+#menu .hd .wago{float:right;padding-left:10px;color:var(--amber);font:600 calc(var(--t-s)*var(--fs,1)) var(--mono)}
 /* the waiting list: each agent with its portrait, what it waits on and for how long */
 #menu .mi.wmi{align-items:flex-start}
 #menu .wmi .wtxt{min-width:0;display:flex;flex-direction:column;gap:2px;max-width:340px}
@@ -7845,6 +7858,7 @@ async function answerAsk(b) {
   if (!r || !r.ok) { show(r ? (await r.text()).trim() : "the page could not be reached"); if (input) { flash(input, "failed"); input.focus(); } return; }
   show((await r.json()).answered);
   if (input) { delete askTyped[askKey(name, b.dataset.n)]; input.value = ""; askFocus = null; }
+  if (opts.closest("#menu")) menuOff(true);   // answered from the Waiting badge's menu
   load(); if (open === name) refreshDetail(false);
 }
 // Capturing, so a click on a button or in a Type something box is theirs alone and does not also open or focus the card
@@ -7864,9 +7878,13 @@ document.addEventListener("keydown", e => {
   e.stopPropagation();
   if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); answerAsk(i.nextElementSibling); }
 }, true);
-// The prompt the keyboard answers: the one holding the focus, else the open view's, else the only one on the page. A view
+// The question the Waiting badge's menu is showing, if it is.
+const menuAsk = () => menuOn("waiting") && menu.querySelector(".it.ask .opts");
+// The prompt the keyboard answers: the one in the Waiting badge's menu, else the one holding the focus, else the open view's, else the only one on the page. A view
 // open on an agent with no prompt answers none, so a key pressed there never chooses for an agent out of sight.
 function keyedAsk() {
+  const m = menuAsk();
+  if (m) return m;
   const f = document.activeElement?.closest?.(".it.ask .opts");
   if (f) return f;
   const shown = [...document.querySelectorAll(".it.ask .opts")].filter(x => x.offsetParent);
@@ -7885,7 +7903,7 @@ function askMove(name, n, o) {
 // ↑, ↓, Enter and the digits answer the keyed prompt as they do in the terminal, unless something else has the keys: a
 // menu, a box being typed in (in a Type something box only ↑ and ↓ are the prompt's), or a key with Alt, Ctrl or Cmd.
 document.addEventListener("keydown", e => {
-  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing || menu.classList.contains("on")) return;
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing || menu.classList.contains("on") && !menuAsk()) return;
   const box = e.target.closest?.(".it.ask .askin");
   if (box ? !plainArrow(e) : e.target.closest?.("textarea, input, select, [contenteditable]")) return;
   const o = box ? box.closest(".opts") : keyedAsk();
@@ -7936,7 +7954,9 @@ new MutationObserver(() => { codeLeads(); document.querySelectorAll(".feed").for
   .observe(document.body, {childList: true, subtree: true});
 new MutationObserver(() => {
   if (!askFocus || document.activeElement?.matches?.(".askin")) return;
-  const i = [...document.querySelectorAll(".it.ask .askin")].find(x => askKey(x.dataset.name, x.dataset.n) === askFocus.key && x.offsetParent);
+  // in the Waiting badge's menu before the same prompt on the page
+  const boxes = [...document.querySelectorAll(".it.ask .askin")].filter(x => askKey(x.dataset.name, x.dataset.n) === askFocus.key && x.offsetParent);
+  const i = boxes.find(x => x.closest("#menu")) || boxes[0];
   if (!i) return;
   const {start, end} = askFocus;
   i.value = askTyped[askFocus.key] || ""; i.focus(); i.setSelectionRange(start, end);
@@ -8620,7 +8640,7 @@ function draw() {
   $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); else if (e.target.closest(".fy")) forYouMenu(); };
   if (menuOn("foryou")) menuAt($("#counts .fy"), "foryou", `<div class="foryou">${forYouList(false)}</div>`, false, true);
   // the Waiting item, the same count on its own, which the header keeps whatever else goes into its »
-  const wb = waiting ? `<b class="wbadge" data-menu="waiting" title="The agents waiting on you: a click lists them">${waiting} waiting</b>` : "";
+  const wb = waiting ? `<b class="wbadge" data-menu="waiting" title="The agents waiting on you: a click shows the question, or lists them">${waiting} waiting</b>` : "";
   if ($("#waiting").dataset.html !== wb) { $("#waiting").innerHTML = wb; $("#waiting").dataset.html = wb; }
   $("#waiting").onclick = e => { const w = e.target.closest(".wbadge"); if (w) waitMenu(w); };
   waitNotify();
@@ -9152,7 +9172,7 @@ const BAR_TIP = {repos: "How many local develop, main and master branches are be
   cpubar: "How busy the machine's processors are", membar: "How much of the machine's memory is in use",
   netbar: "The machine's network traffic; the meter is its busiest connection against that connection's top speed",
   gpubar: "How busy the machine's graphics card is", heatbar: "The machine's hottest temperature sensor", fanbar: "The fastest fan's speed; the meter is the most power the board gives any of them",
-  tally: "How many agents are working and idle, and a flashing badge while one waits", waiting: "How many agents are waiting on you, flashing; a click lists them. Nothing shows while none waits", bench: "The agents on the bench, not running",
+  tally: "How many agents are working and idle, and a flashing badge while one waits", waiting: "How many agents are waiting on you, flashing; a click shows the question, or lists them when several wait. Nothing shows while none waits", bench: "The agents on the bench, not running",
   favs: "Favourites: star an agent from its menu", active: "Running, other than the favourites", controls: "Start, pause and stop the team",
   lanes: "Which lanes the cards show: yours, the team's, automation", view: "The view showing, and a menu of the others",
   viewbar: "Every view as its icon in a row, the one showing marked", theme: "The theme: a click moves to the next one",
@@ -12197,9 +12217,9 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
     .sort(thOrder())
     .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "All", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
 }
-// All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
+// All, then General, then waiting on the owner (the newest ask first), then pinned, then in the owner's order
 function thOrder() {
-  const pins = new Set(wkPins());
+  const pins = new Set([...wkPins(), ...thPins()]);
   return (a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
     pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b);
 }
@@ -12262,9 +12282,13 @@ const thNotice = s => /^\s*(You['’]ve hit your|You have hit your|API Error|Cla
 // arrives in it; General stays
 var thHidden = JSON.parse(localStorage.getItem("thhide") || "{}");
 const thNoClosed = () => localStorage.getItem("thnoclosed") === "1";   // the order menu's Remove closed
-// a ticket's thread pins as it does in Work: the same pins, at the top of both
-const thPinBtn = t => { if (!t.key) return ""; const on = wkPins().includes(t.key);
-  return `<b class="wkpin${on ? " on" : ""}" data-thpin="${esc(t.key)}" title="${on ? "Unpin" : "Pin to the top of Work and the threads"}">${MENU_ICON.pin}</b>`; };
+// a ticket's thread pins as it does in Work: the same pins, at the top of both; any other but General pins by its name,
+// at the top of the threads alone, in this browser
+const thPins = () => { try { const v = JSON.parse(localStorage.getItem("thpins") || "[]"); return Array.isArray(v) ? v.filter(n => typeof n === "string") : []; } catch (e) { return []; } };
+const thPinned = t => t.key ? wkPins().includes(t.key) : thPins().includes(t.name);
+const thPin = (name, ticket) => { if (ticket) return wkPin(name); const p = thPins(); localStorage.setItem("thpins", JSON.stringify(p.includes(name) ? p.filter(n => n !== name) : [...p, name])); };
+const thPinBtn = t => { if (!t.name || t.name === EVERY) return ""; const on = thPinned(t);
+  return `<b class="wkpin${on ? " on" : ""}" data-thpin="${esc(t.key || t.name)}"${t.key ? " data-ticket" : ""} title="${on ? "Unpin" : t.key ? "Pin to the top of Work and the threads" : "Pin to the top of the threads"}">${MENU_ICON.pin}</b>`; };
 const thX = t => t.name && t.name !== EVERY ? `<b class="thx" data-thx="${esc(t.name)}" title="Remove it until something new arrives in it">×</b>` : "";
 // the thread list folded to badges, one choice for every list in this browser
 function thFolded() { return localStorage.getItem("thfold") === "1"; }
@@ -12360,7 +12384,7 @@ document.addEventListener("click", e => {
   const x = e.target.closest?.("[data-thx]"), pin = e.target.closest?.("[data-thpin]");
   if (!x && !pin && !e.target.closest?.("[data-thfold]")) return;
   e.stopImmediatePropagation();
-  if (pin) wkPin(pin.dataset.thpin);
+  if (pin) thPin(pin.dataset.thpin, "ticket" in pin.dataset);
   else if (x) {
     const agent = thAgent(e.target), t = agent && thAll(e.target, agent).find(t => t.name === x.dataset.thx);
     if (!t) return;
@@ -12447,7 +12471,7 @@ function threadMenu(el, agent, th) {
       ...docs.map(p => link("/doc?p=" + encodeURIComponent(p), esc(p.split("/").pop()), "", p))]);
   const acts = (th && a?.live && free ? act("update", MENU_ICON.said, comb ? `Ask ${esc(shown(a.name))} for an update…` : "Ask for an update…") : "") +
     (t.ask ? act("dealt", MENU_ICON.check, "Dealt with") : "") + (un?.n ? act("read", MENU_ICON.check, "Mark as read") : "") +
-    (key ? act("pin", MENU_ICON.pin, wkPins().includes(key) ? "Unpin" : "Pin to the top") : "") +
+    (th ? act("pin", MENU_ICON.pin, thPinned(t) ? "Unpin" : "Pin to the top") : "") +
     (th ? (key && known(id) ? "" : act("copy", LINK_COPY, key ? `Copy ${esc(key)}` : "Copy its name")) + act("remove", MENU_ICON.close, "Remove from the list") : "");
   if (!body && !acts) return false;
   menuAt(el, "thread:" + agent + ":" + th, `<div class="hd thmhd"><b>${esc(key || t.title)}</b>${sub.length ? `<div>${sub.map(esc).join(" · ")}</div>` : ""}</div>` +
@@ -12470,7 +12494,7 @@ function threadMenu(el, agent, th) {
       if (b && !b.value.trim()) { b.value = "update please"; grow(b); keep(b); aim(b); }
       return;
     }
-    if (go === "pin") wkPin(key); else if (go === "dealt") thDealt(agent, t); else if (go === "read") thRead(agent, t); else if (go === "remove") thRemove(agent, t);
+    if (go === "pin") thPin(key || th, !!key); else if (go === "dealt") thDealt(agent, t); else if (go === "read") thRead(agent, t); else if (go === "remove") thRemove(agent, t);
     thRedraw();
   });
   return true;
@@ -13316,10 +13340,10 @@ function menuOff(now) {
 menu.onmouseenter = () => clearTimeout(menuHide);
 menu.onmouseleave = () => { if (menu.dataset.rested) menuOff(); };
 // Esc with a menu open closes the menu and nothing else.
-addEventListener("keydown", e => { if (e.key === "Escape" && menu.classList.contains("on") && !e.target.closest?.("#menu input")) { e.stopPropagation(); menuOff(true); } }, true);
+addEventListener("keydown", e => { if (e.key === "Escape" && menu.classList.contains("on") && !e.target.closest?.("#menu input:not(.askin)")) { e.stopPropagation(); menuOff(true); } }, true);
 // An open menu's items by keyboard, unless it opened from a moment's rest: arrows move, Enter or Space picks or ticks.
 addEventListener("keydown", e => {
-  if (!menu.classList.contains("on") || menu.dataset.rested || !["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key) || e.target.closest?.("#menu input")) return;
+  if (!menu.classList.contains("on") || menu.dataset.rested || !["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key) || e.target.closest?.("#menu input") || menuAsk()) return;
   const items = [...menu.querySelectorAll(".mi")], at = items.findIndex(m => m.classList.contains("at"));
   if (!items.length) return;
   e.preventDefault(); e.stopPropagation();
@@ -13792,21 +13816,50 @@ function seekGone(box) {
 // What an agent waiting on the owner waits on: the line owner-wanted left, else the prompt open in its pane.
 const waitLine = a => !a ? "" : stOf(a) === "wanted" ? a.wanted || "" : [...(a.feed || [])].reverse().find(it => it.kind === "ask")?.text || "A prompt is open in its pane";
 // The waiting list, from the Waiting badge (header, the Agents item's badge, the phone's top bar): every agent waiting
-// on the owner, longest first, with what it waits on and for how long; a click opens it. Under them, while this
-// browser has not been asked, the one way to turn on notifications, as browsers allow only from a click.
-function waitMenu(anchor, again) {
+// on the owner, longest first, with what it waits on and for how long; a click shows an agent's question with its
+// options, and opens an agent with none to choose from. One agent waiting with a question shows it at once. An answer
+// chosen closes the menu (answerAsk), as does the question going away. Under the list, while this browser has not been
+// asked, the one way to turn on notifications, as browsers allow only from a click.
+let waitAsk = null, waitHtml = "";   // the agent whose question the menu shows, and the question as drawn
+function waitMenu(anchor, again, name) {
   if (!again && menuOn("waiting")) return menuOff(true);
-  const them = needing(), perm = "Notification" in window ? Notification.permission : "";
+  const them = needing();
+  if (!again) waitAsk = them.length === 1 && openAsk(them[0]) ? them[0].name : null;
+  if (name !== undefined) waitAsk = name;
+  if (waitAsk) return waitQuestion(anchor, them, again && name === undefined);
+  const perm = "Notification" in window ? Notification.permission : "";
   const note = perm === "default" ? `<div class="mi" data-notify>${MENU_ICON.bell}Notify me when an agent starts waiting</div>`
     : perm === "granted" ? `<div class="mi off">Notifications are on: one shows when an agent starts waiting while this page is not in front</div>`
     : perm === "denied" ? `<div class="mi off">Notifications are blocked for this page in the browser's settings</div>` : "";
-  menuAt(anchor, "waiting", `<div class="hd"><div>Waiting on you</div></div>` + (them.length ? them.map(a => `<div class="mi wmi" data-open="${esc(a.name)}">${face(a, "")}` +
+  menuAt(anchor, "waiting", `<div class="hd"><div>Waiting on you</div></div>` + (them.length ? them.map(a => `<div class="mi wmi" ${openAsk(a) ? "data-question" : "data-open"}="${esc(a.name)}">${face(a, "")}` +
     `<span class="wtxt"><b>${esc(shown(a.name))} · ${stOf(a) === "wanted" ? "wants you" : "a prompt is open"}</b><span>${esc(waitLine(a))}</span></span><span class="wago">${ago(heldOf(a))}</span></div>`).join("")
-    : `<div class="mi off">Nobody is waiting on you now</div>`) + (note ? `<div class="sep"></div>${note}` : ""), false, again);
+    : `<div class="mi off">Nobody is waiting on you now</div>`) + (note ? `<div class="sep"></div>${note}` : ""), false, again && name === undefined);
   menu.refresh = () => waitMenu(anchor, true);
+  menu.querySelectorAll(".mi[data-question]").forEach(mi => mi.onclick = () => waitMenu(anchor, true, mi.dataset.question));
   menu.querySelectorAll(".mi[data-open]").forEach(mi => mi.onclick = () => { menuOff(true); openDetail(mi.dataset.open); });
   const ask = menu.querySelector(".mi[data-notify]");
   if (ask) ask.onclick = async () => { try { await Notification.requestPermission(); } catch (e) {} waitMenu(anchor, true); };
+}
+// One agent's question in that menu, with its options. A refresh draws it again only when it has changed, and never
+// while an answer is on its way, so a button is not replaced under the pointer.
+function waitQuestion(anchor, them, stay) {
+  const a = them.find(x => x.name === waitAsk), ask = openAsk(a);
+  if (stay && menu.querySelector(".opts :disabled")) return;
+  if (!ask) return menuOff(true);
+  const html = `<div class="hd"><div>${esc(shown(a.name))} · a prompt is open<span class="wago">${ago(heldOf(a))}</span></div></div>${item(ask, false, a.name)}` +
+    `<div class="wbtns"><button data-open="${esc(a.name)}">${MENU_ICON.open}Open ${esc(shown(a.name))}'s conversation</button>` +
+    (them.length > 1 ? `<button data-all>All ${them.length} waiting</button>` : "") + `</div>`;
+  const held = menu.contains(document.activeElement) && document.activeElement.classList.contains("opts");
+  // the wait's age ticks on its own, and what is being written in a box is there already: neither draws it again
+  const key = html.replace(/<span class="wago">[^<]*<\/span>/, "").replace(/(<input class="askin"[^>]*?) value="[^"]*"/g, "$1");
+  if (stay && key === waitHtml) { const w = menu.querySelector(".hd .wago"); if (w) w.textContent = ago(heldOf(a)); return; }
+  waitHtml = key;
+  menuAt(anchor, "waiting", html, false, stay);
+  menu.refresh = () => waitMenu(anchor, true);
+  menu.querySelector(".wbtns [data-open]").onclick = () => { menuOff(true); openDetail(a.name); };
+  const all = menu.querySelector(".wbtns [data-all]");
+  if (all) all.onclick = () => waitMenu(anchor, true, null);
+  if (!stay || held) menu.querySelector(".opts").focus({preventScroll: true});   // the keyboard answers it
 }
 // A browser notification for each agent that starts waiting on the owner, once this browser allows them, while the page
 // is not in front; none for those already waiting when the page opened. A click on one brings the page up on that agent.
@@ -14642,6 +14695,9 @@ function phoneDraw() {
   const logo = ph.querySelector(".ph-logo"), waits = needing(), wb = ph.querySelector(".ph-waitbtn");
   logo.classList.toggle("waiting", !!waits.length); logo.title = waits.length ? `Open ${shown(waits[0].name)}, waiting longest (${waits.length} waiting)` : "Claude agents";
   logo.onclick = waits.length ? () => openDetail(waits[0].name) : null;
+  wb.hidden = !waits.length; wb.setAttribute("aria-label", `${waits.length} waiting on you: list them`);
+  patch(wb, `${MENU_ICON.bell}<b>${waits.length}</b>`);   // a bell and the count, short enough to leave the title its room
+  waitNotify();
   const t = phTeamState();
   // short enough for a phone's width: how many of the team are up; the team menu says it in full
   patch(ph.querySelector(".ph-title"), `<b>${esc(S.project || document.title || "Team")}</b><span><span style="color:${t.colour}">●</span> ${t.word} · ${t.up}/${t.up + t.off}</span>`);
