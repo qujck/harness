@@ -25,6 +25,8 @@
   POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
   /api/standup/summary?who=  the last stand-up summary kept, everyone's or one agent's
   POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary")
+  POST /api/terminal/ID/attach|detach|submitted   {"agent", "label"} an agent attached to a terminal, detached, or its command
+                             sent there by the owner; /api/terminal/read|suggest are agent-terminal's (see "an agent attached to a terminal")
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
   POST /api/repos/update     team/repos-update.sh on its own (the Repositories button); 409 while one is running
   POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
@@ -70,6 +72,7 @@ import gzip
 import hashlib
 import json
 import os
+import pwd
 import re
 import select
 import shlex
@@ -2682,6 +2685,8 @@ def user_items(text):
             or text.startswith("This session is being continued"):
         return []
     text = PASTED_TEXT.sub(lambda m: m.group(1), text).strip()
+    if text.startswith(TERM_TAG):
+        return [{"kind": "event", "who": "terminal", "text": text[len(TERM_TAG):].strip()}]
     return [{"kind": "owner", "who": setting("AGENT_OWNER_NAME") or "Owner", "text": text}]
 
 
@@ -2727,7 +2732,7 @@ LANE = {"owner": "owner", "said": "owner", "shell": "owner", "peer": "team", "se
 
 
 # Queued text that is not the owner's: other agents' messages, task notices, nudges and mods' messages.
-NOT_OWNER = re.compile(r"^(<[a-z-]+[ >]|\[(Automated nudge|Cross-session|[\w-]+ mod, not the owner))")
+NOT_OWNER = re.compile(r"^(<[a-z-]+[ >]|\[(Automated nudge|Cross-session|[\w-]+ mod, not the owner|team page, not the owner))")
 
 
 def queued(queue, e):
@@ -4103,7 +4108,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(), "termAgents": term_agents(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -4793,6 +4798,643 @@ def shell_size(fd, cols, rows):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(2, min(rows, 500)), max(2, min(cols, 1000)), 0, 0))
 
 
+# ── an agent attached to a terminal ───────────────────────────────────────────
+# The owner can attach one agent to a Terminal pane's tab. While it is, the agent reads what the shell prints from then
+# on (agent-terminal read) and shows the command it would have run next (agent-terminal suggest), in a box under the
+# terminal; only the owner's own click there sends it to the shell. The page's server joins the shell through the keeper
+# as one more reader, at the size the terminal has, and never sends it anything typed. What is printed is kept raw
+# (TERM_UNREAD bytes) and drawn on a screen of the server's own only when the agent reads, so a shell that prints a lot
+# costs nothing until then. What was printed before is drawn too, so later output lands where it should, but it is
+# marked old and never given. A terminal resized (its page resized, loaded again, or a restart) may print its whole screen
+# again, old lines and all, and nothing tells those from new ones: whatever comes in the moments after a resize is old too,
+# and the agent is told that something was left out. An attachment outlives a restart of the page (TERM_AGENTS); what is on disk names the
+# place reading reached by a hash, and holds nothing the shell printed. It ends when the owner detaches the agent, when
+# the shell ends, or when the agent's session does.
+TERM_AGENTS = os.path.join(HOME, f".local/state/agents/term-agents-{PORT}.json")
+TERM_UNREAD = 512 * 1024
+TERM_GIVEN = 24_000   # characters one read gives, the newest kept: more than this would not fit what the agent's command may print
+TERM_REPAINT = 3      # seconds after a resize in which a shell may print its screen again, and on while it has not paused,
+TERM_REPAINT_MAX = 8  # up to this many
+TERM_SUGGEST_MAX = 8000
+TERM_MARK = 256
+TERM_TAG = "[team page, not the owner]"
+TERM_TOOL = os.path.join(ROOT, "team/agent-terminal")
+
+TERM_TOKEN = re.compile(r"[^\x00-\x1f\x7f-\x9f]+|\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[PX^_][^\x1b]*\x1b\\"
+                        r"|\x1b[ -/]+[0-~]|\x1b[0-OQ-WYZ\\`-~]|[\x00-\x1a\x1c-\x1f\x7f-\x9f]")
+TERM_PART = re.compile(r"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*\x1b?|[PX^_][^\x1b]*\x1b?|[ -/]*)\Z")   # a sequence not all here yet
+TERM_BARE = {"pwsh": re.compile(r"PS [^>]*>\s*$"), "sh": re.compile(r"(?:[$>❯]|(?<!#)#|(?<!\d)%)\s*$")}   # a prompt with nothing typed, as the page's SH_READY
+
+
+class TermLine:
+    __slots__ = ("c", "o", "rev", "wrap")
+
+    def __init__(self, cols):
+        self.c, self.o, self.rev, self.wrap = [" "] * cols, [False] * cols, 0, False   # its cells, which of them are old, when last changed, whether it runs on from the line above
+
+
+class TermScreen:
+    """A terminal's screen drawn from what a shell prints, as far as its text goes (no colours), and the lines that have
+    scrolled off it since it was last read."""
+    def __init__(self, cols, rows):
+        import codecs
+        self.cols, self.rows, self.rev, self.read_rev = cols, rows, 1, 0
+        self.main, self.alt, self.done = [TermLine(cols) for _ in range(rows)], None, []
+        self.x = self.y = 0
+        self.top, self.bottom, self.saved, self.wraps, self.last = 0, rows - 1, (0, 0), True, " "
+        self.decode, self.rest, self.mute = codecs.getincrementaldecoder("utf-8")("replace"), "", False
+
+    @property
+    def lines(self):
+        return self.alt if self.alt is not None else self.main
+
+    def feed(self, data):
+        text, at = self.rest + self.decode.decode(data), 0
+        self.rest = ""
+        while at < len(text):
+            m = TERM_TOKEN.match(text, at)
+            if not m:
+                if len(text) - at < 8192 and TERM_PART.match(text, at):
+                    self.rest = text[at:]
+                    return
+                at += 1
+                continue
+            t, at = m.group(), m.end()
+            if t[0] == "\x1b":
+                self.escape(t)
+            elif ord(t[0]) < 32 or 127 <= ord(t[0]) < 160:
+                self.control(t)
+            else:
+                self.put(t)
+
+    def put(self, text):
+        import unicodedata
+        for ch in text:
+            w = 1 if ch < "̀" else 0 if unicodedata.combining(ch) or unicodedata.category(ch) in ("Mn", "Me", "Cf") \
+                else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+            if not w:
+                line, x = self.lines[self.y], min(self.x, self.cols) - 1
+                if x >= 0:
+                    line.c[x] += ch
+                continue
+            if self.x + w > self.cols:
+                if self.wraps:
+                    self.x = 0
+                    self.down()
+                    self.lines[self.y].wrap = True
+                else:
+                    self.x = max(0, self.cols - w)
+            line = self.lines[self.y]
+            if line.c[self.x] != ch:
+                self.cell(line, self.x, ch)
+            if w == 2 and self.x + 1 < self.cols:
+                self.cell(line, self.x + 1, "")
+            self.x += w
+            self.last = ch
+
+    def cell(self, line, x, ch):
+        self.rev += 1
+        line.c[x], line.o[x], line.rev = ch, False, self.rev
+
+    def control(self, t):
+        if t in "\n\x0b\x0c\x84":
+            self.down()
+        elif t == "\x85":
+            self.x = 0
+            self.down()
+        elif t == "\r":
+            self.x = 0
+        elif t == "\b":
+            self.x = max(0, min(self.x, self.cols - 1) - 1)
+        elif t == "\t":
+            self.x = min(self.cols - 1, (self.x // 8 + 1) * 8)
+        elif t == "\x8d":
+            self.up()
+
+    def down(self):
+        if self.y == self.bottom:
+            self.scroll(1)
+        elif self.y < self.rows - 1:
+            self.y += 1
+
+    def up(self):
+        if self.y == self.top:
+            self.lines.insert(self.top, TermLine(self.cols))
+            del self.lines[self.bottom + 1]
+        elif self.y > 0:
+            self.y -= 1
+
+    def scroll(self, n):
+        for _ in range(min(n, self.rows)):
+            line = self.lines.pop(self.top)
+            if self.top == 0 and self.alt is None and not self.mute:
+                self.done.append(line)
+                if len(self.done) > 20_000:
+                    del self.done[:5_000]
+            self.lines.insert(self.bottom, TermLine(self.cols))
+
+    def blank(self, line, a=0, b=None):
+        """Cells a to b of a line rubbed out. (What was there is gone, so nothing of it is left to be new or old.)"""
+        for x in range(a, len(line.c) if b is None else min(b, len(line.c))):
+            line.c[x], line.o[x] = " ", False
+
+    def fresh(self, line):
+        return line.rev > self.read_rev and any(c not in (" ", "") and not o for c, o in zip(line.c, line.o))
+
+    def hold(self):
+        """What the agent has not read of the screen is kept above it, as if it had scrolled off."""
+        for line in self.main:
+            if self.fresh(line):
+                kept = TermLine(0)
+                kept.c, kept.o, kept.rev, kept.wrap = line.c[:], line.o[:], line.rev, line.wrap
+                self.done.append(kept)
+
+    def clear(self):
+        if self.alt is None and not self.mute:
+            self.hold()
+        for line in self.lines:
+            self.blank(line)
+            line.wrap = False
+
+    def escape(self, t):
+        if t[1] != "[":
+            k = t[1:]
+            if k == "7":
+                self.saved = (self.x, self.y)
+            elif k == "8":
+                self.x, self.y = self.saved
+            elif k == "D":
+                self.down()
+            elif k == "E":
+                self.x = 0
+                self.down()
+            elif k == "M":
+                self.up()
+            elif k == "c":
+                self.alt = None
+                self.clear()
+                self.x = self.y = self.top = 0
+                self.bottom, self.wraps = self.rows - 1, True
+            return
+        k, body = t[-1], t[2:-1]
+        private = body[:1] if body[:1] in "<=>?" else ""
+        args = [int(a) if a.isdigit() else 0 for a in body.lstrip("<=>?").rstrip(" !\"#$%&'()*+,-./").split(";")]
+        n, lines, x = max(1, args[0]), self.lines, min(self.x, self.cols - 1)
+        if private:
+            if private == "?" and k in "hl":
+                for a in args:
+                    if a == 7:
+                        self.wraps = k == "h"
+                    elif a in (47, 1047, 1049):
+                        if k == "h" and self.alt is None:
+                            self.saved, self.alt = (self.x, self.y), [TermLine(self.cols) for _ in range(self.rows)]
+                            self.top, self.bottom = 0, self.rows - 1
+                        elif k == "l" and self.alt is not None:
+                            self.alt, (self.x, self.y) = None, self.saved
+                            self.top, self.bottom = 0, self.rows - 1
+            return
+        if body and not body[-1].isdigit() and body[-1] not in ";:":
+            return   # an intermediate byte: a cursor's shape and the like
+        if k == "A":
+            self.y = max(self.top if self.y >= self.top else 0, self.y - n)
+        elif k in "Be":
+            self.y = min(self.bottom if self.y <= self.bottom else self.rows - 1, self.y + n)
+        elif k in "Ca":
+            self.x = min(self.cols - 1, x + n)
+        elif k == "D":
+            self.x = max(0, x - n)
+        elif k in "EF":
+            self.x, self.y = 0, max(0, min(self.rows - 1, self.y + (n if k == "E" else -n)))
+        elif k in "G`":
+            self.x = min(self.cols - 1, n - 1)
+        elif k == "d":
+            self.y = min(self.rows - 1, n - 1)
+        elif k in "Hf":
+            self.y, self.x = min(self.rows - 1, n - 1), min(self.cols - 1, max(1, args[1] if len(args) > 1 else 1) - 1)
+        elif k == "J":
+            if args[0] == 2 or args[0] == 0 and not (x or self.y):
+                self.clear()
+            elif args[0] == 0:
+                self.blank(lines[self.y], x)
+                for line in lines[self.y + 1:]:
+                    self.blank(line)
+            elif args[0] == 1:
+                self.blank(lines[self.y], 0, x + 1)
+                for line in lines[:self.y]:
+                    self.blank(line)
+        elif k == "K":
+            self.blank(lines[self.y], *{0: (x, None), 1: (0, x + 1)}.get(args[0], (0, None)))
+        elif k in "LM" and self.top <= self.y <= self.bottom:
+            for _ in range(min(n, self.rows)):
+                if k == "L":
+                    lines.insert(self.y, TermLine(self.cols))
+                    del lines[self.bottom + 1]
+                else:
+                    del lines[self.y]
+                    lines.insert(self.bottom, TermLine(self.cols))
+        elif k == "P":
+            line, n = lines[self.y], min(n, self.cols - x)
+            line.c[x:self.cols], line.o[x:self.cols] = line.c[x + n:self.cols] + [" "] * n, line.o[x + n:self.cols] + [False] * n
+        elif k == "@":
+            line, n = lines[self.y], min(n, self.cols - x)
+            line.c[x:self.cols], line.o[x:self.cols] = [" "] * n + line.c[x:self.cols - n], [False] * n + line.o[x:self.cols - n]
+        elif k == "X":
+            self.blank(lines[self.y], x, x + n)
+        elif k == "S":
+            self.scroll(n)
+        elif k == "T":
+            for _ in range(min(n, self.rows)):
+                lines.insert(self.top, TermLine(self.cols))
+                del lines[self.bottom + 1]
+        elif k == "b":
+            self.put(self.last * min(n, self.cols))
+        elif k == "r":
+            a, b = max(1, args[0]) - 1, (args[1] if len(args) > 1 and args[1] else self.rows) - 1
+            if a < b < self.rows:
+                self.top, self.bottom, self.x, self.y = a, b, 0, 0
+        elif k == "s":
+            self.saved = (self.x, self.y)
+        elif k == "u":
+            self.x, self.y = self.saved
+
+    def resize(self, cols, rows):
+        for lines in (self.main, self.alt or []):
+            for line in lines:   # a narrower screen keeps what is past its edge: it was printed
+                more = cols - len(line.c)
+                if more > 0:
+                    line.c += [" "] * more
+                    line.o += [False] * more
+        while len(self.main) > rows:
+            if self.alt is None and self.y < len(self.main) - 1:
+                self.main.pop()
+            else:
+                line = self.main.pop(0)
+                if not self.mute:
+                    self.done.append(line)
+                self.y = max(0, self.y - 1)
+        self.main += [TermLine(cols) for _ in range(rows - len(self.main))]
+        if self.alt is not None:
+            self.alt = (self.alt + [TermLine(cols) for _ in range(rows)])[:rows]
+        self.cols, self.rows, self.top, self.bottom = cols, rows, 0, rows - 1
+        self.x, self.y = min(self.x, cols - 1), max(0, min(self.y, rows - 1))
+        self.saved = (min(self.saved[0], cols - 1), min(self.saved[1], rows - 1))
+
+    def mark_old(self):
+        """Everything so far is old: never given, whether or not it has been read."""
+        self.screen_old()
+        self.done, self.read_rev = [], self.rev
+
+    def screen_old(self):
+        """The screen is old; what has scrolled off it since the last read is still to be given."""
+        for line in self.main + (self.alt or []):
+            line.o = [True] * len(line.o)
+
+    def cursor_line(self):
+        return "".join(self.lines[self.y].c).rstrip()
+
+    def finished(self):
+        """Whether a line other than the one being typed on is new."""
+        at = self.lines[self.y]
+        return any(self.fresh(line) for line in self.done + self.lines if line is not at)
+
+    def take(self):
+        """What is new since the last take, as text."""
+        def said(lines):
+            out, gap, last = [], [], None
+            for line in lines:
+                text = "".join(" " if o else c for c, o in zip(line.c, line.o)) if self.fresh(line) else None
+                if text and line.o[0]:   # after an old prompt, what was typed at it
+                    text = text.lstrip()
+                if text is None:
+                    if out and not "".join(line.c).strip():
+                        gap.append("")
+                    else:
+                        gap = []
+                    last = None
+                    continue
+                if line.wrap and last is not None:
+                    out[-1] = last + text
+                else:
+                    out += gap + [text]
+                gap, last = [], out[-1]
+            return "\n".join(x.rstrip() for x in out)
+        text = said(self.done + self.main)
+        if self.alt is not None and (full := said(self.alt)):
+            text += ("\n" if text else "") + "[a full-screen program is open and shows:]\n" + full
+        self.done, self.read_rev = [], self.rev
+        return text
+
+
+class TermAgent:
+    """One agent attached to one shell: what the shell has printed since, and the command the agent shows."""
+    def __init__(self, tid, kind, label, agent, sid, cols, rows):
+        self.tid, self.kind, self.label, self.agent, self.sid = tid, kind, label, agent, sid
+        self.cols, self.rows, self.suggest, self.n = cols, rows, "", 0
+        self.lock, self.drawing = threading.Lock(), threading.Lock()   # what has come; the screen it is drawn on
+        self.sock, self.gone, self.real, self.joined, self.ready = None, False, None, False, threading.Event()
+        self.screen, self.unread, self.held, self.skipped = TermScreen(cols, rows), [], 0, 0   # unread: [time, b"o", bytes] or [time, b"r", (cols, rows)]
+        self.tail, self.mark, self.got = b"", None, 0
+        # after a resize: when it was, the last of what came, whether anything did; whether to say so, and whether a command the
+        # owner submitted may have printed in it; when one was last submitted
+        self.resized, self.last, self.came, self.left_out, self.missed, self.sent, self.since = 0, 0, False, False, False, 0, time.time()
+
+    def join(self, mark=None):
+        """Joins the shell. With a mark (its length and hash), reading goes on from where it had reached; with none, from
+        here. False when there is no such shell: the keeper makes one for an id it does not know, and that is ended."""
+        self.sock = term_connect()
+        if not self.sock:
+            return False
+        self.sock.sendall(json.dumps({"op": "attach", "id": self.tid, "kind": self.kind, "cols": self.cols, "rows": self.rows}).encode() + b"\n")
+        threading.Thread(target=self.drain, args=(self.sock.makefile("rb"), mark), daemon=True).start()
+        self.ready.wait(3)
+        self.joined = self.real is not False
+        if not self.joined:
+            self.close()
+        return self.joined
+
+    def drain(self, rf, mark):
+        """Takes what the keeper sends as fast as it comes: the keeper sends to every reader in turn, so a slow one would
+        hold up the owner's terminal."""
+        try:
+            while (m := term_get(rf)) is not None:
+                t, data = m
+                if t == b"p":
+                    with self.drawing:
+                        self.replayed(data, mark)
+                    self.real = True
+                    self.ready.set()
+                elif t == b"o":
+                    with self.lock:
+                        self.got = time.time()
+                        self.unread.append([self.got, b"o", data])
+                        self.held += len(data)
+                        while self.held > TERM_UNREAD and len(self.unread) > 1:
+                            i = next((i for i, u in enumerate(self.unread) if u[1] == b"o"), None)
+                            if i is None:
+                                break
+                            gone = len(self.unread.pop(i)[2])
+                            self.held -= gone
+                            self.skipped += gone
+                    self.real = True
+                    self.ready.set()
+                elif t == b"n":
+                    self.real = False
+                    term_put(self.sock, threading.Lock(), b"k", b"")
+                    break
+                elif t == b"x":
+                    break
+        except OSError:
+            pass
+        self.ready.set()
+        if self.joined and not self.gone:
+            term_detach(self.tid, "the terminal has ended", self)
+
+    def replayed(self, data, mark):
+        at = len(data)
+        if mark:   # the last place whose bytes before it are those reading had reached; not there at all, they have been dropped and all of this came after
+            size, want = mark
+            at = next((i for i in range(len(data), size - 1, -1) if hashlib.sha256(data[i - size:i]).hexdigest() == want), 0)
+        self.screen.feed(data[:at])
+        self.screen.mark_old()
+        self.screen.feed(data[at:])
+        self.tail = data[-TERM_MARK:]
+        self.got = time.time()
+        if self.mark is None and not mark:
+            self.mark = self.tail_mark()
+
+    def tail_mark(self):
+        return [len(self.tail), hashlib.sha256(self.tail).hexdigest()]
+
+    def resize(self, cols, rows, again=False):
+        """The terminal has a new size (or may have: again). Until its answer is over, a restart would not know the answer from
+        what is new, so there is no place to go on from."""
+        with self.lock:
+            if (cols, rows) == (self.cols, self.rows) and not again:
+                return
+            self.cols, self.rows, self.mark = cols, rows, None
+            self.unread.append([time.time(), b"r", (cols, rows)])
+        term_agents_save()
+        threading.Thread(target=self.settled, daemon=True).start()
+
+    def settled(self):
+        """Once a resize's answer is over, the place a restart goes on from is after it."""
+        while not self.gone:
+            time.sleep(.5)
+            with self.drawing:
+                self.draw()
+                if not self.resized:
+                    with self.lock:
+                        if any(t == b"r" for _, t, _ in self.unread):
+                            return   # another has come, and has its own
+                        self.mark = self.tail_mark()
+                    break
+        term_agents_save()
+
+    def draw(self):
+        """What has come drawn on the screen (with `drawing` held; more can come meanwhile)."""
+        with self.lock:
+            come, self.unread, self.held = self.unread, [], 0
+        for at, t, data in come:
+            self.settle(at)
+            if t == b"r":
+                if not self.resized:
+                    self.screen.hold()
+                    self.screen.screen_old()
+                self.resized = self.last = at
+                self.screen.mute = True
+                self.screen.resize(*data)
+            else:
+                if self.resized:
+                    self.last, self.came = at, True
+                self.screen.feed(data)
+                self.tail = (self.tail + data)[-TERM_MARK:]
+        self.settle(time.time())
+
+    def settle(self, now):
+        """Ends what follows a resize, all of it old, once it is over by `now`."""
+        if self.resized and (now > self.resized + TERM_REPAINT_MAX or now > max(self.resized + TERM_REPAINT, self.last + .5)):
+            self.screen.screen_old()
+            self.screen.mute = False
+            if self.came and self.resized > self.since + 5:   # not the row's own coming, as the agent is attached
+                self.left_out = True
+                self.missed = self.missed or self.sent > self.resized - 2
+            self.resized, self.came = 0, False
+
+    def read(self, wait=0):
+        """What is new since the last read. With wait, not until a command has finished: its prompt is back, or nothing has
+        been printed for eight seconds and the cursor is after some text, which is a prompt of another shape or a question. A
+        command that prints nothing for a while leaves the cursor on an empty line. "" when `wait` seconds pass first."""
+        until = time.time() + wait
+        while True:
+            now = time.time()
+            with self.lock:
+                quiet = now - self.got
+            if self.gone:
+                return None
+            if not wait or quiet > .7:
+                with self.drawing:
+                    self.draw()
+                    if not self.resized:   # not while what comes is old
+                        line = self.screen.cursor_line()
+                        over = (TERM_BARE.get(self.kind) or TERM_BARE["sh"]).search(line) or quiet > 8 and line
+                        if not wait or over and (self.screen.finished() or self.missed):
+                            text, skipped, self.skipped = self.screen.take(), self.skipped, 0
+                            with self.lock:
+                                if not any(t == b"r" for _, t, _ in self.unread):
+                                    self.mark = self.tail_mark()
+                            if len(text) > TERM_GIVEN:
+                                text = "[earlier lines left out]\n" + text[-TERM_GIVEN:].split("\n", 1)[-1]
+                            if skipped:
+                                text = f"[{skipped // 1024} kB printed before this was more than is kept]\n" + text
+                            if self.left_out and (text or self.missed):
+                                text = "[the terminal was resized since the last read: what it printed in the seconds after is left out]\n" + text
+                                self.left_out = self.missed = False
+                            return text
+            if wait and time.time() > until:
+                return ""
+            time.sleep(.3)
+
+    def close(self):
+        self.gone = True
+        if self.sock:
+            with contextlib.suppress(OSError):
+                self.sock.shutdown(socket.SHUT_RDWR)
+            with contextlib.suppress(OSError):
+                self.sock.close()
+
+
+_term_agents, _term_agents_lock = {}, threading.RLock()   # shell id -> the agent attached to it
+_term_at = {}   # shell id -> {"kind", "cols", "rows", "pages": how many sockets are open on it}
+
+
+def term_agents():
+    """The attached agents, for the page."""
+    with _term_agents_lock:
+        return {t.tid: {"agent": t.agent, "label": t.label, "text": t.suggest, "n": t.n} for t in _term_agents.values()}
+
+
+def term_agents_save():
+    with _term_agents_lock:
+        keep = [{k: getattr(t, k) for k in ("tid", "kind", "label", "agent", "sid", "cols", "rows", "suggest", "n", "mark")} for t in _term_agents.values()]
+        try:
+            if keep:
+                fd = os.open(TERM_AGENTS + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(keep, f)
+                os.replace(TERM_AGENTS + ".new", TERM_AGENTS)
+            elif os.path.exists(TERM_AGENTS):
+                os.unlink(TERM_AGENTS)
+        except OSError:
+            pass
+
+
+def term_agents_changed():
+    term_agents_save()
+    with _lock:
+        _state["at"] = 0
+    live_kick()
+
+
+def term_tell(name, text, still):
+    """One line from the page typed into an agent's pane, once no prompt is open in it, while still() holds."""
+    def tell():
+        until = time.time() + 600
+        while time.time() < until and still():
+            if (live_sessions().get(name) or {}).get("status") != "waiting":
+                type_into(name, f"{TERM_TAG} {text}")
+                return
+            time.sleep(2)
+    threading.Thread(target=tell, daemon=True).start()
+
+
+def term_attach(tid, label, name):
+    """Attaches an agent to a shell a page has open; an error's words, or None. Whoever was attached to the shell, and
+    wherever else the agent was, is detached."""
+    at, rec = _term_at.get(tid), live_sessions().get(name)
+    if not at or not at["pages"]:
+        return "that terminal is not open on the page"
+    if not rec or not panes().get(name):
+        return "that agent is not running in a pane"
+    with _term_agents_lock:
+        was = _term_agents.get(tid)
+        if was and was.agent == name:
+            return None
+        for t in [t for t in _term_agents.values() if t.tid == tid or t.agent == name]:
+            term_detach(t.tid, "the owner attached another agent to that terminal" if t.tid == tid else "", t)
+        label = " ".join(re.sub(r"[\x00-\x1f\x7f\"]+", " ", label).split())[:40] or "Terminal"
+        t = TermAgent(tid, at["kind"], label, name, rec.get("sessionId"), at["cols"], at["rows"])
+        _term_agents[tid] = t
+        if not t.join():
+            if _term_agents.get(tid) is t:
+                del _term_agents[tid]
+            return "the terminal could not be joined"
+    term_agents_changed()
+    term_tell(name, f"The owner has attached you to their terminal \"{label}\" ({shell_kinds().get(at['kind'], {}).get('name', 'shell')}) on the team page. "
+              "You can read what it prints from now on (nothing from before) and show the owner a command to run; only the owner can send "
+              f"it to the terminal. {TERM_TOOL} read: what is new since you last read. agent-terminal read --wait: the same, once the "
+              "command running has finished (run it in the background to be woken by it). agent-terminal suggest 'command': shows a command, of one "
+              "line or several, in a box under the terminal for the owner to edit and submit. Work on what the owner has asked you; "
+              "if there is nothing yet, wait for them.", lambda: _term_agents.get(tid) is t)
+    return None
+
+
+def term_detach(tid, why, only=None):
+    """Ends an attachment, telling its agent why ("" to say nothing)."""
+    with _term_agents_lock:
+        t = _term_agents.get(tid)
+        if not t or only and t is not only:
+            return False
+        del _term_agents[tid]
+        t.close()
+    term_agents_changed()
+    if why:
+        term_tell(t.agent, f"You are no longer attached to the terminal \"{t.label}\": {why}.", lambda: True)
+    return True
+
+
+def term_agents_start():
+    """Joins again, on the page's start, the shells agents were attached to, then watches for the end of their sessions."""
+    try:
+        with open(TERM_AGENTS) as f:
+            kept = json.load(f)
+        for k in kept:
+            t = TermAgent(k["tid"], k["kind"], k["label"], k["agent"], k["sid"], k["cols"], k["rows"])
+            t.suggest, t.n = k["suggest"], k["n"]
+            with _term_agents_lock:
+                _term_agents[t.tid] = t
+            if not t.join(k["mark"]):
+                term_detach(t.tid, "the terminal has ended", t)
+            else:
+                t.resize(t.cols, t.rows, True)   # its size may not be what it was when that was written
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+    def watch():
+        missed = {}
+        while True:
+            time.sleep(10)
+            live = live_sessions()
+            for t in list(_term_agents.values()):
+                gone = (live.get(t.agent) or {}).get("sessionId") != t.sid
+                missed[t.tid] = missed.get(t.tid, 0) + 1 if gone else 0
+                if missed[t.tid] >= 3:   # not for one look that found its record half written
+                    term_detach(t.tid, "", t)
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def term_command_bad(text):
+    """Why a command may not be shown, or None: every character of it must be one the owner can see."""
+    import unicodedata
+    if not text.strip():
+        return "no command given"
+    if len(text) > TERM_SUGGEST_MAX:
+        return f"over {TERM_SUGGEST_MAX} characters: put it in a script and suggest running that"
+    for ch in text:
+        if ch != "\n" and (unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") or unicodedata.category(ch) == "Zs" and ch != " "):
+            return f"it has a character the owner could not see (U+{ord(ch):04X})"
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def here(self):
         """Whether the request is the page's own: addressed to this host and port, or to the public name with
@@ -4919,7 +5561,17 @@ class Handler(BaseHTTPRequestHandler):
         if not k:
             return self.send(503, b"the terminal keeper could not be started\n", "text/plain")
         size = lambda n, d: int(arg(n)) if arg(n).isdigit() else d
-        k.sendall(json.dumps({"op": "attach", "id": arg("id"), "kind": arg("kind") or "sh", "cols": size("cols", 80), "rows": size("rows", 24)}).encode() + b"\n")
+        with _term_agents_lock:
+            at = _term_at.setdefault(arg("id"), {"pages": 0})
+            at["pages"] += 1
+
+        def sized(cols, rows):   # the size the keeper will keep to, known to an agent attached before the shell answers to it
+            at.update(cols=max(2, min(cols, 1000)), rows=max(2, min(rows, 500)))
+            if t := _term_agents.get(arg("id")):
+                t.resize(at["cols"], at["rows"])
+        at["kind"] = arg("kind") or "sh"
+        sized(size("cols", 80), size("rows", 24))
+        k.sendall(json.dumps({"op": "attach", "id": arg("id"), "kind": at["kind"], "cols": at["cols"], "rows": at["rows"]}).encode() + b"\n")
         out, put, klock = self.connection, self.socket_open(), threading.Lock()
 
         def pump():   # the keeper's output to the page; the shell's end closes the socket normally (1000), the keeper's loss abnormally (1011)
@@ -4956,6 +5608,7 @@ class Handler(BaseHTTPRequestHandler):
                     if d.get("kill"):   # its tab or pane closed: the shell is ended, not left to be joined again
                         term_put(k, klock, b"k", b"")
                     elif "cols" in d:
+                        sized(int(d["cols"]), int(d["rows"]))
                         term_put(k, klock, b"r", json.dumps({"cols": d["cols"], "rows": d["rows"]}).encode())
                 elif op == 9:
                     put(10, data)
@@ -4964,6 +5617,10 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
         finally:
+            with _term_agents_lock:
+                at["pages"] -= 1
+                if not at["pages"]:
+                    _term_at.pop(arg("id"), None)
             try:
                 k.close()
             except OSError:
@@ -5104,7 +5761,8 @@ class Handler(BaseHTTPRequestHandler):
         repos = self.path == "/api/repos/update"
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
-        if not m and not team and not repos and not nudger and not meet and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
+        term = re.fullmatch(r"/api/terminal/(?:([a-z0-9]{4,32})/(attach|detach|submitted)|(read|suggest))", self.path)
+        if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -5121,6 +5779,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(202, b'{"updating": true}', "application/json")
         if meet:
             return self.meeting(meet.group(1), meet.group(2))
+        if term:
+            if term.group(1) and not origin:   # the owner's, from the page: a command names no Origin
+                return self.send(403, b"only the owner can do that, on the team page\n", "text/plain")
+            return self.terminal(term.group(1), term.group(2) or term.group(3))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
         if self.path == "/api/foryou/clear":
@@ -5163,6 +5825,51 @@ class Handler(BaseHTTPRequestHandler):
         if ok is None:
             return self.send(404, b"that agent is not in a pane\n", "text/plain")
         self.send(200 if ok else 500, json.dumps({"sent": ok}).encode(), "application/json")
+
+    def terminal(self, tid, what):
+        """An agent attached to a terminal: attached ({"agent", "label"}), detached, or its command submitted ({"n"}), from the
+        page; what is new read ({"as", "wait": seconds}) and a command shown ({"as", "text"}; "" for none), from
+        agent-terminal."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
+            assert isinstance(body, dict)
+        except (ValueError, AssertionError):
+            return self.send(400, b"bad request\n", "text/plain")
+        no = lambda text: self.send(409, (text + "\n").encode(), "text/plain")
+        if what == "attach":
+            why = term_attach(tid, str(body.get("label") or ""), str(body.get("agent") or ""))
+            return no(why) if why else self.send(200, b"{}", "application/json")
+        if what == "detach":
+            term_detach(tid, "the owner detached you")
+            return self.send(200, b"{}", "application/json")
+        if what == "submitted":
+            with _term_agents_lock:
+                t = _term_agents.get(tid)
+                if t:
+                    t.sent = time.time()
+                    if t.n == body.get("n"):
+                        t.suggest = ""
+            term_agents_changed()
+            return self.send(200, b"{}", "application/json")
+        t = next((t for t in list(_term_agents.values()) if t.agent == str(body.get("as") or "")), None)
+        if not t:
+            return no("you are not attached to a terminal: the owner attaches you on the team page")
+        if what == "read":
+            wait = body.get("wait")
+            text = t.read(min(50, wait) if isinstance(wait, (int, float)) and wait > 0 else 0)
+            if text is None:
+                return no("you are no longer attached to the terminal")
+            if text:
+                term_agents_changed()
+            return self.send(200, json.dumps({"text": text}).encode(), "application/json")
+        text = str(body.get("text") or "").replace("\r\n", "\n").strip("\n")
+        if text and (why := term_command_bad(text)):
+            return no("not shown: " + why)
+        with _term_agents_lock:
+            t.suggest, t.n = text, t.n + 1
+        term_agents_changed()
+        self.send(200, b"{}", "application/json")
 
     def meeting(self, mid, what):
         """A meeting started ({"who": [...], "topic", "view"}), or one of an open meeting's: a line said ({"text"}, and
@@ -6039,7 +6746,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .paneover > .cards{flex:1;min-height:0;padding:0;cursor:default}
 .teamlog .cnames .focal{position:relative;z-index:7}   /* the agent over its Combined view: above the greying */
 .pbody:has(> .paneover) > .ctabs{position:relative;z-index:7}   /* the pane's tabs stay clear above the greying */
-.paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
+#main .paneover > .cards > .card{box-shadow:0 12px 36px #0009;background-color:var(--box)}   /* solid: the Combined view does not show through */
 .pbody .blank{margin:auto;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}
 .teamlog:is([data-name="~tokens"],[data-name="~team"]) > .blank{margin:auto;padding:12px;color:var(--faint);font-size:calc(var(--t-m)*var(--fs,1))}   /* "Reading the conversations…" in the middle of the pane */
 .others{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
@@ -6630,6 +7337,36 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 .shthemebtn:hover{background:var(--on);color:var(--text)}
 #shmenu{position:fixed;z-index:60;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid var(--line2);border-radius:var(--r-m,8px);background:var(--card1);box-shadow:0 8px 24px #0008}
 .shellterm{flex:1;min-width:0;min-height:0}
+/* an agent attached to a terminal: its face on the tab, and its row under the terminal */
+.shattach{display:grid;place-items:center;width:26px;height:26px;flex:none;margin-left:auto;border-radius:13px;color:var(--mute);cursor:pointer}
+.shattach svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.shattach:hover,.shattach.on{background:var(--on);color:var(--text)}
+.shattach + .shthemebtn{margin-left:0}
+.termmark{display:inline-flex;align-items:center;gap:6px;min-width:0;margin-left:auto;padding:2px 10px;border:1px solid var(--c);border-radius:10px;background:color-mix(in srgb,var(--c) 22%,transparent);color:var(--text);font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);white-space:nowrap}
+.termmark svg{flex:none;width:13px;height:13px}
+.termmark span{overflow:hidden;text-overflow:ellipsis}
+.teamlog .chead .termmark + .x{margin-left:0}
+.shtab .shwho{display:flex;flex:none;padding:0}
+#main .shtab .ph-por.pp{width:18px;height:18px}
+.shtab .shasks{flex:none;width:7px;height:7px;border-radius:50%;background:var(--amber)}
+/* the row keeps the room of three lines, as the terminal would be resized with it: one with a longer command grows up over the terminal, whole */
+.shagentat{flex:none;position:relative;height:78px}
+.shagent{position:absolute;inset:auto 0 0 0;z-index:3;min-height:100%;box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border:1px solid var(--line2);border-radius:var(--r-m);background:linear-gradient(var(--card1),var(--card1)),var(--bg)}
+.shagent > .face{flex:none;width:28px;height:28px;margin:0;cursor:pointer}
+.shagent .shcmd{flex:1;min-width:0;min-height:64px;max-height:200px;margin:0;padding:4px 8px;box-sizing:border-box;resize:none;overflow-y:hidden;border:1px solid var(--line2);border-radius:var(--r-s);
+  background:var(--soft);color:var(--text);font:calc(var(--t-s)*var(--fs,1))/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;outline:none}
+.shagent .shcmd:focus{border-color:var(--c)}
+.shagent .shcmd::placeholder{color:var(--faint);font-family:var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shagent button{flex:none;height:28px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--soft);color:var(--text);font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);cursor:pointer}
+.shagent button:hover:not(:disabled){border-color:var(--hover)}
+.shagent button:disabled{opacity:.45;cursor:default}
+.shagent .shsubmit{display:grid;place-items:center;width:28px;padding:0}
+.shagent .shsubmit svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.shagent .shnewer{border-color:var(--amber);color:var(--amber)}
+.shagent .shnewer[hidden]{display:none}
+.shagent .shdetach{display:grid;place-items:center;width:28px;padding:0;border:0;background:none;color:var(--mute)}
+.shagent .shdetach:hover{color:var(--text)}
+.shagent .shdetach svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 .shellterm .xterm{height:100%}
 .shellterm .xterm-viewport{background:var(--shbg) !important}   /* xterm.css's own is black, under the last part-row */
 .phframe{display:block;flex:1;min-height:0;width:calc(100% - 20px);margin:10px;border:1px solid var(--line2);border-radius:var(--r-m);overflow:hidden;background:var(--bg)}   /* where its card would be, shaped as one */
@@ -8312,9 +9049,9 @@ function card(a, ceil, conv, extra = "", {key = "", keep = false, lead = ""} = {
   const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
     : thr ? thHeadHtml(pick.t, a.name) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
     : feedHtml(turns, a.name, !conv, laneOf(a.name), null, conv ? newMarkAt(a.name, EVERY) : null);
-  const fold = folded().includes(a.name);
+  const fold = folded().includes(a.name), re = (all.length > 2 ? reTag(thr && pick.name !== EVERY ? pick.t : null) : "") + termMark(a.name);
   const body = `<div class="feed"${key ? ` data-key="${esc(key)}"${keep ? " data-kept" : ""}` : ""}>${feed}</div>${conv ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}
-    ${a.live ? (all.length > 2 ? `<div class="retagrow">${reTag(thr && pick.name !== EVERY ? pick.t : null)}</div>` : "") + sayRow(a) : ""}`;
+    ${a.live ? (re ? `<div class="retagrow">${re}</div>` : "") + sayRow(a) : ""}`;
   return `<div class="card ${cls}${switching(a)}${conv ? " full" : ""}${thr ? " thon" : ""}${fold ? " folded" : ""}" style="--c:${a.colour}" data-name="${esc(a.name)}">
     <div class="top">${lead ? `<span class="lead">${lead}<span class="name">${esc(shown(a.name))}</span></span>` : `<span class="name">${esc(shown(a.name))}</span>`}<span class="role">${roleWith(a)}</span><span class="cctl">${foldButton(a.name, fold)}${conv && a.feed.length ? thSeg(a.name) : ""}${a.feed.length ? laneSeg(a.name) : ""}</span>${extra}</div>
     <div class="row2">${a.ticket ? `<span class="ticket" title="${esc(tkTip(a))}">${esc(tk(a))}</span>` : ""}<span class="state"><span class="dot"></span>${STATE[cls] || esc(cls)}</span><span>${ago(heldOf(a))}</span>${ctx}</div>
@@ -8440,6 +9177,80 @@ const xtermReady = () => xtermLoad ||= Promise.all(XTERM.map(([u, h]) => new Pro
   el.onload = ok; el.onerror = no; document.head.append(el);
 }))).catch(e => { xtermLoad = null; throw e; });
 const shells = {}, shellEnc = new TextEncoder();
+// An agent attached to a terminal (S.termAgents, by the terminal's id) has a row under it: its face, the command it
+// shows, and Send, which puts the command in the terminal and presses Enter. Nothing else sends it: Enter in the box
+// is a line break, and the agent has no way to type there. A command the owner has changed is not replaced by the
+// agent's next, which waits behind "New command".
+const shDraft = {};   // terminal id -> {n, base: the agent's command as last taken into the box, value: the box}
+const SH_RETURN = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 3.5v4a2 2 0 0 1-2 2H3M6 6.5l-3 3 3 3"/></svg>`;
+const shellAgentRow = (id, t) => `<div class="shagentat"><div class="shagent" data-name="~shagent:${id}" data-shagent="${id}" style="--c:${t.a.colour}">${face(t.a, `data-shopen data-menu-name="${esc(t.agent)}"`)}` +
+  `<textarea class="shcmd" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" writingsuggestions="false" data-gramm="false" placeholder="${esc(shown(t.agent))} can show a command here for you to run" aria-label="The command ${esc(shown(t.agent))} shows"></textarea>` +
+  `<button class="shnewer" hidden title="Show ${esc(shown(t.agent))}'s newer command in place of this one">New command</button><button class="shsubmit" title="Send" aria-label="Send">${SH_RETURN}</button>` +
+  `<button class="shdetach" title="Detach ${esc(shown(t.agent))} from this terminal" aria-label="Detach ${esc(shown(t.agent))}">${MENU_ICON.close}</button></div></div>`;
+// the terminal an agent is attached to, over the right of its message box, wherever that is
+function termMark(name) {
+  const [id, t] = Object.entries(S?.termAgents || {}).find(([, v]) => v.agent === name) || [];
+  return id ? `<span class="termmark" title="It reads what this terminal prints">${PANE_ICON.shell}<span>Attached to ${esc(termOf(id)?.name || t.label || "a terminal")}</span></span>` : "";
+}
+const shellPost = (path, body) => fetch("/api/terminal/" + path, {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify(body)});
+function shellAgents() {   // each row's box and buttons as the agent's command and the owner's changes to it have them
+  for (const id of Object.keys(shDraft)) if (!S?.termAgents?.[id]) delete shDraft[id];
+  document.querySelectorAll("[data-shagent]").forEach(row => {
+    const id = row.dataset.shagent, t = S?.termAgents?.[id]; if (!t) return;
+    const d = shDraft[id] ||= {n: -1, base: "", value: ""}, box = row.querySelector(".shcmd");
+    if (d.agent !== t.agent) Object.assign(d, {agent: t.agent, n: -1, base: "", value: ""});
+    const newer = d.n !== t.n || d.base !== t.text;
+    if (newer && (d.value === d.base || !d.value.trim())) Object.assign(d, {n: t.n, base: t.text, value: t.text});
+    if (box.value !== d.value) box.value = d.value;
+    row.querySelector(".shnewer").hidden = !(newer && t.text && t.text !== d.value && d.n !== t.n);
+    shellAgentFit(row);
+  });
+}
+function shellAgentFit(row) {
+  const box = row.querySelector(".shcmd"), s = shells[row.dataset.shagent];
+  box.style.height = "auto"; box.style.height = box.scrollHeight + 2 + "px"; box.style.overflowY = box.scrollHeight > 200 ? "auto" : "hidden";
+  row.querySelector(".shsubmit").disabled = !box.value.trim() || !s || s.ended || s.ws?.readyState !== 1;
+}
+document.addEventListener("input", e => {
+  const row = e.target.closest?.(".shcmd") && e.target.closest("[data-shagent]"); if (!row) return;
+  const d = shDraft[row.dataset.shagent]; if (d) d.value = e.target.value;
+  shellAgents();
+});
+for (const ev of ["keydown", "paste", "drop"]) document.addEventListener(ev, e => { if (e.target.closest?.(".shcmd")) e.stopPropagation(); }, true);
+document.addEventListener("click", e => {
+  const open = e.target.closest?.("[data-shattach]");
+  if (open) { e.stopPropagation(); return shellAttachMenu(open); }
+  const row = e.target.closest?.("[data-shagent]"), b = row && e.target.closest("button, [data-shopen]"); if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  const id = row.dataset.shagent, t = S.termAgents?.[id], d = shDraft[id], s = shells[id]; if (!t || !d) return;
+  if (b.matches("[data-shopen]")) return touched ? void agentMenu(b, t.agent, true, false) : (menuOff(true), openDetail(t.agent));
+  if (b.matches(".shdetach")) { shellPost(id + "/detach", {}).then(() => load()).catch(() => {}); delete S.termAgents[id]; return draw(); }
+  if (b.matches(".shnewer")) { Object.assign(d, {n: t.n, base: t.text, value: t.text}); return shellAgents(); }
+  const text = row.querySelector(".shcmd").value.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "").replace(/\s+$/, "");
+  if (!text.trim() || !s || s.ended || s.ws?.readyState !== 1) return;
+  s.pin = ""; s.term.paste(text); s.term.input("\r"); s.term.scrollToBottom(); s.term.focus();
+  Object.assign(d, {base: "", value: ""}); if (d.n === t.n) t.text = ""; else d.n = -1;
+  shellPost(id + "/submitted", {n: d.n}).catch(() => {});
+  shellAgents();
+}, true);
+function shellAttachMenu(btn) {
+  if (menuOn("shattach")) return menuOff(true);
+  const id = btn.dataset.shattach, now = S.termAgents?.[id]?.agent, at = name => Object.entries(S.termAgents || {}).find(([k, v]) => k !== id && v.agent === name);
+  const them = byRole(S.agents.filter(a => a.live));
+  menuAt(btn, "shattach", `<div class="hd"><div>Attach to ${esc(btn.dataset.label)}</div></div>` + (them.length ? them.map(a => `<div class="mi wmi" data-pick="${esc(a.name)}">${face(a, "")}` +
+    `<span class="wtxt"><b>${esc(shown(a.name))}</b><span>${a.name === now ? "Attached here" : at(a.name) ? `Attached to ${esc(termOf(at(a.name)[0])?.name || "another terminal")}` : roleWith(a)}</span></span></div>`).join("") : `<div class="mi off">No agent is running</div>`) +
+    `<div class="sep"></div><div class="mi off">It reads what the terminal prints from now on, and can show you a command to run</div>` +
+    (now ? `<div class="mi" data-none>${MENU_ICON.close}Detach ${esc(shown(now))}</div>` : ""));
+  menu.querySelectorAll("[data-pick]").forEach(mi => mi.onclick = async () => {
+    menuOff(true);
+    if (mi.dataset.pick === now) return;
+    const r = await shellPost(id + "/attach", {agent: mi.dataset.pick, label: btn.dataset.label}).catch(() => null);
+    if (!r?.ok) alert(r ? (await r.text()).trim() : "The team page's server did not answer");
+    load();
+  });
+  const none = menu.querySelector("[data-none]");
+  if (none) none.onclick = () => { menuOff(true); shellPost(id + "/detach", {}).then(() => load()).catch(() => {}); };
+}
 let shellKinds = [];   // the shells this machine has for a pane, its bar's switch when more than one
 fetch("/api/shells").then(r => r.json()).then(k => { shellKinds = k; draw(); }).catch(() => {});
 function shellMount() {
@@ -8695,6 +9506,7 @@ function patchNode(a, b) {
 
 function draw() {
   requestAnimationFrame(shellMount);
+  requestAnimationFrame(shellAgents);
   requestAnimationFrame(() => { document.querySelectorAll(":is(.card.full, .teamlog.combined) .thlist").forEach(thEdges); document.querySelectorAll(":is(.card.full, .teamlog.combined).thon .feed").forEach(edges); });
   if (!S || resizing || holding($("#main")) || document.activeElement?.classList.contains("ctname")
     || document.activeElement?.classList.contains("wkfilter")) return;   // nor while a tab is being named, or the Work pane filtered
@@ -9994,18 +10806,19 @@ const wkTicketFaces = (d, key, who) => { const {own, sup} = wkOn(d, key, who);
   return sup.length ? `<span class="wkfaces">${sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}</span>` : wkFace(who); };
 document.addEventListener("click", e => { const f = e.target.closest(".wk [data-wkagent]:not([data-wkcto])");
   if (f) { e.stopPropagation(); e.preventDefault(); openDetail(f.dataset.wkagent); } }, true);
-// and a right-click on it gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
-document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(".wk [data-wkagent], .wkpeople [data-wkfilter]:not([data-wkfilter=''])");
-  if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false); } });
+// and a right-click on it, or on the face of an agent attached to a terminal, gives the agent's menu, as a portrait does elsewhere (on the phone a held press does, through PH_HOLD)
+const WK_MENU = ".wk [data-wkagent], .wkpeople [data-wkfilter]:not([data-wkfilter='']), .shagent [data-menu-name]";
+document.addEventListener("contextmenu", e => { const f = !phoneOn() && e.target.closest(WK_MENU);
+  if (f) { e.preventDefault(); agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter || f.dataset.menuName, true, false); } });
 // and a moment's rest on it opens that menu too, going again when the pointer leaves both, as a portrait's does elsewhere
 let wkRest = null;
 document.addEventListener("mouseover", e => {
-  const f = e.target.closest?.(".wk [data-wkagent], .wkpeople [data-wkfilter]:not([data-wkfilter=''])");
+  const f = e.target.closest?.(WK_MENU);
   if (f === wkRest) return;
   if (wkRest) { clearTimeout(menuShow); if (menu.dataset.rested) menuOff(); }
   wkRest = f;
   if (!f || touched || phoneOn()) return;
-  menuRest(f, () => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, true));
+  menuRest(f, () => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter || f.dataset.menuName, true, true));
 });
 const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"><span class="id">${id}${subHtml || sub ? ` <span>· ${subHtml || esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
@@ -10798,12 +11611,14 @@ function customHtml(ceil, tabRow) {
       const kindName = k => shellKinds.find(x => x.kind === k)?.name || (k === "pwsh" ? "PowerShell" : "Shell");
       const label = (x, i) => { if (x.name) return x.name; const same = n.terms.filter(y => y.shell === x.shell && !y.name); return kindName(x.shell) + (same.length > 1 ? " " + (same.indexOf(x) + 1) : ""); };
       // its icon turns to the pin under the pointer, and is the pin while one is set
+      const onIt = x => { const ta = S.termAgents?.[x.sh], a = ta && S.agents.find(y => y.name === ta.agent); return a ? {...ta, a} : null; }, att = onIt(t);
       const tabs = n.terms.map((x, i) => `<b class="shtab${i === at ? " on" : ""}" data-shtab="${i}">` +
         `<i class="shpinbtn${x.pin ? " on" : ""}" data-shpin="${i}" title="${x.pin ? `Pinned: a fresh shell here runs ${esc(x.pin)}` : "Pin a command for a fresh shell here to run"}">${PANE_ICON.shell}${SH_PIN}</i>` +
-        `<span>${esc(label(x, i))}</span>` + (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
+        `<span>${esc(label(x, i))}</span>` + ((o => o ? `<span class="shwho ppdesk">${ppFace(o.agent)}</span>` + (i !== at && o.text ? `<i class="shasks" title="${esc(shown(o.agent))} has a command for you here"></i>` : "") : "")(onIt(x))) + (n.terms.length > 1 ? `<i data-shclose="${i}" title="Close this terminal">×</i>` : "") + `</b>`).join("");
       body = `<div class="shellwrap ${th}" data-name="~shell"><div class="shtools">${tabs}<b class="shadd" data-shadd title="Another terminal"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></b>` +
+        `<b class="shattach${att ? " on" : ""}" data-shattach="${t.sh}" data-label="${esc(label(t, at))}" title="${att ? `${esc(shown(att.agent))} is attached to this terminal` : "Attach an agent to this terminal"}">${MENU_ICON.owner}</b>` +
         `<b class="shthemebtn" data-shtheme="${th === "light" ? "dark" : "light"}" title="${th === "light" ? "Dark" : "Light"} terminal">${th === "light" ? SH_MOON : SH_SUN}</b>${maxButton(path === maxed)}</div>` +
-        `<div class="shellbox"><div class="shellhost" data-kept data-key="shell:${t.sh}" data-sh="${t.sh}" data-kind="${esc(t.shell)}"></div></div></div>`;
+        `<div class="shellbox"><div class="shellhost" data-kept data-key="shell:${t.sh}" data-sh="${t.sh}" data-kind="${esc(t.shell)}"></div></div>${att ? shellAgentRow(t.sh, att) : ""}</div>`;
     } else if (n.show === "others") {
       body = `<div class="others">${minis("", S.agents.filter(a => byRoles(n, a.name)))}</div>`;
     } else if (n.show === "characters") {
@@ -11153,7 +11968,7 @@ function combinedHtml(path, n, full, big) {
   const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Send to another agent"`;
   const re = one || (combRe[key] && combRe[key].agent === n.chat ? all.find(t => t.name === combRe[key].th) || {name: combRe[key].th, title: combRe[key].th} : null);
   const chat = talk ? `<div class="chat" style="--c:${talk.colour}"><div class="chead"><span class="cto">To</span>${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
-    : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
+    : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${termMark(talk.name)}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
   const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : thr && !one ? `<div class="empty">the roles counted have no threads</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
   const un = thr ? combinedUnseen(tl) : {}, tbtn = roleFilter(n, "troles", path, "Counting");
   const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn)}</div>` +
@@ -12204,6 +13019,7 @@ function rail() {
 // where it sits and works. Redrawn with the page.
 function facts() {
   const a = open && S && S.agents.find(x => x.name === open), el = $("#dfacts");
+  reDraw();   // with the terminal it is attached to
   if (el && !a && open && S?.bench.some(x => x.name === open)) return patch(el, `<span class="state bench"><span class="dot"></span>On the bench · its last conversation</span>`);
   if (!a || !el) return;
   const st = stOf(a);
@@ -12693,20 +13509,18 @@ const reTag = t => `<span class="retag fixed" title="${t?.name ? `Sent as: Re ${
 function reDraw() {
   const box = $("#dre");
   if (!S || !open) return;
+  const put = tag => { const html = tag + termMark(open); box.hidden = !html; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } };
   if (phThOpen(open) && phTh[open] !== EVERY) {   // a phone's thread: its replies go to it
-    const t = phThSel(open), html = t?.name ? reTag(t) : "";
-    box.hidden = !html; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } return;
+    const t = phThSel(open);
+    return put(t?.name ? reTag(t) : "");
   }
   if (thOn() && thSel[open]?.name !== EVERY) {   // a thread chosen from the list: its replies go to it
-    const html = reTag(thSel[open]?.t);
-    box.hidden = false; if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; } return;
+    return put(reTag(thSel[open]?.t));
   }
   const all = reShown() ? threadsOf(convFeed, open).filter(t => t.name !== EVERY) : [];
-  if (all.length < 2 && !all.some(t => t.ask)) { box.hidden = true; box.dataset.html = box.innerHTML = ""; return; }
+  if (all.length < 2 && !all.some(t => t.ask)) return put("");
   const th = reTarget(open), t = all.find(x => x.name === th);
-  const html = `<button class="retag${t?.ask ? " ask" : ""}" data-re title="Where this message goes: a click picks another thread, or General">${th ? `Re: ${esc(reLabel(t))}` : "General"} ▾</button>`;
-  box.hidden = false;
-  if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+  put(`<button class="retag${t?.ask ? " ask" : ""}" data-re title="Where this message goes: a click picks another thread, or General">${th ? `Re: ${esc(reLabel(t))}` : "General"} ▾</button>`);
 }
 document.addEventListener("click", e => {
   const b = e.target.closest?.("#dre [data-re]"), pick = e.target.closest?.("#dremenu [data-reth]"), menu = $("#dremenu");
@@ -15993,7 +16807,7 @@ def self_test():
         t("  it is always the full size, with no Compact box",
           ("wkCompact" in PAGE, "data-wkcompact" in PAGE, ":is(#phone,.wk).wk .wkrow{" in PAGE), (False, False, True))
         t("  a face opens its agent on a click and gives its menu on a right-click or a held press; several people are a face each",
-          ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
+          ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter || f.dataset.menuName, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
            'const wkNames = who => String(who || "").split(/,|&| and /)' in PAGE), (True,) * 4)
         t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; whose alone is shown",
           ('sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}' in PAGE,
@@ -16139,7 +16953,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "week"])
         t("the Repositories count: the branches behind, most first, with what keeps one there",
           behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
                           "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"
@@ -16930,6 +17744,7 @@ def main():
     threading.Thread(target=stop_watch, daemon=True).start()
     threading.Thread(target=repos_watch, daemon=True).start()
     threading.Thread(target=burn_watch, daemon=True).start()
+    term_agents_start()   # before the page is answered, so a terminal's own size, set as its page joins it, comes after
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     try:
