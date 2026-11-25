@@ -2475,6 +2475,49 @@ def transcript_model(sid):
     return t.ask("model", "") if t else ""
 
 
+# Where the self-compact mod asks an agent to compact, and where Claude Code compacts it by itself, for its menu. Both as
+# the mod works them out (claude-code/self-compact/hooks/compact.ts): its own entry in compact-after.json, else that file's
+# default, else 80% of the way to the automatic point; and the automatic point, the window less the reserve Claude Code
+# keeps (the mod reads a session's own from the session itself, so this one is close, not exact).
+COMPACT_AFTER = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "self-compact", "compact-after.json")
+COMPACT_SETTINGS = os.path.join(CLAUDE, "settings.json")   # its env names the folders the mods load from
+COMPACT_RESERVE = 33000
+
+
+def compact_mod():
+    """Whether the self-compact mod loads in every session: a folder CLAUDE_CODE_PLUGIN_DIRS names holds it."""
+    try:
+        with open(COMPACT_SETTINGS) as f:
+            dirs = json.load(f)["env"]["CLAUDE_CODE_PLUGIN_DIRS"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return isinstance(dirs, str) and any(os.path.isfile(os.path.join(os.path.expanduser(d), "self-compact", ".claude-plugin", "plugin.json"))
+                                         for d in dirs.split(":") if d)
+
+
+def compact_after():
+    """The mod's settings file, {} with none or one it could not read either."""
+    try:
+        with open(COMPACT_AFTER) as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) and isinstance(doc.get("agents", {}), dict) else {}
+
+
+def compact_points(after, name, window, mod):
+    """{"ask": tokens, "auto": tokens} for one agent of this window; no "ask" without the mod, None with no window."""
+    if not window:
+        return None
+    auto = max(0, window - COMPACT_RESERVE)
+    if not mod:
+        return {"auto": auto}
+    given = [d[k] for d, k in ((after.get("agents", {}), name), (after, "default")) if k in d]
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0 for v in given):
+        given = []   # the mod refuses a file with a value like this, and its own rule stands
+    return {"ask": given[0] if given else -(-auto * 4 // 5), "auto": auto}
+
+
 def last_compact(sid):
     """The session's last compaction, from the compact_boundary entry it left in the transcript: when, manual or auto,
     the tokens before it and how long it took; None for none."""
@@ -3926,7 +3969,7 @@ def state():
     _looked.update(live=live, where=where)
     take_shots([w["pane"] for w in where.values()])
     tfacts = ticket_facts(list(held.values()))
-    agents, bench = [], []
+    agents, bench, after, mod = [], [], compact_after(), compact_mod()
     for r in grouped(roster()):
         name = r["name"]
         role, role_name, tab, _ = role_of(r["role"])
@@ -3969,7 +4012,7 @@ def state():
             "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
-            "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was),
+            "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was), "compactAt": compact_points(after, name, window, mod),
             "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
             "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
             "pfoot": pane_footer(where[name]["pane"]) if rec and name in where else None,
@@ -6656,7 +6699,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 #menu .hd:has(.spark){min-width:200px}
 #menu .hd .spark{width:100%;margin:5px 0 2px}
 #menu .hd .hrow{display:flex;align-items:flex-start;gap:10px;color:inherit}
-#menu:has(.hrow){min-width:264px}   /* room for a full name beside the portrait */
+#menu:has(.hrow){min-width:312px}   /* room for a full name beside the portrait, and where it compacts on one line */
 #menu .hd .htxt{flex:1;min-width:0;font-size:inherit;color:inherit}
 #menu .hd .htxt .name{white-space:normal}   /* a name too long for its room wraps, not under the portrait */
 #menu .mpor{flex:none;width:96px;height:96px}
@@ -13510,6 +13553,13 @@ function lastCompact(a) {
   const size = c.pre == null ? "" : ` · ${k(c.pre)}${c.post == null ? "" : "&nbsp;→ " + k(c.post)}`;
   return `<div title="${esc(new Date(at).toLocaleString())}">Compacted ${ago(Math.max(0, Math.round(S.now - at / 1000)))} ago${c.trigger === "auto" ? ", auto" : ""}${took}${size}</div>`;
 }
+// where it is asked to compact (the self-compact mod), and where it compacts by itself, each with its share of the window
+// the context figure is of
+function compactAt(a) {
+  const c = a.live && a.compactAt, pct = n => `${Math.round(n * 100 / a.ctxWindow)}%`;
+  return !c ? "" : `<div title="${c.ask ? `Asked to compact at ${k(c.ask)} (${pct(c.ask)}): the self-compact plugin asks it to save its record and compact. ` : ""}Claude Code compacts it by itself at about ${k(c.auto)} (${pct(c.auto)}).">` +
+    `Compacts at ${c.ask ? `${k(c.ask)} (${pct(c.ask)}) · auto at ` : ""}${k(c.auto)} (${pct(c.auto)})</div>`;
+}
 const STANDING_ROLES = new Set(["lead", "hot", "ops", "support", "review", "testrev", "process", "pa"]);
 const post = path => fetch(path, {method: "POST", headers: {"X-Team-Say": "1"}}).then(r => { if (!r.ok) r.text().then(t => alert(t.trim())); load(); });
 function agentMenu(anchor, name, beside, rested, confirm, stay) {
@@ -13537,7 +13587,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   // its name and details, with its second portrait, else its portrait, on the right
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${roleWith(a)}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
     `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
-    `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${lastCompact(a)}</div>` +
+    `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${compactAt(a)}${lastCompact(a)}</div>` +
     (bench || !a.live ? (name === open ? "" : `<div class="mi" data-go="read">${MENU_ICON.open}Conversation history</div>`) + (bench && !bench.standing ? "" : power) :   // one not running has its last conversation to read, and a benched standing agent or a stopped one its Start
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
       `<div class="mi" data-go="tab">${MENU_ICON.tab}Open in new tab<kbd>Ctrl+Click</kbd></div>` +
@@ -15236,6 +15286,7 @@ def self_test():
             os.makedirs(os.path.join(T, d))
         g.update(HOME=T, PROJECT="proj", SESSIONS=T + "/sessions", PROJECTS=T + "/projects", CONTEXT_DIR=T + "/context",
                  CACHE=T + "/dash", BURN=T + "/dash/burn.json", BOARD=T + "/dash/board", LEDGER=T + "/no-ledger",
+                 COMPACT_AFTER=T + "/compact-after.json", COMPACT_SETTINGS=T + "/settings.json",
                  ROSTER=T + "/roster.json", BUDGET=T + "/bin/budget", DAY_BUDGET=T + "/bin/day", PASTED=T + "/pasted", STATE_DIR=T + "/state",
                  TEAM_UP=T + "/state/team-up", TEAM_WAS_UP=T + "/state/team-was-up", STOPPED=T + "/state/stopped", COMPACT_ON_START=T + "/state/compact-on-start", TEAM_START_LOG=T + "/state/team-start.log",
                  TEAM_START_SH=T + "/bin/team-start", REPOS_UPDATE=T + "/bin/repos-update", REPOS_UPDATE_LOG=T + "/state/repos-update.log", TEAM_PAUSED_SH=T + "/bin/team-paused", SHIPPED_BAR=T + "/shipped")
@@ -16458,6 +16509,18 @@ def self_test():
            "pipe" in plug_item({"pipe": ["a"]}, "n")), (pd, False, False))
         t("  the page draws it with no code host's words or links of its own: they come with the data",
           [w for w in ("github.com", "PR ", "ledger") if w in PAGE[PAGE.index("// The Pipeline tile"):PAGE.index("function ppSheetDraw")]], [])
+        t("where an agent compacts: its own entry, else the default, else 80% of the automatic point; a value the mod refuses leaves that",
+          [compact_points(x, "B", 500000, True)["ask"] for x in ({"default": 250000, "agents": {"B": 200000}}, {"default": 250000}, {},
+                                                               {"default": 250000, "agents": {"B": None}}, {"default": -1, "agents": {"B": 5}})],
+          [200000, 250000, 373600, 373600, 373600])
+        t("  the automatic point alone without the mod, and nothing with no window",
+          (compact_points({"default": 250000}, "B", 500000, False), compact_points({}, "B", 0, True)), ({"auto": 467000}, None))
+        was_mod = compact_mod()
+        os.makedirs(T + "/mods/self-compact/.claude-plugin")
+        for p, v in (("mods/self-compact/.claude-plugin/plugin.json", {}), ("settings.json", {"env": {"CLAUDE_CODE_PLUGIN_DIRS": "/nowhere:" + T + "/mods"}})):
+            with open(os.path.join(T, p), "w") as f:
+                json.dump(v, f)
+        t("  the mod is there when a folder the settings name holds it", (was_mod, compact_mod()), (False, True))
         t("Windows' thermal zones: tenths of a kelvin to °C, a zone reading 0 left out",
           windows_temps("\\_SB.TZ04=3322\r\n\\TPOL=0\r\n"), [("TZ04", 59.1)])
         hw = os.path.join(T, "hwmon")   # a board's fan chip: an empty header, a fan stopped when cool, one turning, a labelled one
