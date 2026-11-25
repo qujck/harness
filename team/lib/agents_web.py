@@ -9045,7 +9045,8 @@ function card(a, ceil, conv, extra = "", {key = "", keep = false, lead = ""} = {
   // a full card in Threads (the agent's choice, as in its view): its threads as a list on its left when it is wide, as
   // chips over the open thread when narrow (CSS), and the open thread only in its conversation
   const all = conv && turns.length ? threadsOf(turns, a.name) : [], thr = all.length > 2 && thMode(a.name) === "threads", pick = thr ? thPick(all, a.name) : null;
-  const shownList = thr ? thHoldOrder(all, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
+  const un = thr ? unseenBy(a, turns) : {}, unFirst = thr ? thUnreadFirst(all, un, pick.name) : [];
+  const shownList = thr ? thHoldOrder(unFirst, document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"] .thlist`)) : [];
   const feed = keep ? "" : !turns.length ? `<div class="empty">${a.live ? "no conversation yet" : "not running"}</div>`
     : thr ? thHeadHtml(pick.t, a.name) + feedHtml(turns, a.name, false, laneOf(a.name), pick.name === EVERY ? null : pick.name, newMarkAt(a.name, pick.name))
     : feedHtml(turns, a.name, !conv, laneOf(a.name), null, conv ? newMarkAt(a.name, EVERY) : null);
@@ -9058,7 +9059,7 @@ function card(a, ceil, conv, extra = "", {key = "", keep = false, lead = ""} = {
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
-    ${thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(shownList, pick.name, unseenBy(a, turns))}</div><div class="thchips">${thChipsHtml(all, pick.name, unseenBy(a, turns))}</div>${(pick.name === EVERY ? body : body.replace(`placeholder="${esc(`Message ${shown(a.name)}…`)}"`, `placeholder="${esc(`Reply in ${pick.title}…`)}"`))}</div>` : body}</div>`;
+    ${thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(shownList, pick.name, un)}</div><div class="thchips">${thChipsHtml(unFirst, pick.name, un)}</div>${(pick.name === EVERY ? body : body.replace(`placeholder="${esc(`Message ${shown(a.name)}…`)}"`, `placeholder="${esc(`Reply in ${pick.title}…`)}"`))}</div>` : body}</div>`;
 }
 // A List row's status, after its name and ticket: its state in words, then the pane's footer ("in shell · 1 shell").
 const mstat = (a, st) => [st === "wanted" ? STATE.wanted : STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
@@ -11971,9 +11972,9 @@ function combinedHtml(path, n, full, big) {
   const chat = talk ? `<div class="chat" style="--c:${talk.colour}"><div class="chead"><span class="cto">To</span>${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${termMark(talk.name)}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
   const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : thr && !one ? `<div class="empty">the roles counted have no threads</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
-  const un = thr ? combinedUnseen(tl) : {}, tbtn = roleFilter(n, "troles", path, "Counting");
-  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn, talk?.colour || colours[one?.agents[0]] || "")}</div>` +
-    `<div class="thchips">${tbtn}${thChipsHtml(all, one?.name, un)}</div>${feed}</div>` : feed;
+  const un = thr ? combinedUnseen(tl) : {}, unFirst = thUnreadFirst(all, un, one?.name), tbtn = roleFilter(n, "troles", path, "Counting");
+  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(unFirst, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn, talk?.colour || colours[one?.agents[0]] || "")}</div>` +
+    `<div class="thchips">${tbtn}${thChipsHtml(unFirst, one?.name, un)}</div>${feed}</div>` : feed;
   const off = a => ppBenched(a.name) ? " benched" : "";
   return `<div class="teamlog combined${full ? "" : " summary"}${thr ? " thon" : ""}" data-name="${key}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(them)}</span>`
     : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${them.map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}${off(a) ? " (benched)" : ""}"`, off(a) && " benched off")).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? them.map(a => `<span class="name${off(a) && " benched off"}" style="--c:${a.colour || "#888"}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>${body}</div>`;
@@ -13147,7 +13148,8 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
     .sort(thOrder())
     .reduce((xs, t) => (xs.push(t), xs), [{name: EVERY, title: "All", key: "", last: Math.max(0, ...[...by.values()].map(t => t.last)), ask: null, answered: 0, latest: ""}]);
 }
-// All, then General, then waiting on the owner (the newest ask first), then pinned, then in the owner's order
+// All, then General, then waiting on the owner (the newest ask first), then pinned, then in the owner's order (a list is
+// drawn with the unread of those first: thUnreadFirst)
 function thOrder() {
   const pins = new Set([...wkPins(), ...thPins()]);
   return (a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
@@ -13229,7 +13231,7 @@ var thSort = () => { const v = localStorage.getItem("thsort"); return TH_SORTS.s
 var thByTicket = (a, b, dir) => !a.key - !b.key || dir * (a.key || a.title).localeCompare(b.key || b.title, undefined, {sensitivity: "base", numeric: true});
 var thSortCmp = (a, b) => ({"time-asc": a.last - b.last, "name-asc": thByTicket(a, b, 1), "name-desc": thByTicket(a, b, -1)})[thSort()] ?? b.last - a.last;
 var thSortBtn = (label = true) => { const [, long, short] = TH_SORTS.find(([k]) => k === thSort());
-  return `<b class="thsortbtn" data-thsort title="Order of the threads after the waiting ones: ${long}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2v8M1.5 8l2 2 2-2M8.5 10V2M6.5 4l2-2 2 2"/></svg>${label ? `<span>${short}</span>` : ""}</b>`; };
+  return `<b class="thsortbtn" data-thsort title="Order of the threads after the waiting, pinned and unread ones: ${long}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2v8M1.5 8l2 2 2-2M8.5 10V2M6.5 4l2-2 2 2"/></svg>${label ? `<span>${short}</span>` : ""}</b>`; };
 document.addEventListener("click", e => {
   const nc = e.target.closest?.("[data-thnoclosed]");
   if (nc) { e.stopImmediatePropagation(); e.preventDefault(); localStorage.setItem("thnoclosed", thNoClosed() ? "0" : "1"); $("#thsortmenu")?.remove(); thFlip = true; draw(); if (open) renderConv(); wkRedraw(); thFlip = false; return; }
@@ -13267,6 +13269,13 @@ document.addEventListener("click", e => {
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
+// a thread list as it is drawn: after All, General, the waiting ones and the pinned, those with something unread, in the
+// list's own order, then the rest (the thread open, whose lines are in view, is among the rest)
+function thUnreadFirst(all, un, sel) {
+  const pins = new Set([...wkPins(), ...thPins()]);
+  const at = t => !t.name || t.name === EVERY || t.ask || pins.has(t.name) ? 0 : sel !== EVERY && t.name !== sel && un[t.name]?.n ? 1 : 2;
+  return [...all].sort((a, b) => at(a) - at(b));
+}
 function thListHtml(list, sel, un = {}, filter = "", colour = "") {
   const c = t => colour && t.name === sel ? ` style="--c:${colour}"` : "";   // the open one's, where the list's own place has none
   if (thFolded()) return THMORE + `<div class="thtools">${filter}${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
@@ -13553,7 +13562,8 @@ const phThOpen = name => phThOn(name) && phTh[name] != null;
 const phThSel = name => phThAll(name).find(t => t.name === phTh[name]);
 const phAgo = t => { const at = t.ask ? Date.parse(t.ask._asked.at(-1)) || t.last : t.last; return at ? thAgo(at) : ""; };
 function phInboxHtml(all, un) {
-  // All and General first, their names alone; then waiting on the owner; then the rest, in the order chosen beside them
+  // All and General first, their names alone; then waiting on the owner; then the rest, as the desktop's list has them
+  all = thUnreadFirst(all, un);
   const top = all.filter(t => !t.name || t.name === EVERY), wait = all.filter(t => t.ask && t.name && t.name !== EVERY), other = all.filter(t => t.name && t.name !== EVERY && !t.ask);
   const plain = t => { const u = thUn(un, t.name);
     return `<button class="phthrow plain${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b></span>` +
@@ -13632,7 +13642,7 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), un = ag ? unseenBy(ag, convFeed) : {};
     patch(conv, phTh[open] == null ? phInboxHtml(phThAll(open), un) : phThHeadHtml(phThSel(open)) + feedHtml(convFeed, open, false, laneOf(open), phTh[open] === EVERY ? null : phTh[open], phNew[open]));
   } else if (on) {
-    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, html = thListHtml(thHoldOrder(all, list), sel, ag ? unseenBy(ag, convFeed) : {}, "", ag?.colour || "");
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, un = ag ? unseenBy(ag, convFeed) : {}, html = thListHtml(thHoldOrder(thUnreadFirst(all, un, sel), list), sel, un, "", ag?.colour || "");
     patch(list, html);
     thEdges(list);
     patch(conv, thHeadHtml(all.find(t => t.name === sel), open) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
