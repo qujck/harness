@@ -20,9 +20,10 @@
   POST /api/agent/NAME/stop  Esc in the agent's pane, while it is working
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
   POST /api/team/start       team/repos-update.sh (develop, main and master of the local repositories fast-forwarded where they safely can be), then team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
-  POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
-  POST /api/standup/summary  {"text": "...", "fresh": true or not} the Work pane's stand-up summary (see "the stand-up summary")
                              delivery lead is told the team is back up to start the day
+  POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
+  /api/standup/summary?who=  the last stand-up summary kept, everyone's or one agent's
+  POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary")
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
   POST /api/repos/update     team/repos-update.sh on its own (the Repositories button); 409 while one is running
   POST /api/nudger/pause     the waiting-agents nudger stops nudging until resumed; /api/nudger/resume starts it again
@@ -58,6 +59,7 @@ the name is refused like any other, so a tunnel route made before its Access log
 """
 import base64
 import calendar
+import concurrent.futures
 import contextlib
 import ctypes
 import datetime
@@ -2692,7 +2694,7 @@ def finish(items, queue, limit):
     # Each turn's lane is who it belongs to: the owner (their messages, and the agent's words, which are written to
     # the owner's screen), the team (messages between agents) or automation (tools, plugins, tasks, commands).
     for it in items:
-        it["lane"] = LANE[it["kind"]]
+        it["lane"] = "summary" if it.get("summary") else LANE[it["kind"]]
         it["with"] = it["who"] if it["lane"] == "team" else ""
     # The agent's words, and messages to and from it, carry the ticket it held then, "" for none, where its transcript tells.
     held = None
@@ -3266,7 +3268,7 @@ def by_lane(items, n):
     """The newest n turns of each lane, in order, so a filtered view still has n turns to show."""
     keep, seen = [], {}
     for it in reversed(items):
-        lane = "summary" if it.get("summary") else it["lane"]   # summaries apart, so that they push no message out
+        lane = it["lane"]   # summaries have their own, so that they push no message out
         seen[lane] = seen.get(lane, 0) + 1
         if seen[lane] <= n:
             keep.append(it)
@@ -3677,8 +3679,9 @@ STANDUP_MAX = 20000
 STANDUP_PROMPT = """You turn a software team's stand-up notes into what is said out loud at stand-up, in the team's usual
 two parts: "Yesterday" (what was finished) and "Today" (what is being worked on now).
 The notes list, per person, tickets they finished (Done, with the pull requests merged) and what they are on now (Now, with its stage).
+Under a Done item there may be the text of its pull requests, each with an Issue (what was wrong) and a Solution (what the change does).
 Work under Unassigned was merged with nobody named.
-Reply in exactly this shape, UK English, plain spoken words, no Markdown but the bullets and each bullet's bold title:
+Reply in exactly this shape (with one part more only where finished work shares a cause, as below), UK English, plain spoken words, no Markdown but the bullets and each bullet's bold title:
 Yesterday:
 - ...
 Today:
@@ -3686,42 +3689,125 @@ Today:
 - Yesterday holds every Done item; Today every Now item. Leave a part out entirely when it would be empty.
 - One bullet per piece of work: a ticket, or several tickets in the same area or feature, whoever worked on them. Combine
   related work from different people into one bullet.
+- Where three or more Yesterday bullets on different features share one cause (for example, each was a permission
+  that was missing or wrong), take them out of Yesterday and give them a part of their own straight after it, headed
+  "Yesterday, <the shared cause in two or three words>:", keeping each as its own bullet with its two sentences.
+  Do not repeat the shared cause in every bullet. Everything else stays under Yesterday.
 - Start each bullet with a short title for the work in bold, then a colon: "**Niffler prompts**: ...". Never name who did
   the work: the stand-up is about the work, not the people.
-- Then one short sentence: what was finished (Yesterday), or what is being done and where it has got to (Today).
+- Under Yesterday, then two short sentences for a listener who has never heard of the ticket: first what was going wrong and
+  who it affected, then what the fix did. Take both from the pull request text. Say it in plain words: no names of classes,
+  methods, files, tables, permission keys, versions or client numbers.
+- A Done item with no pull request text under it gets one short sentence instead, what was finished, and states no problem.
+- Under Today, then one short sentence: what is being done and where it has got to.
 - Under Today, tickets that have only an id and no title go together in one last bullet: "**Also on**: LFE-12, LFE-14".
 - Name a ticket id only where it helps; leave out pull request numbers.
 - Use only what the notes say. Never invent progress, plans or blockers, and never mention what the notes do not give.
 For example, notes of
   Kate, today:
   - Done: AB-12 Export the report as CSV (merged web #40)
+    Pull request web #40: Issue Reports could only be read on screen. Solution `ReportExporter` writes the rows on screen as a CSV file.
+  - Done: AB-16 Check who can export reports
   Tim, today:
   - Done: AB-13 Report export keeps the column order (merged api #7)
+    Pull request api #7: Issue Each export put its columns in a different order. Solution `ColumnMap` keeps the order the screen shows.
   - Now: AB-14 Fix the login timeout (PR raised)
   - Now: AB-15 (In progress)
 become
 Yesterday:
-- **Report export**: CSV export finished, and the export now keeps its column order.
+- **Report export**: Reports could only be read on screen, and an exported file put its columns in a different order each time. They now export as CSV, with the columns in the order the screen shows.
+- **Export access**: who can export reports has been checked.
 Today:
 - **Login timeout**: the fix has its PR up for review.
 - **Also on**: AB-15"""
 _standup_lock = threading.Lock()
+# The text of each merged pull request a summary has been given, by its link: read from GitHub once and kept
+# (a merged one's does not change), the newest STANDUP_PRS of them.
+STANDUP_PR_CACHE = os.path.join(STATE_DIR, "standup-prs.json")
+STANDUP_PRS, STANDUP_PR_MAX = 400, 3000
+STANDUP_PR = re.compile(r"\n  Pull request (.+?): (\S+)(?=\n|$)")
 
 
-def standup_summary(text, fresh=False):
-    """The spoken summary of a stand-up write-up: (summary, None), or (None, why it could not be made). Fresh, it is
-    written again even if one is kept for this text, and replaces it. A summary is kept for its text, model and prompt
-    together, so a new model or prompt writes a new one."""
-    model = setting("AGENT_STANDUP_MODEL") or "sonnet"
-    key = hashlib.sha256("\0".join((model, STANDUP_PROMPT, text)).encode()).hexdigest()
+def standup_pr_text(m):
+    """The description of the pull request a STANDUP_PR match links to, on one line; "" for a link
+    that is not a GitHub pull request, None when it could not be read."""
+    gh = re.fullmatch(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)", m[2])
+    if not gh:
+        return ""
+    try:
+        r = subprocess.run(["gh", "pr", "view", gh[2], "-R", gh[1], "--json", "body"], capture_output=True, text=True, timeout=20, check=True)
+        text = json.loads(r.stdout)["body"]
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return None
+    text = re.sub(r"```\w*|🤖 Generated with.*", "", text or "", flags=re.S)   # its block's fences, and the footer to its end
+    return re.sub(r"\s+", " ", text).strip()[:STANDUP_PR_MAX]
+
+
+def standup_notes(text):
+    """The stand-up write-up with each "Pull request REF: link" line's link replaced by that pull request's text; a line
+    whose text is empty or cannot be read, or that has been given already, is left out."""
+    try:
+        kept = json.load(open(STANDUP_PR_CACHE))
+        kept = kept if isinstance(kept, dict) else {}
+    except (OSError, ValueError):
+        kept = {}
+    need = list({m[2]: m for m in STANDUP_PR.finditer(text) if m[2] not in kept}.values())
+    if need:
+        with concurrent.futures.ThreadPoolExecutor(8) as ex:
+            got = {m[2]: v for m, v in zip(need, ex.map(standup_pr_text, need)) if v is not None}
+        if got:
+            kept = dict([*kept.items(), *got.items()][-STANDUP_PRS:])
+            os.makedirs(os.path.dirname(STANDUP_PR_CACHE), exist_ok=True)
+            tmp = f"{STANDUP_PR_CACHE}.{threading.get_ident()}.tmp"
+            with open(tmp, "w") as f:
+                json.dump(kept, f)
+            os.replace(tmp, STANDUP_PR_CACHE)
+    given = set()
+
+    def line(m):
+        if not kept.get(m[2]) or m[2] in given:
+            return ""
+        given.add(m[2])
+        return f"\n  Pull request {m[1]}: {kept[m[2]]}"
+    return STANDUP_PR.sub(line, text)
+
+
+def standup_kept():
+    """The summaries kept, the last made or asked for first."""
     try:
         kept = json.load(open(STANDUP_CACHE))
     except (OSError, ValueError):
         kept = []
-    kept = [k for k in kept if isinstance(k, dict) and not (fresh and k.get("key") == key)]
+    return [k for k in kept if isinstance(k, dict)] if isinstance(kept, list) else []
+
+
+def standup_keep(entry, kept):
+    """Puts a summary at the front of those kept, twenty in all."""
+    tmp = f"{STANDUP_CACHE}.{threading.get_ident()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump([entry] + [k for k in kept if k.get("key") != entry["key"]][:19], f)
+    os.replace(tmp, STANDUP_CACHE)
+    return entry
+
+
+def standup_last(who):
+    """The last summary of everyone's work (who empty) or one agent's, for a page that has none yet:
+    {"at", "summary", "text": the write-up it was asked for}; {} with none kept."""
+    k = next((k for k in standup_kept() if k.get("text") and k.get("who", "") == who), {})
+    return {x: k[x] for x in ("at", "summary", "text") if x in k}
+
+
+def standup_summary(text, fresh=False, who=""):
+    """The spoken summary of a stand-up write-up (one agent's, or with no `who` everyone's): (its entry, None), or
+    (None, why it could not be made). Fresh, it is written again even if one is kept for this text, and replaces it. A
+    summary is kept for its text, model and prompt together, so a new model or prompt writes a new one."""
+    asked, text = text, standup_notes(text)
+    model = setting("AGENT_STANDUP_MODEL") or "sonnet"
+    key = hashlib.sha256("\0".join((model, STANDUP_PROMPT, text)).encode()).hexdigest()
+    kept = standup_kept()
     hit = next((k for k in kept if k.get("key") == key), None)
-    if hit:
-        return hit.get("summary", ""), None
+    if hit and not fresh:
+        return standup_keep({**hit, "at": int(time.time()), "text": asked, "who": who}, kept), None
     if not _standup_lock.acquire(blocking=False):
         return None, "a summary is already being written: try again in a moment"
     try:
@@ -3744,12 +3830,7 @@ def standup_summary(text, fresh=False):
         summary = (out.get("result") or "").strip()
         if out.get("is_error") or not summary:
             return None, (summary or r.stderr or "the helper gave no answer").strip()[:300]
-        kept = [{"key": key, "at": int(time.time()), "summary": summary}] + kept[:19]
-        tmp = STANDUP_CACHE + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(kept, f)
-        os.replace(tmp, STANDUP_CACHE)
-        return summary, None
+        return standup_keep({"key": key, "at": int(time.time()), "summary": summary, "text": asked, "who": who}, standup_kept()), None
     finally:
         _standup_lock.release()
 
@@ -4779,6 +4860,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.shell()
         if path == "/api/live":
             return self.live()
+        if path == "/api/standup/summary":
+            who = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("who", [""])[0]
+            return self.send(200, json.dumps(standup_last(who)).encode(), "application/json")
         if path == "/api/shells":
             return self.send(200, json.dumps([{"kind": k, "name": v["name"]} for k, v in shell_kinds().items()]).encode(), "application/json")
         if path == "/":
@@ -5081,22 +5165,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, json.dumps({"cleared": n}).encode(), "application/json")
 
     def standup(self):
-        """The spoken summary of the stand-up write-up the page sends: {"text": "...", "fresh": true to write it again}
-        -> {"summary": "..."}."""
+        """The spoken summary of the stand-up write-up the page sends: {"text": "...", "fresh": true to write it again,
+        "who": the agent it is of, or empty for everyone} -> {"at": its time, "summary": "..."}."""
         n = int(self.headers.get("Content-Length") or 0)
         if n > STANDUP_MAX:
             return self.send(413, b"the stand-up is too long to summarise\n", "text/plain")
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
-            text, fresh = body.get("text"), body.get("fresh") is True
+            text, fresh, who = body.get("text"), body.get("fresh") is True, str(body.get("who") or "")
         except (ValueError, AttributeError):
-            text, fresh = None, False
+            text, fresh, who = None, False, ""
         if not isinstance(text, str) or not text.strip():
             return self.send(400, b"needs {\"text\": \"the write-up\"}\n", "text/plain")
-        summary, why = standup_summary(text.strip(), fresh)
+        made, why = standup_summary(text.strip(), fresh, who)
         if why:
             return self.send(502, (why + "\n").encode(), "text/plain")
-        self.send(200, json.dumps({"summary": summary}).encode(), "application/json")
+        self.send(200, json.dumps({k: made[k] for k in ("at", "summary")}).encode(), "application/json")
 
     def nudger(self, pause):
         """Pauses the waiting-agents nudger (its pause file) or resumes it."""
@@ -5560,8 +5644,6 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 /* the Work pane: its tabs and Done's range and filter in a bar under the head, its rows a ticket each, opening in place */
 .wk .wkbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:0 12px 8px}
 .wk .seg b em{font-style:normal;color:var(--faint);margin-left:2px}
-.wk .wkcompact{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));cursor:pointer;user-select:none}
-.wk .wkcompact input{margin:0;cursor:pointer}
 .wk .wkfilter{flex:1 1 140px;min-width:0;padding:3px 8px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--box);color:var(--text);font:inherit;font-size:calc(var(--t-s)*var(--fs,1))}
 .wk .wklist{padding:0 12px 10px}   /* the same 12px in from the pane as the header, the tabs and the faces, so all start on one edge */
 /* the stand-up scrolls as one, its summary with its lists, so a short pane does not squeeze the lists under the summary */
@@ -5596,7 +5678,6 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkhead + .wkrow,.wkstrip + .wkrow{border-top:0}
 .wkrow:hover{background:var(--soft)}
 .wkrow.open{background:var(--track)}
-:is(#phone,.wk) .wkrow .pp-b{width:24px;height:24px;font-size:11px}
 :is(#phone,.wk) .wkrow .pp-mid .id{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;font-size:calc(var(--t-s)*var(--fs,1))}
 .wkrow .pp-mid .id a{color:inherit;text-decoration:none}
 .wkrow .pp-mid .id a:hover{text-decoration:underline}
@@ -5606,38 +5687,37 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkrow .note,.wkrow .ans{color:var(--mute);margin-left:4px}
 .wkrow > time{flex:none;width:3.2em;color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
 .wkface{flex:none;display:flex;align-items:center;gap:6px;color:var(--mute);font-size:.9em;white-space:nowrap}
-:is(#phone,.wk) .wkface :is(.ph-por.pp,.pp-ini){width:22px;height:22px;font-size:9px}
-/* the Work pane at full size (its Compact box cleared, and always on a phone): larger type and faces, more room a row, and in All a
-   ticket's ids over its title rather than beside it. :is(#phone,.wk) matches the specificity of the compact rules */
-:is(#phone,.wk).roomy .wkhead{padding:12px 10px 6px;font-size:calc(var(--t-s)*var(--fs,1))}
-:is(#phone,.wk).roomy .wkrow{gap:12px;padding:8px 10px;font-size:calc(var(--t-l)*var(--fs,1))}
-:is(#phone,.wk).roomy .wkrow .pp-b{width:28px;height:28px;font-size:12px}
-:is(#phone,.wk).roomy .wkrow .pp-mid .id{gap:3px 6px;margin-bottom:2px;font-size:calc(var(--t-m)*var(--fs,1))}
-:is(#phone,.wk).roomy .wkrow .pp-tag{padding:1px 8px;font-size:calc(var(--t-s)*var(--fs,1))}
-:is(#phone,.wk).roomy .wkrow > time{width:3.6em;font-size:calc(var(--t-m)*var(--fs,1))}
-:is(#phone,.wk).roomy .wkface{gap:8px;font-size:.95em}
-:is(#phone,.wk).roomy .wkface :is(.ph-por.pp,.pp-ini){width:28px;height:28px;font-size:10px}
-:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(300px,2fr) minmax(0,3fr);gap:14px;padding:2px 0 12px}
-:is(#phone,.wk).roomy .wkall .wkrow{padding:7px 10px;gap:10px}
-@container (max-width:700px){:is(#phone,.wk).roomy .wkall{grid-template-columns:minmax(0,1fr)}}
-:is(#phone,.wk).roomy .wkall .wkrow .pp-mid{display:block}
-:is(#phone,.wk).roomy .wkall .wkrow .pp-mid .id{max-width:none;flex-wrap:wrap}
-:is(#phone,.wk).roomy .wkall .wkrow :is(.pp-b,.ph-por.pp,.pp-ini){width:26px;height:26px;font-size:11px}
-:is(#phone,.wk).roomy .wkall .wkhead{padding:12px 10px 4px}
-:is(#phone,.wk).roomy .wkperson > .wkface{width:auto}
-:is(#phone,.wk).roomy .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
-:is(#phone,.wk).roomy :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
+/* the Work pane's type, faces and room a row, and in All a ticket's ids over its title. :is(#phone,.wk).wk outranks the
+   Pipeline's own rules for the same pieces */
+:is(#phone,.wk).wk .wkhead{padding:12px 10px 6px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).wk .wkrow{gap:12px;padding:8px 10px;font-size:calc(var(--t-l)*var(--fs,1))}
+:is(#phone,.wk).wk .wkrow .pp-b{width:28px;height:28px;font-size:12px}
+:is(#phone,.wk).wk .wkrow .pp-mid .id{gap:3px 6px;margin-bottom:2px;font-size:calc(var(--t-m)*var(--fs,1))}
+:is(#phone,.wk).wk .wkrow .pp-tag{padding:1px 8px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).wk .wkrow > time{width:3.6em;font-size:calc(var(--t-m)*var(--fs,1))}
+:is(#phone,.wk).wk .wkface{gap:8px;font-size:.95em}
+:is(#phone,.wk).wk .wkface :is(.ph-por.pp,.pp-ini){width:28px;height:28px;font-size:10px}
+:is(#phone,.wk).wk .wkall{grid-template-columns:minmax(300px,2fr) minmax(0,3fr);gap:14px;padding:2px 0 12px}
+:is(#phone,.wk).wk .wkall .wkrow{padding:7px 10px;gap:10px}
+@container (max-width:700px){:is(#phone,.wk).wk .wkall{grid-template-columns:minmax(0,1fr)}}
+:is(#phone,.wk).wk .wkall .wkrow .pp-mid{display:block}
+:is(#phone,.wk).wk .wkall .wkrow .pp-mid .id{max-width:none;flex-wrap:wrap}
+:is(#phone,.wk).wk .wkall .wkrow :is(.pp-b,.ph-por.pp,.pp-ini){width:26px;height:26px;font-size:11px}
+:is(#phone,.wk).wk .wkall .wkhead{padding:12px 10px 4px}
+:is(#phone,.wk).wk .wkperson > .wkface{width:auto}
+:is(#phone,.wk).wk .wkchipk{padding:1px 7px;font-size:calc(var(--t-s)*var(--fs,1))}
+:is(#phone,.wk).wk :is(.ph-por.pp > .fr,.pp-ini){border-radius:var(--r-s)}   /* square, as faces are elsewhere on the page */
 .wk .wkgap{visibility:hidden}   /* holds a face's place where there is no one to show: "Unassigned" */
-:is(#phone,.wk).roomy .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on keeps theirs */
-:is(#phone,.wk).roomy .workq .wqwho > .wkface{width:auto}
+:is(#phone,.wk).wk .wkrow:not(.wkperson) .wkface > .wkname{display:none}   /* a ticket's face alone, its name on hover; Waiting on keeps theirs */
+:is(#phone,.wk).wk .workq .wqwho > .wkface{width:auto}
 /* a narrow Stand-up: the face down the left of its row, the ticket and the time on top, the title under them in full */
 @container (max-width:600px){
-  :is(#phone,.wk).roomy .workq .row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center;padding:6px}
-  :is(#phone,.wk).roomy .workq .row > :is(a,.key){grid-column:2;grid-row:1;min-width:0}
-  :is(#phone,.wk).roomy .workq .row > .at{grid-column:3;grid-row:1;margin:0;width:auto}
-  :is(#phone,.wk).roomy .workq .row > :is(.wqwho > .wkface,.wh){grid-column:1;grid-row:1 / span 2;align-self:start;margin:0}
-  :is(#phone,.wk).roomy .workq .row > .tx{grid-column:2 / 4;grid-row:2;white-space:normal;overflow:visible}
-  :is(#phone,.wk).roomy .workq .fix{padding:0 6px 6px 44px}
+  :is(#phone,.wk).wk .workq .row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center;padding:6px}
+  :is(#phone,.wk).wk .workq .row > :is(a,.key){grid-column:2;grid-row:1;min-width:0}
+  :is(#phone,.wk).wk .workq .row > .at{grid-column:3;grid-row:1;margin:0;width:auto}
+  :is(#phone,.wk).wk .workq .row > :is(.wqwho > .wkface,.wh){grid-column:1;grid-row:1 / span 2;align-self:start;margin:0}
+  :is(#phone,.wk).wk .workq .row > .tx{grid-column:2 / 4;grid-row:2;white-space:normal;overflow:visible}
+  :is(#phone,.wk).wk .workq .fix{padding:0 6px 6px 44px}
 }
 .wkfaces{flex:none;display:flex;align-items:center;gap:4px}
 .wkface.sup > .wkname{display:none}   /* a supporting agent's face alone, its name on hover; whose it is keeps its name */
@@ -5666,29 +5746,21 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 :is(#phone,.wk) .wkstrip .pp-c.on{background:var(--track);box-shadow:inset 0 0 0 1px var(--line2)}
 /* All: two columns as the Pipeline pane's, one above the other when the pane is narrow */
 .wk{container-type:inline-size}
-.wkall{display:grid;grid-template-columns:minmax(280px,2fr) minmax(0,3fr);align-items:start;gap:10px;padding:0 0 10px}
+.wkall{display:grid;align-items:start}
 .wkall .wkcol{min-width:0;border:1px solid var(--line2);border-radius:10px;background:var(--card1);padding-bottom:4px}
 .wkall .wkcol > .wkhead:first-child{padding-top:8px}
 .wkall .calm{padding:4px 10px 8px}
-@container (max-width:700px){.wkall{grid-template-columns:minmax(0,1fr)}}
 .wkgo{cursor:pointer}
 .wkgo:hover b{color:var(--text)}
 .wkhead em.a{color:var(--pw)}
 .wkmerged{margin-left:auto;text-transform:none;letter-spacing:0}
 .wkwait{cursor:default}
 .wkwait:hover{background:none}
-:is(#phone,.wk) .wkwait :is(.ph-por.pp,.pp-ini){width:22px;height:22px;font-size:9px}
-/* All is dense: a row is one line, its ids beside its title */
-.wkall .wkrow{padding:3px 8px;gap:8px}
-.wkall .wkrow .pp-mid{display:flex;align-items:baseline;gap:8px}
-.wkall .wkrow .pp-mid .id{flex:0 1 auto;max-width:55%;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.wkall .wkrow .pp-mid .id{overflow:hidden;white-space:nowrap}
 .wkall .wkrow .pp-mid .tt{flex:1 1 0;min-width:8em}
-.wk.roomy .wkrow.wktk .pp-mid{display:block}   /* a ticket in flight: ids and chips over its title, as two lines */
-.wk.roomy .wkrow.wktk .pp-mid .id{max-width:none}
-.wk.roomy .wkrow.wktk .pp-mid .tt{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-:is(#phone,.wk) .wkall .wkrow .pp-b{width:20px;height:20px;font-size:10px}
-:is(#phone,.wk) .wkall .wkrow :is(.ph-por.pp,.pp-ini){width:20px;height:20px;font-size:9px}
-.wkall .wkhead{padding:7px 8px 2px}
+.wk .wkrow.wktk .pp-mid{display:block}   /* a ticket in flight: ids and chips over its title, as two lines */
+.wk .wkrow.wktk .pp-mid .id{max-width:none}
+.wk .wkrow.wktk .pp-mid .tt{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .wkperson{cursor:default;align-items:center}
 .wkperson:hover{background:none}
 .wkperson > .wkface,.wkpname{flex:none;width:7.5em;overflow:hidden;color:var(--text)}
@@ -5698,7 +5770,6 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkchipk.g{background:var(--pgbg);color:var(--pg)}
 .wkchipk.b{background:var(--pqbg);color:var(--pq)}
 :is(#phone,.wk) .wkask .pp-mid .tt{white-space:normal;overflow:visible}
-.wkall .wkask .pp-mid{display:block}
 .wkall .wkask .pp-mid .id{max-width:none}
 /* the stand-up's summary, over its lists */
 .wksum{flex:none;margin:0 10px 8px;padding:0 4px 8px;border:1px solid var(--line2);border-radius:10px;background:var(--card1)}
@@ -6048,7 +6119,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it .tx pre.code{clear:left}
 .it.owner .who{background:var(--ownerbg);color:var(--ownerfg)}
 .it.l-auto,.it.l-team{border-left:2px solid var(--lanec);padding-left:7px}
-.it.l-owner{padding-left:9px}
+.it:is(.l-owner,.l-summary){padding-left:9px}
 .it.l-auto{--lanec:var(--ownerbg)}
 .it.l-team{--lanec:var(--pc,var(--line2))}
 .it.l-auto{opacity:.55}
@@ -6293,6 +6364,10 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog .it .who.ag:not(.to)::before{content:none}
 .teamlog .it.tools .who.ag{margin-right:6px}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
+.teamlog.combined .thhead > .mroles{position:absolute;right:0;top:9px;font-weight:400}   /* whose messages show, in the open thread's head */
+.teamlog.combined .thhead:has(> .mroles) > .thname{padding-right:34px}
+.thtools .troles{flex:none;margin-right:auto;font-weight:400}
+.thchips .troles{flex:none}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
 .teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
 .teamlog .thead > .cnames{flex:1 1 0;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;margin-top:2px;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans)}
@@ -7824,9 +7899,17 @@ new MutationObserver(() => {
   i.value = askTyped[askFocus.key] || ""; i.focus(); i.setSelectionRange(start, end);
 }).observe(document.body, {childList: true, subtree: true});
 
-// Which lanes of an agent's conversation are shown - the owner's, the team's, automation's - each on or off, chosen
+// Which lanes of an agent's conversation are shown - the owner's, its progress summaries, the team's, automation's - each on or off, chosen
 // per agent on its card or in its view, and remembered. The page's own set ("" here) sets every agent's when changed.
-const LANES = [["owner", ""], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
+const LANES = [["owner", ""], ["summary", "Summary"], ["team", "Team"], ["auto", "Auto"]], ALL = LANES.map(l => l[0]);
+// A choice of lanes kept from before summaries had their own shows them wherever it showed the agents' words.
+if (!localStorage.getItem("sumlane")) {
+  const add = (a, with_) => { if (Array.isArray(a) && a.includes(with_) && !a.includes("summary")) a.push("summary"); };
+  const walk = o => { if (!o || typeof o !== "object") return; add(o.clanes, "said"); if (!o.clanes) add(o.lanes, "owner"); Object.values(o).forEach(walk); };
+  for (const [k, up] of [["lanes", m => Object.keys(m).forEach(a => { if (m[a] === "owner") m[a] = ["owner"]; add(m[a], "owner"); })], ["views", walk], ["custom", walk], ["phonemix", walk]])
+    try { const v = JSON.parse(localStorage.getItem(k)); if (v) { up(v); localStorage.setItem(k, JSON.stringify(v)); } } catch (e) {}
+  localStorage.setItem("sumlane", "1");
+}
 // The menus' icons, drawn in the text colour.
 const MENU_ICON = Object.fromEntries(Object.entries({
   star: '<path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/>',
@@ -7864,12 +7947,13 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   lines: '<path d="M2 4h12M2 8h12M2 12h12"/>',
   more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
+  summary: '<path d="M2.5 4h11M2.5 8h7M2.5 12h4"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // A filter button: its icon (and, on the page's, its name), lit while something is left out; a click opens its menu.
-const filterBtn = (cls, key, on, all, list, label) => `<b class="${cls} fbtn${on.length < all.length ? " some" : ""}" data-menu="${esc(key)}" ` +
-  `title="${esc("Showing: " + (list.filter(([l]) => on.includes(l)).map(([l, t]) => t || S.owner).join(", ") || "nothing"))}">${MENU_ICON.filter}${label ? `<span>${label}</span>` : ""}</b>`;
-const LANE_TIP = {owner: "Your messages, and the agent's words to you", team: "Messages between this agent and the others",
+const filterBtn = (cls, key, on, all, list, label, says = "Showing") => `<b class="${cls} fbtn${on.length < all.length ? " some" : ""}" data-menu="${esc(key)}" ` +
+  `title="${esc(says + ": " + (list.filter(([l]) => on.includes(l)).map(([l, t]) => t || S.owner).join(", ") || "nothing"))}">${MENU_ICON.filter}${label ? `<span>${label}</span>` : ""}</b>`;
+const LANE_TIP = {owner: "Your messages, and the agent's words to you", summary: "Claude Code's own short notes of what the agent is doing, marked · summary", team: "Messages between this agent and the others",
   auto: "Tool calls, the nudger and other plugins, background tasks and commands"};
 const lanes = () => JSON.parse(localStorage.getItem("lanes") || "{}");
 function laneOf(name) {
@@ -7952,9 +8036,18 @@ function peerThread(it, ag) {
   const held = [heldAt(to, it.ts), heldAt(from, it.ts)].filter(Boolean);
   return keys.length ? held.find(k => keys.includes(k)) || keys[0] : held[0] || "";
 }
+// The owner's "Re <thread>: " match: a thread's name may hold a colon, so it is the longest of the agent's own threads the
+// message names, else what comes before the first colon.
+function reMatch(text, names) {
+  let m = text.match(THREAD_RE);
+  if (text.startsWith("Re ")) for (const n of names || []) if (text.startsWith(`Re ${n}: `) && (!m || n.length > m[1].length)) m = [`Re ${n}: `, n];
+  return m;
+}
 function threadItems(items, name) {
-  const open = {}, reply = {}, cur = {}, out = [];   // reply: the thread of an owner's message the agent has not yet answered; cur: the one its turn is in
-  for (const it of items.flatMap(splitThreads)) {
+  const open = {}, reply = {}, cur = {}, out = [], names = {};   // reply: the thread of an owner's message the agent has not yet answered; cur: the one its turn is in; names: each agent's tags
+  items = items.flatMap(splitThreads);
+  for (const it of items) { const m = it.kind === "said" && !it.summary && String(it.text || "").match(THREAD_TAG); if (m) (names[it._agent || name] ||= new Set()).add(m[1].trim()); }
+  for (const it of items) {
     const ag = it._agent || name, a = ppAgent(ag), text = String(it.text || "");
     let th = "", ask = false, guess = false, shownText = text, m;
     if (it.kind === "said") {
@@ -7969,7 +8062,7 @@ function threadItems(items, name) {
       else { const keys = keysIn(text); if (keys.length === 1) { th = keys[0]; guess = true; } }
       if (!it.summary) reply[ag] = null;
     } else if (["owner", "echo", "pending"].includes(it.kind)) {
-      if ((m = text.match(THREAD_RE))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); }   // a message with no thread named is General
+      if ((m = reMatch(text, names[ag]))) { th = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); shownText = text.slice(m[0].length); }   // a message with no thread named is General
       reply[ag] = th; cur[ag] = null;
       open[ag + "\n" + th] = null;   // the owner has written in the thread: an ask after this is a new one
     } else if (["peer", "sent"].includes(it.kind)) {
@@ -8273,6 +8366,19 @@ function termOf(id) {   // a terminal's entry in the saved views (its name, kind
   const walk = o => { if (hit || !o || typeof o !== "object") return; if (Array.isArray(o.terms)) hit = o.terms.find(t => t.sh === id) || null; Object.values(o).forEach(walk); };
   walk(views()); return hit;
 }
+// The command waits for the shell's prompt: typed while the shell is still starting, its Enter reaches PowerShell as a
+// new line and the command is left unrun. Once the prompt has stood bare a moment the command goes; a prompt of another
+// shape is taken as there when the shell has printed something and then nothing for 8 seconds. Typing first cancels it.
+const SH_READY = {pwsh: /PS [^>]*>$/, sh: /[$#%>❯]$/};
+function shellPin(s) {
+  clearTimeout(s.pinWait);
+  if (!s.pin) return;
+  const buf = s.term.buffer.active, line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true).trimEnd() || "";
+  s.pinWait = setTimeout(() => {
+    if (!s.pin || s.gone || s.ws?.readyState !== 1) return;   // a lost socket's rejoin prints the screen again, and asks again
+    s.ws.send(shellEnc.encode(s.pin + "\r")); s.pin = "";
+  }, (SH_READY[s.kind] || SH_READY.sh).test(line) ? 300 : 8000);
+}
 const shFirst = JSON.parse(localStorage.getItem("shfirst") || "{}");   // terminal id -> the first command typed in it
 // the command on the cursor's line as Enter is pressed, after the shell's prompt ("PS C:\Users\x> ", "me@box:~$ "),
 // so one found with the arrow keys or Tab counts as well as one typed; with no prompt seen, what was typed
@@ -8357,7 +8463,8 @@ function shellNew(id, kind) {
   if (ta) for (const [k, v] of Object.entries({writingsuggestions: "false", spellcheck: "false", autocomplete: "off", autocorrect: "off",
     autocapitalize: "off", "data-gramm": "false", "data-gramm_editor": "false", "data-enable-grammarly": "false"})) ta.setAttribute(k, v);
   const send = data => { if (s.ws?.readyState === 1) s.ws.send(data); };
-  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } shellTyped(s, d); send(shellEnc.encode(d)); });
+  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } if (d[0] !== "\x1b") s.pin = ""; shellTyped(s, d); send(shellEnc.encode(d)); });
+  term.onWriteParsed(() => shellPin(s));
   term.onBinary(d => s.replay || send(Uint8Array.from(d, c => c.charCodeAt(0))));
   term.onResize(({cols, rows}) => send(JSON.stringify({cols, rows})));
   term.attachCustomKeyEventHandler(e => {
@@ -8379,13 +8486,13 @@ function shellOpen(s) {
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { s.tries = 0; s.term.reset(); };
   ws.onmessage = e => { const d = new Uint8Array(e.data);
-    if (d[0] === 2) { const pin = termOf(s.id)?.pin; if (pin) ws.send(shellEnc.encode(pin + "\r")); return; }
+    if (d[0] === 2) { s.pin = termOf(s.id)?.pin || ""; return; }
     if (d[0] !== 1) return s.term.write(d.subarray(1));
     s.replay = true; s.term.write(d.subarray(1), () => { s.replay = false; }); };
   ws.onclose = e => {
     if (s.ws !== ws || s.gone) return;
     s.ws = null;
-    if (e.code === 1000) { s.ended = true; s.term.write("\r\n\x1b[2m[The shell has ended: press Enter for a new one]\x1b[0m\r\n"); return; }
+    if (e.code === 1000) { s.ended = true; s.pin = ""; s.term.write("\r\n\x1b[2m[The shell has ended: press Enter for a new one]\x1b[0m\r\n"); return; }
     s.wait = true;
     setTimeout(() => { s.wait = false; if (!s.gone && !s.ws && !s.ended) shellOpen(s); }, Math.min(5000, 500 * 2 ** s.tries++));
   };
@@ -9635,10 +9742,9 @@ const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"]
 const WK_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; } catch (e) { return d; } };
 const wkSet = (k, v) => { try { v == null || v === "" ? localStorage.removeItem("work:" + k) : localStorage.setItem("work:" + k, v); } catch (e) {} };
-// the items pinned, in the order they were pinned, kept in this browser; full mode's only, so compact shows none
-const wkPinned = () => { try { const v = JSON.parse(wkGet("pins", "[]")); return Array.isArray(v) ? v.filter(k => typeof k === "string") : []; } catch (e) { return []; } };
-const wkPins = () => wkCompact() ? [] : wkPinned();
-const wkPin = key => { const p = wkPinned(); wkSet("pins", JSON.stringify(p.includes(key) ? p.filter(k => k !== key) : [...p, key])); };
+// the items pinned, in the order they were pinned, kept in this browser
+const wkPins = () => { try { const v = JSON.parse(wkGet("pins", "[]")); return Array.isArray(v) ? v.filter(k => typeof k === "string") : []; } catch (e) { return []; } };
+const wkPin = key => { const p = wkPins(); wkSet("pins", JSON.stringify(p.includes(key) ? p.filter(k => k !== key) : [...p, key])); };
 const wkDayStart = t => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
 const wkWhen = t => new Date(t * 1000).toDateString() === new Date().toDateString() ? dayLogTime(t) : dayLogAt(t);
 const wkLink = (href, text, tip = "") => { const t = tip && tip !== text ? ` title="${esc(tip)}"` : "";
@@ -9665,7 +9771,7 @@ function wkData(all) {
   const today = new Date(), at = hm => { const [, h = 0, m = 0, z] = /^(\d{1,2}):(\d{2})(Z?)/.exec(String(hm || "").trim()) || [];
     return (z ? Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), +h, +m) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), +h, +m).getTime()) / 1000; };
   const history = (p.history || (p.merged || []).map(m => ({t: at(m.at), who: m.who, title: m.title, id: m.id, ref: m.id, href: m.href}))).map(h => ({...h, key: h.id || keyOf(h.title)}));
-  return wkOnly({p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []}, all || wkCompact() ? "" : wkGet("agent", ""));
+  return wkOnly({p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []}, all ? "" : wkGet("agent", ""));
 }
 // Everyone on a ticket: whose it is (`who`) and those who supported it, from the pipeline's "people" (each agent seen on
 // it: its ticket in hand, an approval), first seen first, each with whether it is on it now
@@ -9686,9 +9792,8 @@ function wkOnly(d, a) {
     history: d.history.filter(h => on(h.key, h.who || d.queue.find(i => i.key && i.key === h.key)?.who))};
 }
 // The agents along the pane's top: every agent on the page or benched that the Work data names, and the one chosen
-// even if it no longer appears, in a fixed order: by role (ROLE_ORDER), then by name, running or not. Compact has no strip, and shows everyone's work.
+// even if it no longer appears, in a fixed order: by role (ROLE_ORDER), then by name, running or not.
 function wkPeopleStrip() {
-  if (wkCompact()) return "";
   const a = wkGet("agent", ""), d = wkData(true), named = new Set();
   const add = (key, who) => { wkNames(who).forEach(n => named.add(n)); ((d.p.people || {})[key] || []).forEach(x => named.add(x.name)); };
   d.tickets.forEach(t => add(t.id || t.ref, t.who)); d.queue.forEach(i => add(i.key, i.who)); d.history.forEach(h => add(h.key, h.who));
@@ -9726,7 +9831,7 @@ function wkRow(d, key, body, cls = "") {
   const open = key && wkGet("open") === key, first = open && !wkOpened;
   if (first) wkOpened = true;
   // each item's pin at its top right: shown while the pointer is on the row, and always once it is pinned
-  const pin = key && !wkCompact() ? `<b class="wkpin${wkPins().includes(key) ? " on" : ""}" data-wkpin="${esc(key)}" title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>` : "";
+  const pin = key ? `<b class="wkpin${wkPins().includes(key) ? " on" : ""}" data-wkpin="${esc(key)}" title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>` : "";
   return `<div class="wkrow${cls}${open ? " open" : ""}"${key ? ` data-wkkey="${esc(key)}"` : ""}>${body}${pin}</div>${first ? wkDetail(d, key) : ""}`;
 }
 // a ticket's title, or nothing where all that is known is its key; its tags, less a "waits on" naming whose it is
@@ -9763,15 +9868,15 @@ document.addEventListener("mouseover", e => {
 });
 const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"><span class="id">${id}${subHtml || sub ? ` <span>· ${subHtml || esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
 // The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
-// in full mode, its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
+// its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
 // days its PRs have been quiet; its title on the line under
-const wkChips = t => !t.ok || wkCompact() ? [...(t._sect ? [{text: t._sect, tone: "blue"}] : []), ...wkTags(t)] : [
+const wkChips = t => !t.ok ? [...(t._sect ? [{text: t._sect, tone: "blue"}] : []), ...wkTags(t)] : [
   t._sect && {text: t._sect, tone: "blue"},   // a pinned ticket's section, in a colour no approval or wait uses
   ...t.ok.map(a => ({text: `${shown(a.who)} ✓${a.n < a.of ? ` ${a.n}/${a.of}` : ""}`, tone: a.n < a.of ? "grey" : "green"})),
   t.next && {text: `${shown(t.next)} next`, tone: t.next === "You" ? "amber" : "grey"},
   t.stuck && {text: `stuck ${t.stuck}d`, tone: "amber"}].filter(Boolean);
-// in full mode, each of a ticket's pull requests after its key as a link to it
-const wkPrLinks = t => t.id && !wkCompact() && t.prs?.length ? t.prs.map(p => wkLink(p.href, p.ref)).join(" + ") : "";
+// each of a ticket's pull requests after its key as a link to it
+const wkPrLinks = t => t.id && t.prs?.length ? t.prs.map(p => wkLink(p.href, p.ref)).join(" + ") : "";
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
   wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkChips(t), wkPrLinks(t)) + wkTicketFaces(d, t.id || t.ref, t.who), " wktk");
 // a question is read in full, so its text wraps
@@ -9939,29 +10044,43 @@ function wkPeople(d) {
   Object.values(people).forEach(x => x.now = x.now.filter(t => !x.done.some(i => i.key === t.key)));
   return {name, people: Object.entries(people).sort(([a], [b]) => (a === "Unassigned") - (b === "Unassigned") || a.localeCompare(b))};
 }
-function wkStandupText(d, only) {
+// With prs, a line under each finished item for each pull request merged for it, its link: the server puts the pull
+// request's text in the link's place (standup_notes), for the summary to say what was wrong as well as what was done.
+function wkStandupText(d, only, prs) {
   const {name, people} = wkPeople(d), when = ["Today", "Yesterday"].includes(name) ? name.toLowerCase() : name.replace(/^Since/, "since");
   return people.filter(([n]) => !only || n === only).map(([n, x]) => [`${shown(n)}, ${when}:`,
-    ...(x.done.length ? x.done.map(i => `- Done: ${i.key ? i.key + " " : ""}${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}${i.fix ? `: ${i.fix}` : ""}`) : ["- Nothing finished"]),
+    ...(x.done.length ? x.done.map(i => `- Done: ${i.key ? i.key + " " : ""}${i.title}${i.refs?.length ? ` (merged ${i.refs.map(r => r.ref).join(", ")})` : ""}${i.fix ? `: ${i.fix}` : ""}` +
+      (prs ? (i.refs || []).filter(r => r.href).map(r => `\n  Pull request ${r.ref}: ${r.href}`).join("") : "")) : ["- Nothing finished"]),
     ...x.now.map(t => `- Now: ${t.key}${t.title ? " " + t.title : ""}${t.stage ? ` (${t.stage})` : ""}`)].join("\n")).join("\n\n");
 }
 // The summary box over the stand-up: Summarise puts the write-up to the page's helper (a small model, see
 // standup_summary on the server) for one spoken bullet a person. It says when the work has moved on since.
-let wkSum = {text: "", summary: "", busy: false, err: ""};
+// The last one kept on the server shows until another is written, looked for again every half minute the box is on screen, so one
+// written in another browser shows here too. Everyone's and each agent's (the strip's filter) are apart.
+const wkSums = {};
+const wkSumOf = who => wkSums[who] ||= {text: "", summary: "", at: 0, busy: false, err: "", looked: 0};
 // Summarise again writes a new one even for the same work; the first Summarise takes the one kept, if any.
 async function wkSummarise() {
-  const text = wkStandupText(wkData()), fresh = !!wkSum.summary;
-  if (!text || wkSum.busy) return;
-  wkSum = {...wkSum, busy: true, err: ""}; wkRedraw();
-  const r = await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, fresh})}).catch(() => null);
-  if (r?.ok) wkSum = {text, summary: (await r.json()).summary, busy: false, err: ""};
-  else wkSum = {...wkSum, busy: false, err: r ? (await r.text()).trim() : "the page did not answer"};
+  const who = wkGet("agent", ""), s = wkSumOf(who), text = wkStandupText(wkData(), "", true), fresh = !!s.summary;
+  if (!text || s.busy) return;
+  Object.assign(s, {busy: true, err: ""}); wkRedraw();
+  const r = await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, fresh, who})}).catch(() => null);
+  if (r?.ok) Object.assign(s, {text, ...await r.json(), busy: false});
+  else Object.assign(s, {busy: false, err: r ? (await r.text()).trim() : "the page did not answer"});
   wkRedraw();
 }
+async function wkSumLook(who, s) {
+  if (s.busy || Date.now() - s.looked < 30000) return;
+  s.looked = Date.now();
+  const k = await fetch("/api/standup/summary?who=" + encodeURIComponent(who)).then(r => r.ok ? r.json() : {}, () => ({})).catch(() => ({}));
+  if (!s.busy && k.summary && k.at > s.at) { Object.assign(s, k, {err: ""}); wkRedraw(); }
+}
+setInterval(() => { if (document.querySelector(".wksum")) { const who = wkGet("agent", ""); wkSumLook(who, wkSumOf(who)); } }, 10000);   // the list is not redrawn while the pointer is over it
 function wkSummaryBox(d) {
-  const text = wkStandupText(d), stale = wkSum.summary && wkSum.text !== text;
-  const lines = wkSum.summary.split("\n").map(l => l.trim()).filter(Boolean);
-  const body = wkSum.err ? `<div class="wksumerr">Not summarised: ${esc(wkSum.err)}</div>` : "";
+  const who = wkGet("agent", ""), s = wkSumOf(who), text = wkStandupText(d, "", true), stale = s.summary && s.text !== text;
+  wkSumLook(who, s);
+  const lines = s.summary.split("\n").map(l => l.trim()).filter(Boolean);
+  const body = s.err ? `<div class="wksumerr">Not summarised: ${esc(s.err)}</div>` : "";
   // its parts, Yesterday and Today, each a heading over its bullets
   const parts = [];
   lines.forEach(l => {
@@ -9971,13 +10090,13 @@ function wkSummaryBox(d) {
   });
   const list = lines.length ? parts.map(([h, items]) => `${h ? `<div class="wksumh">${esc(h)}</div>` : ""}<ul>${items.map(l => `<li>${inline(l)}</li>`).join("")}</ul>`).join("") + (stale ? `<div class="wksumold">The work has moved on since this was written.</div>` : "")
     : !body ? `<div class="wksumold">Yesterday and Today, a bullet a piece of work, to read out at stand-up.</div>` : "";
-  const go = wkSum.busy ? `<b class="wksumgo busy">Summarising…</b>` : text ? `<b class="wksumgo" data-wksum>${wkSum.summary ? "Summarise again" : "Summarise"}</b>` : "";
+  const go = s.busy ? `<b class="wksumgo busy">Summarising…</b>` : text ? `<b class="wksumgo" data-wksum>${s.summary ? "Summarise again" : "Summarise"}</b>` : "";
   return `<div class="wksum"><div class="wkhead"><b>Summary</b>${go}${lines.length ? `<b class="wkcopy" data-wkcopysum>Copy</b>` : ""}</div>${body}${list}</div>`;
 }
 document.addEventListener("click", e => {
   if (e.target.closest("[data-wksum]")) return wkSummarise();
   const c = e.target.closest("[data-wkcopysum]");
-  if (c) navigator.clipboard?.writeText(wkSum.summary).then(() => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); });
+  if (c) navigator.clipboard?.writeText(wkSumOf(wkGet("agent", "")).summary).then(() => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); });
 });
 function wkStandup(d, n) {
   const owner = n?.owner, all = wkStandupLists(d).map(([name, items]) => [name, items.filter(i => !owner || String(i.who || "").includes(owner))]);
@@ -10000,8 +10119,8 @@ function workHtml(big, n) {
   const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, done: wkDone, standup: wkStandup}[tab](d, n);
   const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · ${wkTodaySum(tday)}` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
-  return `<div class="teamlog wk${wkCompact() ? "" : " roomy"}" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
-    `<div class="wkbar">${tabs}${tools}${phoneOn() ? "" : `<label class="wkcompact" title="Small type and tight rows, to fit the most in">Compact<input type="checkbox" data-wkcompact${wkCompact() ? " checked" : ""}></label>`}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
+  return `<div class="teamlog wk" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
+    `<div class="wkbar">${tabs}${tools}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
 }
 // a redraw the owner asked for (a tab, a row, a filter) is drawn at once, held list or not
 let wkForce = false;
@@ -10009,10 +10128,6 @@ const wkRedraw = () => { if (phoneOn()) return phoneDraw(); wkForce = true; try 
 // a Work list held while the pointer was over it (draw) catches up as soon as the pointer leaves it
 document.addEventListener("mouseout", e => { const from = e.target.closest?.(".wk :is(.wklist,.wkstand)");
   if (from && !from.contains(e.relatedTarget)) draw(); });
-// Compact (small type, tight rows) is the desktop's alone, kept per browser and on until its box is cleared; the phone
-// always draws the pane full size
-const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";
-document.addEventListener("change", e => { if (e.target.matches?.("[data-wkcompact]")) { wkSet("compact", e.target.checked ? "1" : "0"); wkRedraw(); } });
 document.addEventListener("click", e => {
   const who = e.target.closest(".wkpeople [data-wkfilter]");
   if (who) { wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter); return wkRedraw(); }
@@ -10122,8 +10237,8 @@ function wkCardBody(d, key) {
   // every PR for it: the open ones with where each has got to, then those merged
   const title = t?.title || qi?.title || "", bare = x => esc(String(x || "").replace(new RegExp(`^${key}\\s*:?\\s*`), ""));
   const merged = d.history.filter(h => h.key === key);
-  // in full mode, each open PR's approvals as a ticked name each, as its row in the list has them
-  const ticks = p => p.tags ? p.tags : !p.ok || wkCompact() ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
+  // each open PR's approvals as a ticked name each, as its row in the list has them
+  const ticks = p => p.tags ? p.tags : !p.ok ? [{text: p.text.replace(/^[^:]*:\s*/, ""), tone: p.tone}]
     : p.ok.length ? p.ok.map(n => ({text: `${shown(n)} ✓`, tone: "green"})) : [{text: "no approvals yet", tone: "grey"}];
   const tprs = wkTicketPrs(t);
   const prs = [...tprs.map(p => `<div class="wkrow wkc-row">` + wkMid(wkLink(p.href, p.ref), "", bare(p.title), ticks(p)) + `</div>`),
@@ -10139,10 +10254,9 @@ function wkCardBody(d, key) {
   const chips = `<span class="wkc-tolabel">${wkCardTo.length ? `To ${esc(wkCardTo.map(shown).join(", "))}` : "Pick who it goes to"}</span>` +
     to.map(n => `<span class="wkface wkc-to${wkCardTo.includes(n) ? " on" : ""}" data-wkcto="${esc(n)}"` +
     `${ppAgent(n) ? ` data-wkagent="${esc(n)}" data-menu-name="${esc(n)}"` : ` title="${esc(shown(n))}"`}>${ppFace(n)}</span>`).join("");
-  return {head: `<div class="thead">${wkCompact() ? "" : BACK_BUTTON.replace('class="backbtn" title="Back to Combined"', `class="backbtn" data-wkcclose title="${wkCardFloat ? "Close" : "Back to Work"} (Esc)"`)}<span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
-      `<span class="tsum">${[title && title !== key ? esc(title) : "", stage ? `<b>${esc(stage)}</b>` : ""].filter(Boolean).join(" · ")}</span>${wkCompact() ? "" : `<b class="maxbtn wkc-pin${wkPins().includes(key) ? " on" : ""}" data-wkcpin ` +
-      `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>`}${wkCompact() ? `<b class="maxbtn" data-wkcclose title="Close (Esc)" aria-label="Close">${MENU_ICON.close}</b>`
-      : maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax')}</div>` +
+  return {head: `<div class="thead">${BACK_BUTTON.replace('class="backbtn" title="Back to Combined"', `class="backbtn" data-wkcclose title="${wkCardFloat ? "Close" : "Back to Work"} (Esc)"`)}<span>${jira ? `<a href="${esc(jira)}" target="_blank" rel="noopener">${esc(key)}</a>` : esc(key)}</span>` +
+      `<span class="tsum">${[title && title !== key ? esc(title) : "", stage ? `<b>${esc(stage)}</b>` : ""].filter(Boolean).join(" · ")}</span><b class="maxbtn wkc-pin${wkPins().includes(key) ? " on" : ""}" data-wkcpin ` +
+      `title="${wkPins().includes(key) ? "Unpin" : "Pin to the top of Work"}">${MENU_ICON.pin}</b>${maxButton(wkCardMax).replace('class="maxbtn"', 'class="maxbtn" data-wkcmax')}</div>` +
       (row ? `<div class="wkc-item">${row}</div>` : ""),
     left: prs + wkHead("On it") +
       wkDetail(d, key, true).replace(/<div class="wkd"><b>(?:PRs|Merged)<\/b>[\s\S]*?<\/span><\/div>/g, ""),   // the PRs are listed above
@@ -10173,7 +10287,7 @@ function wkCardOpen(key, float = false) {
   let box = $("#wkcard");
   if (!box) { document.body.insertAdjacentHTML("beforeend", `<div id="wkcard"></div>`); box = $("#wkcard"); }
   const c = wkCardBody(wkData(true), key);
-  box.innerHTML = `<div class="teamlog wk roomy wkc">${c.head}<div class="wkc-cols"><div class="wkc-left${wkCardMore ? "" : " shut"}">` +
+  box.innerHTML = `<div class="teamlog wk wkc">${c.head}<div class="wkc-cols"><div class="wkc-left${wkCardMore ? "" : " shut"}">` +
     `${wkHead("Pull requests and who's on it", c.prs, "", `<b class="wkc-fold" data-wkcfold title="${wkCardMore ? "Hide" : "Show"} them">${foldIcon(!wkCardMore)}</b>`)}<div class="wkc-more">${c.left}</div></div><div class="divider drag wkc-split" title="Drag to share the room between the details and the conversation"></div><div class="wkc-chat">` +
     `${wkHead("Conversation")}<div class="wkc-thread">${c.thread}</div><button class="newest" title="Back to the newest line">↓ Newest</button><div class="wkc-tos">${c.to}</div>` +
     `<div class="att" data-name="${esc(CARD + key)}"></div><div class="sayrow">${addButton(CARD + key)}<textarea class="say" rows="1" data-name="${esc(CARD + key)}" ` +
@@ -10726,9 +10840,9 @@ function teamHtml(path, n, full, big) {
 // order, each turn naming its agent, through the pane's own lanes. A message between two of them is shown once, as its recipient has it.
 // Full and Summary as the Team pane. The roles are chosen from the pane bar while the layout is being changed, as a grid's are.
 // Its lanes split the owner's: Owner is the owner's messages, Said each agent's own words, so either can go alone.
-const CLANES = [["owner", ""], ["said", "Said"], ["team", "Team"], ["auto", "Auto"]], CALL = CLANES.map(l => l[0]);
+const CLANES = [["owner", ""], ["said", "Said"], ["summary", "Summary"], ["team", "Team"], ["auto", "Auto"]], CALL = CLANES.map(l => l[0]);
 const CLANE_TIP = {owner: "Your messages to the agents", said: "Each agent's own words: its answers and its thinking aloud",
-  team: LANE_TIP.team, auto: LANE_TIP.auto};
+  summary: LANE_TIP.summary, team: LANE_TIP.team, auto: LANE_TIP.auto};
 // a pane saved before Said had its own lane shows the agents' words wherever it showed the owner's
 const clanesOf = n => Array.isArray(n.clanes) ? n.clanes : Array.isArray(n.lanes) ? [...n.lanes, ...(n.lanes.includes("owner") ? ["said"] : [])] : CALL;
 // One message the owner sent to several agents at once (the meeting's box) shows once, to all of them: the same text
@@ -10742,6 +10856,12 @@ function foldSent(out, it) {
 // Whose conversations a Combined pane shows: the running agents it has picked, then those benched of the roles lit in its
 // chips (every role, while none is picked), each with its last conversation.
 const combinedAgents = n => [...paneAgents(n), ...byRole((S.bench || []).filter(b => roleLit(n, b.role)))];
+// In Threads its list counts the messages from some roles and it shows those from some, each its own choice of the pane's
+// (n.troles and n.mroles: the roles left out). A message to an agent is from whoever sent it; the owner's is the agent's.
+const rolesOut = (n, k) => Array.isArray(n?.[k]) ? n[k] : [];
+const fromRole = (it, a) => ((it.kind === "peer" && ppAgent(it.who)) || ppAgent(a))?.role, notOut = (it, a, out) => !out.length || !out.includes(fromRole(it, a));
+const rolesIn = (n, k) => { const in_ = new Set(combinedAgents(n).map(a => a.role)), list = roleList().filter(r => in_.has(r.role)); return {list, on: list.map(r => r.role).filter(r => !rolesOut(n, k).includes(r))}; };
+const roleFilter = (n, k, path, says) => { const {list, on} = rolesIn(n, k); return filterBtn(k, k + ":" + path, on, list, list.map(r => [r.role, r.name]), "", says); };
 // Their lines in time order, each agent's threaded on its own (threadItems) and kept until its conversation changes. A
 // message between two of them is its recipient's, unless it is older than what is kept of the recipient's. The line of
 // what an agent is doing, or an open prompt, is in the thread the agent is in (_in).
@@ -10763,19 +10883,19 @@ function combinedLines(chosen) {
 // (parts) and each one's open ask (asks; a benched agent waits for no answer). What is in no thread is left to the whole
 // conversation.
 const COMB = "~combined:", combNode = key => { try { return nodeAt(layout().root, key.slice(COMB.length)); } catch (e) { return null; } };
-function combinedThreads(key, chosen, lines = combinedLines(chosen).filter(it => inCombined(clanesOf(combNode(key)), it))) {
+function combinedThreads(key, chosen = thChosen(key), out = [], lines = combinedLines(chosen).filter(it => inCombined(clanesOf(combNode(key)), it))) {
   const by = new Map(), drawn = new Set(lines.map(it => it._in ?? it._thread ?? "")), sel = localStorage.getItem("thread:" + key);
-  for (const a of chosen) for (const t of threadsOf(paneConv[a] || [], a, sel, key)) {
+  for (const a of chosen) for (const t of threadsOf(paneConv[a] || [], a, sel, key, out)) {
     if (!t.name || t.name === EVERY) continue;
-    const ask = ppBenched(a) ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
+    const mine = !out.includes(ppAgent(a)?.role), ask = ppBenched(a) || !mine ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
     m.parts.push([a, {...t, ask}]);
-    if (t.last) m.agents.push(a);
+    if (t.last && (mine || t.name === sel)) m.agents.push(a);
     if (t.latest && t.last >= m.said) { m.latest = t.latest; m.said = t.last; }
     m.last = Math.max(m.last, t.last); m.answered = Math.max(m.answered, t.answered); if ((t.at || "") > m.at) m.at = t.at;
     if (ask) m.asks.push({agent: a, ask});
   }
   // (a message between two agents is drawn once, in its recipient's thread)
-  const all = [...by.values()].filter(t => t.asks.length || drawn.has(t.name));
+  const all = [...by.values()].filter(t => t.asks.length || drawn.has(t.name) || t.name === sel);
   for (const t of all) {
     const at = a => t.parts.find(p => p[0] === a)[1].last;
     t.agents.sort((a, b) => at(b) - at(a));
@@ -10827,35 +10947,41 @@ function combinedNew(key, th, lines) {
   setTimeout(() => { delete newMarks[k]; draw(); }, NEW_FOR + 50);
   return newMarks[k].after;
 }
-const inCombined = (on, it) => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" ? "said" : it.lane);
+const inCombined = (on, it) => ["ask", "live", "pending", "echo"].includes(it.kind) || on.includes(it.kind === "said" && !it.summary ? "said" : it.lane);
 function combinedHtml(path, n, full, big) {
-  const them = combinedAgents(n), chosen = them.map(a => a.name), on = clanesOf(n), key = COMB + path;
+  const them = combinedAgents(n), chosen = them.map(a => a.name), on = clanesOf(n), key = COMB + path, wide = full && path !== "phone";
   // a message sent from the pane shows at once, as in an agent's own view, until the agent's conversation has it
-  const lines = combinedLines(chosen).filter(it => inCombined(on, it));
-  // in Threads (its own choice, as an agent's card's), its threads at its left, and only the open one's lines
-  const all = full && path !== "phone" ? combinedThreads(key, chosen, lines) : [], thr = all.length > 0 && thMode(key) === "threads", one = thr ? thPick(all, key).t : null;
+  // in Threads (its own choice, as an agent's card's), its threads at its left, and only the open one's lines. Its list has a
+  // filter of its own, whose roles are counted in it, and its messages one, whose are shown; with nobody counted the list
+  // stays, for its filter, beside no messages (none is read by having been shown).
+  const threads = wide && thMode(key) === "threads", tout = rolesOut(n, "troles"), mout = threads ? rolesOut(n, "mroles") : [];
+  const every = combinedLines(chosen).filter(it => inCombined(on, it)), lines = every.filter(it => notOut(it, it._agent, mout));
+  const tl = every.filter(it => notOut(it, it._agent, tout)), all = wide ? combinedThreads(key, chosen, tout, tl) : [];
+  const has = all.length > 0 || wide && tout.length > 0 && every.some(it => it._thread);
+  const thr = threads && has, one = thr && all.length ? thPick(all, key).t : null;
+  if (thr && !one) delete thSel[key];
   if (one && localStorage.getItem("thread:" + key) !== one.name) localStorage.setItem("thread:" + key, one.name);   // the first, until another is opened
   // its newest lines, and the earlier ones as they are asked for: a page with thousands of them is slow to draw
-  const of = one ? lines.filter(it => (it._in ?? it._thread ?? "") === one.name) : lines, most = path === "phone" ? Infinity : COMB_LINES + (combMore[key + "\n" + (one ? one.name : "")] || 0);
+  const of = thr && !one ? [] : one ? lines.filter(it => (it._in ?? it._thread ?? "") === one.name) : lines, most = path === "phone" ? Infinity : COMB_LINES + (combMore[key + "\n" + (one ? one.name : "")] || 0);
   const log = full ? of.slice(-most) : of.slice(-30), before = full ? of.length - log.length : 0;
   log.threaded = true;
   const th = one ? one.name : EVERY, mark = full && looking() ? combinedNew(key, th, log) : newMarkAt(key, th);
-  if (!one) { if (!full || looking()) seenUpTo(log); } else if (looking()) thRead(key, one);
-  const head = (one ? thHeadHtml(one, key) : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
-  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey].join("|");
+  if (!one) { if (!full || looking()) seenUpTo(log); } else if (looking()) { thRead(key, one); thReadTo(log, one.name); }
+  const head = (one ? thHeadHtml(one, key).replace(/<\/div>$/, roleFilter(n, "mroles", path) + "</div>") : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
+  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey, mout].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === fkey;
-  const seg = `<div class="cbtns">${filterBtn("clanes", "clanes:" + path, on, CALL, CLANES)}${all.length ? thSeg(key) : ""}</div>`;
+  const seg = `<div class="cbtns">${filterBtn("clanes", "clanes:" + path, on, CALL, CLANES)}${has ? thSeg(key) : ""}</div>`;
   // a message box under the conversation, to one agent: the open thread's, to whoever combTo says, else the chat opened
   // from an agent's menu or a turn's reply; its badge picks another
-  const talk = S.agents.find(a => a.live && chosen.includes(a.name) && a.name === (one ? combTo(key, one, n, chosen) : n.chat));
+  const talk = S.agents.find(a => a.live && chosen.includes(a.name) && a.name === (one ? combTo(key, {...one, agents: [...new Set([...of.slice(-most).reverse().filter(it => it.kind === "said").map(it => it._agent), ...one.agents])]}, n, chosen) : n.chat));
   const pick = `data-menu="chatpick:${esc(path)}" data-chat="${esc(path)}" title="Send to another agent"`;
   const re = one || (combRe[key] && combRe[key].agent === n.chat ? all.find(t => t.name === combRe[key].th) || {name: combRe[key].th, title: combRe[key].th} : null);
   const chat = talk ? `<div class="chat" style="--c:${talk.colour}"><div class="chead"><span class="cto">To</span>${n.badge === "icon" || n.badge === "card" ? face(talk, pick, " pick")
     : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
-  const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
-  const un = thr ? combinedUnseen(lines) : {};
-  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one.name, un)}</div>` +
-    `<div class="thchips">${thChipsHtml(all, one.name, un)}</div>${feed}</div>` : feed;
+  const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : thr && !one ? `<div class="empty">the roles counted have no threads</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
+  const un = thr ? combinedUnseen(tl) : {}, tbtn = roleFilter(n, "troles", path, "Counting");
+  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(all, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn)}</div>` +
+    `<div class="thchips">${tbtn}${thChipsHtml(all, one?.name, un)}</div>${feed}</div>` : feed;
   const off = a => ppBenched(a.name) ? " benched" : "";
   return `<div class="teamlog combined${full ? "" : " summary"}${thr ? " thon" : ""}" data-name="${key}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(them)}</span>`
     : n.badge === "icon" && chosen.length ? `<span class="cnames iconrow">${them.map(a => face(a, `data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}${off(a) ? " (benched)" : ""}"`, off(a) && " benched off")).join("")}</span>` : `<span class="cnames" title="${chosen.map(x => esc(shown(x))).join(", ")}">${chosen.length ? them.map(a => `<span class="name${off(a) && " benched off"}" style="--c:${a.colour || "#888"}" data-name="${esc(a.name)}">${esc(shown(a.name))}</span>`).join("") : "no agents"}</span>`}${seg}${maxButton(big)}</div>${body}</div>`;
@@ -11405,6 +11531,16 @@ function customClicks() {
   main.querySelectorAll(".hand [data-hand]").forEach(el => el.onclick = () => {
     const h = el.closest(".hand"), m = meetOf(nodeAt(layout().root, el.closest(".pane").dataset.path));
     if (m) meetPost(m.id, "handover", {name: h.dataset.n, action: el.dataset.hand, text: h.querySelector(".htext")?.value || ""});
+  });
+  // a Combined pane's roles counted in its threads, and those whose messages show: All, or any of them
+  main.querySelectorAll(".teamlog.combined :is(.troles, .mroles)").forEach(el => {
+    const path = el.closest(".pane").dataset.path, k = el.matches(".troles") ? "troles" : "mroles", node = () => nodeAt(layout().root, path), {list} = rolesIn(node(), k);
+    filterButton(el, [["*", "All", " "], ...list.map(r => [r.role, r.name, roleMark(r)])], () => { const {list, on} = rolesIn(node(), k); return on.length === list.length ? ["*", ...on] : on; },
+      r => r === "*" ? "Every role, or none" : k === "troles" ? "Count this role's messages in the threads" : "Show this role's messages",
+      r => change(l => {
+        const n = nodeAt(l.root, path), out = rolesOut(n, k), every = rolesIn(n, k).list.map(x => x.role);
+        n[k] = r !== "*" ? out.includes(r) ? out.filter(x => x !== r) : [...out, r] : every.some(x => out.includes(x)) ? [] : every;
+      }), k === "troles" ? "Count in threads" : "Show messages of");
   });
   main.querySelectorAll(".teamlog .clanes").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -11976,11 +12112,12 @@ const ANSWERED_FOR = 60 * 1000;   // how long a thread says "answered" after the
 // Each thread of a conversation, from its lines (threadItems): its name ("" is General), its last line's time, the ask
 // still open in it (the owner has not written there since), when the owner last answered an ask there, and the
 // agent's latest words in it. The ticket's title stands for a ticket key where the Work data knows it.
-function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread:" + name), key = name) {
+function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread:" + name), key = name, out = []) {
   const by = new Map(), get = th => by.get(th) || by.set(th, {name: th, last: 0, ask: null, answered: 0, latest: ""}).get(th);
   const ask = {}, cn = key.startsWith(COMB) ? combNode(key) : null, on = cn ? clanesOf(cn) : laneOf(name);
   // only what its filter shows is in the list: a thread with none of its lines shown is left out, but for an open ask
-  const shows = it => cn ? inCombined(on, it) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
+  // (in a Combined pane's, from the roles it counts; the thread open stays in it)
+  const shows = it => cn ? inCombined(on, it) && (notOut(it, name, out) || (it._thread || "") === sel) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
   for (const it of threadItems(items, name)) {
     if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
     const th = it._thread || "", ts = Date.parse(it.ts) || 0, t = shows(it) ? get(th) : {};
@@ -12019,7 +12156,7 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
 }
 // All, then General, then waiting on the owner (the newest ask first), then pinned in Work, then in the owner's order
 function thOrder() {
-  const pins = new Set(wkPinned());
+  const pins = new Set(wkPins());
   return (a, b) => !b.name - !a.name || !!b.ask - !!a.ask || (a.ask && b.ask ? (b.ask._asked.at(-1) || "").localeCompare(a.ask._asked.at(-1) || "") : 0) ||
     pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b);
 }
@@ -12040,7 +12177,7 @@ const thPane = el => el.closest("#main .teamlog.combined[data-name^='" + COMB + 
 const thAgent = el => el.closest("#detail") ? open : (el.closest(".card.full[data-name]") || thPane(el))?.dataset.name;
 const thFeed = (el, agent) => el.closest(".card.full[data-name]") ? paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [] : convFeed;
 const thChosen = key => { const n = combNode(key); return n ? combinedAgents(n).map(a => a.name) : []; };
-const thAll = (el, agent) => agent.startsWith(COMB) ? combinedThreads(agent, thChosen(agent)) : threadsOf(thFeed(el, agent), agent);
+const thAll = (el, agent) => agent.startsWith(COMB) ? combinedThreads(agent) : threadsOf(thFeed(el, agent), agent);
 const thLines = (el, agent) => agent.startsWith(COMB) ? combinedLines(thChosen(agent)) : threadItems(thFeed(el, agent), agent);
 const thRedraw = () => { thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; };
 function thDealt(agent, t) {
@@ -12052,6 +12189,12 @@ function thRead(agent, t) {
   if (!seen[agent] || (t.at || "") <= thSeen(agent, t.name)) return;
   (seenTh[agent] ||= {})[t.name] = t.at;
   localStorage.setItem("seenth", JSON.stringify(seenTh));
+}
+// the lines of a Combined pane's thread that are in view, seen
+function thReadTo(lines, th) {
+  let more = false;
+  for (const it of lines) { const ts = (it._asked || [it.ts]).at(-1) || ""; if (seenKind(it) && seen[it._agent] && ts > thSeen(it._agent, th)) { (seenTh[it._agent] ||= {})[th] = ts; more = true; } }
+  if (more) localStorage.setItem("seenth", JSON.stringify(seenTh));
 }
 // removed until something new arrives in it, and what it held counts as seen
 function thRemove(agent, t) {
@@ -12077,7 +12220,7 @@ const thNotice = s => /^\s*(You['’]ve hit your|You have hit your|API Error|Cla
 var thHidden = JSON.parse(localStorage.getItem("thhide") || "{}");
 const thNoClosed = () => localStorage.getItem("thnoclosed") === "1";   // the order menu's Remove closed
 // a ticket's thread pins as it does in Work: the same pins, at the top of both
-const thPinBtn = t => { if (!t.key) return ""; const on = wkPinned().includes(t.key);
+const thPinBtn = t => { if (!t.key) return ""; const on = wkPins().includes(t.key);
   return `<b class="wkpin${on ? " on" : ""}" data-thpin="${esc(t.key)}" title="${on ? "Unpin" : "Pin to the top of Work and the threads"}">${MENU_ICON.pin}</b>`; };
 const thX = t => t.name && t.name !== EVERY ? `<b class="thx" data-thx="${esc(t.name)}" title="Remove it until something new arrives in it">×</b>` : "";
 // the thread list folded to badges, one choice for every list in this browser
@@ -12127,13 +12270,13 @@ document.addEventListener("click", e => {
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
-function thListHtml(list, sel, un = {}) {
-  if (thFolded()) return THMORE + `<div class="thtools">${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
+function thListHtml(list, sel, un = {}, filter = "") {
+  if (thFolded()) return THMORE + `<div class="thtools">${filter}${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
     return `<div class="thitem thmini${t.name === sel ? " on" : ""}" data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
   }).join("");
-  return THMORE + `<div class="thtools">${thSortBtn()}${thFoldBtn()}</div>` + list.map(t => {
+  return THMORE + `<div class="thtools">${filter}${thSortBtn()}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tag = t.ask ? `<span class="thl ask">waiting on you · asked ${t.ask._asked.length}×</span>`
       : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
@@ -12261,7 +12404,7 @@ function threadMenu(el, agent, th) {
       ...docs.map(p => link("/doc?p=" + encodeURIComponent(p), esc(p.split("/").pop()), "", p))]);
   const acts = (th && a?.live && free ? act("update", MENU_ICON.said, comb ? `Ask ${esc(shown(a.name))} for an update…` : "Ask for an update…") : "") +
     (t.ask ? act("dealt", MENU_ICON.check, "Dealt with") : "") + (un?.n ? act("read", MENU_ICON.check, "Mark as read") : "") +
-    (key ? act("pin", MENU_ICON.pin, wkPinned().includes(key) ? "Unpin" : "Pin to the top") : "") +
+    (key ? act("pin", MENU_ICON.pin, wkPins().includes(key) ? "Unpin" : "Pin to the top") : "") +
     (th ? (key && known(id) ? "" : act("copy", LINK_COPY, key ? `Copy ${esc(key)}` : "Copy its name")) + act("remove", MENU_ICON.close, "Remove from the list") : "");
   if (!body && !acts) return false;
   menuAt(el, "thread:" + agent + ":" + th, `<div class="hd thmhd"><b>${esc(key || t.title)}</b>${sub.length ? `<div>${sub.map(esc).join(" · ")}</div>` : ""}</div>` +
@@ -13635,7 +13778,7 @@ function chatPick(anchor) {
   const path = anchor.dataset.chat, key = "chatpick:" + path, n = nodeAt(layout().root, path), th = combOpen(COMB + path);
   const cur = th != null ? combPick[COMB + path + "\n" + th] : n?.chat;
   if (menuOn(key)) return menuOff(true);
-  const them = n ? paneAgents(n).filter(a => a.live) : [], t = th != null && combinedThreads(COMB + path, thChosen(COMB + path)).find(x => x.name === th);
+  const them = n ? paneAgents(n).filter(a => a.live) : [], t = th != null && combinedThreads(COMB + path).find(x => x.name === th);
   const row = a => `<div class="mi" data-pick="${esc(a.name)}">${face(a, "")}` +
     `${esc(shown(a.name))}${MENU_ICON.check.replace("<svg", `<svg class="tick${a.name === cur ? "" : " off"}"`)}</div>`;
   const inIt = t ? t.agents.map(x => them.find(a => a.name === x)).filter(Boolean) : [], rest = them.filter(a => !inIt.includes(a));
@@ -15611,19 +15754,19 @@ def self_test():
         t("  its tabs are All, Needs you, In flight, Up next, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
           ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
            'const WK_STAGE_NAME = {lead: "For your approval", owner: "Ready to merge"};' in PAGE, "<b>${esc(wkStageName(s))}</b>" in PAGE), (True,) * 3)
-        t("  Compact is a desktop box kept per browser, on until cleared; the phone is always full size",
-          ('const wkCompact = () => !phoneOn() && wkGet("compact", "1") === "1";' in PAGE, "data-wkcompact" in PAGE, ':is(#phone,.wk).roomy' in PAGE), (True,) * 3)
+        t("  it is always the full size, with no Compact box",
+          ("wkCompact" in PAGE, "data-wkcompact" in PAGE, ":is(#phone,.wk).wk .wkrow{" in PAGE), (False, False, True))
         t("  a face opens its agent on a click and gives its menu on a right-click or a held press; several people are a face each",
           ('openDetail(f.dataset.wkagent)' in PAGE, 'agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter, true, false)' in PAGE, 'data-menu-name="${esc(n)}"' in PAGE,
            'const wkNames = who => String(who || "").split(/,|&| and /)' in PAGE), (True,) * 4)
-        t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; both modes show whose alone",
+        t("  a ticket's faces are its supporters, faded once off it, then whose it is, rightmost; whose alone is shown",
           ('sup.map(x => wkFace1(x.name, x.now ? " sup" : " sup gone")).join("")}${own.map(x => wkFace1(x)).join("")}' in PAGE,
            ".wk .wkface.sup{display:none}" in PAGE), (True, True))
         t("  Done today leaves out a ticket still in flight, and the counts say what they count",
           ("(i.done || 0) >= today && !flying.has(i.key)" in PAGE, 'merged · ${num(x.done.length)}' in PAGE), (True, True))
-        t("  a row opens its card; pins are full mode's only; the rows' approval chips are too, with tags as the fallback",
-          ("function wkCardBody(d, key)" in PAGE, "const wkPins = () => wkCompact() ? [] : wkPinned();" in PAGE,
-           "const wkChips = t => !t.ok || wkCompact() ? wkTags(t) : [" in PAGE), (True,) * 3)
+        t("  a row opens its card; its pin and approval chips, with tags as the fallback",
+          ("function wkCardBody(d, key)" in PAGE, 'const wkPins = () => { try { const v = JSON.parse(wkGet("pins", "[]"))' in PAGE,
+           "const wkChips = t => !t.ok ? [" in PAGE), (True,) * 3)
         t("  a one-PR ticket (a ref and link, no prs list) has that PR on its card, whose it is under On it, and its talk found by #ticket and #PR",
           ('if ((t?.prs || []).length) return t.prs;' in PAGE, "const tprs = wkTicketPrs(t);" in PAGE, "const ticks = p => p.tags ? p.tags :" in PAGE,
            'card && wkNames(t?.who || qi?.who || "").length' in PAGE, "const alt = [`(?<![\\\\w#])${q(key)}(?!\\\\w)`];" in PAGE,
@@ -15631,9 +15774,9 @@ def self_test():
         t("  a benched agent's face is greyed in the strip and on a ticket, its tip saying so",
           ('phPor({...a, live: undefined}, ppBenched(n) ? " pp bench" : " pp")' in PAGE, 'face(x, "", ppBenched(x.name) ? " benched" : "")' in PAGE,
            ".ph-por.pp.bench > .fr > *{filter:grayscale(1);opacity:.55}" in PAGE), (True, True, True))
-        t("  an agent strip by role filters every tab to that agent's work, a click again for everyone's; Compact has neither",
+        t("  an agent strip by role filters every tab to that agent's work, a click again for everyone's",
           ("const them = byRole([...S.agents, ...S.bench]" in PAGE, 'wkSet("agent", wkGet("agent") === who.dataset.wkfilter ? "" : who.dataset.wkfilter)' in PAGE,
-           'all || wkCompact() ? "" : wkGet("agent", "")' in PAGE, "if (wkCompact()) return \"\";" in PAGE, '#phone .wkpeople [data-wkfilter]' in PAGE), (True,) * 5)
+           'all ? "" : wkGet("agent", "")' in PAGE, '#phone .wkpeople [data-wkfilter]' in PAGE), (True,) * 4)
         t("  the stand-up keeps work with no ticket in its own section, folded until opened, and out of the write-up",
           ("if (loose.length) lists.push([WK_NO_TICKET, loose]);" in PAGE, "shut = wqFolded().includes(k) !== shutFirst.includes(name)" in PAGE,
            "items = all.filter(i => i.key)" in PAGE), (True, True, True))

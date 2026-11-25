@@ -45,10 +45,11 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   landing there when this was written; port it when it has). A row can meet a smaller requirement
   than it records, and nothing but this read catches it.
 - **Reported gaps.** When anyone reports a gap the PR in hand will not fix (a developer's sibling, a
-  tester's or a reviewer's note), decide at once: the author fixes it in that PR, or you raise a ticket
-  for each gap straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR
-  body cites every id. A gap left only in a row's notes or a review comment is a lost one: archived
-  notes are read by nobody, and the frontier lists only open tickets.
+  tester's or a reviewer's note), decide at once: fixed in this PR, a ticket, or declined with one line of
+  why on the PR. A ticket needs a fault a user, a release or the pipeline could actually meet; raise each
+  straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR body cites every
+  id. A security fault is never declined. A gap with no recorded decision is a lost one: archived notes
+  are read by nobody, and the frontier lists only open tickets.
 - **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
   says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
   findings to the developer, and decide whether a finding holds the PR. If your project has a ledger
