@@ -7,6 +7,7 @@
                     (and the header's and footer's plug-ins: team/bar's and each executable in AGENT_BAR_PLUGINS,
                     else ~/.config/agents-web/bar, given the page's numbers, print a line or JSON; see plugins())
   /api/team         every message between the running agents, as one transcript
+  /api/earlier      each agent's earlier conversations of the last days, which Combined shows before its last
   /api/perf         the machine's CPU, memory, disks, network and GPUs, with their last ten minutes, for Performance panes
   /api/perf/history?key=cpu&span=3600   one of those over 2 minutes, 10, an hour or a day, for the enlarged graph
   /api/agent/NAME   one agent's longer conversation; ?all=1 every turn of the 300
@@ -448,7 +449,9 @@ def note_seen(live, names):
     data, changed = seen_sessions(), False
     for n, rec in live.items():
         if n in names and rec.get("sessionId") and (data.get(n) or {}).get("sessionId") != rec["sessionId"]:
-            data[n] = {"sessionId": rec["sessionId"], "cwd": rec.get("cwd") or ""}
+            was = data.get(n) or {}
+            before = [s for s in [*(was.get("earlier") or []), was.get("sessionId")] if s and s != rec["sessionId"]]
+            data[n] = {"sessionId": rec["sessionId"], "cwd": rec.get("cwd") or "", "earlier": before[-EARLIER_MAX:]}
             changed = True
     for n in [n for n in data if n not in names]:
         del data[n]
@@ -478,6 +481,74 @@ def resting_session(name):
                 except OSError:
                     continue
     return os.path.basename(best[1])[:-6] if best[1] else None
+
+
+# An agent benched and started again has a new session, and a conversation that begins again: its earlier ones are still
+# read by Combined, which would otherwise lose its part of their threads as it started.
+EARLIER_DAYS = 4   # a weekend, and the working days either side of it
+EARLIER_MAX = 40   # the most of one agent's sessions kept on record
+_earlier = {"at": 0, "of": {}, "read": {}}   # of: name -> its earlier sessions; read: transcript -> (mtime, its part)
+_earlier_lock = threading.Lock()
+
+
+def earlier_sessions():
+    """Name -> its sessions before its last, oldest first, of those used in the last EARLIER_DAYS: those the page has
+    seen it running in, and those of its own folder, where its last is in one (as resting_session reads it)."""
+    if time.time() - _earlier["at"] < 5:
+        return _earlier["of"]
+    live, names, since = live_sessions(), {r["name"] for r in roster()}, time.time() - EARLIER_DAYS * 86400
+    out = {}
+    for n in names:
+        sids = set((seen_sessions().get(n) or {}).get("earlier") or [])
+        last, used = (live.get(n) or {}).get("sessionId") or resting_session(n), []
+        own = os.path.dirname(transcript(last) or "") if last else ""
+        if own.lower().endswith("-" + re.sub(r"[^a-z0-9]", "", n.lower())):
+            sids |= {os.path.basename(f)[:-6] for f in glob.glob(os.path.join(glob.escape(own), "*.jsonl"))}
+        for sid in sids - {last}:
+            try:
+                used.append((os.stat(transcript(sid) or "").st_mtime, sid))
+            except OSError:
+                continue
+        # one begun since its last is not an earlier one
+        end = os.stat(transcript(last)).st_mtime if last and transcript(last) else None
+        used = sorted(u for u in used if u[0] >= since and (end is None or u[0] <= end))
+        if used:
+            out[n] = [sid for _, sid in used]
+    _earlier.update(at=time.time(), of=out)
+    return out
+
+
+def earlier_json(have):
+    """Each agent's earlier conversations as one list of turns, oldest first, the newest 60 turns of each lane of each,
+    every turn with the session it is from (past: its place among them), the tickets it held and when the last ended;
+    only the version when the caller has it."""
+    with _earlier_lock:
+        out, read = {}, {}
+        for n, sids in earlier_sessions().items():
+            items, tickets = [], []
+            for sid in sids:
+                path = transcript(sid)
+                try:
+                    m = os.stat(path).st_mtime
+                except (OSError, TypeError):
+                    continue
+                if _earlier["read"].get(path, (None,))[0] != m:
+                    t = Tail(path)   # read once, not followed: it has ended
+                    _earlier["read"][path] = (m, [it for it in by_lane(t.turns(TAIL_TURNS), 60) if it["kind"] != "live" and it.get("ts")], t.tickets())
+                read[path] = _earlier["read"][path]
+                _, turns, held = read[path]
+                if not turns:
+                    continue
+                items = [it for it in items if it["ts"] < turns[0]["ts"]]   # a conversation continued in another session is there in both
+                tickets = [x for x in tickets if x[0] < turns[0]["ts"]] + [[at or turns[0]["ts"], key] for at, key in held]
+                part = items[-1]["past"] + 1 if items else 1
+                items += [{**it, "past": part} for it in turns]
+            if items:
+                out[n] = {"items": items, "tickets": tickets, "upto": items[-1]["ts"]}
+        _earlier["read"] = read
+        key = json.dumps(sorted((p, v[0]) for p, v in read.items())) + json.dumps(sorted(out))
+        version = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return json.dumps({"version": version, **({} if have == version else {"of": out})}).encode()
 
 
 def conversations():
@@ -3047,15 +3118,18 @@ def tool_json(name, tid):
     running. Finished, the output is the call's result; running, the task output file Claude Code is writing."""
     rec = live_sessions().get(name)
     sid = rec.get("sessionId") if rec else resting_session(name) if any(r["name"] == name for r in roster()) else None
-    path = transcript(sid) if sid else None
-    if not path or not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
+    if not sid or not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
         return None
-    key, call, result, started, notes = (path, tid), None, None, None, []
-    if key not in _tool_at:
-        _tool_at[key] = _find_back(path, b'"id":"' + tid.encode() + b'"')
-    if _tool_at[key] is None:
+    for path in filter(None, (transcript(s) for s in [sid, *reversed(earlier_sessions().get(name, []))])):
+        key = (path, tid)
+        if key not in _tool_at:
+            _tool_at[key] = _find_back(path, b'"id":"' + tid.encode() + b'"')
+        if _tool_at[key] is not None:
+            break
         del _tool_at[key]
+    else:
         return None
+    call, result, started, notes = None, None, None, []
     with open(path, "rb") as f:
         f.seek(_tool_at[key])
         for raw in iter(f.readline, b""):
@@ -3981,7 +4055,7 @@ def state():
             if name not in _starting and (role in ("dev", "tester") or role in STANDING):
                 # its model, effort and last compaction are its last session's, the model read from its transcript
                 # once the session's context row has gone
-                was = last.get(name)
+                was = last.get(name) or resting_session(name)
                 row = rows.get(was, {}) if was else {}
                 bench.append({"name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
                               "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
@@ -4912,6 +4986,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/api/team":
             self.send(200, team_json(), "application/json")
+        elif path == "/api/earlier":
+            self.send(200, earlier_json(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("have", [""])[0]), "application/json")
         elif path == "/api/state":
             self.send(200, state_json(), "application/json")
         elif path == "/api/perf":
@@ -8088,6 +8164,8 @@ const threadId = key => !key.startsWith("#") ? key : (workQueue && ["now", "next
 // the ticket a developer or tester held at a time, as its transcript tells, else the one it holds now
 function heldAt(name, ts) {
   const a = ppAgent(name); if (!["dev", "tester"].includes(a?.role)) return "";
+  const e = earlier[name];
+  if (e && ts <= e.upto) return idThread(e.tickets.findLast(t => t[0] <= ts)?.[1] || "");
   const was = (a.tickets || []).findLast(t => t[0] <= ts);
   return was ? idThread(was[1]) : tk(a);
 }
@@ -8116,9 +8194,9 @@ function threadItems(items, name) {
     if (it.kind === "said") {
       if (!it.summary && (m = text.match(THREAD_TAG))) { th = cur[ag] = /^general$/i.test(m[1].trim()) ? "" : m[1].trim(); ask = !!m[2]; shownText = text.slice(m[0].length); }
       else if (["dev", "tester"].includes(a?.role)) {
-        th = it.ticket != null ? idThread(it.ticket) : tk(a);   // its ticket's #N, so it joins the owner's [#N] thread
-        const keys = keysIn(text);   // about another ticket of its own, and no other, it is that ticket's
-        if (keys.length === 1 && keys[0] !== th && a.tickets?.some(t => idThread(t[1]) === keys[0])) { th = keys[0]; guess = true; }
+        th = it.ticket != null ? idThread(it.ticket) : it.past ? "" : tk(a);   // its ticket's #N, so it joins the owner's [#N] thread
+        const keys = keysIn(text), own = it.past ? earlier[ag]?.tickets : a.tickets;   // about another ticket of its own, and no other, it is that ticket's
+        if (keys.length === 1 && keys[0] !== th && own?.some(t => idThread(t[1]) === keys[0])) { th = keys[0]; guess = true; }
       }
       else if (reply[ag] != null) { th = reply[ag]; cur[ag] ??= th; }   // an untagged answer stays in the thread it answers
       else if (cur[ag] != null) { th = cur[ag]; guess = true; }
@@ -8134,7 +8212,7 @@ function threadItems(items, name) {
     } else if (it.kind === "event") cur[ag] = null;
     if (ask) {
       const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim();
-      if (first && same(first.text) === same(shownText)) { first._asked.push(it.ts); continue; }
+      if (first && !first.past === !it.past && same(first.text) === same(shownText)) { first._asked.push(it.ts); continue; }
       out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
       continue;
     }
@@ -10916,9 +10994,35 @@ function foldSent(out, it) {
   if (first) { if (!(first._agents ||= [first._agent]).includes(it._agent)) first._agents.push(it._agent); } else out.push(it);
   return out;
 }
-// Whose conversations a Combined pane shows: the running agents it has picked, then those benched of the roles lit in its
-// chips (every role, while none is picked), each with its last conversation.
-const combinedAgents = n => [...paneAgents(n), ...byRole((S.bench || []).filter(b => roleLit(n, b.role)))];
+// Whose conversations a Combined pane shows: the running agents it has picked, then those benched it has picked, or of the
+// roles lit in its chips (every role, while none is picked).
+const combinedAgents = n => [...paneAgents(n), ...byRole((S.bench || []).filter(b => inPick(n, b) || roleLit(n, b.role)))];
+// An agent's earlier conversations of the last days (/api/earlier), before its last: a benched agent started again begins
+// a new one, and its part of the threads it was in stays. Read every ten seconds, and only when they have changed.
+var earlier = {}, earlierVer = "", earlierAt = 0;
+async function loadEarlier() {
+  if (Date.now() - earlierAt < 10000) return;
+  earlierAt = Date.now();
+  try {
+    const d = await (await fetch("/api/earlier?have=" + earlierVer, {cache: "no-store"})).json();
+    if (d.of && d.version) { earlier = d.of; earlierVer = d.version; }
+  } catch (e) {}
+}
+// an agent's conversation threaded, kept until it, or a ticket someone holds, changes
+const threadedMemo = {};
+const heldKey = () => [...ledgerNos()].join() + S.agents.map(x => x.ticket + ":" + (x.ticketNo || "") + ":" + (x.tickets?.at(-1)?.join() || "")).join() + S.bench.length + earlierVer;
+function combinedItems(items, name) {
+  const key = ppAgent(name)?.role + "|" + heldKey(), m = threadedMemo[name];
+  return m && m.items === items && m.key === key ? m.lines : (threadedMemo[name] = {items, key, lines: threadItems(items, name)}).lines;
+}
+const combinedConvs = {};   // agent -> its earlier conversations and its last as one
+function combinedConv(a) {
+  const conv = paneConv[a] || [], e = earlier[a], m = combinedConvs[a];
+  if (!e) return conv;
+  if (m && m.conv === conv && m.e === e) return m.all;
+  const from = conv.find(it => it.ts)?.ts;   // what its last conversation carried on from an earlier one is there in both
+  return (combinedConvs[a] = {conv, e, all: e.items.filter(it => !from || it.ts < from).concat(conv)}).all;
+}
 // In Threads its list counts the messages from some roles and it shows those from some, each its own choice of the pane's
 // (n.troles and n.mroles: the roles left out). A message to an agent is from whoever sent it; the owner's is the agent's.
 const rolesOut = (n, k) => Array.isArray(n?.[k]) ? n[k] : [];
@@ -10928,27 +11032,36 @@ const roleFilter = (n, k, path, says) => { const {list, on} = rolesIn(n, k); ret
 // Their lines in time order, each agent's threaded on its own (threadItems) and kept until its conversation changes. A
 // message between two of them is its recipient's, unless it is older than what is kept of the recipient's. The line of
 // what an agent is doing, or an open prompt, is in the thread the agent is in (_in).
-const combinedMemo = {};
+const combinedMemo = {}, combinedAll = new Map();   // an agent's lines; those of a list of agents together
 function combinedLines(chosen) {
   const of = a => {
-    const ag = ppAgent(a), conv = paneConv[a] || [], echo = echoItems(conv, a), key = [ag?.role, ag?.ticket, ag?.ticketNo, S.agents.map(x => x.tickets?.at(-1)?.join() || "").join(), echo.map(m => m.ts + m.state)].join("|"), m = combinedMemo[a];
+    const ag = ppAgent(a), conv = combinedConv(a), echo = echoItems(conv, a), key = [ag?.role, heldKey(), echo.map(m => m.ts + m.state)].join("|"), m = combinedMemo[a];
     if (m && m.conv === conv && m.key === key) return m;
     const lines = threadItems(conv.concat(echo), a).map(it => ({...it, _agent: a}));
     const last = lines.findLast(it => ["said", ...OWN].includes(it.kind)), now = ["dev", "tester"].includes(ag?.role) ? tk(ag) : last?._thread || "";
     for (const it of lines) if (["live", "ask"].includes(it.kind)) it._in = now;
-    return combinedMemo[a] = {conv, key, lines, from: lines.find(it => it.kind === "peer")?.ts || "9"};
+    const kept = {};   // each of its conversations' messages from others, from the first kept: [from, until]
+    for (const it of lines) if (it.ts) { const k = kept[it.past || 0] ||= ["9", ""]; if (it.kind === "peer" && it.ts < k[0]) k[0] = it.ts; if (it.ts > k[1]) k[1] = it.ts; }
+    const {0: newest, ...past} = kept;
+    const said = new Set(lines.filter(it => it.kind === "peer").map(it => it.text));
+    return combinedMemo[a] = {conv, key, lines, has: it => said.has(it.text) || newest?.[0] <= it.ts || Object.values(past).some(k => k[0] <= it.ts && it.ts <= k[1])};
   };
-  const all = chosen.map(of), from = Object.fromEntries(chosen.map((a, i) => [a, all[i].from]));
-  return all.flatMap(m => m.lines).filter(it => (it.ts || it.kind === "ask") && !(it.kind === "sent" && from[it.with || it.who] <= it.ts))
+  const all = chosen.map(of), was = combinedAll.get(chosen.join());
+  if (was && was.all.every((m, i) => m === all[i])) return was.lines;
+  const has = Object.fromEntries(chosen.map((a, i) => [a, all[i].has]));
+  const lines = all.flatMap(m => m.lines).filter(it => (it.ts || it.kind === "ask") && !(it.kind === "sent" && has[it.with || it.who]?.(it)))
     .sort((x, y) => !x.ts ? 1 : !y.ts ? -1 : x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0).map(it => it._agents ? {...it, _agents: null} : it).reduce(foldSent, []);
+  if (combinedAll.size > 20) combinedAll.clear();
+  combinedAll.set(chosen.join(), {all, lines});
+  return lines;
 }
 // Its threads: each agent's (threadsOf) of one name together, with who is in it (agents, the latest first), each one's own
 // (parts) and each one's open ask (asks; a benched agent waits for no answer). What is in no thread is left to the whole
 // conversation.
 const COMB = "~combined:", combNode = key => { try { return nodeAt(layout().root, key.slice(COMB.length)); } catch (e) { return null; } };
-function combinedThreads(key, chosen = thChosen(key), out = [], lines = combinedLines(chosen).filter(it => inCombined(clanesOf(combNode(key)), it))) {
+function combinedThreads(key, chosen = thChosen(key), out = [], lines = combinedLines(chosen).filter((on => it => inCombined(on, it))(clanesOf(combNode(key))))) {
   const by = new Map(), drawn = new Set(lines.map(it => it._in ?? it._thread ?? "")), sel = localStorage.getItem("thread:" + key);
-  for (const a of chosen) for (const t of threadsOf(paneConv[a] || [], a, sel, key, out)) {
+  for (const a of chosen) for (const t of threadsOf(combinedConv(a), a, sel, key, out)) {
     if (!t.name || t.name === EVERY) continue;
     const mine = !out.includes(ppAgent(a)?.role), ask = ppBenched(a) || !mine ? null : t.ask, m = by.get(t.name) || by.set(t.name, {...t, last: 0, at: "", ask: null, asks: [], answered: 0, latest: "", said: 0, parts: [], agents: []}).get(t.name);
     m.parts.push([a, {...t, ask}]);
@@ -10974,7 +11087,7 @@ function combinedUnseen(lines) {
     const th = it._thread || "", last = (it._asked || [it.ts]).at(-1), key = it._agent + "\n" + th + "\n" + it.ts;
     if (!seenKind(it) || !seen[it._agent] || !last || last <= thSeen(it._agent, th) || counted.has(key)) continue;
     counted.add(key);
-    const o = out[th] || (out[th] = {n: 0, ask: false}); o.n++; o.ask ||= !!it._ask && !ppBenched(it._agent);
+    const o = out[th] || (out[th] = {n: 0, ask: false}); o.n++; o.ask ||= !!it._ask && !it.past && !ppBenched(it._agent);
   }
   return out;
 }
@@ -11031,7 +11144,7 @@ function combinedHtml(path, n, full, big) {
   const th = one ? one.name : EVERY, mark = full && looking() ? combinedNew(key, th, log) : newMarkAt(key, th);
   if (!one) { if (!full || looking()) seenUpTo(log); } else if (looking()) { thRead(key, one); thReadTo(log, one.name); }
   const head = (one ? thHeadHtml(one, key).replace(/<\/div>$/, roleFilter(n, "mroles", path) + "</div>") : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
-  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey, mout].join("|");
+  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), earlierVer, on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey, mout].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === fkey;
   const seg = `<div class="cbtns">${filterBtn("clanes", "clanes:" + path, on, CALL, CLANES)}${has ? thSeg(key) : ""}</div>`;
   // a message box under the conversation, to one agent: the open thread's, to whoever combTo says, else the chat opened
@@ -11059,7 +11172,7 @@ async function loadPaneConvs() {
   LV.names = names; lvWatch();
   if (!custom) return;
   if (EMBED) { await Promise.all([loadDayLog(), loadWorkQueue()]); return; }
-  await Promise.all([loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
+  await Promise.all([leaves(layout().root).some(([, n]) => n.show === "combined") && loadEarlier(), loadTeam(), loadFiles(), loadPerf(), loadMeetings(), loadDayLog(), loadWorkQueue(), loadTokens()]);
   await Promise.all(names.map(async name => {
     if (LV.up && LV.got.conv[name]) return lvPane(name);
     try {
@@ -11729,7 +11842,7 @@ function customClicks() {
     e.stopPropagation();
     const other = b.matches(".paneover") && greyedAt(b, e);
     if (other) return open(other);
-    localStorage.removeItem("focus:pane:" + b.closest(".pane").dataset.path); draw();
+    overOff(b.closest(".pane"));
   });
   main.querySelectorAll(".filelog [data-fe]").forEach(b => b.onclick = () => fileAct(b.dataset.fe, nodeAt(layout().root, b.closest(".pane").dataset.path)?.path));
   main.querySelectorAll(".filelog textarea.fedit").forEach(t => {
@@ -12181,12 +12294,12 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
   // only what its filter shows is in the list: a thread with none of its lines shown is left out, but for an open ask
   // (in a Combined pane's, from the roles it counts; the thread open stays in it)
   const shows = it => cn ? inCombined(on, it) && (notOut(it, name, out) || (it._thread || "") === sel) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
-  for (const it of threadItems(items, name)) {
+  for (const it of cn ? combinedItems(items, name) : threadItems(items, name)) {
     if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
     const th = it._thread || "", ts = Date.parse(it.ts) || 0, t = shows(it) ? get(th) : {};
     t.last = Math.max(t.last, ts, ...(it._asked || []).map(x => Date.parse(x) || 0));
     const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
-    if (it._ask) ask[th] = it;
+    if (it._ask && !it.past) ask[th] = it;   // one of an earlier conversation's ended with it
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
     if (it.kind === "said" && !it.summary && !thNotice(it.text)) t.latest = it.text;
   }
@@ -13185,12 +13298,21 @@ function dock(a) {
 }
 function closeDetail() { if (ONLY || $("#detail").classList.contains("docked")) return; open = null; phRailFor = null; if (seek?.src === "conversation") seek = null; $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); }
 $("#detail").onclick = e => { if (e.target.id === "detail") closeDetail(); };
+// closes the agent shown in a pane, over its Combined view say
+function overOff(pane) { localStorage.removeItem("focus:pane:" + pane.dataset.path); draw(); }
+// Esc closes the agent over a Combined view from inside its pane, or with no box in hand; typing in another pane keeps its own Esc
+function overEsc(t) {
+  const shown = [...document.querySelectorAll("#main .pane")].filter(p => p.querySelector(".paneover"));
+  const pane = shown.find(p => p.contains(t)) || (t.closest?.("input, textarea, select, [contenteditable], .xterm") ? null : shown[0]);
+  if (pane) overOff(pane);
+}
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if ($("#lightbox").classList.contains("on")) closeImg();
   else if ($("#graphbox").classList.contains("on")) closeGraph();
   else if ($("#docbox").classList.contains("on")) closeDoc();
-  else if (open || !unmax()) closeDetail();
+  else if (open) closeDetail();
+  else if (!unmax()) overEsc(e.target);
 });
 addEventListener("resize", () => { draw(); const c = $("#dconv"); if (open && pinned) c.scrollTop = c.scrollHeight; kbKeep(); });
 // The conversations at their newest turn when a message box is tapped are put back there by each resize for the next
@@ -14606,10 +14728,10 @@ async function phLoad(tab) {
   try {
     if (tab === "mix" && Date.now() - phMixAt > 3500) {
       phMixAt = Date.now();
-      await Promise.all(combinedAgents(phMixNode()).map(async a => {
+      await Promise.all([loadEarlier(), ...combinedAgents(phMixNode()).map(async a => {
         const d = await (await fetch("/api/agent/" + encodeURIComponent(a.name), {cache: "no-store"})).json(), t = JSON.stringify(d.feed);
         if (t !== paneText[a.name]) { paneConv[a.name] = d.feed; paneText[a.name] = t; paneVer[a.name] = (paneVer[a.name] || 0) + 1; }
-      }));
+      })]);
       phoneDraw();
     }
     if (tab === "team" && Date.now() - phTeamAt > 3500) {
@@ -15541,6 +15663,13 @@ def self_test():
         _seen["data"] = None   # read back from disk, as after a restart
         t("benched: an agent's last conversation is its recorded session, else the newest in its own folder (not a namesake's)",
           (resting_session("Ada"), resting_session("Ben"), resting_session("Tess")), ("s0", "b2", None))
+        for sid, ago in (("b1", 200), ("b2", 100)):
+            os.utime(f"{T}/projects/-w-proj-ben/{sid}.jsonl", (time.time() - ago,) * 2)
+        _earlier["at"] = 0
+        was = json.loads(earlier_json(""))
+        t("  its earlier ones of the last days are read too, and sent again only once they change",
+          (earlier_sessions(), sorted(was["of"]), {it["past"] for it in was["of"]["Ben"]["items"]}, json.loads(earlier_json(was["version"]))),
+          ({"Ben": ["b1"]}, ["Ben"], {1}, {"version": was["version"]}))
         t("  its view reads that conversation; a name off the roster reads nothing",
           ([it["kind"] for it in json.loads(agent_json("Ben"))["feed"]][:2], json.loads(agent_json("Old"))["feed"], json.loads(agent_json("Zed"))["feed"]),
           (["owner", "said"], [], []))
