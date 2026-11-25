@@ -73,7 +73,10 @@ for PR"*):
   2. **Spend the rest of the time attacking.** Your own mutants the developer did not try; the other
      surfaces, themes, locales, viewports and states the change reaches; a rendered sweep outside the
      developer's assertions; the limits the developer named. Each attack runs only the tests that can see it, filtered to them. The finds
-     come from here, not from a second pass over the same tests.
+     come from here, not from a second pass over the same tests. Report a gap when real input can reach it
+     today, or when the code shape exists today or could arrive by an ordinary mistake (a dropped condition,
+     a wrong boundary, a copied block). A shape one of us would have to write deliberately is one line in
+     the verdict and no more. Anything an outside caller can send is never "deliberate".
   3. **Report three lists** with your verdict: what the attack covered, the filtered commands you
      ran (command, exit code, counts), and the handover readings you checked at that sha. Say which items passed, which failed, and
      which you could not run and why. A pass that rests on a stub, fake or rig says so in what the attack
