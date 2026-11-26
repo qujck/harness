@@ -42,6 +42,7 @@
 # login: AGENT_WEB_PUBLIC_HOST (that name), AGENT_WEB_ACCESS_TEAM (the <team> of <team>.cloudflareaccess.com) and
 # AGENT_WEB_ACCESS_AUD (the Access application's audience tag). A request under the name is answered only with
 # Access's signed token for that application; with any of the three unset the name is refused. Needs openssl too.
+# team/agents-tunnel.service runs the tunnel, and its header says how to set it up.
 #
 # Settings, in harness.env: AGENT_WEB_PORT, AGENT_OWNER_NAME (how the owner's messages are labelled),
 # AGENT_COLOUR_<ROLE>, the three above, and the budget's and the panel's own. Needs python3 (standard library only) and tmux.

@@ -71,6 +71,7 @@ team/                    # several agents on one box (optional: tmux, a Claude s
   agents-web.sh          # the team as a web page on 127.0.0.1 (python3): a card per running agent in sections by role, its conversation, a message box that types into its tmux pane; the week amber while it spends the contingency
   agent-terminal         # for an agent the owner has attached to a terminal on the page: read what it prints (--wait: once the command has finished), suggest a command only the owner can send
   agents-web.service     # a reference systemd user unit for the page (KillMode=process keeps the agents it started through a restart)
+  agents-tunnel.service  # a reference systemd user unit for the Cloudflare tunnel that carries the page to a phone, behind an Access login
   statusline-publish.sh  # an example status-line command that publishes the row the panel and agent-context.sh read
   activity-hook.sh       # from the hooks: working, waiting (a permission prompt or a question) or idle per session, which the row carries
   work-marker-hook.sh    # from the hooks: marks which ticket an agent is on (claim, branch, release, sign-off, handoff) through the tree's ledger-db.sh
