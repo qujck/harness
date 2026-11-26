@@ -24,13 +24,18 @@ to the name of the MAIN checkout even when the lead's session root is a linked w
 `acme-carl`; ignoring any row older than two minutes). When that directory does not exist the status
 bar says `context dir missing: <path>` beside the watch count and the debug log names the two settings
 to check, because a silent hold on a wrong path looks exactly like a quiet team. When active agents of any other role have been idle for fifteen minutes or more
-(`LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into the delivery lead's
-session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.]
-Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each one and keep the team
-active.` (the names only: each agent's role and idle time go to the log) A queued prompt runs as a turn of its own once the session is idle and never touches the
-prompt box, so nothing the owner is typing there is disturbed. The same set of idle agents is nudged at most
-twice, a full threshold apart; the count survives a restart through the mod's store and is cleared once nobody
-is idle, so the bound covers one idle spell and the next starts afresh; a different set, or the same set for the other target (the head of testing in testing time), is a new state. It never
+(`LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), and are not waiting on anyone, it queues one prompt
+into the delivery lead's session, e.g. `[Automated nudge from the waiting-agents mod, not from the owner; it assigns
+nothing.] Team agents idle for 15 minutes or more, not waiting on anyone: Wren, Ash. As delivery lead, check each one
+and keep the team active.` (the names only: each agent's role, ticket and idle time go to the log) A queued prompt
+runs as a turn of its own once the session is idle and never touches the prompt box, so nothing the owner is typing
+there is disturbed. What each agent holds comes from the ticket store (`scripts/ledger-db.sh agent-tickets`), asked
+only when someone has been idle long enough: an agent whose tickets are all parked waits on the owner or on someone
+else and is left out; one on an in-progress ticket, or holding nothing (a routing question), counts. A store that
+cannot be read counts every idle agent and the log says so. Each idle spell (an agent with its ticket, for the
+target told) is nudged about once: the spells told survive a restart through the mod's store and are dropped as they
+end, so an agent that works and idles again is nudged afresh, and the same spell is told again to the other target
+(the head of testing in testing time). It never
 prods the idle agents and assigns nothing. Only developers, testers, the code reviewer and process improvement
 are nudged (`NUDGE_ROLES` in `hooks/nudge.ts`): the head of testing defines what is true rather than working a
 ticket, and assistants are not on the team. Every verdict, holds included, is appended to

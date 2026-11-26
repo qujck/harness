@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { decide, envFileValue, freshRows, mainCheckoutOf, nudgeText, parseTarget, roleWords, stateKey, statePaths } from './nudge.ts'
+import { decide, envFileValue, freshRows, idleAgents, mainCheckoutOf, nudgeText, parseTarget, roleWords, spellOf, statePaths, ticketsOf } from './nudge.ts'
 import { parseRoster } from './watch.ts'
 
 const ROSTER = JSON.stringify({
@@ -56,6 +56,8 @@ type World = {
   /** Every argv the mod ran, and every nudge-target write. */
   ran?: string[][]
   wrote?: string[]
+  /** What `ledger-db.sh agent-tickets` prints; null is a ledger that cannot be read. Dev and Tam hold one each unless said. */
+  tickets?: string | null
 }
 
 function stage(on: On, w: World, clock: { now: () => number }, sent: string[], log: string[]) {
@@ -95,6 +97,10 @@ function stage(on: On, w: World, clock: { now: () => number }, sent: string[], l
     throw new Error('ENOENT')
   })
   on('process.run', ($, e) => {
+    if (e.argv.at(-1) === 'agent-tickets') {
+      if (w.tickets === null) return v({ exitCode: 3, stdout: '', stderr: 'ledger-db: cannot tell who you are' })
+      return v({ exitCode: 0, stdout: w.tickets ?? 'Dev|t-1|in_progress|\nTam|t-2|in_progress|\n', stderr: '' })
+    }
     w.ran?.push([...e.argv])
     return v({ exitCode: w.day ? 0 : 3, stdout: `${w.day?.status ?? 'day  none: no day open'}\n`, stderr: '' })
   })
@@ -120,7 +126,7 @@ const world = (): World => ({
 })
 const verdicts = (log: string[]) => log.map(l => l.slice(20).trim())
 
-test('two nudges for one state, a threshold apart, and never a third', async ($, on) => {
+test('one nudge per idle spell, however long it lasts', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
   const sent: string[] = []
@@ -130,26 +136,18 @@ test('two nudges for one state, a threshold apart, and never a third', async ($,
 
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toBe('[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-    + 'Team agents idle for 15 minutes or more: Dev. As delivery lead, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.')
-  expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
-
-  await clock.advance(300_000)
-  expect(sent.length).toBe(1)
-  expect(verdicts(log).at(-1)).toContain('hold: 900s not yet passed since nudge 1 for this state')
-
-  await clock.advance(600_000)
-  expect(sent.length).toBe(2)
-  expect(sent[1]).toContain('nudge 2 of 2')
+  expect(sent[0]).toBe('[Automated nudge from the waiting-agents mod, not from the owner; it assigns nothing.] '
+    + 'Team agents idle for 15 minutes or more, not waiting on anyone: Dev. As delivery lead, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.')
+  expect(verdicts(log)).toEqual(['sent nudge; idle: Dev, developer (t-1) idle 16m'])
 
   await clock.advance(3_600_000)
-  expect(sent.length).toBe(2)
-  expect(verdicts(log).at(-1)).toContain('hold: already nudged 2 times for this exact state')
+  expect(sent.length).toBe(1)
+  expect(verdicts(log).at(-1)).toBe('hold: already nudged about each; idle: Dev, developer (t-1) idle 76m')
 })
 
-test('a new state is nudged afresh, and the bound survives a restart through the store', async ($, on) => {
+test('a new idle agent is nudged about alone, and the spells told survive a restart through the store', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
-  mock.store(on, { nudgeState: { key: 'lead\nDev', count: 2, lastMs: T0 - 60_000 } })
+  mock.store(on, { nudgeState: { told: ['lead|Dev|t-1'] } })
   const sent: string[] = []
   const log: string[] = []
   const w = world()
@@ -158,14 +156,48 @@ test('a new state is nudged afresh, and the bound survives a restart through the
 
   await clock.advance(10_000)
   expect(sent).toEqual([])
-  expect(verdicts(log)).toEqual(['hold: already nudged 2 times for this exact state; idle: Dev, developer idle 16m'])
+  expect(verdicts(log)).toEqual(['hold: already nudged about each; idle: Dev, developer (t-1) idle 16m'])
 
   w.agents.Tam = { activity: 'idle', idleAtT0: 900 }
   await clock.advance(300_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toContain('nudge 1 of 2')
-  expect(sent[0]).toContain('15 minutes or more: Dev, Tam.')
-  expect(verdicts(log).at(-1)).toContain('Dev, developer idle 21m; Tam, tester idle 20m')
+  expect(sent[0]).toContain('not waiting on anyone: Tam.')
+  expect(verdicts(log).at(-1)).toBe('sent nudge; idle: Tam, tester (t-2) idle 20m')
+})
+
+test('an idle agent holding only parked tickets is not nudged about; one holding nothing is, to be routed', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.tickets = 'Dev|t-1|parked|blocked_on_owner\n'
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(sent).toEqual([])
+  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more and not waiting on anyone'])
+
+  w.agents.Tam = { activity: 'idle', idleAtT0: 2000 }
+  await clock.advance(300_000)
+  expect(sent.length).toBe(1)
+  expect(verdicts(log).at(-1)).toBe('sent nudge; idle: Tam, tester (no ticket) idle 38m')
+})
+
+test('a ledger that cannot be read counts every idle agent, and the log says so', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  mock.store(on)
+  const sent: string[] = []
+  const log: string[] = []
+  const w = world()
+  w.tickets = null
+  stage(on, w, clock, sent, log)
+  await $.session.start(START)
+
+  await clock.advance(10_000)
+  expect(sent.length).toBe(1)
+  expect(verdicts(log)).toEqual(['sent nudge; idle: Dev, developer (?) idle 16m (ticket store unread: every idle agent counts)'])
 })
 
 test('nobody idle long enough, or the lead mid-turn, is a logged hold and nothing sent', async ($, on) => {
@@ -179,7 +211,7 @@ test('nobody idle long enough, or the lead mid-turn, is a logged hold and nothin
   await $.session.start(START)
 
   await clock.advance(10_000)
-  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more'])
+  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more and not waiting on anyone'])
 
   w.agents.Dev = { activity: 'idle', idleAtT0: 2000 }
   w.leadStatus = 'busy'
@@ -201,7 +233,7 @@ test('an idle head of testing is not nudged: only developers, testers, the code 
 
   await clock.advance(10_000)
   expect(sent).toEqual([])
-  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more'])
+  expect(verdicts(log)).toEqual(['hold: no team agent idle for 900s or more and not waiting on anyone'])
 })
 
 test('a session that is not the delivery lead sends and logs nothing', async ($, on) => {
@@ -233,8 +265,8 @@ test('a lead in a linked worktree reads the rows of the main checkout, not of a 
 
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toContain('15 minutes or more: Dev.')
-  expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 16m'])
+  expect(sent[0]).toContain('not waiting on anyone: Dev.')
+  expect(verdicts(log)).toEqual(['sent nudge; idle: Dev, developer (t-1) idle 16m'])
 
   expect(mainCheckoutOf(GIT_FILE)).toBe('/home/me/dev/acme')
   expect(mainCheckoutOf(undefined)).toBe(undefined)
@@ -282,8 +314,8 @@ test('harness.env names the project, the context directory and the threshold, as
   await $.session.start(START)
   await clock.advance(10_000)
   expect(sent.length).toBe(1)
-  expect(sent[0]).toContain('idle for 10 minutes or more: Dev.')
-  expect(verdicts(log)).toEqual(['sent nudge 1 of 2; idle: Dev, developer idle 11m'])
+  expect(sent[0]).toContain('idle for 10 minutes or more, not waiting on anyone: Dev.')
+  expect(verdicts(log)).toEqual(['sent nudge; idle: Dev, developer (t-1) idle 11m'])
 })
 
 test('roster roles, settings, row freshness and the bound, unit by unit', async () => {
@@ -304,13 +336,24 @@ test('roster roles, settings, row freshness and the bound, unit by unit', async 
   expect(rows.get('Dev')?.activity).toBe('idle')
   expect(rows.has('Tess')).toBe(false)
 
-  expect(decide('a', undefined, T0, 900)).toEqual({ send: true, count: 1 })
-  expect(decide('b', { key: 'a', count: 2, lastMs: T0 }, T0, 900)).toEqual({ send: true, count: 1 })
-  expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 899_000 }, T0, 900).send).toBe(false)
-  expect(decide('a', { key: 'a', count: 1, lastMs: T0 - 900_000 }, T0, 900)).toEqual({ send: true, count: 2 })
-  // The head of testing's two nudges must not use up the delivery lead's when the day hands back with the same agents idle.
-  const dev = [{ name: 'Dev', role: 'developer', idleS: 960 }]
-  expect(stateKey(dev, 'lead')).not.toBe(stateKey(dev, 'testing'))
+  const dev = { name: 'Dev', role: 'developer', ticket: 't-1', idleS: 960 }
+  const tam = { name: 'Tam', role: 'tester', ticket: 't-2', idleS: 960 }
+  expect(decide([dev, tam], undefined, 'lead')).toEqual({ fresh: [dev, tam], told: [] })
+  expect(decide([dev, tam], { told: ['lead|Dev|t-1', 'lead|Gone|t-9'] }, 'lead')).toEqual({ fresh: [tam], told: ['lead|Dev|t-1'] })
+  // The same agent on another ticket is a new spell.
+  expect(decide([{ ...dev, ticket: 't-3' }], { told: ['lead|Dev|t-1'] }, 'lead').fresh.length).toBe(1)
+  // A store from before spells (`{key, count, lastMs}`) reads as nothing told.
+  expect(decide([dev], { key: 'lead\nDev', count: 2, lastMs: T0 } as never, 'lead').fresh).toEqual([dev])
+  // A spell the head of testing was told about is told again to the delivery lead when the day hands back.
+  expect(spellOf(dev, 'lead')).not.toBe(spellOf(dev, 'testing'))
+
+  // Only an in-progress ticket waits on its holder; other lines (a stale-copy warning) are skipped.
+  const held = ticketsOf('ledger-db: ⚠ this copy is behind main\nDev|t-1|in_progress|\nTam|t-2|parked|blocked_on_other\nAsh|t-4|parked|banked\nAsh|t-5|in_progress|\n')
+  expect([...held]).toEqual([['Dev', 't-1'], ['Tam', null], ['Ash', 't-5']])
+  const team = new Map([['Dev', 'developer'], ['Tam', 'tester'], ['Ash', 'developer'], ['Wren', 'developer']])
+  const idleRows = new Map([...team.keys()].map(n => [n, { activity: 'idle', idle_s: 999 }]))
+  expect(idleAgents(team, idleRows, 900, held).map(i => `${i.name} ${i.ticket}`)).toEqual(['Dev t-1', 'Ash t-5', 'Wren no ticket'])
+  expect(idleAgents(team, idleRows, 900).map(i => i.ticket)).toEqual(['?', '?', '?', '?'])
 })
 
 test('once the team has been active, the same agents idling again are nudged afresh', async ($, on) => {
@@ -323,22 +366,19 @@ test('once the team has been active, the same agents idling again are nudged afr
   await $.session.start(START)
 
   await clock.advance(10_000)
+  expect(sent.length).toBe(1)
   await clock.advance(900_000)
-  expect(sent.length).toBe(2)
-  await clock.advance(900_000)
-  expect(sent.length).toBe(2)
-  expect(verdicts(log).at(-1)).toContain('hold: already nudged 2 times for this exact state')
+  expect(sent.length).toBe(1)
 
-  // Dev works for a while: the bound covered one idle spell, not the agent for good.
+  // Dev works for a while: the nudge covered one idle spell, not the agent for good.
   w.agents.Dev = { activity: 'working', idleAtT0: 0 }
   await clock.advance(300_000)
-  expect(verdicts(log).at(-1)).toBe('hold: no team agent idle for 900s or more')
+  expect(verdicts(log).at(-1)).toBe('hold: no team agent idle for 900s or more and not waiting on anyone')
 
   w.agents.Dev = { activity: 'idle', idleAtT0: 1000 }
   await clock.advance(300_000)
-  expect(sent.length).toBe(3)
-  expect(sent[2]).toContain('nudge 1 of 2')
-  expect(sent[2]).toContain('15 minutes or more: Dev.')
+  expect(sent.length).toBe(2)
+  expect(sent[1]).toContain('not waiting on anyone: Dev.')
 })
 
 test('the switch: testing moves the nudge to the head of testing, off sends none, and a bad word is shown, not obeyed', async ($, on) => {
@@ -396,9 +436,9 @@ test('in testing time the head of testing is nudged in their own session; out of
   w.target = 'testing'
   await clock.advance(10_000)
   expect(w.status.at(-1)).toBe('nudging for testing')
-  expect(sent).toEqual(['[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-    + 'Team agents idle for 15 minutes or more: Dev. As head of testing, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.'])
-  expect(verdicts(log)).toEqual(['sent nudge 1 of 2 to the head of testing; idle: Dev, developer idle 33m'])
+  expect(sent).toEqual(['[Automated nudge from the waiting-agents mod, not from the owner; it assigns nothing.] '
+    + 'Team agents idle for 15 minutes or more, not waiting on anyone: Dev. As head of testing, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.'])
+  expect(verdicts(log)).toEqual(['sent nudge to the head of testing; idle: Dev, developer (t-1) idle 33m'])
 
   // Mid-turn holds, named for who is nudged.
   w.agents.Tam = { activity: 'idle', idleAtT0: 2000 }
@@ -420,9 +460,9 @@ test('the switch word, unit by unit', async () => {
   expect(parseTarget('testing\n')).toBe('testing')
   expect(parseTarget('off')).toBe('off')
   expect(parseTarget('Testing')).toEqual({ bad: 'Testing' })
-  expect(nudgeText(2, [{ name: 'A', role: 'developer', idleS: 1000 }, { name: 'B', role: 'tester', idleS: 2000 }], 900, 'testing'))
-    .toBe('[Automated nudge 2 of 2 from the waiting-agents mod, not from the owner; it assigns nothing.] '
-      + 'Team agents idle for 15 minutes or more: A, B. As head of testing, check each one and keep the team active. '
+  expect(nudgeText([{ name: 'A', role: 'developer', ticket: 't-1', idleS: 1000 }, { name: 'B', role: 'tester', ticket: 't-2', idleS: 2000 }], 900, 'testing'))
+    .toBe('[Automated nudge from the waiting-agents mod, not from the owner; it assigns nothing.] '
+      + 'Team agents idle for 15 minutes or more, not waiting on anyone: A, B. As head of testing, check each one and keep the team active. '
       + 'If nothing needs doing, end your turn without writing anything.')
 })
 

@@ -12,6 +12,7 @@
 # WHAT IT MARKS, from the commands an agent already runs (main session only, a call that succeeded):
 #   claim <id>                (feature-ticket.sh or ledger-db.sh)          work on <id>
 #   git checkout / git switch to a branch named <id> or <id>-pt<N>         work switch <id>   (off every other ticket)
+#     (the branch the command names, in whichever tree it runs; never the session tree's own branch)
 #   release | sign-off | hand-over <id>   (ledger-db.sh, feature-ticket.sh release)   work off <id>
 #   handoff.sh                (the end of a session)                        work off           (every ticket)
 # and at SessionStart (a spawn, a resume, after a compaction) a tree whose branch is <id> or <id>-pt<N>: work on <id>;
@@ -41,8 +42,36 @@ intents() {
   [[ "$c" =~ $re ]] && echo "off ${BASH_REMATCH[3]}"
   # the end of a session is off everything, whatever it checked out on the way (a tester detaches first)
   [[ "$c" =~ (^|[^A-Za-z0-9_-])handoff\.sh([[:space:]]|$) ]] && { echo "off"; return 0; }
-  re="(^|[;&|[:space:]])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|switch)([[:space:]]|$)"
-  [[ "$c" =~ $re ]] && echo "branch"
+  branch_targets "$c" | sed 's/^/branch /'
+  return 0
+}
+
+# branch_targets <command> -> the branch each git checkout/switch in it moves to, one per line, as written   (pure)
+#   Read from the command, never from a tree: an agent with many worktrees runs `cd <other tree> && git switch X`,
+#   and the hook's cwd is the session's own tree, whose branch is another ticket's (owner's team, 2026-11-26: Ada's
+#   marker kept going back to her home tree's branch). A checkout of files (`--`, or paths after the branch), a
+#   detach, `-` and a branch from a variable move to nothing it can name, so they mark nothing.
+branch_targets() {
+  local rest="$1" re="(^|[;&|[:space:]\"'(])git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+(checkout|switch)([[:space:]].*)?$"
+  local w t want stop; local -; set -f          # a * in the command is a word, not a glob
+  while [[ "$rest" =~ $re ]]; do
+    rest="${BASH_REMATCH[4]}"; t=""; want=""; stop=""
+    for w in $rest; do
+      [[ "$w" =~ ^[\;\&\|\)\"\'] || "$w" =~ ^[0-9]*[\<\>] ]] && break   # the command's end, or a redirect
+      [[ "$w" =~ [\;\&\|\)\"\']+$ ]] && { stop=1; w="${w%%[;&|)\"\']*}"; }
+      if [[ -n "$want" ]]; then t="$w"; break                     # -b <new> [<start point>]: the new one
+      elif [[ -n "$t" ]]; then t=""; break                      # a second word: paths, so files
+      else case "$w" in
+        --) break ;;
+        --detach|-d|-) break ;;
+        -b|-B|-c|-C|--orphan|--create|--force-create) want=1 ;;
+        -*) ;;
+        *) t="$w" ;;
+      esac; fi
+      [[ -n "$stop" ]] && break
+    done
+    [[ -n "$t" && "$t" != \$* ]] && printf '%s\n' "$t"
+  done
   return 0
 }
 
@@ -97,7 +126,7 @@ run() {
         on)  ans="$(mark "$top" on "$id")";  [[ "$ans" == ok:* ]] && said+=("on $id") ;;
         off) if [[ -n "$id" ]]; then ans="$(mark "$top" off "$id")"; else ans="$(mark "$top" off)"; fi
              [[ "$ans" == ok:* ]] && said+=("off ${id:-every ticket}") ;;
-        branch) b="$(git -C "$top" branch --show-current 2>/dev/null)"; id="$(ticket_of_branch "$b")"
+        branch) b="$id"; id="$(ticket_of_branch "$b")"
              [[ -n "$id" ]] || continue
              ans="$(mark "$top" switch "$id")"; [[ "$ans" == ok:* ]] && said+=("on $id (branch $b)") ;;
       esac
@@ -117,9 +146,19 @@ self_test() {
   _t "a sign-off marks off" "$(intents 'bash scripts/ledger-db.sh sign-off fix_a_thing abc123 note')" "off fix_a_thing"
   _t "a hand-over marks off" "$(intents 'bash scripts/ledger-db.sh hand-over fix_a_thing Ada')" "off fix_a_thing"
   _t "handoff.sh marks off every ticket" "$(intents 'git checkout --detach origin/main; bash scripts/handoff.sh')" "off"
-  _t "a checkout asks for the branch" "$(intents 'git checkout fix_a_thing-pt1')" "branch"
-  _t "git -C <dir> switch too" "$(intents 'git -C ../t switch -c fix_a_thing-pt2')" "branch"
-  _t "a checkout of a file is still a checkout (the branch decides)" "$(intents 'git checkout -- a.txt')" "branch"
+  _t "a checkout names the branch it moves to" "$(intents 'git checkout fix_a_thing-pt1')" "branch fix_a_thing-pt1"
+  _t "git -C <dir> switch -c too" "$(intents 'git -C ../t switch -c fix_a_thing-pt2')" "branch fix_a_thing-pt2"
+  _t "a switch in another tree names its own branch, not the session's (Ada, 2026-11-26)" \
+    "$(intents 'taskset -c 30-31 bash -c "cd /home/x/strength-ada-5367 && git switch -q 7112-pt1 && git log -1"')" "branch 7112-pt1"
+  _t "  and so does a cd; checkout; with the branch last on its line" "$(intents 'cd $W; git checkout -q 5367-pt1; git status')" "branch 5367-pt1"
+  _t "  two moves, each named in order" "$(intents 'git switch a_b-pt1 && git -C ../y checkout -B c_d-pt2')" "branch a_b-pt1
+branch c_d-pt2"
+  _t "  a new branch from a start point names the new one" "$(intents 'git checkout -q --no-track -b 7013-pt1 origin/main 2>&1')" "branch 7013-pt1"
+  _t "  a redirect after the branch is not a path" "$(intents 'git checkout 5141-pt1 2>/dev/null; git switch -q x_y-pt1 >/dev/null')" "branch 5141-pt1
+branch x_y-pt1"
+  _t "a checkout of files names nothing" "$(intents 'git checkout -- a.txt')" ""
+  _t "  nor files from a branch" "$(intents 'git checkout fix_a_thing-pt1 a.txt b.txt')" ""
+  _t "  nor a detach, the last branch, or a variable" "$(intents 'git switch --detach x_y; git checkout -; git switch $B')" ""
   _t "a hand-written work marker is left alone" "$(intents 'bash scripts/ledger-db.sh work on x && bash scripts/feature-ticket.sh claim x')" ""
   _t "the words in an echo are not a claim" "$(intents 'echo claim fix_a_thing')" ""
   _t "git log is not a checkout" "$(intents 'git log --oneline -3')" ""
@@ -145,6 +184,9 @@ self_test() {
   : > "$d/calls"; git -C "$d" switch -q -c fix_a_thing-pt1
   p 'git switch -c fix_a_thing-pt1' | bash "$HERE/work-marker-hook.sh" PostToolUse >/dev/null
   _t "a switch to a pt branch writes work switch to its ticket" "$(cat "$d/calls")" "work switch fix_a_thing"
+  : > "$d/calls"
+  p 'cd /elsewhere/other-tree && git switch -q 7112-pt1' | bash "$HERE/work-marker-hook.sh" PostToolUse >/dev/null
+  _t "  a switch in another tree writes its own ticket, not this tree's branch" "$(cat "$d/calls")" "work switch 7112"
   : > "$d/calls"
   out="$(jq -nc --arg w "$d" '{session_id: "s", cwd: $w, source: "startup"}' | bash "$HERE/work-marker-hook.sh" SessionStart)"
   _t "a session starting on that branch writes work on" "$(cat "$d/calls")" "work on fix_a_thing"

@@ -14,7 +14,8 @@
 # (A silent success is how a flag typo once replaced a gate with one that always passed: METHOD.md.)
 TICKET_STORE_VERBS="raise raise-epic groom claim park unpark release amend flip-passing archive wont-do \
 frontier exists search ticket-row ticket-owner ticket-grep whoami ping board waiting summary comments answer \
-po-owner po-queue record-issue intent session-entry session-entries sync-agent-roles clear-refusal stand-down orphans"
+po-owner po-queue record-issue intent session-entry session-entries sync-agent-roles clear-refusal stand-down orphans \
+agent-tickets"
 
 # ticket_store_name -> db | jira, or exits 2 for anything else
 ticket_store_name() {

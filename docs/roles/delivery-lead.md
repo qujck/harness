@@ -25,17 +25,6 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   `--done`. Done, on the pane's Done tab beside Doing, is split at the stand-ups when a stand-up log
   (`$AGENT_STANDUPS`) marks each one "(FINAL, 09:10Z)". Write titles and notes in Markdown: `code` for names,
   **bold** where it matters, and links in full. Drop an item only when it is no longer planned.
-- **For you.** Everything you put to the owner (a question, an approval, a decision, text to approve) also goes on
-  the For you list, one item each, as you ask it: `team/for-you.py add "<the question, with your recommendation>"
-  --ticket ID` (no `--ticket` when there is none). Only you add to it. Each open item has a short code, FY1, FY2 ...,
-  which `add` prints and the team page shows first on its row. The owner reads the list on the team page and answers
-  you in words, by code or by ticket: "FY3" in the owner's words means that item, which `team/for-you.py list` shows.
-  When an answer comes, clear the item in the same turn: `team/for-you.py clear FY3 --answer "<their words>"` (or a
-  ticket ID, which clears every open item for that ticket). A code is free again once its item is cleared, so read it
-  from the list, never from memory. The owner can clear an
-  item on the page too; the page then tells you in your session, starting "[For you]", once you are idle: treat
-  those as dealt with, and ask in chat if you still need an answer. Keep the list true, so an empty list means the
-  team is working on its own.
 - **Routing.** Who works on what, by role and by name: *"Vera, as head of testing"*, never just
   *"Vera"*. The role is one `jq` away; naming it puts the assumption in the message, where the
   recipient can refuse it. Route explicitly, including *"not you"*. Silence is not a decision.
@@ -45,10 +34,11 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   landing there when this was written; port it when it has). A row can meet a smaller requirement
   than it records, and nothing but this read catches it.
 - **Reported gaps.** When anyone reports a gap the PR in hand will not fix (a developer's sibling, a
-  tester's or a reviewer's note), decide at once: the author fixes it in that PR, or you raise a ticket
-  for each gap straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR
-  body cites every id. A gap left only in a row's notes or a review comment is a lost one: archived
-  notes are read by nobody, and the frontier lists only open tickets.
+  tester's or a reviewer's note), decide at once: fixed in this PR, a ticket, or declined with one line of
+  why on the PR. A ticket needs a fault a user, a release or the pipeline could actually meet; raise each
+  straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR body cites every
+  id. A security fault is never declined. A gap with no recorded decision is a lost one: archived notes
+  are read by nobody, and the frontier lists only open tickets.
 - **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
   says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
   findings to the developer, and decide whether a finding holds the PR. If your project has a ledger
@@ -276,10 +266,12 @@ a session that finished minutes ago with nobody to tell it to carry on, and the 
 typing `continue` into panes. The nudger is a duty of the `waiting-agents` mod (`claude-code/waiting-agents/`),
 running inside YOUR session: every five minutes it reads the rows the context publisher writes
 (docs/context-publisher.md) and, when team agents have been idle for the quiet threshold (15 minutes by
-default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into your
-session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns
-nothing.] Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each one and keep
-the team active.` It names the agents and nothing more; each one's role and idle time are in the log. The
+default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment) and are not waiting on anyone, it queues
+one prompt into your session, e.g. `[Automated nudge from the waiting-agents mod, not from the owner; it assigns
+nothing.] Team agents idle for 15 minutes or more, not waiting on anyone: Wren, Ash. As delivery lead, check each
+one and keep the team active.` It names the agents and nothing more; each one's role, ticket and idle time are in
+the log. An agent whose tickets are all parked waits on the owner or someone else and is left out, and each idle
+spell is nudged about once. The
 owner, 2026-10-02: "I only want you to have a nudger so you ensure the team remain active". **The contract:**
 
 - **It wakes you, the head of testing, or nobody: the switch is yours to flip.** The owner, 2026-10-31:
@@ -348,5 +340,5 @@ records, never a transcript, and types into nothing.
 **What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs
 you. A nudge means read each named agent's pane and branch before deciding: an agent holding a claim is
 told to carry on; an agent holding nothing is a routing question — yours, through the ledger. `hold …
-already nudged 2 times for this exact state` means the same agents are stuck, not idle, and a further
-`continue` is the thing the bound exists to stop.
+already nudged about each` means you were told about every idle agent once this spell: the same agents are stuck,
+not idle, and a further `continue` is the thing the one nudge exists to stop.

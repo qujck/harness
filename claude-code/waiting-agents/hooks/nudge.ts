@@ -1,6 +1,6 @@
-// The pure part of the nudger: which team agents have been idle long enough to wake the delivery lead
-// (or, in verification time, the head of testing) for, and whether this state has already been nudged
-// as often as it may be.
+// The pure part of the nudger: which team agents have been idle long enough, and not waiting on someone
+// else, to wake the delivery lead (or, in verification time, the head of testing) for, and whether this idle
+// spell has already been nudged about.
 //
 // An agent runs one turn per prompt and then stops; nothing inside its session restarts it. The
 // nudger tells the delivery lead, who decides what each one should do. It never talks to the idle
@@ -10,7 +10,7 @@
 export const DEFAULT_THRESHOLD_S = 900
 // A context row older than this says nothing about what the agent is doing now.
 export const STALE_S = 120
-// At most this many nudges for one state (the same agents idle).
+// At most this many nudges for one stretch of the lead's own idleness (selfNudgeText).
 export const MAX_NUDGES = 2
 // The roles the nudger reports, by their roster ids, whoever is told. The delivery lead is never
 // reported; the head of testing defines what is true rather than working a ticket; assistants are not
@@ -37,10 +37,24 @@ export const TARGET_ROLE: Record<'lead' | 'testing', string> = { lead: 'delivery
 // One row of the context directory (docs/context-publisher.md), published by each session's status line.
 export type ContextRow = { agent?: string; ts?: string; activity?: string; idle_s?: number | null }
 
-export type Idle = { name: string; role: string; idleS: number }
+export type Idle = { name: string; role: string; ticket: string; idleS: number }
 
-// What has been sent for the current state: the state's key, how many nudges, and when the last went.
-export type NudgeState = { key: string; count: number; lastMs: number }
+// The idle spells already nudged about (spellOf's), kept while they last.
+export type NudgeState = { told: string[] }
+
+// What each agent holds, from `ledger-db.sh agent-tickets` (`holder|id|status|park_kind` rows): its in-progress
+// ticket's id, or null when it holds only parked ones. An in-progress ticket waits on its holder; a parked one waits
+// on the owner or on someone else. Lines of any other shape (a stale-copy warning) are skipped.
+export function ticketsOf(text: string): Map<string, string | null> {
+  const held = new Map<string, string | null>()
+  for (const line of text.split('\n')) {
+    const [holder, id, status] = line.trim().split('|')
+    if (!holder || !id) continue
+    if (status === 'in_progress' && !held.get(holder)) held.set(holder, id)
+    else if (status === 'parked' && !held.has(holder)) held.set(holder, null)
+  }
+  return held
+}
 
 // The value of `KEY=value` in harness.env, which scripts/lib/harness-env.sh sources: an optional
 // `export`, quotes around the value and a trailing comment are allowed; an empty value is no value.
@@ -107,41 +121,41 @@ export function roleWords(role: string): string {
   return role.replace(/-/g, ' ')
 }
 
-// The team agents (name to role) idle for `thresholdS` or more, in roster order.
-export function idleAgents(team: ReadonlyMap<string, string>, rows: ReadonlyMap<string, ContextRow>, thresholdS: number): Idle[] {
+// The team agents (name to role) idle for `thresholdS` or more, in roster order, that the lead could set going: one
+// on an in-progress ticket, or one holding nothing, which is a routing question. One holding only parked tickets
+// waits on someone else and is idle because it should be. `tickets` undefined is a ticket store that could not be
+// read: then every idle agent counts, ticket "?".
+export function idleAgents(
+  team: ReadonlyMap<string, string>,
+  rows: ReadonlyMap<string, ContextRow>,
+  thresholdS: number,
+  tickets?: ReadonlyMap<string, string | null>,
+): Idle[] {
   const idle: Idle[] = []
   for (const [name, role] of team) {
     const row = rows.get(name)
     if (row?.activity !== 'idle' || (row.idle_s ?? 0) < thresholdS) continue
-    idle.push({ name, role, idleS: Math.floor(row.idle_s ?? 0) })
+    const held = tickets ? tickets.get(name) : '?'
+    if (held === null) continue
+    const ticket = held ?? 'no ticket'
+    idle.push({ name, role, ticket, idleS: Math.floor(row.idle_s ?? 0) })
   }
   return idle
 }
 
-// The state a nudge is about: the same agents idle for the same target is the same state, however long they stay idle.
-// The target is part of it, so the head of testing's two nudges never use up the delivery lead's when the day hands
-// back with the same agents idle (2026-11-02: Carl was held "already nudged 2 times" from 12:39 with nobody working).
-export function stateKey(idle: readonly Idle[], target: 'lead' | 'testing'): string {
-  return [target, ...idle.map(i => i.name).sort()].join('\n')
-}
+// An idle spell: the agent with its ticket, for the target told, the same however long it stays idle. The target is
+// part of it, so a spell the head of testing was told about is told again to the delivery lead when the day hands back.
+export const spellOf = (i: Idle, target: 'lead' | 'testing'): string => `${target}|${i.name}|${i.ticket}`
 
 export function describe(idle: readonly Idle[]): string {
-  return idle.map(i => `${i.name}, ${roleWords(i.role)} idle ${Math.floor(i.idleS / 60)}m`).join('; ')
+  return idle.map(i => `${i.name}, ${roleWords(i.role)} (${i.ticket}) idle ${Math.floor(i.idleS / 60)}m`).join('; ')
 }
 
-// Whether a nudge may go now: a new state may always be nudged; the same state at most MAX_NUDGES
-// times, a full threshold apart. A bound, not a cadence: no amount of time produces a third.
-export function decide(
-  key: string,
-  prev: NudgeState | undefined,
-  nowMs: number,
-  thresholdS: number,
-): { send: true; count: number } | { send: false; why: string } {
-  const sent = prev?.key === key ? prev : undefined
-  if (!sent) return { send: true, count: 1 }
-  if (sent.count >= MAX_NUDGES) return { send: false, why: `already nudged ${MAX_NUDGES} times for this exact state` }
-  if (nowMs - sent.lastMs < thresholdS * 1000) return { send: false, why: `${thresholdS}s not yet passed since nudge ${sent.count} for this state` }
-  return { send: true, count: sent.count + 1 }
+// One nudge per idle spell: the agents idle now that no nudge has named in this spell. `told` keeps only the spells
+// still going, so an agent that works and idles again is nudged afresh.
+export function decide(idle: readonly Idle[], prev: NudgeState | undefined, target: 'lead' | 'testing'): { fresh: Idle[]; told: string[] } {
+  const was = new Set(Array.isArray(prev?.told) ? prev.told : [])
+  return { fresh: idle.filter(i => !was.has(spellOf(i, target))), told: idle.map(i => spellOf(i, target)).filter(k => was.has(k)) }
 }
 
 // The prompt itself names the idle agents and nothing more: each role and idle time stays in the log
@@ -149,9 +163,9 @@ export function decide(
 // waste of tokens to nudge everyone when you're keeping them busy"). With nothing to do, the lead ends the turn
 // silently: Vera answered both nudges on 2026-11-01 with a paragraph saying nothing had changed (owner: "Only write
 // something if it's useful").
-export function nudgeText(count: number, idle: readonly Idle[], thresholdS: number, target: 'lead' | 'testing' = 'lead'): string {
-  return `[Automated nudge ${count} of ${MAX_NUDGES} from the waiting-agents mod, not from the owner; it assigns nothing.] `
-    + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more: ${idle.map(i => i.name).join(', ')}. `
+export function nudgeText(idle: readonly Idle[], thresholdS: number, target: 'lead' | 'testing' = 'lead'): string {
+  return '[Automated nudge from the waiting-agents mod, not from the owner; it assigns nothing.] '
+    + `Team agents idle for ${Math.floor(thresholdS / 60)} minutes or more, not waiting on anyone: ${idle.map(i => i.name).join(', ')}. `
     + `As ${TARGET_ROLE[target]}, check each one and keep the team active. If nothing needs doing, end your turn without writing anything.`
 }
 

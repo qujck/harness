@@ -149,10 +149,10 @@ lead off shift stays on the bench for the whole of the other's day.
 While the delivery lead has set the nudger to `testing` (`bash team/nudge-target.sh testing`), the
 `waiting-agents` mod nudges YOU, in your own session, instead of the lead: every five minutes it checks the
 developers, testers, code and test reviewers and process improvement, and when any have been idle for the quiet
-threshold (15 minutes by default) it queues one prompt, e.g. `[Automated nudge 1 of 2 from the waiting-agents
-mod, not from the owner; it assigns nothing.] Team agents idle for 15 minutes or more: Tam, Ash. As head of
-testing, check each one and keep the team active.` The owner, 2026-10-31: "Vera should be managing the
+threshold (15 minutes by default), not waiting on anyone, it queues one prompt, e.g. `[Automated nudge from the
+waiting-agents mod, not from the owner; it assigns nothing.] Team agents idle for 15 minutes or more, not waiting on
+anyone: Tam, Ash. As head of testing, check each one and keep the team active.` The owner, 2026-10-31: "Vera should be managing the
 verification suite. The nudger should target her during verification time." Read each named agent's pane
-and keep verification moving; the same set is nudged at most twice, and every verdict is in `lead-nudge.log`
+and keep verification moving; each idle spell is nudged about once, and every verdict is in `lead-nudge.log`
 beside the context directory. Your status bar shows `nudging for testing` while it is on. Waiting alerts
 (an agent stuck at a permission prompt) still go to the delivery lead.

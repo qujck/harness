@@ -2709,6 +2709,13 @@ case "${1:-}" in
                     select 'V', ticket_id, sha, kind, coalesce(by_agent,''), coalesce(pr::text,''),
                            coalesce(to_char(at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), ''), ''
                       from ledger.v_verdict where live and (sha in (${_pl_shas:-null}) or ticket_id in (${_pl_ids:-null}))" ;;
+  # ── WHAT EACH AGENT HOLDS, FOR THE NUDGER: `agent-tickets` prints `holder|id|status|park_kind`, one row per
+  # in-progress or parked ticket someone holds. The waiting-agents mod nudges about an idle agent only while it
+  # holds an in-progress ticket: a parked one waits on the owner or on someone else. Read-only.
+  agent-tickets) shift
+            _as_me "select coalesce(claimed_by, parked_by), id, status, coalesce(park_kind, '')
+                      from ledger.v_ticket_detail
+                     where status in ('in_progress', 'parked') and coalesce(claimed_by, parked_by) is not null" ;;
   ticket-row) shift
             _tr_id="${1-}"
             if [[ -z "$_tr_id" ]]; then
@@ -3228,7 +3235,7 @@ case "${1:-}" in
                                       where claimed_by = '$(_me)')
           || ' | waiting on the owner: ' || (select count(*) from ledger.v_owner_blocked)
           || ' | free to pick up: '      || (select count(*) from ledger.v_frontier)" ;;
-  *) echo "usage: ledger-db.sh {attach|mirror <id>|sync [--unattended] [--since-last] [--worktree]|freshness [--quiet]|export [--write]|regenerate [--out DIR] {--all|<id>...}|whoami|ping|ticket-row <id>|ticket-owner <id>|ticket-grep <ere>|board|orphans|frontier|po-queue|po-owner|comments [<id>]|answer <seq> <text>|waiting|release <id> <why>|unpark <id> <why>|archive <id> <why>|record-issue <id> <n>|amend <id> <field> <value> <why>|intent <id> <building|holding|travelling> [<note>]|groom <id> <why>|session-entry (JSON on stdin)|session-entries [--mine|--agent A] [--since T] [--limit N]|clear-refusal <id> <why>|stand-down <id> <why>|flip-passing <id> <pr>|raise <file.json>|wont-do <id> <why>|raise-epic <file.json>}" >&2;
+  *) echo "usage: ledger-db.sh {attach|mirror <id>|sync [--unattended] [--since-last] [--worktree]|freshness [--quiet]|export [--write]|regenerate [--out DIR] {--all|<id>...}|whoami|ping|ticket-row <id>|ticket-owner <id>|ticket-grep <ere>|agent-tickets|board|orphans|frontier|po-queue|po-owner|comments [<id>]|answer <seq> <text>|waiting|release <id> <why>|unpark <id> <why>|archive <id> <why>|record-issue <id> <n>|amend <id> <field> <value> <why>|intent <id> <building|holding|travelling> [<note>]|groom <id> <why>|session-entry (JSON on stdin)|session-entries [--mine|--agent A] [--since T] [--limit N]|clear-refusal <id> <why>|stand-down <id> <why>|flip-passing <id> <pr>|raise <file.json>|wont-do <id> <why>|raise-epic <file.json>}" >&2;
      # ⚠ A BEHIND copy may simply not HAVE this verb yet — say so, rather than letting "usage" read as "no such verb".
      [[ "${STALE_TOOL_BEHIND:-0}" == 1 && -n "${1:-}" ]] && printf 'ledger-db: ⚠ '"'"'%s'"'"' is not a verb in THIS copy, which is BEHIND origin/main — it may exist there. Run it from a checkout of origin/main.\n' "$1" >&2
      exit 64 ;;
