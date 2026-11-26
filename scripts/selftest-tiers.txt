@@ -82,3 +82,4 @@ team/work-marker-hook.sh	verify
 team/nudge-target.sh	verify
 team/agents-day-budget.sh	verify
 team/owner-wanted.sh	verify
+team/agent-bench-due.sh	verify

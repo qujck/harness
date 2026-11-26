@@ -176,7 +176,10 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`; the words must be their actual words on one line (the script refuses a flag, blanks or the `<…>` placeholder in that slot as a usage error, so a slip never records a fake approval);
     the spawn refuses an off-budget developer without that, and never refuses one with it. The OK is
     recorded with the spawn in `~/.local/state/<project>/agent-spawns.tsv` (time, name, role, ticket,
-    model, verdict, the owner's words, the budget line), one row per real spawn.
+    model, verdict, the owner's words, the budget line, the reason for the model, who ran it), one row per
+    real spawn. Where the project sets `AGENT_SPAWN_REQUIRE_TICKET=1`, a developer or tester for work with no
+    ticket is yours alone to start, with `--job "<the job>"` in place of `--ticket`; the record shows it as
+    `job:<the job>`.
   - developer started to fix what verification found (owner, 2026-10-31): add `--verification-support`
     and it starts whatever the budget line says, with no owner's words; the record's verdict reads
     `over:verification-support`. It lifts the cap too ("there's no limit during verification day"):
@@ -226,7 +229,10 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
   `bash team/agent-bench.sh <Name>` (`--dry-run` first if in doubt). It refuses while the agent holds
   a claim, is mid-turn, has uncommitted changes in its worktree, or has written no session entry since
   its session started, and says which. Get that finished; never work round it. A benched agent drops
-  off the panel until it is spawned again.
+  off the panel until it is spawned again. Where the project sets `AGENT_BENCH_ON_MERGE=1`, the
+  developer's `feature-ticket.sh release <id>` starts `team/agent-bench-due.sh <id>`, which benches the
+  ticket's developer and tester once each is idle (its log is under `~/.local/state/<project>/bench-due`);
+  you can run it yourself for a ticket the same way.
 - **The leads hand over by spawning and benching each other** (owner, 2026-10-31). At the end of a
   development day the delivery lead spawns the head of testing, hands over, and the head of testing
   benches the delivery lead; at the end of a verification day, once main is green, the reverse. The

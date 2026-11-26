@@ -37,7 +37,8 @@ this directory out. `agent-onboard.sh` still prints the launch line; only the sp
 outside the checkout, need more environment, a stack check, more first-prompt text, a ticket lookup or its own
 "is the work done" check before a bench sets the `AGENT_TREE_MODE`, `HARNESS_ENV_FILE`, `AGENT_LAUNCH_ENV`,
 `AGENT_SPAWN_*` and `AGENT_BENCH_*` settings (`harness.env.example`, and the headers of `agent-spawn.sh` and
-`agent-bench.sh`) instead of wrapping the two scripts. Unset, each is the harness's own behaviour. `agent-spawn.sh
+`agent-bench.sh`) instead of wrapping the two scripts. `agent-bench-due.sh <id>` benches a finished ticket's developer
+and tester once each is idle; with `AGENT_BENCH_ON_MERGE=1`, `feature-ticket.sh release` starts it. Unset, each is the harness's own behaviour. `agent-spawn.sh
 spawn …` and `agent-spawn.sh bench …` (or `agent-bench.sh bench …`) are accepted, so one command can spawn and bench.
 
 Each script carries `--self-test` through `scripts/lib/selftest-flag.sh` and has a row in
