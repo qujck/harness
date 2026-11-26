@@ -15,7 +15,8 @@ before. The team page's Work pane draws it.
   team/review-queue.py close ID --findings "words"   (the reviewer: a finding, a cut or a question, for the delivery lead)
   team/review-queue.py up ID | down ID | hold ID | release ID    (the delivery lead: order among the waiting; held is skipped)
   team/review-queue.py passed ID               (the delivery lead: a findings verdict decided and passed on)
-  team/review-queue.py drop ID                 (the requester or the delivery lead: no longer wanted)
+  team/review-queue.py drop ID [--taken]      (the requester or the delivery lead: no longer wanted; a request a
+                                              reviewer has taken needs --taken, and the reviewer is told to stop)
   team/review-queue.py list [code|test]
 
 Who is next after a clean verdict: after the code reviewer's, a tester (or the head of testing) holding the request's
@@ -362,14 +363,21 @@ def main(argv):
                     a, b = q["items"].index(item), q["items"].index(same[j])
                     q["items"][a], q["items"][b] = q["items"][b], q["items"][a]
         elif cmd == "drop":
-            if len(args) != 1:
-                die("drop needs a request id")
+            if len(args) not in (1, 2) or args[1:] not in ([], ["--taken"]):
+                die("drop needs a request id, and --taken for one a reviewer has taken")
             item = find(q, args[0])
             if who != item["by"]:
                 need(who, LEAD)
             if item["state"] == "done":
                 die(f"#{item['id']} is already closed")
+            if item["state"] == "taken" and args[1:] != ["--taken"]:
+                die(f"#{item['id']} is taken by {item.get('taken_by', '')}, who may be reviewing it now: ask them, or run "
+                    f"`team/review-queue.py drop {item['id']} --taken`, which tells them to stop")
             q["items"].remove(item)
+            if item["state"] == "taken":
+                notify(q, item.get("taken_by"), f"{who} dropped #{item['id']}, on {item['key']} ({where(item)}), while you had it: "
+                                                f"it is no longer wanted. Stop reviewing it and do not close it.")
+                out = f"#{item['id']} dropped; {item.get('taken_by', '')}, who had taken it, is told to stop"
         else:
             die(f"no command {cmd!r}; see team/review-queue.py --help")
         write(q, who)

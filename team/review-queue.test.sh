@@ -119,6 +119,20 @@ expect("nothing waiting says so", rq("take", "test", who="Tre").stdout.strip(), 
 add("code", "AB-5", "abc5555")
 expect("someone else cannot drop a request", rq("drop", "5", who="Tess").returncode, 1)
 expect("the requester can drop their own", rq("drop", "5", who="Dev").returncode, 0)
+# A request a reviewer has taken is not dropped from under them: the drop is refused unless --taken says so,
+# and then the reviewer is told to stop.
+add("code", "AB-6", "abc6666")
+rq("take", "code", who="Rev")
+before = len(notices("Rev"))
+r = rq("drop", "6", who="Lead")
+expect("dropping a taken request is refused and says who has it", (r.returncode, "taken by Rev" in r.stderr + r.stdout), (1, True))
+expect("and it is still taken", [i["state"] for i in q()["items"] if i["id"] == 6], ["taken"])
+r = rq("drop", "6", "--taken", who="Lead")
+expect("with --taken it is dropped and the taker told", (r.returncode, r.stdout.strip(), [i for i in q()["items"] if i["id"] == 6]),
+       (0, "#6 dropped; Rev, who had taken it, is told to stop", []))
+expect("the taker's notice says stop", len(notices("Rev")) == before + 1 and "Stop reviewing it" in notices("Rev")[-1], True)
+expect("a waiting request still drops with no flag", (add("code", "AB-7", "abc7777").returncode, rq("drop", "7", who="Dev").returncode), (0, 0))
+expect("drop refuses a stray flag", rq("drop", "7", "--force", who="Dev").returncode, 1)
 expect("an unnamed session is refused", subprocess.run([os.path.join(here, "review-queue.py"), "take", "code"], capture_output=True,
        env={k: v for k, v in os.environ.items() if k not in ("AGENT_NAME", "CLAUDE_CODE_SESSION_ID")} | ENV).returncode, 1)
 
