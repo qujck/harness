@@ -10,12 +10,10 @@ session compacting, which the page shows, until the session starts again. An age
 not blocked on a prompt runs `owner-wanted.sh "<one line>"`, and the page pulses it amber with that line until the
 owner next types in its session. The delivery lead keeps the work the team means to start, as Now, Next and
 Later, what is Parked, and what is Done, with `work-queue.py`, and the page's Work queue pane draws it on two tabs,
-Doing and Done; Done splits at the stand-ups a stand-up log (`$AGENT_STANDUPS`) marks FINAL. What is waiting on the
-owner, one item per question, the delivery lead keeps with `for-you.py` (`$AGENT_FOR_YOU`): the page shows it as a
-count beside the Agents tally, a For you pane and a phone tab, and the owner can clear an item there. An agent the owner has attached to
+Doing and Done; Done splits at the stand-ups a stand-up log (`$AGENT_STANDUPS`) marks FINAL. An agent the owner has attached to
 a Terminal pane's tab reads what the terminal prints, and shows a command only the owner's Send puts there, with
 `agent-terminal` (`terminal.test.sh` tests it). The Work pane
-brings the pipeline, the work queue, For you and the Day log together, by what each ticket needs. `install-claude-code.sh`
+brings the pipeline, the work queue and the Day log together, by what each ticket needs. `install-claude-code.sh`
 wires all three into `~/.claude/settings.json` once per box, asking first. The page's team button starts the team
 through `team-start.sh`, a placeholder to wire up on the workstation that runs the team. Its wind-down ends with
 each agent running `agent-stopped.sh`, which puts it in the stop file: the page closes its pane once that turn ends,

@@ -22,7 +22,6 @@
   POST /api/paste    an image pasted into the page, or any file picked, kept under ~/.local/state/<project>/pasted for a message to attach
   POST /api/team/start       team/repos-update.sh (develop, main and master of the local repositories fast-forwarded where they safely can be), then team/team-start.sh, leaving out a standing agent stopped on its own, then each agent the page stopped is compacted once it is up, and the
                              delivery lead is told the team is back up to start the day
-  POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
   /api/standup/summary?who=  the last stand-up summary kept, everyone's or one agent's
   POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary"); {"clear": true, "who": ""} clears it
   POST /api/terminal/ID/attach|detach|submitted|finished   {"agent", "label"} an agent attached to a terminal, detached, its agent told the command has finished, or its command
@@ -3754,50 +3753,6 @@ def answer(name, n, label, text):
             _state["at"] = 0
 
 
-# ── for you ──────────────────────────────────────────────────────────────────────────────────────────────────────
-# What is waiting on the owner, as the delivery lead keeps it with `team/for-you.py` (see that command for the file's shape): the
-# open items go out with the state, for the bar's count, its list and the For you pane, with the last few cleared. The
-# owner clears one from the page under the command's lock, marked "tell", and the lead is told in its pane once idle
-# (owner, 2026-11-11: "yeah tell him"), so it does not wait on, or ask again about, what the owner has dealt with. It is
-# $AGENT_FOR_YOU, else for-you.json in the state directory, read again only when it changes.
-FOR_YOU = os.environ.get("AGENT_FOR_YOU") or os.path.join(STATE_DIR, "for-you.json")
-_foryou = {"key": None, "data": None}
-
-
-def for_you_file():
-    return os.path.expanduser(FOR_YOU)
-
-
-def for_you():
-    path = for_you_file()
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime_ns, st.st_size)
-    except OSError:
-        return {"state": "empty", "open": [], "cleared": []}
-    if key != _foryou["key"]:
-        try:
-            with open(path, encoding="utf-8") as f:
-                q = json.load(f)
-            if not isinstance(q, dict):
-                raise ValueError
-            text = lambda v, n=1000: v.strip()[:n] if isinstance(v, str) else ""
-            stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
-            def item(i):
-                t = text(i.get("ticket"), 120)
-                t = t if re.match(r"^[\w.#-]+$", t) else ""
-                ref = text(i.get("ref"), 10)
-                return {"n": i.get("n") if isinstance(i.get("n"), int) else 0, "ref": ref if re.match(r"^FY[1-9]\d*$", ref) else "", "text": text(i.get("text")), "ticket": t,
-                        "url": "", "from": text(i.get("from"), 60), "at": stamp(i.get("at")),
-                        "cleared": stamp(i.get("cleared")), "by": text(i.get("by"), 60), "answer": text(i.get("answer"))}
-            lists = {k: [item(i) for i in (q.get(k) if isinstance(q.get(k), list) else []) if isinstance(i, dict)] for k in ("open", "cleared")}
-            data = {"state": "ok", "open": lists["open"][:100], "cleared": lists["cleared"][:300]}   # the Work pane's history
-        except (OSError, ValueError):
-            data = {"state": "bad", "file": path, "open": [], "cleared": []}
-        _foryou.update(key=key, data=data)
-    return _foryou["data"]
-
-
 # The stand-up summary (owner, 2026-11-17: "a summary of all the work done, bulletpointed so that it is easier to read and
 # say out loud during the standup... like a little helper agent"): the Work pane's stand-up write-up, put to a small
 # model by a headless `claude -p` with no tools, settings, MCP servers or session kept, in a folder of its own so no
@@ -3970,77 +3925,6 @@ def standup_summary(text, fresh=False, who=""):
         _standup_lock.release()
 
 
-def for_you_clear(n):
-    """Clears open item n as the owner, as `team/for-you.py clear` does: False if it is not open."""
-    path = for_you_file()
-    with open(path + ".lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            with open(path, encoding="utf-8") as f:
-                q = json.load(f)
-        except (OSError, ValueError):
-            return False
-        items = q.get("open") if isinstance(q, dict) and isinstance(q.get("open"), list) else []
-        item = next((i for i in items if isinstance(i, dict) and i.get("n") == n), None)
-        if not item:
-            return False
-        now = int(time.time())
-        items.remove(item)
-        q["cleared"] = [{**item, "cleared": now, "by": setting("AGENT_OWNER_NAME") or "Owner", "answer": "", "tell": True}] + \
-            [i for i in (q.get("cleared") if isinstance(q.get("cleared"), list) else []) if isinstance(i, dict)]
-        q.update(at=now, by=setting("AGENT_OWNER_NAME") or "Owner")
-        for_you_write(path, q)
-    return True
-
-
-def for_you_write(path, q):
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".for-you.")
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(q, f, indent=1, ensure_ascii=False)
-        f.write("\n")
-    os.replace(tmp, path)
-
-
-def for_you_tell_once(lead=None, live=None):
-    """Tells the lead, in one message once its session is idle, which items the owner cleared from the page since it
-    was last told; True if it was told."""
-    path = for_you_file()
-    if not os.path.exists(path):
-        return False
-    lead = lead or lead_name()
-    live = live_sessions() if live is None else live
-    if not lead or (live.get(lead) or {}).get("status") != "idle":
-        return False
-    with open(path + ".lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            with open(path, encoding="utf-8") as f:
-                q = json.load(f)
-        except (OSError, ValueError):
-            return False
-        items = [i for i in (q.get("cleared") if isinstance(q, dict) and isinstance(q.get("cleared"), list) else []) if isinstance(i, dict) and i.get("tell")]
-        if not items:
-            return False
-        line = lambda i: "- " + ", ".join(x for x in (i.get("ref"), i.get("ticket")) if x) + (": " if i.get("ref") or i.get("ticket") else "") + str(i.get("text", ""))
-        text = "\n".join(["[For you] The owner cleared these from the For you list, so treat them as dealt with. If you still need an answer on one, ask the owner in chat; do not add it again.", *map(line, reversed(items))])
-        if not type_into(lead, text):
-            return False
-        for i in items:
-            i.pop("tell", None)
-        for_you_write(path, q)
-    return True
-
-
-def for_you_tell():
-    """for_you_tell_once every three seconds, for as long as the page runs."""
-    while True:
-        time.sleep(3)
-        try:
-            for_you_tell_once()
-        except Exception:   # the loop must outlive any one bad file or pane
-            time.sleep(10)
-
-
 # ── the state the page draws ──────────────────────────────────────────────────
 def colour(role):
     """The role's colour: AGENT_COLOUR_<ROLE> in harness.env, one of Claude Code's /color names, else the role's own."""
@@ -4121,7 +4005,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "forYou": for_you(), "termAgents": term_agents(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "termAgents": term_agents(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -5784,7 +5668,7 @@ class Handler(BaseHTTPRequestHandler):
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
         term = re.fullmatch(r"/api/terminal/(?:([a-z0-9]{4,32})/(attach|detach|submitted|finished)|(read|suggest))", self.path)
-        if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
+        if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -5807,8 +5691,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.terminal(term.group(1), term.group(2) or term.group(3))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
-        if self.path == "/api/foryou/clear":
-            return self.foryou_clear()
         if self.path == "/api/standup/summary":
             return self.standup()
         if self.path == "/api/doc":
@@ -6000,20 +5882,6 @@ class Handler(BaseHTTPRequestHandler):
         _starting.update(["team", *(names or [r["name"] for r in team_roster()])])
         threading.Thread(target=start_team, args=(lead, names), daemon=True).start()
         self.send(202, json.dumps({"starting": "team"}).encode(), "application/json")
-
-    def foryou_clear(self):
-        """Clears a For you item the owner has dealt with: {"n": 3}."""
-        try:
-            n = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}").get("n")
-        except (ValueError, AttributeError):
-            n = None
-        if not isinstance(n, int) or isinstance(n, bool):
-            return self.send(400, b"needs {\"n\": number}\n", "text/plain")
-        if not for_you_clear(n):
-            return self.send(409, b"that item is not open\n", "text/plain")
-        with _lock:
-            _state["at"] = 0
-        self.send(200, json.dumps({"cleared": n}).encode(), "application/json")
 
     def standup(self):
         """The spoken summary of the stand-up write-up the page sends: {"text": "...", "fresh": true to write it again,
@@ -6324,26 +6192,7 @@ header > .bi.div.orph{display:none}
 .pill.btn{cursor:pointer;color:var(--mute);font-family:var(--sans)}
 .pill.btn:hover{color:var(--text);border-color:var(--hover)}
 .pill.tally{position:relative;gap:5px}
-.pill.fy{cursor:pointer;margin-left:6px;color:var(--mute);white-space:nowrap}
-.pill.fy.on{border:2px solid var(--amber);color:var(--amber);font-weight:650}
-.foryou{padding:6px 10px}
-.foryou .row{display:flex;align-items:baseline;padding:3px 6px;gap:10px}
-.foryou a{color:var(--amber);font-weight:650;text-decoration:none}
-.foryou .row > a,.foryou .key{flex:none;min-width:5.5em;font-variant-numeric:tabular-nums}
-.foryou .tx{flex:1;white-space:normal;overflow-wrap:anywhere}
-.fyref{flex:none;min-width:2.4em;color:var(--amber);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em}   /* an item's code, FY3, for the owner to say */
-.foryou .meta{flex:none;color:var(--mute);font-size:.88em;white-space:nowrap}
-.foryou .ans{display:block;color:var(--mute)}
-.foryou .fyclear{flex:none;cursor:pointer;padding:0 8px;border:1px solid var(--line2);border-radius:var(--r-s);font-size:.88em}
-.foryou .fyclear:hover{border-color:var(--amber);color:var(--amber)}
 /* in the Work pane, a cross before the face, so the faces line up down the right */
-.wk .fyclear{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
-.wk .fyclear:hover{background:var(--on);color:var(--amber)}
-.wk .fyclear svg{width:14px;height:14px}
-.foryou .day{margin:8px 0 2px;padding:0 6px;color:var(--mute);font-size:.82em;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
-.foryou .day:first-child{margin-top:0}
-.foryou .calm{padding:10px 6px;color:var(--mute)}
-#menu .foryou{max-width:min(640px,92vw);padding:4px 2px}
 .pill.tally b:first-of-type{margin-right:5px}
 .pill.tally .dot.on{--reach:7px;animation:ping 1.4s infinite}
 .pill.tally .wait{cursor:pointer;position:absolute;inset:-1px;display:flex;align-items:center;justify-content:center;border-radius:999px;border:2px solid #ffb020;color:#000;font:650 calc(var(--t-m)*var(--fs,1)) var(--sans);white-space:nowrap;animation:pillflash 1s ease-in-out infinite}
@@ -6637,8 +6486,6 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkchipk{padding:0 6px;border-radius:8px;font:650 .8em var(--mono);text-transform:none;letter-spacing:0}
 .wkchipk.g{background:var(--pgbg);color:var(--pg)}
 .wkchipk.b{background:var(--pqbg);color:var(--pq)}
-:is(#phone,.wk) .wkask .pp-mid .tt{white-space:normal;overflow:visible}
-.wkall .wkask .pp-mid .id{max-width:none}
 /* the stand-up's summary, over its lists */
 .wksum{flex:none;margin:0 10px 8px;padding:0 4px 8px;border:1px solid var(--line2);border-radius:10px;background:var(--card1)}
 .wksumh{padding:6px 8px 0;font-weight:650}
@@ -9593,13 +9440,9 @@ function draw() {
   const tally = `<span class="pill tally" title="${n("busy")} working, ${n("idle")} idle${waiting ? `, ${waiting} waiting` : ""}">` +
     `<span class="dot${n("busy") ? " on" : ""}" style="background:var(--green)"></span><b>${n("busy")}</b><span class="dot"></span><b style="color:var(--mute)">${n("idle")}</b>` +
     (waiting && !sameBar ? `<span class="wait" data-menu="waiting" title="The agents waiting on you">${waiting} waiting</span>` : "") + `</span>`;
-  // beside it, what is waiting on the owner (see "For you")
-  const fyOpen = S.forYou?.open?.length || 0, counts = tally + (fyOpen
-    ? `<span class="pill fy on" title="Waiting on you: the list">${fyOpen} for you</span>`
-    : `<span class="pill fy" title="Nothing is waiting on you: the agents are working on their own">nothing for you</span>`);
+  const counts = tally;
   if ($("#counts").dataset.html !== counts) { $("#counts").innerHTML = counts; $("#counts").dataset.html = counts; }
-  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); else if (e.target.closest(".fy")) forYouMenu(); };
-  if (menuOn("foryou")) menuAt($("#counts .fy"), "foryou", `<div class="foryou">${forYouList(false)}</div>`, false, true);
+  $("#counts").onclick = e => { const w = e.target.closest(".wait"); if (w) waitMenu(w); };
   // the Waiting item, the same count on its own, which the header keeps whatever else goes into its »
   const wb = waiting ? `<b class="wbadge" data-menu="waiting" title="The agents waiting on you: a click shows the question, or lists them">${waiting} waiting</b>` : "";
   if ($("#waiting").dataset.html !== wb) { $("#waiting").innerHTML = wb; $("#waiting").dataset.html = wb; }
@@ -9813,13 +9656,13 @@ function fitBench() {
 // lose their bars, so what each shows stays put; their dividers still move.
 // A flat padlock in the text colour: the shackle closed when locked, swung open when not.
 const padlock = locked => `<svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" stroke-width="1.6" style="display:block"><rect x="1.5" y="6.5" width="10" height="7.5" rx="1.5"/><path d="${locked ? "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V6.5" : "M3.75 6.5V4.25a2.75 2.75 0 0 1 5.5 0V3.5"}"/></svg>`;
-const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log (deprecated)", search: "Search", workqueue: "Work queue (deprecated)", foryou: "For you", pipeline: "Pipeline (deprecated)", work: "Work", tokens: "Token usage", shell: "Terminal"};
+const PANE_TYPES = {agent: "Agent", characters: "Characters", combined: "Combined", file: "File", gauges: "Gauges", grid: "Grid", others: "List", meeting: "Meeting", perf: "Performance", machine: "Machine", tabs: "Agent tabs", team: "Team", daylog: "Day log (deprecated)", search: "Search", workqueue: "Work queue (deprecated)", pipeline: "Pipeline (deprecated)", work: "Work", tokens: "Token usage", shell: "Terminal"};
 // The view picker a tab's chevron and a pane's + open: the views in groups, each with its icon and a line on what it shows.
 const PANE_GROUPS = [
   ["People", [["grid", "Each agent's conversation, side by side"], ["others", "Every agent in a compact list"], ["agent", "One agent's conversation"],
     ["tabs", "One agent at a time, picked from a row"], ["characters", "The agents as portrait tiles"], ["team", "The messages between agents"],
     ["combined", "Several agents' conversations as one feed"]]],
-  ["Work", [["work", "Every ticket by what it needs: you, in flight, next, done, and the stand-up"], ["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["foryou", "What is waiting on you, kept by the delivery lead"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
+  ["Work", [["work", "Every ticket by what it needs: you, in flight, next, done, and the stand-up"], ["workqueue", "Doing and Done, a box per section"], ["pipeline", "Work on its way to done, and today's merges"], ["daylog", "What happened, day by day"], ["search", "Words in the conversations and the Day log, by role and agent"], ["meeting", "A meeting with the agents invited"],
     ["file", "One document, by its path"]]],
   ["Metrics", [["machine", "The machine's figures, as gauges or rows"], ["tokens", "Tokens each agent used, a box per week"]]],
   ["Tools", [["shell", "A terminal on this machine: your own shell, to type anything in"]]],
@@ -9832,7 +9675,6 @@ const PANE_ICON = Object.fromEntries(Object.entries({
   characters: '<rect x="2" y="2.5" width="5" height="11" rx="1"/><rect x="9" y="2.5" width="5" height="11" rx="1"/><circle cx="4.5" cy="6.5" r="1.3"/><circle cx="11.5" cy="6.5" r="1.3"/>',
   team: '<circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5a4.2 4.2 0 0 1 8.4 0M10.5 3.4a2.3 2.3 0 0 1 0 4.4M12 9.6a4.2 4.2 0 0 1 2.2 3.9"/>',
   combined: '<path d="M3 3h10a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5L4.5 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4.5A1.5 1.5 0 0 1 3 3z"/>',
-  foryou: '<path d="M2 9.5h3.5l1 2h3l1-2H14"/><path d="M4 3h8l2 6.5V13H2V9.5z"/>',
   workqueue: '<path d="M2.3 4.3l1.3 1.3 2.2-2.4M2.3 10.3l1.3 1.3 2.2-2.4M8 4.5h6M8 10.5h6"/>',
   pipeline: '<path d="M1.5 5h4l2 3-2 3h-4l2-3zM8.5 5h4l2 3-2 3h-4l2-3z"/>',
   work: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6h12M5 9h6M5 11.5h4"/>',
@@ -9875,10 +9717,12 @@ const ROLE_ORDER = ["lead", "dev", "tester", "hot", "ops", "support", "review", 
 // them showing ("at"). Grid and Tabs are the first two, and can be renamed or deleted like any other. A browser from
 // before there were views starts with Grid, Tabs and its one layout (kept under "custom") as the view "Custom", on the
 // one it showed ("page"). "page" stays the showing view's kind, which is what the rest of the page reads.
-// A pane or tab saved as Gauges or Performance opens as the Machine view, on Gauges or Rows.
+// A pane or tab saved as Gauges or Performance opens as the Machine view, on Gauges or Rows; one saved as For you, which is
+// gone (owner, 2026-11-26), opens as Work.
 function oldMachine(n) {
   if (n.split) { oldMachine(n.a); oldMachine(n.b); return; }
   for (const t of [n, ...(n.tabs || [])]) if (t.show === "gauges" || t.show === "perf") { t.machine = t.show === "perf" ? "rows" : "gauges"; t.show = "machine"; }
+    else if (t.show === "foryou") t.show = "work";
 }
 function views() {
   let v; try { v = JSON.parse(localStorage.getItem("views")); } catch (e) {}
@@ -10716,48 +10560,13 @@ function wqLists(lists, fold, done, owner, extra = () => "", faces = false, shut
   const all = lists.flatMap(([, items]) => items);
   return `<div class="daylog workq" style="--whw:${dayLogWhW(all.filter(i => i.who).map(i => shown(i.who)))}px;--wqk:${workQueueKeyW(all.filter(i => i.key).map(wqLabel))}px">${lists.map(([name, items]) => list(name, items)).join("")}</div>`;
 }
-// For you (owner, 2026-11-11: "everything that needs me gets written to and I can clear to see when the agents are being
-// autonomous"): what the delivery lead has put to the owner with `team/for-you.py`, each by its ticket or by nothing, and the
-// last few cleared. It comes with the state; the bar's count opens it as a list, and a For you pane shows it too. Clear
-// takes an item off (the owner has dealt with it); answers still go to the lead in words.
-function forYouList(withCleared) {
-  const q = S.forYou || {open: [], cleared: []};
-  if (q.state === "bad") return `<div class="calm">The For you list at ${esc(q.file)} cannot be read. The delivery lead keeps it with team/for-you.py.</div>`;
-  const ago = t => { const m = Math.max(0, Math.floor((Date.now() / 1000 - t) / 60)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
-  const key = i => i.ticket ? (i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.ticket)}</a>` : `<span class="key">${esc(i.ticket)}</span>`) : `<span class="key"></span>`;   // kept when empty, so every row's text starts in line
-  const row = (i, done) => `<div class="row">${!done && i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span>` : ""}${key(i)}<span class="tx">${inline(i.text)}${done && i.answer ? `<span class="ans">${inline(i.answer)}</span>` : ""}</span>` +
-    `<span class="meta">${done ? `cleared ${ago(i.cleared)} ago${i.by ? ` by ${esc(shown(i.by))}` : ""}` : `${i.from ? esc(shown(i.from)) + ", " : ""}${ago(i.at)}`}</span>` +
-    (done ? "" : `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list">Clear</b>`) + `</div>`;
-  const open = q.open.length ? `<div class="day">Waiting on you<span class="n"> ${q.open.length}</span></div>` + q.open.map(i => row(i, false)).join("")
-    : `<div class="calm">Nothing needs you. The agents are working on their own.</div>`;
-  return open + (withCleared && q.cleared.length ? `<div class="day">Cleared</div>` + q.cleared.map(i => row(i, true)).join("") : "");
-}
-function forYouHtml(big) {
-  return `<div class="teamlog" data-name="~foryou"><div class="thead"><span>For you</span>${maxButton(big)}</div><div class="daylog foryou">${forYouList(true)}</div></div>`;
-}
-function forYouMenu() {
-  if (menuOn("foryou")) return menuOff(true);
-  menuAt($("#counts .fy"), "foryou", `<div class="foryou">${forYouList(false)}</div>`, false);
-}
-document.addEventListener("click", async e => {
-  const b = e.target.closest(".fyclear");
-  if (!b || b.dataset.busy) return;
-  b.dataset.busy = "1"; b.textContent = "…";
-  const r = await fetch("/api/foryou/clear", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"},
-    body: JSON.stringify({n: +b.dataset.n})}).catch(() => null);
-  if (!r || !r.ok) { delete b.dataset.busy; b.textContent = "Clear"; b.title = "Not cleared: " + (r ? await r.text() : "the page did not answer"); return; }
-  // off the list at once; the next state, with it under Cleared, follows
-  if (S.forYou) S.forYou.open = S.forYou.open.filter(i => i.n !== +b.dataset.n);
-  phoneOn() ? phoneDraw() : draw();
-  load();
-});
-// The Work pane (owner, 2026-11-17: the Work queue, Pipeline, For you and Day log "all kinda doing the same job", as
+// The Work pane (owner, 2026-11-17: the Work queue, Pipeline and Day log "all kinda doing the same job", as
 // one piece of UI with tabs): every ticket the team has in hand, by what it needs, from what the page already reads.
-// - Needs you: For you's open questions (those with no ticket under General), and the tickets waiting for your approval.
+// - Needs you: the tickets waiting for your approval.
 // - In flight: the pipeline's tickets, each with its stage on a track and who it waits on; a stage's chip narrows it.
 // - Up next: the work queue's Next and Later, Parked folded under them.
 // - Done: what happened, by day, over Today, 7 days or all the history kept (the pipe's "history", else today's "merged"): merges, the work
-//   queue's Done, the questions you answered, and the Day log's entries, narrowed by the filter box.
+//   queue's Done, and the Day log's entries, narrowed by the filter box.
 // - Stand-up: for each person, what they did since the last stand-up, what they are on and what they wait for, as
 //   words to say, each with Copy (owner, 2026-11-17: "so the team members know what to say in standup").
 // A click on a ticket opens what is known of it under it: its PRs and approvals, its questions, its log, its queue note.
@@ -10779,14 +10588,13 @@ const wkKey = key => { if (!key) return "";
   const qi = workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.no);
   const a = !qi && (S?.agents || []).find(x => x.ticket === key && x.ticketNo);
   return qi ? "#" + qi.no : a ? "#" + a.ticketNo : key; };
-// a ticket's Jira page: For you's or the work queue's link for it, else the Jira site the pipeline reads
-const wkJira = key => { const fy = [...(S.forYou?.open || []), ...(S.forYou?.cleared || [])].find(i => i.ticket === key && i.url);
-  const site = (ppData() || {}).jira;
-  return fy ? fy.url : (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url)
+// a ticket's Jira page: the work queue's link for it, else the Jira site the pipeline reads
+const wkJira = key => { const site = (ppData() || {}).jira;
+  return (workQueue && ["now", "next", "later", "parked", "done"].flatMap(k => workQueue[k] || []).find(i => i.key === key && i.url)?.url)
     || (site && WK_KEY.test(key) ? `${site}/browse/${key}` : ""); };
 // Everything known, by ticket: the pipeline's row, its questions, its queue entry, its merges and its log entries.
 function wkData(all) {
-  const p = ppData() || {}, fy = S.forYou || {open: [], cleared: []}, q = workQueue || {}, log = (dayLog?.rows || []).filter(r => r.type === "entry");
+  const p = ppData() || {}, q = workQueue || {}, log = (dayLog?.rows || []).filter(r => r.type === "entry");
   const keyOf = s => (String(s || "").match(WK_KEY) || [])[0] || "";
   const queue = ["now", "next", "later", "parked", "done"].flatMap(k => (q[k] || []).map(i => ({...i, list: k})));
   // every merge the plug-in keeps, else today's merges with their time of day
@@ -10795,7 +10603,7 @@ function wkData(all) {
   const today = new Date(), at = hm => { const [, h = 0, m = 0, z] = /^(\d{1,2}):(\d{2})(Z?)/.exec(String(hm || "").trim()) || [];
     return (z ? Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), +h, +m) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), +h, +m).getTime()) / 1000; };
   const history = (p.history || (p.merged || []).map(m => ({t: at(m.at), who: m.who, title: m.title, id: m.id, ref: m.id, href: m.href}))).map(h => ({...h, key: h.id || keyOf(h.title)}));
-  return wkOnly({p, fy, q, log, queue, history, keyOf, tickets: p.tickets || []}, all ? "" : wkGet("agent", ""));
+  return wkOnly({p, q, log, queue, history, keyOf, tickets: p.tickets || []}, all ? "" : wkGet("agent", ""));
 }
 // Everyone on a ticket: whose it is (`who`) and those who supported it, from the pipeline's "people" (each agent seen on
 // it: its ticket in hand, an approval), first seen first, each with whether it is on it now
@@ -10809,8 +10617,7 @@ function wkOnly(d, a) {
   const on = (key, who) => wkIn(d, key, who, a);
   const tickets = d.tickets.filter(t => on(t.id || t.ref, t.who)), ids = tickets.map(t => t.id || t.ref);
   const q = Object.fromEntries(Object.entries(d.q).map(([k, v]) => [k, k !== "standups" && Array.isArray(v) ? v.filter(i => on(i.key, i.who)) : v]));
-  const fy = {...d.fy, open: d.fy.open.filter(i => i.from === a || on(i.ticket, "")), cleared: d.fy.cleared.filter(i => i.from === a || on(i.ticket, ""))};
-  return {...d, q, fy, tickets, p: {...d.p, tickets, waiting: (d.p.waiting || []).filter(w => w.who === a || ids.some(k => w.text.endsWith(" " + k)))},
+  return {...d, q, tickets, p: {...d.p, tickets, waiting: (d.p.waiting || []).filter(w => w.who === a || ids.some(k => w.text.endsWith(" " + k)))},
     log: d.log.filter(r => dayLogBy(r) === a || on(d.keyOf(r.label) || d.keyOf(r.text), "")),
     queue: d.queue.filter(i => on(i.key, i.who)),
     history: d.history.filter(h => on(h.key, h.who || d.queue.find(i => i.key && i.key === h.key)?.who))};
@@ -10821,7 +10628,6 @@ function wkPeopleStrip() {
   const a = wkGet("agent", ""), d = wkData(true), named = new Set();
   const add = (key, who) => { wkNames(who).forEach(n => named.add(n)); ((d.p.people || {})[key] || []).forEach(x => named.add(x.name)); };
   d.tickets.forEach(t => add(t.id || t.ref, t.who)); d.queue.forEach(i => add(i.key, i.who)); d.history.forEach(h => add(h.key, h.who));
-  d.fy.open.forEach(i => named.add(i.from));
   const them = byRole([...S.agents, ...S.bench].filter(x => x.role !== "pa" && (named.has(x.name) || x.name === a)));
   if (!them.length) return "";
   // "All" first, then each face (greyed on the bench); the one chosen outlined, the rest dimmed while one is
@@ -10832,7 +10638,6 @@ function wkPeopleStrip() {
 }
 function wkDetail(d, key, card) {
   const t = d.tickets.find(x => (x.id || x.ref) === key), qi = d.queue.find(i => i.key === key);
-  const qs = [...d.fy.open.map(i => ({...i, open: true})), ...d.fy.cleared].filter(i => i.ticket === key);
   const merges = d.history.filter(h => h.key === key), log = d.log.filter(r => d.keyOf(r.label) === key || d.keyOf(r.text) === key);
   const line = (label, body) => `<div class="wkd"><b>${label}</b><span>${body}</span></div>`;
   const out = [
@@ -10842,7 +10647,6 @@ function wkDetail(d, key, card) {
     (wkOn(d, key, "").sup.length || card && wkNames(t?.who || qi?.who || "").length || null) && line("People", wkOn(d, key, t?.who || qi?.who || "").own.map(n => `${esc(shown(n))} <i>(assigned)</i>`)
       .concat(wkOn(d, key, t?.who || qi?.who || "").sup.map(x => `${x.name === "owner" ? "You" : esc(shown(x.name))}${x.now ? " <i>on it now</i>" : ""}`)).join(" · ")),
     qi && line("Queue", `${esc({now: "Now", next: "Next", later: "Later", parked: "Parked", done: "Done"}[qi.list])}${qi.who ? " · " + esc(shown(qi.who)) : ""}${qi.note ? " · " + inline(qi.note) : ""}${qi.fix ? " · fix: " + inline(qi.fix) : ""}`),
-    ...qs.map(i => line(i.open ? "Asks you" : "Decided", `${i.open && i.ref ? `<span class="fyref">${esc(i.ref)}</span> ` : ""}${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}${i.open ? ` <b class="fyclear" data-n="${i.n}">Clear</b>` : ` <i>${esc(wkWhen(i.cleared))}</i>`}`)),
     ...merges.map(h => line("Merged", `${wkLink(h.href, h.ref)} ${esc(h.title)} <i>${esc(wkWhen(h.t))}</i>`)),
     ...log.slice(0, 8).map(r => line("Log", `${esc(r.text)} <i>${esc(wkWhen(r.at))}${r.by ? " · " + esc(shown(r.by)) : ""}</i>`)),
   ].filter(Boolean);
@@ -10892,7 +10696,7 @@ document.addEventListener("mouseover", e => {
   menuRest(f, () => agentMenu(f, f.dataset.wkagent || f.dataset.wkfilter || f.dataset.menuName, true, true));
 });
 const wkMid = (id, sub, title, tags = [], subHtml = "") => `<span class="pp-mid"><span class="id">${id}${subHtml || sub ? ` <span>· ${subHtml || esc(sub)}</span>` : ""}${tags.map(ppTag).join("")}</span><span class="tt">${title}</span></span>`;
-// The rows every tab draws: a ticket in flight, a question for you, a queued ticket, and something that happened.
+// The rows every tab draws: a ticket in flight, a queued ticket, and something that happened.
 // its first line: who has approved it (ticked; "1/2" where only some of its PRs), who it waits on next, and how many
 // days its PRs have been quiet; its title on the line under
 const wkChips = t => !t.ok ? [...(t._sect ? [{text: t._sect, tone: "blue"}] : []), ...wkTags(t)] : [
@@ -10904,9 +10708,6 @@ const wkChips = t => !t.ok ? [...(t._sect ? [{text: t._sect, tone: "blue"}] : []
 const wkPrLinks = t => t.id && t.prs?.length ? t.prs.map(p => wkLink(p.href, p.ref)).join(" + ") : "";
 const wkTicket = (d, t) => wkRow(d, t.id || t.ref, ppBadge(t, d.p) +
   wkMid(wkLink(t.href, t.id || t.ref), t.id ? t.ref : "", wkTitle(t) ? esc(wkTitle(t)) : wkUntitled, wkChips(t), wkPrLinks(t)) + wkTicketFaces(d, t.id || t.ref, t.who), " wktk");
-// a question is read in full, so its text wraps
-const wkAsk = (d, i) => wkRow(d, i.ticket, wkMid((i.ref ? `<span class="fyref" title="Say ${esc(i.ref)} to the delivery lead to mean this one">${esc(i.ref)}</span> ` : "") + (i.ticket ? wkLink(i.url, wkKey(i.ticket), i.ticket) : "General"), wkWhen(i.at), inline(i.text)) +
-  `<b class="fyclear" data-n="${i.n}" title="Dealt with: take it off the list" aria-label="Clear">${MENU_ICON.close}</b>` + wkFace(i.from), " wkask");
 const wkQueued = (d, i, n, tags = []) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
   wkMid(wkLink(i.url, wkKey(i.key), i.key), "", inline(i.title.replace(WQ_NUM, "")) + (i.note ? ` <span class="note">${inline(i.note)}</span>` : ""), tags) + wkTicketFaces(d, i.key, i.who));
 const wkEvent = (d, e) => wkRow(d, e.key, `<time>${esc(dayLogTime(e.t))}</time>` +
@@ -10922,8 +10723,7 @@ function wkStrip(d, stage) {
 function wkNeeds(d) {
   const yours = d.tickets.filter(t => t.stage === "lead");
   const sect = (name, rows, tone) => rows.length ? wkHead(name, rows.length, tone) + rows.join("") : "";
-  const body = sect("For your approval", yours.map(t => wkTicket(d, t)), "") +
-    sect("Questions", d.fy.open.filter(i => i.ticket).map(i => wkAsk(d, i)), "") + sect("General", d.fy.open.filter(i => !i.ticket).map(i => wkAsk(d, i)), "");
+  const body = sect("For your approval", yours.map(t => wkTicket(d, t)), "");
   return body || `<div class="calm">Nothing needs you. The agents are working on their own.</div>`;
 }
 // In flight: the Pipeline's strip of stages, each with its count (a click narrows the list to it), then a line a ticket,
@@ -10954,11 +10754,10 @@ function wkEvents(d) {
       text: `${h.ref} ${h.title}`, html: `${esc(h.title)} <span class="note">${wkLink(h.href, h.ref)}</span>`})),
     ...d.queue.filter(i => i.list === "done" && i.done).map(i => ({t: i.done, key: i.key, url: i.url, kind: "done", who: i.who, title: i.title, note: i.note, fix: i.fix,
       text: `${i.title} ${i.note || ""}`, html: `${inline(i.title)}${i.note ? ` <span class="note">${inline(i.note)}</span>` : ""}`})),
-    ...d.fy.cleared.filter(i => i.cleared).map(i => ({t: i.cleared, key: i.ticket, kind: "decided", who: "", text: `${i.text} ${i.answer}`, html: `${inline(i.text)}${i.answer ? ` <span class="ans">→ ${inline(i.answer)}</span>` : ""}`})),
     ...d.log.map(r => ({t: r.at, key: d.keyOf(r.label) || d.keyOf(r.text), kind: "log", who: dayLogBy(r), text: r.text, html: esc(r.text)})),
   ].sort((a, b) => b.t - a.t);
 }
-const WK_KIND = {merged: "green", done: "blue", decided: "amber", log: "grey"};
+const WK_KIND = {merged: "green", done: "blue", log: "grey"};
 function wkDone(d) {
   const range = wkGet("range", "today"), from = range === "today" ? wkDayStart(Date.now() / 1000) : range === "7" ? Date.now() / 1000 - 7 * 86400 : 0;
   const words = wkGet("filter", "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -11004,13 +10803,13 @@ function wkAll(d) {
     wkAllStandup(d);
   // a pinned item shows under Pinned alone, not again in the sections below
   const pinned = new Set(wkPins()), loose = t => !pinned.has(t.id || t.ref);
-  const asks = [...d.tickets.filter(t => t.stage === "lead" && loose(t)).map(t => wkTicket(d, t)), ...d.fy.open.filter(i => !pinned.has(i.ticket)).map(i => wkAsk(d, i))];
+  const asks = [...d.tickets.filter(t => t.stage === "lead" && loose(t)).map(t => wkTicket(d, t))];
   // a ticket once, in its most urgent section: one under Needs you is not listed again under its stage
   const stages = [...(p.stages || [])].reverse().map(s => { const at = wkOrdered(d, s.key).filter(t => loose(t) && t.stage !== "lead");
     return at.length ? `<div class="wkhead wkgo" data-wkstage="${esc(s.key)}" title="Open In flight at ${esc(wkStageName(s))}"><b>${esc(wkStageName(s))}</b><em>${at.length}</em></div>` + at.map(t => wkTicket(d, t)).join("") : ""; }).join("");
   // each pinned item badged with the section it belongs to, which still counts it ("2 pinned above")
   const sect = k => { const t = d.tickets.find(x => (x.id || x.ref) === k), qi = d.queue.filter(i => i.key === k);
-    return t ? (t.stage === "lead" ? "needs you" : "in flight") : d.fy.open.some(i => i.ticket === k) ? "needs you"
+    return t ? (t.stage === "lead" ? "needs you" : "in flight")
       : done.some(e => e.key === k) ? "done" : qi.some(i => ["now", "next", "later"].includes(i.list)) ? "up next"
       : qi.some(i => i.list === "parked") ? "parked" : qi.length ? "done" : ""; };
   const pinIn = {}; pinned.forEach(k => { const s = sect(k); pinIn[s] = (pinIn[s] || 0) + 1; });
@@ -11145,7 +10944,7 @@ function workHtml(big, n) {
   wkOpened = false;
   const d = wkData(), tab = WK_TABS.some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
   const tday = wkToday(d);
-  const needs = d.fy.open.length + d.tickets.filter(t => t.stage === "lead").length;
+  const needs = d.tickets.filter(t => t.stage === "lead").length;
   const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0)};
   const tabs = `<span class="seg wktabs">${WK_TABS.map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
   const tools = tab === "done" ? `<span class="seg wkrange">${[["today", "Today"], ["7", "7 days"], ["all", "All kept"]].map(([k, l]) =>
@@ -11183,7 +10982,7 @@ document.addEventListener("click", e => {
   const pin = e.target.closest("[data-wkpin]");
   if (pin) { wkPin(pin.dataset.wkpin); return wkRedraw(); }
   const row = e.target.closest(".wkrow[data-wkkey]");
-  if (row && !e.target.closest("a,.fyclear,button,input,[data-wkagent]")) {
+  if (row && !e.target.closest("a,button,input,[data-wkagent]")) {
     if (!phoneOn()) { wkCardPane = Math.max(0, [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent).indexOf(row.closest(".teamlog.wk"))); return wkCardOpen(row.dataset.wkkey); }
     wkSet("open", wkGet("open") === row.dataset.wkkey ? "" : row.dataset.wkkey); wkRedraw();
   }
@@ -11727,8 +11526,6 @@ function customHtml(ceil, tabRow) {
       body = tokensHtml(path === maxed, n, path);
     } else if (n.show === "workqueue") {
       body = workQueueHtml(path === maxed, n);
-    } else if (n.show === "foryou") {
-      body = forYouHtml(path === maxed);
     } else if (n.show === "pipeline") {
       body = ppPaneHtml();
     } else if (n.show === "work") {
@@ -11756,7 +11553,7 @@ function customHtml(ceil, tabRow) {
     }
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
-    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "foryou", "pipeline", "work", "tokens", "shell"].includes(n.show);
+    const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "pipeline", "work", "tokens", "shell"].includes(n.show);
     const own = [
       CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
@@ -11826,7 +11623,7 @@ function tileZoom(n, path, count, split) {
 // An agent's card, or a Team, Combined, Meeting, File or Work queue pane, can fill the whole layout for a while, from the button at the end of its header or Shift+F11
 // (the pane being typed in, else the one under the pointer); Esc, the button or Shift+F11 again puts it back.
 // the panes, other than agents' cards, whose maximise button fills the layout with the pane itself
-const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens", "shell"];
+const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "work", "tokens", "shell"];
 const maxButton = on => `<b class="maxbtn" title="${on ? "Restore (Esc)" : "Maximise"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">${on
   ? '<path d="M4.5 1v3.5H1M7.5 1v3.5H11M4.5 11V7.5H1M7.5 11V7.5H11"/>' : '<path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5"/>'}</svg></b>`;
 // An agent clicked in a Combined pane fills that pane with its card (kept in this browser as "focus:pane:<path>")
@@ -15129,7 +14926,6 @@ const PH_ICON = {
   perf: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5a8.5 8.5 0 1 1 17 0"/><path d="M12 17.5l4.2-5.6"/></svg>`,   // the desktop Machine view's gauge
   tokens: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>`,
   work: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6h12M5 9h6M5 11.5h4"/></svg>`,
-  foryou: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9.5h3.5l1 2h3l1-2H14"/><path d="M4 3h8l2 6.5V13H2V9.5z"/></svg>`,
   dash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="14" y="13" width="7" height="8" rx="2"/></svg>`
 };
 // The Dashboard, the phone's own panel: any of the bar's readings (its plug-ins: Week, Session, Team, Disk and the
@@ -15387,11 +15183,11 @@ function phDashAct(go) {
   if (what !== "edit") phDashSave(d);
   phoneDraw();
 }
-const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["foryou", "For you"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
+const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]];
 // what each shows, in the toolbar's add list: the desktop view it stands for where it has another name there
 const PH_TAB_TIP = {list: "Every agent and what it is doing: the desktop's Grid and List", faces: "The team as portraits: the desktop's Characters",
   mix: "Every running agent's conversation as one", team: "The messages between agents", day: "What the team did, day by day",
-  work: "Every ticket by what it needs: you, in flight, next, done, and the stand-up", queue: "Now, next, later and done", foryou: "What is waiting on you, kept by the delivery lead", perf: "The machine's gauges: CPU, memory, disks, network, GPU, heat", tokens: "Tokens used, by role and agent",
+  work: "Every ticket by what it needs: you, in flight, next, done, and the stand-up", queue: "Now, next, later and done", perf: "The machine's gauges: CPU, memory, disks, network, GPU, heat", tokens: "Tokens used, by role and agent",
   dash: "The bar's readings as tiles, arranged as you like: the phone's own"};
 // an agent's portrait, else its role's shadow, framed in its colour, with a dot for its state
 const phPor = (a, cls = "") => `<span class="ph-por${cls}" style="--c:${a.colour || "#888"}"><span class="fr">${a.portrait ? `<img src="${esc(a.portrait)}" alt="" loading="lazy">` : shadow(a)}</span>${a.live === undefined ? "" : "<i></i>"}</span>`;
@@ -15770,10 +15566,6 @@ function phoneDraw() {
       const g = body.querySelector(".feed"); if (g) g.scrollTop = end ? g.scrollHeight : was;
     }
     phLoad(tab);
-  }
-  else if (tab === "foryou") {
-    patch(body, `<div class="ph-pane">${forYouHtml(false)}</div>`);
-    body.querySelectorAll(".maxbtn").forEach(b => b.remove());
   }
   else if (tab === "work") {
     patch(body, `<div class="ph-pane">${workHtml(false, null)}</div>`);
@@ -16865,38 +16657,8 @@ def self_test():
           ('workqueue: "Work queue (deprecated)"' in PAGE, "body = workQueueHtml(path === maxed, n)" in PAGE and '[["Now", q.now], ["Next", q.next], ["Later", q.later], ["Parked", q.parked]]' in PAGE
            and '[["work", "Doing"], ["done", "Done"]]' in PAGE, ".workq .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" in PAGE,
            '["queue", "Work queue"]' in PAGE), (True, True, True, True))
-        # For you: the lead's list of what waits on the owner, read with the state, cleared from the page under the
-        # command's lock, and the lead told once idle
         with open(os.path.abspath(__file__), encoding="utf-8") as f:
             SRC = f.read()
-        keep_fy = g["FOR_YOU"]
-        with tempfile.TemporaryDirectory() as fyd:
-            fyf = g["FOR_YOU"] = os.path.join(fyd, "for-you.json")
-            fy = lambda *a: subprocess.run([sys.executable, os.path.join(ROOT, "team", "for-you.py"), *a], capture_output=True, text=True,
-                                           env={**os.environ, "AGENT_FOR_YOU": fyf, "AGENT_NAME": "Lead"})
-            t("for you: no file is an empty list", (for_you()["state"], for_you()["open"]), ("empty", []))
-            fy("add", "Merge the login fix?", "--ticket", "fix-login")
-            fy("add", "Which disk for the backups?")
-            t("  the lead adds an item with its ticket, or none, and the page reads them",
-              [(i["n"], i["ticket"], i["from"]) for i in for_you()["open"]], [(1, "fix-login", "Lead"), (2, "", "Lead")])
-            t("  the owner clears one from the page, marked for the lead to be told", (for_you_clear(1), for_you_clear(1)), (True, False))
-            with open(fyf) as f:
-                q = json.load(f)
-            t("  and it moves to cleared, by the owner", ([i["n"] for i in q["open"]], q["cleared"][0]["n"], q["cleared"][0].get("tell")), ([2], 1, True))
-            told = []
-            keep_type = g["type_into"]
-            g["type_into"] = lambda name, text, images=(): told.append((name, text)) or True
-            try:
-                t("  the lead is told once idle, and only once", (for_you_tell_once("Lead", {"Lead": {"status": "busy"}}),
-                  for_you_tell_once("Lead", {"Lead": {"status": "idle"}}), for_you_tell_once("Lead", {"Lead": {"status": "idle"}})), (False, True, False))
-                t("  in one message naming the item", (len(told), told[0][1].startswith("[For you]") and "fix-login: Merge the login fix?" in told[0][1]), (1, True))
-            finally:
-                g["type_into"] = keep_type
-            fy("clear", "2", "--answer", "the big one")
-            t("  and the command clears by number with the owner's answer", [i["answer"] for i in json.load(open(fyf))["cleared"]][:1], ["the big one"])
-        g["FOR_YOU"] = keep_fy
-        t("  the state carries it, and it has a pane, a phone tab and a cross to clear in Work",
-          ('"forYou": for_you()' in SRC, 'foryou: "For you"' in PAGE, '["foryou", "For you"]' in PAGE, 'class="fyclear" data-n="${i.n}"' in PAGE), (True,) * 4)
         t("work: a pane offered first among Work's views, with Pipeline, Work queue and Day log marked deprecated",
           ('["work", "Every ticket by what it needs' in PAGE, 'work: "Work"' in PAGE, 'pipeline: "Pipeline (deprecated)"' in PAGE), (True,) * 3)
         t("  its tabs are All, Needs you, In flight, Up next, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
@@ -16955,8 +16717,8 @@ def self_test():
           "logo.onclick = waits.length ? () => openDetail(waits[0].name) : null" in PAGE, True)
         t("  Stop team asks for a second tap, and a phone error is shown on the phone with a way out",
           ('phStopAsk ? "Confirm" : "Stop…"' in PAGE, 'box.querySelector(\'[data-go="desk"]\').onclick' in PAGE), (True, True))
-        t("  its panels are Agents, Portraits, Combined, Team, the Day log, Search, Work, the Work queue, For you, Machine, Token usage and the Dashboard",
-          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["foryou", "For you"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
+        t("  its panels are Agents, Portraits, Combined, Team, the Day log, Search, Work, the Work queue, Machine, Token usage and the Dashboard",
+          'const PH_TABS = [["list", "Agents"], ["faces", "Portraits"], ["mix", "Combined"], ["team", "Team"], ["day", "Day log"], ["search", "Search"], ["work", "Work"], ["queue", "Work queue"], ["perf", "Machine"], ["tokens", "Token usage"], ["dash", "Dashboard"]]' in PAGE, True)
         t("  its toolbar is up to five of them, chosen and ordered by dragging in the ⋯ menu's Toolbar, kept in this browser",
           ('localStorage.setItem("phonetabs", JSON.stringify(next))' in PAGE, 'data-go="toolbar"' in PAGE, 'class="tbgrip"' in PAGE,
            "nav.innerHTML = bar.map(k =>" in PAGE), (True, True, True, True))
@@ -17051,7 +16813,7 @@ def self_test():
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "forYou", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "week"])
         t("the Repositories count: the branches behind, most first, with what keeps one there",
           behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
                           "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"
@@ -17360,7 +17122,7 @@ def self_test():
         t("  a File pane has an Edit button, Save (Ctrl+S) and Close (Esc)", ("function fileAct(what, p)" in PAGE, 'data-fe="save"' in PAGE), (True, True))
         t("a Characters pane shows the whole team, benched agents greyed, and a File pane has a header and maximises",
           ('[...S.agents, ...S.bench].filter(a => a.role === r).sort(byName)' in PAGE, '.chr.bench{' in PAGE,
-           'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "foryou", "work", "tokens", "shell"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
+           'const MAX_PANES = ["team", "combined", "meeting", "file", "workqueue", "work", "tokens", "shell"]' in PAGE, 'class="teamlog filelog"' in PAGE), (True, True, True, True))
         t("  a poll is not sent while the last one is out, and one state build runs at a time",
           ("setInterval(once(() => load(true)), 4000)" in PAGE, isinstance(_state_build, type(threading.Lock()))), (True, True))
         seen, kick, stir = FileWatch(), socket.socketpair(), os.path.join(T, "stir")
@@ -17838,7 +17600,6 @@ def main():
         self_test()
     load_meetings()
     threading.Thread(target=meeting_deliver, daemon=True).start()
-    threading.Thread(target=for_you_tell, daemon=True).start()
     threading.Thread(target=stop_watch, daemon=True).start()
     threading.Thread(target=repos_watch, daemon=True).start()
     threading.Thread(target=burn_watch, daemon=True).start()
