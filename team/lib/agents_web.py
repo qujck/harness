@@ -1019,7 +1019,7 @@ def workqueue_json():
         key = (path, st.st_mtime_ns, st.st_size)
     except OSError:
         return json.dumps({"state": "empty", "file": path, "now": [], "next": [], "later": [], "parked": [], "done": [],
-                           "standups": standup_times()[:10]}).encode()
+                           "standups": standup_times()[:10], "reviews": review_queue()}).encode()
     if key != _workqueue["key"]:
         try:
             with open(path, encoding="utf-8") as f:
@@ -1053,7 +1053,49 @@ def workqueue_json():
     lists = ("now", "next", "later", "parked", "done")
     facts = ticket_facts([i["key"] for n in lists for i in data.get(n, [])])
     numbered = {n: [{**i, "no": (facts.get(i["key"]) or {}).get("ref")} for i in data.get(n, [])] for n in lists}
-    return json.dumps({**data, **numbered, "standups": standup_times()[:10]}).encode()
+    return json.dumps({**data, **numbered, "standups": standup_times()[:10], "reviews": review_queue()}).encode()
+
+
+# ── the review queue ─────────────────────────────────────────────────────────────────────────────────────────────
+# What waits on the code reviewer and the test reviewer, as the team keeps it with team/review-queue.py (see that
+# command for the file's shape): the Work pane's Reviews tab draws each request still open, and those closed today with
+# their verdicts. It is $AGENT_REVIEW_QUEUE, else review-queue.json in the state directory, read again only when it
+# changes.
+_reviewqueue = {"key": None, "data": None}
+
+
+def review_queue():
+    path = os.environ.get("AGENT_REVIEW_QUEUE") or os.path.join(STATE_DIR, "review-queue.json")
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {"state": "empty", "items": []}
+    if key != _reviewqueue["key"]:
+        try:
+            with open(path, encoding="utf-8") as f:
+                q = json.load(f)
+            if not isinstance(q, dict) or not isinstance(q.get("items", []), list):
+                raise ValueError
+            text = lambda v, n=600: v.strip()[:n] if isinstance(v, str) else ""
+            stamp = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+            items = []
+            for i in q["items"][-300:]:
+                if not isinstance(i, dict) or i.get("kind") not in ("code", "test") or i.get("state") not in ("waiting", "taken", "lead", "done"):
+                    continue
+                k = text(i.get("key"), 255)
+                pr = text(i.get("pr"), 300)
+                items.append({"id": i.get("id") if isinstance(i.get("id"), int) else 0, "kind": i["kind"], "key": k if WORK_ID.match(k) else "",
+                              "url": "", "pr": pr if re.match(r"^https?://", pr) else "",
+                              "head": text(i.get("head"), 40), "files": text(i.get("files")), "changed": text(i.get("changed")), "read_for": text(i.get("read_for")),
+                              "by": text(i.get("by"), 60), "added": stamp(i.get("added")), "state": i["state"], "held": i.get("held") is True,
+                              "taken_by": text(i.get("taken_by"), 60), "verdict": text(i.get("verdict"), 10), "words": text(i.get("words")),
+                              "closed": stamp(i.get("closed"))})
+            data = {"state": "ok", "items": items}
+        except (OSError, ValueError):
+            data = {"state": "bad", "file": path, "items": []}
+        _reviewqueue.update(key=key, data=data)
+    return _reviewqueue["data"]
 
 
 def refresh_board():
@@ -10703,7 +10745,7 @@ function wqLists(lists, fold, done, owner, extra = () => "", faces = false, shut
 //   words to say, each with Copy (owner, 2026-11-17: "so the team members know what to say in standup").
 // A click on a ticket opens what is known of it under it: its PRs and approvals, its questions, its log, its queue note.
 // The tab, range, stage, filter and opened ticket are this browser's, for every Work pane.
-const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["done", "Done"], ["standup", "Stand-up"]];
+const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["reviews", "Reviews"], ["done", "Done"], ["standup", "Stand-up"]];
 const wkTabs = () => WK_TABS.filter(([k]) => k !== "backlog" || S?.tickets);   // the Backlog needs a tickets plug-in
 const WK_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const wkGet = (k, d) => { try { return localStorage.getItem("work:" + k) ?? d; } catch (e) { return d; } };
@@ -10883,6 +10925,32 @@ function wkNext(d) {
   const body = list("Next", q.next) + list("Later", q.later) +
     (q.parked?.length ? `<details class="wkpark"><summary>${wkHead("Parked", q.parked.length)}</summary>${q.parked.map((i, n) => row(i, n + 1)).join("")}</details>` : "");
   return body || `<div class="calm">Nothing queued. The delivery lead keeps the work queue with work-queue.</div>`;
+}
+// Reviews: what waits on the code reviewer and the test reviewer, as the team keeps it with team/review-queue.py. For each
+// reviewer, the request in hand and those waiting, in order (a held one says so), each with its ticket, who asked and
+// how long it has waited; then the findings waiting on the delivery lead, and what was closed today with its verdict.
+const wkReviewsOpen = () => (workQueue?.reviews?.items || []).filter(i => i.state !== "done");
+const WK_REVIEWER = {code: "Code reviewer", test: "Test reviewer"};
+function wkReviews(d) {
+  const r = workQueue?.reviews;
+  if (!r) return `<div class="calm">Reading the review queue…</div>`;
+  if (r.state === "bad") return `<div class="calm">The review queue at ${esc(r.file)} cannot be read.</div>`;
+  const ago = t => { const m = Math.max(0, Math.floor((Date.now() / 1000 - t) / 60)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m` : `${Math.floor(m / 1440)}d`; };
+  const pr = i => i.pr ? ` <span class="note"><a href="${esc(i.pr)}" target="_blank" rel="noopener">PR</a> at ${esc(i.head.slice(0, 7))}</span>` : "";
+  const row = (i, n, tags, who) => wkRow(d, i.key, `<span class="pp-b st" aria-hidden="true">${n}</span>` +
+    wkMid(wkLink(i.url, i.key), `#${i.id}`, esc(i.changed) + pr(i) + (i.words ? ` <span class="ans">→ ${esc(i.words)}</span>` : ""), tags) + wkFace(who));
+  const items = r.items, today = wkDayStart(Date.now() / 1000);
+  const body = ["code", "test"].map(k => {
+    const mine = items.filter(i => i.kind === k && (i.state === "taken" || i.state === "waiting"));
+    const holder = [...S.agents, ...S.bench].find(a => a.roleName === WK_REVIEWER[k].replace("reviewer", "Reviewer"))?.name;
+    return wkHead(WK_REVIEWER[k] + (holder ? ` · ${shown(holder)}` : ""), mine.length) + (mine.length ? mine.map((i, n) =>
+      row(i, n + 1, [i.state === "taken" ? {text: "in hand", tone: "blue"} : i.held ? {text: "held", tone: "grey"} : {text: "waiting " + ago(i.added), tone: "amber"}], i.by)).join("")
+      : `<div class="calm">Nothing waiting.</div>`);
+  }).join("");
+  const lead = items.filter(i => i.state === "lead"), closed = items.filter(i => i.state === "done" && i.closed >= today).sort((a, b) => b.closed - a.closed);
+  return body +
+    (lead.length ? wkHead("Findings with the lead", lead.length, "a") + lead.map((i, n) => row(i, n + 1, [{text: "findings", tone: "amber"}], i.taken_by)).join("") : "") +
+    (closed.length ? wkHead("Closed today", closed.length) + closed.map((i, n) => row(i, n + 1, [{text: i.verdict === "clean" ? "clean" : "findings, passed on", tone: i.verdict === "clean" ? "green" : "grey"}], i.taken_by)).join("") : "");
 }
 // The Backlog: every open ticket the tickets plug-in has, in its groups with how many, folded until opened; a group's rows are
 // read as it opens, BL_PAGE at a time, and the words in the find box narrow them all and open every group (owner,
@@ -11156,13 +11224,13 @@ function workHtml(big, n) {
   const d = wkData(), tab = wkTabs().some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
   const tday = wkToday(d);
   const needs = d.tickets.filter(t => t.stage === "lead").length;
-  const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0)};
+  const count = {needs, flight: d.tickets.length, next: (d.q.next?.length || 0) + (d.q.later?.length || 0), reviews: wkReviewsOpen().length};
   const tabs = `<span class="seg wktabs">${wkTabs().map(([k, l]) => `<b data-wktab="${k}" class="${k === tab ? "on" : ""}">${l}${count[k] ? ` <em>${count[k]}</em>` : ""}</b>`).join("")}</span>`;
   const tools = tab === "done" ? `<span class="seg wkrange">${[["today", "Today"], ["7", "7 days"], ["all", "All kept"]].map(([k, l]) =>
       `<b data-wkrange="${k}" class="${k === wkGet("range", "today") ? "on" : ""}">${l}</b>`).join("")}</span>` +
       `<input class="wkfilter" placeholder="Filter: a ticket or a word" value="${esc(wkGet("filter", ""))}" autocomplete="off">` :
     tab === "backlog" ? `<input class="wkfilter wkfind" placeholder="Find: a number, a word or a name" value="${esc(wkGet("blfind", ""))}" autocomplete="off">` : "";
-  const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, backlog: wkBacklog, done: wkDone, standup: wkStandup}[tab](d, n);
+  const body = {all: wkAll, needs: wkNeeds, flight: wkFlight, next: wkNext, backlog: wkBacklog, reviews: wkReviews, done: wkDone, standup: wkStandup}[tab](d, n);
   const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · ${wkTodaySum(tday)}` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
   return `<div class="teamlog wk" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
@@ -16933,8 +17001,8 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
             SRC = f.read()
         t("work: a pane offered first among Work's views, with Pipeline, Work queue and Day log marked deprecated",
           ('["work", "Every ticket by what it needs' in PAGE, 'work: "Work"' in PAGE, 'pipeline: "Pipeline (deprecated)"' in PAGE), (True,) * 3)
-        t("  its tabs are All, Needs you, In flight, Up next, Backlog, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
-          ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
+        t("  its tabs are All, Needs you, In flight, Up next, Backlog, Reviews, Done and Stand-up, and In flight groups by stage under headings saying what they wait for",
+          ('const WK_TABS = [["all", "All"], ["needs", "Needs you"], ["flight", "In flight"], ["next", "Up next"], ["backlog", "Backlog"], ["reviews", "Reviews"], ["done", "Done"], ["standup", "Stand-up"]];' in PAGE,
            'const WK_STAGE_NAME = {lead: "For your approval", owner: "Ready to merge"};' in PAGE, "<b>${esc(wkStageName(s))}</b>" in PAGE), (True,) * 3)
         t("  it is always the full size, with no Compact box",
           ("wkCompact" in PAGE, "data-wkcompact" in PAGE, ":is(#phone,.wk).wk .wkrow{" in PAGE), (False, False, True))

@@ -12,8 +12,12 @@ owner next types in its session. The delivery lead keeps the work the team means
 Later, what is Parked, and what is Done, with `work-queue.py`, and the page's Work queue pane draws it on two tabs,
 Doing and Done; Done splits at the stand-ups a stand-up log (`$AGENT_STANDUPS`) marks FINAL. An agent the owner has attached to
 a Terminal pane's tab reads what the terminal prints, and shows a command only the owner's Send puts there, with
-`agent-terminal` (`terminal.test.sh` tests it). The Work pane
-brings the pipeline, the work queue and the Day log together, by what each ticket needs. `install-claude-code.sh`
+`agent-terminal` (`terminal.test.sh` tests it). Requests for the code reviewer and the test reviewer wait in
+`review-queue.py` (`$AGENT_REVIEW_QUEUE`, else `review-queue.json` in the state directory; `review-queue.test.sh` tests it): a developer or
+tester adds one in a fixed short form, the reviewer takes the next and closes it with its verdict, a clean one goes
+straight to whoever is next and one with findings to the delivery lead, and the waiting-agents mod delivers each
+notice once in the session it names. The Work pane
+brings the pipeline, the work queue, the review queue (its Reviews tab) and the Day log together, by what each ticket needs. `install-claude-code.sh`
 wires all three into `~/.claude/settings.json` once per box, asking first. The page's team button starts the team
 through `team-start.sh`, a placeholder to wire up on the workstation that runs the team. Its wind-down ends with
 each agent running `agent-stopped.sh`, which puts it in the stop file: the page closes its pane once that turn ends,

@@ -39,14 +39,16 @@ You own the **ledger, the routing and the pipeline's health**, and you write no 
   straight away (groomed, `depends_on` the PR's ticket where it builds on it) and the PR body cites every
   id. A security fault is never declined. A gap with no recorded decision is a lost one: archived notes
   are read by nobody, and the frontier lists only open tickets.
-- **The code reviewer's queue**, where the project has one. Send the reviewer the PR link when a developer
-  says the PR is open, and again when new commits land on it. The reviewer talks only to you: route its
-  findings to the developer, and decide whether a finding holds the PR. If your project has a ledger
-  gate, the reviewer's approve and the tester's sign-off, both at the PR's head sha, are what let it merge.
-- **The test reviewer's queue**, where the project has one. Pass the test reviewer each tester's plan, the
-  paths of its new and changed tests, the worktree and the head sha before the tester's first run on a
-  shared environment, and any request for an extra run; carry the `clear` or the findings back to the
-  tester. The test reviewer talks only to you. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
+- **The review queue**, where the project has a code reviewer or a test reviewer. Requests reach them through
+  `team/review-queue.py`, not through you ([../../AGENTS.md](../../AGENTS.md), "Requests reach both through the
+  review queue"): a developer adds its PR, and again each new head; a tester adds its plan, the paths of its new
+  and changed tests, its worktree and the head sha before its first run on a shared environment, and any request
+  for an extra run. Order and hold them with `team/review-queue.py up|down|hold|release ID` (a P1 first). A clean
+  verdict goes from the queue to the next person and does not wake you. A verdict with findings, a cut or a
+  question comes to you: route each finding to the developer or the tester (as a file path where the reviewer
+  gives one), decide whether a finding holds the PR, then `team/review-queue.py passed ID`. The reviewers talk
+  only to you. If your project has a ledger gate, the reviewer's approve and the tester's sign-off, both at the
+  PR's head sha, are what let it merge. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
 - **A red `main` comes first, and is the head of testing's.** A red `main` outranks the whole frontier:
   route nothing else ahead of it. The head of testing owns it until it is fixed
   ([head-of-testing.md](head-of-testing.md), [../runbooks/main-is-red.md](../runbooks/main-is-red.md));
