@@ -3609,10 +3609,17 @@ def field_of(pane, n):
     at = next((i for i in range(len(plain) - 1, -1, -1) if re.match(rf"\s*❯\s*{n}\.(\s|$)", plain[i])), None)
     if at is None:
         return None
-    # the option's number can be dim too, so the placeholder is dropped only from what follows it
+    # the option's number can be dim too, so the placeholder is dropped only from what follows it, a dim run that
+    # began before the number carried on into it
     after = re.search(rf"{n}\.(?:\x1b\[[0-9;:]*m)*", raw[at])
+    head, rest = raw[at][:after.end()], raw[at][after.end():]
+    dim = False
+    for sgr in re.findall(r"\x1b\[([0-9;:]*)m", head):
+        for p in sgr.split(";"):
+            dim = True if p == "2" else False if p in ("", "0", "22") else dim
+    rest = "\x1b[2m" + rest if dim else rest
     lines = [ESCAPES.sub("", DIM.sub("", l)).rstrip() for l in raw]
-    text = [ESCAPES.sub("", DIM.sub("", raw[at][after.end():]))]
+    text = [ESCAPES.sub("", DIM.sub("", rest))]
     for l in lines[at + 1:]:
         if not l.strip() or SEPARATOR.match(l) or OPTION.match(l) or SUBMIT_ROW.match(l):
             break
