@@ -7179,10 +7179,13 @@ code.flat{padding:0;background:none;color:var(--mute)}
 pre.code{display:block;margin:5px 0;padding:7px 10px;font:calc(var(--t-m)*var(--fs,1))/1.4 var(--mono);white-space:pre-wrap;word-break:break-word;background:var(--codebg);border:1px solid var(--line);border-radius:var(--r-s);color:var(--text)}
 #detail pre.code{font-size:calc(var(--t-m)*var(--fs,1));margin:6px 0}
 pre.code{position:relative}
-pre.code .copy{position:absolute;top:5px;right:5px;display:none;place-items:center;width:26px;height:24px;padding:0;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
+pre.code .copy{position:absolute;top:3px;right:3px;display:none;place-items:center;width:26px;height:calc(1.4em + 8px);font-size:inherit;padding:0;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
 pre.code:hover .copy{display:grid}
 pre.code .copy:hover{color:var(--text);border-color:var(--hover)}
 pre.code .copy.done{color:var(--green);border-color:var(--green)}
+pre.code .tosh{position:absolute;top:3px;right:33px;display:none;place-items:center;width:26px;height:calc(1.4em + 8px);font-size:inherit;padding:0;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
+pre.code .tosh:hover{color:var(--text);border-color:var(--hover)}
+pre.code .tosh.done{color:var(--green);border-color:var(--green)}
 #copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:var(--r-s);background:var(--green);color:#000;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);opacity:0;transition:opacity .25s}
 #copied.on{opacity:1}
 a.link{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
@@ -8403,6 +8406,21 @@ const table = t => { const [head, , ...rows] = t.trim().split("\n"); return `<di
 const prose = s => s.split(TABLE).map((part, i) => i % 2 ? table(part) : inline(part)).join("");
 // A code box copies what is in it from a button in its corner, shown while it is hovered.
 const COPY = `<button class="copy" title="Copy"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></button>`;
+// A code box in an agent's own words also has To terminal, shown only while that agent is attached to a terminal
+// (shellAgents writes the rule for it): it puts the code in that terminal's command box, where Send runs it.
+const TO_SHELL = `<button class="tosh" title="Put in the terminal's command box"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 6.5 6.5 8l-2 1.5M8 10h3"/></svg></button>`;
+document.addEventListener("click", e => {
+  const b = e.target.closest("pre.code .tosh"), name = b?.closest("[data-said]")?.dataset.said;
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  const [id, t] = Object.entries(S?.termAgents || {}).find(([, v]) => v.agent === name) || [];
+  if (!id) return;
+  const d = shDraft[id]?.agent === name ? shDraft[id] : shDraft[id] = {agent: name, n: t.n, base: t.text, value: ""};
+  d.value = b.parentElement.textContent.replace(/\s+$/, "");   // the owner's, so the agent's next command waits behind New command
+  shellAgents();
+  document.querySelector(`[data-shagent="${CSS.escape(id)}"] .shcmd`)?.focus();
+  b.classList.add("done"); setTimeout(() => b.classList.remove("done"), 1200);
+}, true);
 document.addEventListener("click", async e => {
   const b = e.target.closest("pre.code .copy");
   if (!b) return;
@@ -8440,7 +8458,7 @@ const unfence = (code, before) => {
 };
 const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
   .map((part, i, all) => !(i % 2) ? prose(part) : flat ? `<code class="flat">${esc(unfence(part, all[i - 1]))}</code>\n`
-    : `<pre class="code">${esc(unfence(part, all[i - 1]))}${COPY}</pre>`).join("");
+    : `<pre class="code">${esc(unfence(part, all[i - 1]))}${COPY}${TO_SHELL}</pre>`).join("");
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
@@ -8635,7 +8653,8 @@ function item(it, compact, agent, tag) {
   const heads = it.kind === "said" ? own : ["owner", "shell", "peer"].includes(it.kind) ? own + ag(true) : ag(false) + own;
   // the badges open the text's first line, and its later lines run the full width beneath them (not a live line's)
   const inline = !!heads && it.kind !== "live";
-  return `<div class="it ${it.kind}${it.summary ? " summary" : ""}${it._guess ? " guess" : ""}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}${it.summary ? ` <span class="sumtag" title="Written by Claude Code from what the agent is doing, not a message of the agent's">· summary</span>` : ""}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  const said = it.kind === "said" && agent ? ` data-said="${esc(agent)}"` : "";
+  return `<div class="it ${it.kind}${it.summary ? " summary" : ""}${it._guess ? " guess" : ""}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}${said}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}${it.summary ? ` <span class="sumtag" title="Written by Claude Code from what the agent is doing, not a message of the agent's">· summary</span>` : ""}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
 // An open prompt's options in the order shown, one under another, each naming its option by number and label so that it
 // answers only the prompt it was drawn for: a button for each, and for a Type something option a box to write the answer
@@ -9219,6 +9238,10 @@ function termMark(name) {
 const shellPost = (path, body) => fetch("/api/terminal/" + path, {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify(body)});
 function shellAgents() {   // each row's box and buttons as the agent's command and the owner's changes to it have them
   for (const id of Object.keys(shDraft)) if (!S?.termAgents?.[id]) delete shDraft[id];
+  // To terminal on the code boxes of each agent attached to one
+  const rule = Object.values(S?.termAgents || {}).map(v => `[data-said="${CSS.escape(v.agent)}"] pre.code:hover .tosh{display:grid}`).join("");
+  const st = document.getElementById("toshrule") || document.head.appendChild(Object.assign(document.createElement("style"), {id: "toshrule"}));
+  if (st.textContent !== rule) st.textContent = rule;
   document.querySelectorAll("[data-shagent]").forEach(row => {
     const id = row.dataset.shagent, t = S?.termAgents?.[id]; if (!t) return;
     const d = shDraft[id] ||= {n: -1, base: "", value: ""}, box = row.querySelector(".shcmd");
