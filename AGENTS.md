@@ -157,6 +157,13 @@ acknowledgement or status pings: every message wakes a session that pays its who
 The lead puts them to the owner one at a time and sends you the answer. If the owner speaks to you
 directly in your pane, answer there and tell the delivery lead what was decided.
 
+**What wakes the delivery lead.** Every message wakes the lead, who re-reads its whole context to read it
+(the owner, 2026-11-26: "yes", to a measure that messages the lead only noted cost it 7% of its tokens). So send
+it one only for a question or a decision you need; a blocker; or a hand-off it must act on: a pull request raised
+(for the code reviewer), a plan or tests for the test reviewer, a ticket ready for its tester, or your work
+finished and you free (after a merge: merged, the completion rows written and free, in one message, not one per
+step). Never for progress the board already shows ("merged", "CI green", "suite passed") or an acknowledgement.
+
 **A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
 date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how
 rules drift, so a decision that isn't quoted isn't one.

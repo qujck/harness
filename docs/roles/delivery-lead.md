@@ -277,10 +277,12 @@ a session that finished minutes ago with nobody to tell it to carry on, and the 
 typing `continue` into panes. The nudger is a duty of the `waiting-agents` mod (`claude-code/waiting-agents/`),
 running inside YOUR session: every five minutes it reads the rows the context publisher writes
 (docs/context-publisher.md) and, when team agents have been idle for the quiet threshold (15 minutes by
-default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment), it queues one prompt into your
-session, e.g. `[Automated nudge 1 of 2 from the waiting-agents mod, not from the owner; it assigns
-nothing.] Team agents idle for 15 minutes or more: Wren, Ash. As delivery lead, check each one and keep
-the team active.` It names the agents and nothing more; each one's role and idle time are in the log. The
+default; `LEAD_NUDGE_THRESHOLD_S` in `harness.env` or the environment) and are not waiting on anyone, it queues
+one prompt into your session, e.g. `[Automated nudge from the waiting-agents mod, not from the owner; it assigns
+nothing.] Team agents idle for 15 minutes or more, not waiting on anyone: Wren, Ash. As delivery lead, check each
+one and keep the team active.` It names the agents and nothing more; each one's role, ticket and idle time are in
+the log. An agent whose tickets are all parked waits on the owner or someone else and is left out, and each idle
+spell is nudged about once. The
 owner, 2026-10-02: "I only want you to have a nudger so you ensure the team remain active". **The contract:**
 
 - **It wakes you, the head of testing, or nobody: the switch is yours to flip.** The owner, 2026-10-31:
@@ -349,5 +351,5 @@ records, never a transcript, and types into nothing.
 **What you do about an idle agent.** A `hold … no team agent idle` line in the log means nobody needs
 you. A nudge means read each named agent's pane and branch before deciding: an agent holding a claim is
 told to carry on; an agent holding nothing is a routing question — yours, through the ledger. `hold …
-already nudged 2 times for this exact state` means the same agents are stuck, not idle, and a further
-`continue` is the thing the bound exists to stop.
+already nudged about each` means you were told about every idle agent once this spell: the same agents are stuck,
+not idle, and a further `continue` is the thing the one nudge exists to stop.

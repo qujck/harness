@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, selfNudgeText, stateKey, statePaths } from './nudge.ts'
+import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, selfNudgeText, spellOf, statePaths, ticketsOf } from './nudge.ts'
 import { authorEmailOf, current, dueWaiting, forget, leadWaitingLine, parseLeadWaiting, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
@@ -292,28 +292,44 @@ async function nudge($: EngineInterface, roster: Roster, isFree: boolean, now: n
   // Only the roles the nudger reports: the head of testing and the assistants are never nudged.
   const team = new Map([...roster.roleOf].filter(([, role]) => NUDGE_ROLES.includes(role)))
   const fresh = freshRows(rows, now)
-  const idle = idleAgents(team, fresh, thresholdS)
+  // The ticket store is asked only when someone has been idle long enough.
+  const anyIdle = idleAgents(team, fresh, thresholdS)
+  const tickets = anyIdle.length ? await heldTickets($, paths) : new Map<string, string | null>()
+  const idle = tickets ? idleAgents(team, fresh, thresholdS, tickets) : anyIdle
   // A team agent at work will message the lead, so the lead's own idleness counts only while none is.
   nudger.teamActive = [...team.keys()].some(name => { const a = fresh.get(name)?.activity; return !!a && a !== 'idle' })
   if (nudger.teamActive) nudger.self = undefined
+  const unread = tickets ? '' : ' (ticket store unread: every idle agent counts)'
   if (idle.length === 0) {
-    // The team is active, so the bound has covered one idle spell: the next spell, of the same agents
-    // or others, starts afresh. Without this a set nudged twice stayed held for good.
     if ((await $.store.get(NUDGE_STATE)) !== undefined) await $.store.delete(NUDGE_STATE)
-    await logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more`)
+    await logVerdict($, paths.log, now, `hold: no team agent idle for ${thresholdS}s or more and not waiting on anyone`)
     return
   }
-  if (!isFree) { await logVerdict($, paths.log, now, `hold: ${TARGET_ROLE[target]} is mid-turn; idle: ${describe(idle)}`); return }
-  const key = stateKey(idle, target)
+  if (!isFree) { await logVerdict($, paths.log, now, `hold: ${TARGET_ROLE[target]} is mid-turn; idle: ${describe(idle)}${unread}`); return }
   const prev = (await $.store.get(NUDGE_STATE)) as NudgeState | undefined
-  const verdict = decide(key, prev, now, thresholdS)
-  if (!verdict.send) { await logVerdict($, paths.log, now, `hold: ${verdict.why}; idle: ${describe(idle)}`); return }
-  await $.prompt.submit({ text: nudgeText(verdict.count, idle, thresholdS, target) })
+  const { fresh: news, told } = decide(idle, prev, target)
+  if (news.length === 0) {
+    await $.store.set(NUDGE_STATE, { told } satisfies NudgeState)
+    await logVerdict($, paths.log, now, `hold: already nudged about each; idle: ${describe(idle)}${unread}`)
+    return
+  }
+  await $.prompt.submit({ text: nudgeText(news, thresholdS, target) })
   nudger.sentAt = now
-  await $.store.set(NUDGE_STATE, { key, count: verdict.count, lastMs: now } satisfies NudgeState)
+  await $.store.set(NUDGE_STATE, { told: idle.map(i => spellOf(i, target)) } satisfies NudgeState)
   const to = target === 'lead' ? '' : ` to the ${TARGET_ROLE[target]}`
-  await logVerdict($, paths.log, now, `sent nudge ${verdict.count} of ${MAX_NUDGES}${to}; idle: ${describe(idle)}`)
+  await logVerdict($, paths.log, now, `sent nudge${to}; idle: ${describe(news)}${unread}`)
   return
+}
+
+// What each agent holds (ticketsOf), read from the ticket store (`ledger-db.sh agent-tickets`, two levels above this
+// mod) for the project whose state sits beside the log; undefined when it cannot be read, which the log says.
+async function heldTickets($: EngineInterface, paths: Where): Promise<Map<string, string | null> | undefined> {
+  const dir = paths.log.slice(0, paths.log.lastIndexOf('/'))
+  const project = dir.slice(dir.lastIndexOf('/') + 1)
+  const script = `${$.plugin.root}/../../scripts/ledger-db.sh`
+  const out = await $.process.run(['bash', script, 'agent-tickets'], { env: { HARNESS_PROJECT: project } }).catch(err => ({ exitCode: -1, stdout: '', stderr: String(err) }))
+  if (out.exitCode !== 0) { $.ui.log(`agent-tickets: exit ${out.exitCode} ${out.stderr.trim()}`); return undefined }
+  return ticketsOf(out.stdout)
 }
 
 // Loaded into every session, it acts only in the one the roster names as the
