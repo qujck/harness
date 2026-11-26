@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, selfNudgeText, spellOf, statePaths, ticketsOf } from './nudge.ts'
+import { dueNotices, kindOf, parseQueue, reminder } from './review.ts'
 import { authorEmailOf, current, dueWaiting, forget, leadWaitingLine, parseLeadWaiting, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
@@ -10,6 +11,8 @@ const NUDGE_STATE = 'nudgeState'
 // How often the delivery lead's session asks whether the development day is over, and the store key of what it did.
 const DAY_EVERY_MS = 60_000
 const DAY_TRIP = 'dayTrip'
+// How often each session looks at the review queue for wakes addressed to it.
+const REVIEW_EVERY_MS = 30_000
 
 // Where Claude Code writes `<pid>.json` for every live session: under its config directory, which is
 // `$CLAUDE_CONFIG_DIR` when set and `~/.claude` otherwise.
@@ -103,15 +106,17 @@ async function whereOf($: EngineInterface): Promise<Where> {
   return { ...paths, pause: `${dir}/waiting-agents.paused`, target: `${dir}/nudge-target`, leadWaiting: `${dir}/lead-waiting`, envFile }
 }
 
-// One poll: does nothing unless this session is the delivery lead's, or the head of testing's while the
+// One poll: in every session the roster names, the review queue's wakes (reviewWakes); beyond that, nothing unless this
+// session is the delivery lead's, or the head of testing's while the
 // nudge-target switch says `testing` (then it nudges and does nothing else). Alerts
 // are sent only while that session is not mid-turn, so a message is never
 // queued behind a long turn: each poll re-reads the files, and an agent that
 // stopped waiting in the meantime is simply not reported.
 // `sentAt` is when the team nudge last went, so the self-nudge never goes in the same poll; `self` counts the
 // self-nudges of the lead's current idle stretch and `selfAt` when the last went; `waiting` is the lead-waiting line last written; `teamActive`, whether
-// any team agent was at work at the last look.
-type Nudger = { nextAt: number; problem?: string; dayAt?: number; sentAt?: number; self?: number; selfAt?: number; waiting?: string; teamActive?: boolean }
+// any team agent was at work at the last look; `reviewAt` when the review queue is next read, and `remindedAt` when this
+// session last had a review wake.
+type Nudger = { nextAt: number; problem?: string; dayAt?: number; sentAt?: number; self?: number; selfAt?: number; waiting?: string; teamActive?: boolean; reviewAt: number; remindedAt: number }
 
 async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Promise<void> {
   // The mod loads in EVERY session on the machine (CLAUDE_CODE_PLUGIN_DIRS names the mods folder),
@@ -127,6 +132,7 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   const files = await sessionFiles($, roster)
   const id = await $.session.id()
   const mine = files.find(f => f.sessionId === id)
+  if (mine?.name && (roster.lead.has(mine.name) || roster.team.has(mine.name))) await reviewWakes($, roster, mine, nudger)
   const isLead = !!mine?.name && roster.lead.has(mine.name)
   // The head of testing's session runs the nudger, and nothing else, while the switch says `testing`.
   const isTesting = !!mine?.name && roster.roleOf.get(mine.name) === 'head-of-testing'
@@ -170,6 +176,44 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   nudger.nextAt = now + NUDGE_EVERY_MS
   nudger.problem = await nudge($, roster, isFree, now, where, isLead ? 'lead' : 'testing', nudger)
   if (nudger.sentAt !== now && !nudger.problem && nudger.teamActive === false) await selfNudge($, mine, now, where, isLead ? 'lead' : 'testing', nudger)
+}
+
+// The review queue's wakes, in every session the roster names: each notice the queue (team/review-queue.py) addresses to
+// this session, delivered once as a queued prompt within REVIEW_EVERY_MS (never while the session waits on a prompt of
+// its own), and, for a reviewer idle with requests waiting and none in hand, a reminder at most every REMIND_S, held
+// while the pause file exists. The queue is $AGENT_REVIEW_QUEUE, else review-queue.json in the state directory beside
+// the nudger's log. The delivered ids are kept in the store under the session's name, so a restart does not deliver
+// them again.
+async function reviewWakes($: EngineInterface, roster: Roster, mine: SessionFile, nudger: Nudger): Promise<void> {
+  if (mine.status === 'waiting' || !mine.name) return
+  const now = await $.clock.now()
+  if (now < nudger.reviewAt) return
+  nudger.reviewAt = now + REVIEW_EVERY_MS
+  const where = await whereOf($)
+  const path = (await $.env.get('AGENT_REVIEW_QUEUE')) || `${where.log.slice(0, where.log.lastIndexOf('/'))}/review-queue.json`
+  const text = await $.fs.read(path).catch(() => undefined)
+  if (typeof text !== 'string') return
+  const q = parseQueue(text)
+  if (q.notices.some(n => n?.to === mine.name)) {
+    const key = `reviewDelivered:${mine.name}`
+    const stored = (await $.store.get(key)) as string[] | undefined
+    const delivered = Array.isArray(stored) ? stored : []
+    const { due, kept } = dueNotices(q, mine.name, delivered)
+    if (due.length) {
+      await $.prompt.submit({ text: due.map(n => n.text).join('\n') })
+      await $.store.set(key, [...kept, ...due.map(n => n.id)])
+      nudger.remindedAt = now
+      return
+    }
+    if (kept.length !== delivered.length) await $.store.set(key, kept)
+  }
+  const role = roster.roleOf.get(mine.name) ?? ''
+  if (!kindOf(role) || mine.status !== 'idle' || !mine.statusUpdatedAt) return
+  const words = reminder(q, mine.name, role, (now - mine.statusUpdatedAt) / 1000, (now - nudger.remindedAt) / 1000)
+  if (!words) return
+  if (typeof (await $.fs.read(where.pause).catch(() => undefined)) === 'string') return
+  await $.prompt.submit({ text: words })
+  nudger.remindedAt = now
 }
 
 // The lead's own idle stretch (nudge.ts, selfNudgeText), while no team agent is at work: once it has lasted the
@@ -338,7 +382,7 @@ async function heldTickets($: EngineInterface, paths: Where): Promise<Map<string
 // agents every five minutes.
 export const register: Register = on => {
   const told = new Set<string>()
-  const nudger: Nudger = { nextAt: 0 }
+  const nudger: Nudger = { nextAt: 0, reviewAt: 0, remindedAt: 0 }
   let timer: { cancel: () => void } | undefined
   let busy = false
 

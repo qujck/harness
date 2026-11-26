@@ -140,14 +140,28 @@ never rostered — [docs/roles/personal-assistant.md](docs/roles/personal-assist
 can refuse it.
 
 **Only the delivery lead talks to the code reviewer.** Where a project has one, the code reviewer
-reviews every pull request once it is raised, posts its findings on the PR, and only then tells the
-delivery lead. No other agent messages the code reviewer: a developer who wants a review tells the
-delivery lead the PR is open, and the lead sends the reviewer the link. The reviewer answers only the
-delivery lead and forwards anything else there unanswered.
+reviews every pull request once it is raised, posts its findings on the PR, and then closes the request. No
+other agent messages the code reviewer. The reviewer answers only the delivery lead and forwards anything else
+there unanswered.
 
-**The test reviewer is reached the same way.** Where a project has one, a tester sends its plan and its
-new and changed tests to the delivery lead before their first run on a shared environment; the lead passes
-them to the test reviewer and brings the verdict back. The test reviewer answers only the delivery lead.
+**The test reviewer is reached the same way.** Where a project has one, it reads a tester's plan and its new and
+changed tests before their first run on a shared environment. The test reviewer answers only the delivery lead.
+
+**Requests reach both through the review queue, not through the lead** (the owner, 2026-11-26: "Yes", to a
+measure that passing requests and clean verdicts on cost the lead 29% of its tokens):
+- A developer whose PR is raised, or a tester with a plan and tests ready, adds a request with
+  `team/review-queue.py add code|test ...` in its fixed short form: the ticket, the PR and head commit (a test
+  request: the plan, tests and worktree), what changed, what to read for, and anything the owner has said that
+  bears on it. That is the whole brief, so keep it short. A new head after review is a new request. The queue
+  wakes the reviewer (the waiting-agents mod delivers its notices); nobody messages it.
+- The reviewer takes the next request (`team/review-queue.py take code|test`) and closes it with its verdict,
+  findings first on the PR or in a review file, and any ledger verdict recorded as before. A clean verdict goes
+  from the queue to whoever is next, a tester holding the ticket after a code approval, the requester after a test
+  clearance, and wakes no lead. A verdict with a finding, a cut or a question goes to the delivery lead, who
+  decides each and passes it on.
+- The delivery lead orders and holds requests (a P1 first) with `team/review-queue.py up|down|hold|release`, and
+  marks findings passed on with `team/review-queue.py passed`. The team page's Work pane shows the queue under
+  Reviews.
 
 **Developers and testers reach the owner through the delivery lead.** Don't put questions, approvals,
 review requests or status to the owner in your own pane. Send them to the delivery lead with
@@ -159,10 +173,9 @@ directly in your pane, answer there and tell the delivery lead what was decided.
 
 **What wakes the delivery lead.** Every message wakes the lead, who re-reads its whole context to read it
 (the owner, 2026-11-26: "yes", to a measure that messages the lead only noted cost it 7% of its tokens). So send
-it one only for a question or a decision you need; a blocker; or a hand-off it must act on: a pull request raised
-(for the code reviewer), a plan or tests for the test reviewer, a ticket ready for its tester, or your work
+it one only for a question or a decision you need; a blocker; or a hand-off it must act on: a ticket ready for its tester, or your work
 finished and you free (after a merge: merged, the completion rows written and free, in one message, not one per
-step). Never for progress the board already shows ("merged", "CI green", "suite passed") or an acknowledgement.
+step). A pull request or a plan for a reviewer goes to the review queue, not to the lead. Never for progress the board already shows ("merged", "CI green", "suite passed") or an acknowledgement.
 
 **A decision the owner made can be passed on.** Whoever passes it on quotes his words exactly, with the
 date and where he said them; whoever receives it acts on it, without asking him again. Paraphrase is how

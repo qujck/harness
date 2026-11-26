@@ -92,11 +92,13 @@ for PR"*):
   you attack. Where it is not obvious, say how you split it in your report before you start the attack,
   so the developer can see what they still own.
 - **Your plan, read before the first run,** where the project has a test reviewer
-  ([test-reviewer.md](test-reviewer.md)). Before your first run on a shared environment, send the delivery
-  lead your plan, the paths of your new and changed tests, your worktree and the head sha, and wait for the
-  verdict it brings back: `clear`, or findings you fix in your own tests. A run the plan did not name goes
+  ([test-reviewer.md](test-reviewer.md)). Before your first run on a shared environment, add it to the review
+  queue: `team/review-queue.py add test <id> --head SHA --files "plan, every new or changed test, worktree"
+  --changed "..." --read-for "..." [--pr URL] [--owner "..."]`. Wait for `clear`, which the queue brings you, or
+  findings, which come from the delivery lead and you fix in your own tests. A run the plan did not name goes
   the same way first, with the question it answers, which result would change your verdict and roughly how
-  long it takes. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
+  long it takes. Never message the test reviewer yourself. A clean code review of a ticket you hold reaches you
+  from the queue too: that is your turn to test it. On a P1 hot-fix the plan goes to the test reviewer after the fix ships ([head-of-operations.md](head-of-operations.md)).
 - **Reproductions.** A defect you find comes with the steps, the inputs and the output that show it,
   small enough for a developer to run unchanged.
 - **The record of the run.** What was run, on what, with what method, the exit code, and what the run

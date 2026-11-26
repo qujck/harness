@@ -78,6 +78,11 @@ for PR"*):
 - **Every piece of work you started reaching a terminal state** — merged (or armed), parked with
   the reason on the row (`feature-ticket.sh park <id> "<why>"`), or handed back (`release
   --abandon`). A dangling unverified PR is unfinished work.
+- **Asking for code review,** where the project has a code reviewer. When your PR is raised, and again for each
+  new head after a review, add it to the review queue instead of telling the delivery lead:
+  `team/review-queue.py add code <id> --pr URL --head SHA --changed "..." --read-for "..." [--owner "..."]`
+  ([../../AGENTS.md](../../AGENTS.md), "Requests reach both through the review queue"). A clean approval wakes a
+  tester holding the ticket; findings come from the delivery lead.
 - **Your PRs, including their conflicts.** Nobody else resolves them. Start nothing new while one of
   yours is conflicted: it is unfinished work, and nothing moves it but you.
 - **Saying what your lock means.** A pushed branch says the id is taken; only you can say whether you

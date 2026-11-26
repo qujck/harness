@@ -83,6 +83,13 @@ neither waiting alerts nor nudges, and the status bar says `paused`. Touch it be
 remove it to resume. A wait that ends during the pause is forgotten, so one that starts during the pause and
 outlasts it is reported once the file is gone.
 
+It also carries the review queue's wakes (`team/review-queue.py`), in every session the roster names, not only the
+lead's. Every thirty seconds it reads the queue (`$AGENT_REVIEW_QUEUE`, else `review-queue.json` in the state
+directory beside the nudger's log) and delivers each notice addressed to this session once, as one queued prompt,
+never while the session waits on a prompt of its own; the delivered ids are kept in the mod's store, so a restart
+does not deliver them again. A code or test reviewer idle fifteen minutes with requests waiting and none in hand is
+reminded, at most every fifteen minutes, and not while the pause file exists.
+
 Install it for every session on the machine by naming the `mods` folder in the `env` block of
 `~/.claude/settings.json` (each subfolder holding `.claude-plugin/plugin.json` loads as a mod, so every
 mod in this repo installs with the one line; naming this mod's own folder still works):
@@ -97,8 +104,9 @@ a poll that cannot find them logs the error once per poll in the delivery lead's
 nothing.
 
 - `hooks/watch.ts` reads the roster and the session files and decides who is due a report; `hooks/nudge.ts`
-  decides who is idle and whether a nudge may go; `hooks/register.ts` polls and sends; `hooks/waiting.test.ts`
-  and `hooks/nudge.test.ts` hold the tests.
+  decides who is idle and whether a nudge may go; `hooks/review.ts` decides which review-queue notices are due and
+  whether a reviewer is due a reminder; `hooks/register.ts` polls and sends; `hooks/waiting.test.ts`,
+  `hooks/nudge.test.ts` and `hooks/review.test.ts` hold the tests.
 - `claude plugin validate claude-code/waiting-agents` and `claude plugin test claude-code/waiting-agents` check it.
   `scripts/verify.sh` runs the tests on every PR through `scripts/check-mods-tests-pass.sh`.
   `.claude-plugin/types/`, which `tsconfig.json` extends, is written by Claude Code when it loads the mod
