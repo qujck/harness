@@ -19,8 +19,9 @@ cat > "$T/roster.json" <<'JSON'
  {"name": "Tre", "role": "test-reviewer", "status": "active"},
  {"name": "Gone", "role": "tester", "status": "retired"}]}
 JSON
-# the ledger stand-in: `agent-tickets` prints the rows in $T/held, holder|id|status|park_kind
-printf '#!/usr/bin/env bash\n[ "$1" = agent-tickets ] && cat "%s/held"\n' "$T" > "$T/ledger-db.sh"
+# the ledger stand-in: `agent-tickets` prints the rows in $T/held, holder|id|status|park_kind; `verdicts KEY` prints
+# $T/verdicts-KEY when there is one, else fails as a ledger with no such verb does
+printf '#!/usr/bin/env bash\n[ "$1" = agent-tickets ] && exec cat "%s/held"\n[ "$1" = verdicts ] && exec cat "%s/verdicts-$2"\nexit 1\n' "$T" "$T" > "$T/ledger-db.sh"
 : > "$T/held"
 HOME="$T" python3 - "$HERE" "$T" <<'EOF'
 import json, os, subprocess, sys
@@ -98,7 +99,11 @@ open(os.path.join(T, "ledger-db.sh"), "w").write("#!/usr/bin/env bash\nexit 3\n"
 rq("release", "1", who="Lead")
 rq("take", "code", who="Rev")
 r = rq("close", "1", "--clean", "approved", who="Rev")
-expect("with no tester known to hold the ticket, the lead is told it needs one", (r.returncode, len(notices("Lead"))), (0, 1))
+expect("with the ledger unreadable, the lead is told to route it, and not that no tester holds it",
+       (r.returncode, len(notices("Lead")), r.stdout.strip()),
+       (0, 1, "#1 closed clean; the ledger could not say who holds AB-1, so the delivery lead is told to route it"))
+expect("a request that is not in the queue names the queue file it read",
+       Q in rq("passed", "99", who="Lead").stderr, True)
 
 # Findings go to the lead, who passes them on.
 rq("take", "code", who="Rev")
@@ -135,6 +140,30 @@ expect("a waiting request still drops with no flag", (add("code", "AB-7", "abc77
 expect("drop refuses a stray flag", rq("drop", "7", "--force", who="Dev").returncode, 1)
 expect("an unnamed session is refused", subprocess.run([os.path.join(here, "review-queue.py"), "take", "code"], capture_output=True,
        env={k: v for k, v in os.environ.items() if k not in ("AGENT_NAME", "CLAUDE_CODE_SESSION_ID")} | ENV).returncode, 1)
+
+# A clean code review on a ticket a tester has already signed off at the request's head (#7155: Jezzy signed 7069 off
+# ten minutes before Addy's approve, and the queue said no tester held it): the lead is told it is ready to arm.
+ldb = "#!/usr/bin/env bash\n[ \"$1\" = agent-tickets ] && exec cat %s/held\n[ \"$1\" = verdicts ] && exec cat %s/verdicts-$2\nexit 1\n" % (T, T)
+open(os.path.join(T, "ledger-db.sh"), "w").write(ldb)
+open(os.path.join(T, "held"), "w").write("Tam|AB-8|in_progress|\n")
+open(os.path.join(T, "verdicts-AB-8"), "w").write(
+    "approval abc8888000000000000000000000000000000000 Rev (code-reviewer) 2026-11-26 15:45:19Z pr #8  — approve\n"
+    "sign-off abc8888000000000000000000000000000000000 Tess (tester) 2026-11-26 15:43:29Z  — signed\n")
+n8 = add("code", "AB-8", "abc8888").stdout.split()[0]
+rq("take", "code", who="Rev")
+lead0, tam0 = len(notices("Lead")), len(notices("Tam"))
+r = rq("close", n8[1:], "--clean", "approved", who="Rev")
+expect("a sign-off at the head: the lead is told it is ready to arm",
+       (r.stdout.strip(), len(notices("Lead")) - lead0, "ready to arm" in notices("Lead")[-1]),
+       (f"{n8} closed clean; Tess signed it off at abc8888, so the delivery lead is told it is ready to arm", 1, True))
+expect("and the tester holding it is not told it is their turn", len(notices("Tam")), tam0)
+# A sign-off at an older head is not this head's: the tester holding the ticket is told, as before.
+open(os.path.join(T, "verdicts-AB-8"), "w").write(
+    "sign-off 1111111000000000000000000000000000000000 Tess (tester) 2026-11-26 15:10:02Z  — older head\n")
+n9 = add("code", "AB-8", "abc8889").stdout.split()[0]
+rq("take", "code", who="Rev")
+r = rq("close", n9[1:], "--clean", "approved", who="Rev")
+expect("a sign-off at another head does not count", r.stdout.strip(), f"{n9} closed clean; Tam, as tester, is told it is their turn")
 
 # Twelve requests added at once all land.
 with ThreadPoolExecutor(12) as ex:

@@ -19,8 +19,9 @@ before. The team page's Work pane draws it.
                                               reviewer has taken needs --taken, and the reviewer is told to stop)
   team/review-queue.py list [code|test]
 
-Who is next after a clean verdict: after the code reviewer's, a tester (or the head of testing) holding the request's
-ticket in the ledger (`scripts/ledger-db.sh agent-tickets`), else the delivery lead, to route one; after the test
+Who is next after a clean verdict: after the code reviewer's, the delivery lead to arm it when a tester has signed the
+ticket off at the request's head (`scripts/ledger-db.sh verdicts KEY`), else a tester (or the head of testing) holding
+the ticket in the ledger (`scripts/ledger-db.sh agent-tickets`), else the delivery lead, to route one; after the test
 reviewer's, whoever asked. Every wake is a notice in the file,
 which the waiting-agents mod delivers once, as a queued prompt, in the session it names; it also reminds a reviewer
 that sits idle with requests waiting.
@@ -132,17 +133,35 @@ def holder(role):
     return next((n for n, r in roster() if r == role), "")
 
 
-def holders(key):
-    """Who holds ticket `key` in the ledger (`ledger-db.sh agent-tickets`: holder|id|status|park_kind rows); none when the
-    ledger cannot be read."""
+def ledger(*args):
+    """The ledger's output for `ledger-db.sh ARGS`, or None when it cannot be read (no such verb in this project's copy,
+    or no ledger)."""
     try:
-        out = subprocess.run(["bash", LEDGER_DB, "agent-tickets"], capture_output=True, text=True, timeout=30,
+        out = subprocess.run(["bash", LEDGER_DB, *args], capture_output=True, text=True, timeout=30,
                              env={**os.environ, "HARNESS_PROJECT": PROJECT})
     except (OSError, subprocess.TimeoutExpired):
-        return []
-    if out.returncode:
-        return []
-    return [p[0] for p in (line.split("|") for line in out.stdout.splitlines()) if len(p) >= 2 and p[1] == key]
+        return None
+    return None if out.returncode else out.stdout
+
+
+def holders(key):
+    """Who holds ticket `key` in the ledger (`ledger-db.sh agent-tickets`: holder|id|status|park_kind rows); None when the
+    ledger cannot say."""
+    out = ledger("agent-tickets")
+    if out is None:
+        return None
+    return [p[0] for p in (line.split("|") for line in out.splitlines()) if len(p) >= 2 and p[1] == key]
+
+
+def signed_off(key, head):
+    """The tester who signed ticket `key` off at `head`, from `ledger-db.sh verdicts KEY` ("sign-off SHA NAME (ROLE) ..."
+    rows), else "". A project whose ledger has no verdicts verb has none."""
+    for line in (ledger("verdicts", key) or "").splitlines():
+        p = line.split()
+        if len(p) >= 4 and p[0] == "sign-off" and SHA.match(p[1]) and (p[1].startswith(head) or head.startswith(p[1])) \
+                and p[3].strip("()") in TESTERS:
+            return p[2]
+    return ""
 
 
 def session_name():
@@ -199,7 +218,7 @@ def find(q, ident):
     for item in q["items"]:
         if str(item.get("id")) == ident:
             return item
-    die(f"no request {ident} in the queue")
+    die(f"no request {ident} in the queue ({QUEUE}, project {PROJECT}: run it from that project's checkout)")
 
 
 def options(args, allowed):
@@ -329,12 +348,24 @@ def main(argv):
                                 f"{words} When you have decided and passed them on, run `team/review-queue.py passed {item['id']}`.")
                 out = f"#{item['id']} closed with findings; the delivery lead is told"
             elif item["kind"] == "code":
-                held = holders(item["key"])
-                tester = next((n for n, r in roster() if r in TESTERS and n in held), "")
-                if tester:
+                signer = signed_off(item["key"], item["head"])
+                held = holders(item["key"]) if not signer else []
+                tester = next((n for n, r in roster() if r in TESTERS and n in (held or [])), "")
+                if signer:
+                    notify(q, lead, f"{who}, as code reviewer, approved {item['key']} ({where(item)}) with nothing to "
+                                    f"decide, and {signer} has signed it off at that head: it is ready to arm.")
+                    out = (f"#{item['id']} closed clean; {signer} signed it off at {item['head'][:9]}, so the delivery lead "
+                           f"is told it is ready to arm")
+                elif tester:
                     notify(q, tester, f"{who}, as code reviewer, approved {item['key']} ({where(item)}) with nothing to "
                                       f"decide: {words} It is your turn to test it.")
                     out = f"#{item['id']} closed clean; {tester}, as tester, is told it is their turn"
+                elif held is None:
+                    notify(q, lead, f"{who}, as code reviewer, approved {item['key']} ({where(item)}) with nothing to "
+                                    f"decide. The ledger could not say who holds it or whether a tester signed it off: "
+                                    f"route it.")
+                    out = (f"#{item['id']} closed clean; the ledger could not say who holds {item['key']}, so the delivery "
+                           f"lead is told to route it")
                 else:
                     notify(q, lead, f"{who}, as code reviewer, approved {item['key']} ({where(item)}) and no tester holds "
                                     f"the ticket: it is ready for one.")
