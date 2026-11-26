@@ -7595,6 +7595,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 #menu .micopy{flex:none;display:grid;place-items:center;width:24px;height:24px;margin:-3px -3px -3px auto;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
 #menu .micopy:hover{background:var(--on);color:var(--text)}
 #menu .micopy.done{color:var(--green)}
+#menu .micopy + .micopy{margin-left:2px}
 #menu .micopy svg{width:14px;height:14px}
 #menu[data-key^="thread:"]{max-height:calc(100vh - 12px);overflow:auto}
 #menu[data-key^="thread:"] .wtxt{min-width:0;max-width:320px;display:flex;flex-direction:column;line-height:1.3}
@@ -13715,7 +13716,16 @@ document.addEventListener("click", e => {
 // a thread opened: its lines are seen
 function thOpen(agent, th) {
   localStorage.removeItem("threads:" + agent); localStorage.setItem("thread:" + agent, th);
-  thSel[agent] = {...thSel[agent], name: th}; markSeen([agent]);
+  thSel[agent] = {...thSel[agent], name: th}; markSeen([agent]); thScrollTo(agent, th);
+}
+// the thread opened scrolled into view in its list (the list alone, not the page), once the list is drawn with it
+function thScrollTo(agent, th, tries = 30) {
+  setTimeout(() => {
+    const list = thListOf(agent), item = list?.querySelector(`.thitem[data-thread="${CSS.escape(th)}"]`);
+    if (!item?.classList.contains("on")) { if (tries > 1 && (thSel[agent]?.name ?? "") === th) thScrollTo(agent, th, tries - 1); return; }
+    const l = list.getBoundingClientRect(), r = item.getBoundingClientRect();
+    if (r.top < l.top) list.scrollTop -= l.top - r.top; else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom;
+  }, 100);
 }
 function thShow(agent, view) {
   if (agent === open && view) {
@@ -13739,6 +13749,10 @@ function threadMenu(el, agent, th) {
   const text = lines.filter(it => (it._thread || "") === th && ["said", "owner", "peer", "sent"].includes(it.kind)).map(it => it.text || "");
   // each thing to open has its copy at the end of its row: a link's address, a file's path, a ticket's key
   const copy = (what, tip) => `<b class="micopy" data-copy="${esc(what)}" title="${tip}">${LINK_COPY}</b>`;
+  // and a ticket with a thread of its own, a button that opens that thread: here, where it is in the same list, else (added
+  // once their conversations are read, thElsewhere) in the view of the most senior agent (ROLE_ORDER) that has one
+  const threads = new Set(thAll(el, agent).map(x => x.name));
+  const openTh = (x, o = "") => threads.has(x) || o ? `<b class="micopy mith" data-th="${esc(x)}" data-ag="${esc(o)}" title="${o ? `Open its thread in ${esc(shown(o))}'s view` : "Open its thread here"}">${MENU_ICON.said}</b>` : "";
   const mi = (go, icon, label, small = "", tail = "") => `<div class="mi" data-go="${esc(go)}">${icon}<span class="wtxt"><b>${label}</b>${small ? `<span>${small}</span>` : ""}</span>${tail}</div>`;
   const act = (go, icon, label) => `<div class="mi" data-go="${esc(go)}">${icon}${label}</div>`;
   const link = (href, label, small = "", tip = "") => `<a class="mi" href="${esc(href)}" target="_blank" rel="noopener"${tip ? ` title="${esc(tip)}"` : ""}` +
@@ -13765,7 +13779,7 @@ function threadMenu(el, agent, th) {
   const body = top + group("Pull requests", prs.map(([h, ref, st]) => link(h, esc(ref), esc(st)))) +
     group("On it now", on.map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
     group("In this thread", (comb && th ? t.agents : []).filter(n => !on.includes(n)).slice(0, 6).map(n => mi("agent:" + n, ppFace(n), esc(shown(n)), ppBenched(n) ? "benched" : esc(STATE[stOf(S.agents.find(x => x.name === n))] || "")))) +
-    group("Tickets it names", keys.map(x => mi("card:" + threadId(x), MENU_ICON.open, esc(x), esc(title(threadId(x))), copy(x, `Copy ${esc(x)}`)))) +
+    group("Tickets it names", keys.map(x => mi("card:" + threadId(x), MENU_ICON.open, esc(x), esc(title(threadId(x))), openTh(x) + copy(x, `Copy ${esc(x)}`)))) +
     group("Links in it", [...links.map(u => link(u, esc(u.replace(/^https?:\/\/(www\.)?/, "").replace(/^(.{20}).{6,}(.{32})$/, "$1…$2")), "", u)),
       ...docs.map(p => link("/doc?p=" + encodeURIComponent(p), esc(p.split("/").pop()), "", p))]);
   const acts = (th && a?.live && free ? act("update", MENU_ICON.said, comb ? `Ask ${esc(shown(a.name))} for an update…` : "Ask for an update…") : "") +
@@ -13775,7 +13789,20 @@ function threadMenu(el, agent, th) {
   if (!body && !acts) return false;
   menuAt(el, "thread:" + agent + ":" + th, `<div class="hd thmhd"><b>${esc(key || t.title)}</b>${sub.length ? `<div>${sub.map(esc).join(" · ")}</div>` : ""}</div>` +
     body + (body && acts ? `<div class="sep"></div>` : "") + acts, !!el.closest(".thitem"));
-  menu.querySelectorAll(".micopy").forEach(x => x.onclick = async ev => {
+  const mith = x => x.onclick = ev => {
+    ev.preventDefault(); ev.stopPropagation(); menuOff(true);
+    if (x.dataset.ag) { thOpen(x.dataset.ag, x.dataset.th); openDetail(x.dataset.ag); } else { thOpen(agent, x.dataset.th); thShow(agent, view); }
+  };
+  menu.querySelectorAll(".mith").forEach(mith);
+  const elsewhere = keys.filter(x => !threads.has(x)), mkey = menu.dataset.key;
+  if (elsewhere.length) thElsewhere(elsewhere, agent).then(found => {
+    if (menu.dataset.key !== mkey || !menu.classList.contains("on")) return;
+    for (const [x, o] of Object.entries(found)) {
+      const row = menu.querySelector(`.mi[data-go="card:${CSS.escape(threadId(x))}"]`), c = row?.querySelector(".micopy");
+      if (c && !row.querySelector(".mith")) { c.insertAdjacentHTML("beforebegin", openTh(x, o)); mith(row.querySelector(".mith")); }
+    }
+  });
+  menu.querySelectorAll(".micopy:not(.mith)").forEach(x => x.onclick = async ev => {
     ev.preventDefault(); ev.stopPropagation();
     try { await navigator.clipboard.writeText(x.dataset.copy); x.innerHTML = MENU_ICON.check; x.classList.add("done"); setTimeout(() => { x.innerHTML = LINK_COPY; x.classList.remove("done"); }, 1200); } catch (err) {}
   });
@@ -13797,6 +13824,21 @@ function threadMenu(el, agent, th) {
     thRedraw();
   });
   return true;
+}
+// For each ticket, the most senior running agent (ROLE_ORDER), but `but`, with a thread of that name in its conversation,
+// read whole (the page's own copy of a conversation holds only its latest lines), each kept a minute.
+const thConvs = {};
+async function thElsewhere(keys, but) {
+  const who = byRole(S.agents.filter(o => o.live && o.name !== but && !o.name.startsWith(COMB)));
+  const convs = await Promise.all(who.map(async o => {
+    const c = thConvs[o.name];
+    if (c && Date.now() - c.at < 60000) return c.feed;
+    const d = await fetch("/api/agent/" + encodeURIComponent(o.name), {cache: "no-store"}).then(r => r.json()).catch(() => null);
+    thConvs[o.name] = {at: Date.now(), feed: d?.feed || []}; return thConvs[o.name].feed;
+  }));
+  const names = who.map((o, i) => new Set(threadsOf(convs[i], o.name).map(t => t.name))), found = {};
+  for (const x of keys) { const i = names.findIndex(n => n.has(x)); if (i >= 0) found[x] = who[i].name; }
+  return found;
 }
 const threadAt = el => {
   el = !phoneOn() && !linkAt(el) && el?.closest?.(".thitem[data-thread], .thl[data-thread], .thhead .thname");
