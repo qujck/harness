@@ -4267,7 +4267,20 @@ def team_json():
 
 
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
-DOC_TYPES = {".md", ".markdown", ".txt", ".sql", ".log"}   # what /doc shows; the page links the same (DOC)
+# What /doc shows, the File pane browses and edits, and the page links (DOC_EXTS there lists both sets). Documents are
+# shown from anywhere shown_file allows. Code and config are shown only from a path with no hidden folder or file in it
+# and a name that does not suggest a secret, so ~/.claude/.credentials.json or ~/.docker/config.json never are.
+DOC_TYPES = {".md", ".markdown", ".txt", ".sql", ".log"}
+CODE_TYPES = {".cs", ".csproj", ".php", ".tpl", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".sh", ".html", ".htm", ".xml",
+              ".css", ".scss", ".less", ".json", ".yaml", ".yml", ".tf", ".hcl", ".ini", ".conf", ".j2"}
+SECRET_NAME = re.compile(r"secret|credential|password|passwd|token", re.I)
+
+
+def doc_type(real):
+    """Whether a resolved path is of a type /doc may show, by the rules above (where it lives is shown_file's to say)."""
+    ext = os.path.splitext(real)[1].lower()
+    return ext in DOC_TYPES or (ext in CODE_TYPES and not any(p.startswith(".") for p in real.split(os.sep))
+                                and not SECRET_NAME.search(os.path.basename(real)))
 PASTED = os.path.join(STATE_DIR, "pasted")   # images and files added in the page, kept for the agents to read
 
 
@@ -5771,7 +5784,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, b"only the team page\n", "text/plain")
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         real = os.path.realpath(os.path.expanduser(query.get("p", [""])[0]))
-        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not shown_file(real)
+        if (not doc_type(real) or not shown_file(real)
                 or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
             return self.send(404, b"no such document\n", "text/plain")
         with open(real, "rb") as f:
@@ -5798,7 +5811,7 @@ class Handler(BaseHTTPRequestHandler):
                         if e.is_dir():
                             if not e.is_symlink() or os.path.realpath(e.path).startswith(HOME + os.sep):
                                 out.append({"name": e.name, "dir": True})
-                        elif os.path.splitext(e.name)[1].lower() in DOC_TYPES and e.is_file():
+                        elif doc_type(os.path.join(real, e.name)) and e.is_file():
                             out.append({"name": e.name, "dir": False})
                     except OSError:
                         pass
@@ -6137,7 +6150,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, AttributeError, TypeError):
             return self.send(400, b"bad request\n", "text/plain")
         real = os.path.realpath(os.path.expanduser(want))
-        if (os.path.splitext(real)[1].lower() not in DOC_TYPES or not real.startswith(HOME + os.sep)
+        if (not doc_type(real) or not real.startswith(HOME + os.sep)
                 or not os.path.isfile(real) or os.path.getsize(real) > 2_000_000):
             return self.send(404, b"no such document\n", "text/plain")
         with open(real, "rb") as f:
@@ -6213,6 +6226,7 @@ PAGE = r"""<!doctype html>
   --codebg:#ffffff12; --box:#0d1117; --glow1:#1f6feb22; --glow2:#a371f71c; --thumb:#ffffff1c; --ownerbg:#f0f6fc; --ownerfg:#000;
   --bg:#07090d; --panel:#0d1117cc; --line:#ffffff14; --line2:#ffffff22; --on:#ffffff38; --text:#e6edf3; --mute:#8b949e; --faint:#545d68;
   --green:#3fb950; --amber:#e3b341; --red:#f85149; --cyan:#39c5cf;
+  --hl-k:#ff7b72; --hl-s:#a5d6ff; --hl-c:#8b949e; --hl-n:#79c0ff; --hl-t:#7ee787; --hl-a:#d2a8ff; --hl-v:#ffa657;
   --chpanel:#0c0e13; --chtile:#171b24; --chmute:#9aa3b2; --chhigh:#e3b341;
   --sans:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif; --mono:"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
   /* the page's one scale for type, corner radius and control height: every size, weight and corner below is one of these
@@ -6223,6 +6237,7 @@ PAGE = r"""<!doctype html>
 :root.light{
   --bg:#f3f5f8; --panel:#ffffffcc; --line:#0000000f; --line2:#0000001c; --on:#0000001c; --text:#1f2328; --mute:#59636e; --faint:#8c959f;
   --green:#1a7f37; --amber:#d29a00; --red:#cf222e; --cyan:#0969da;
+  --hl-k:#cf222e; --hl-s:#0a3069; --hl-c:#6e7781; --hl-n:#0550ae; --hl-t:#116329; --hl-a:#8250df; --hl-v:#953800;
   --track:#0000000f; --soft:#ffffff; --section:#ffffffb0; --card1:#ffffff; --card2:#fbfcfd; --hover:#00000033; --text2:#31373e;
   --codebg:#0000000c; --box:#ffffff; --glow1:#54aeff26; --glow2:#c297ff1f; --thumb:#00000024; --ownerbg:#1f2328; --ownerfg:#fff;
   --chpanel:#f6f7f9; --chtile:#ffffff; --chmute:#5b6472; --chhigh:#8a6100;
@@ -7223,6 +7238,11 @@ pre.code .copy.done{color:var(--green);border-color:var(--green)}
 pre.code .tosh{position:absolute;top:3px;right:33px;display:none;place-items:center;width:26px;height:calc(1.4em + 8px);font-size:inherit;padding:0;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--box);color:var(--mute);cursor:pointer}
 pre.code .tosh:hover{color:var(--text);border-color:var(--hover)}
 pre.code .tosh.done{color:var(--green);border-color:var(--green)}
+/* code coloured for its language (hl): keyword, string, comment, number, tag, attribute or key, variable; a log's levels */
+.hl-k{color:var(--hl-k)} .hl-s{color:var(--hl-s)} .hl-c{color:var(--hl-c);font-style:italic} .hl-n{color:var(--hl-n)}
+.hl-t{color:var(--hl-t)} .hl-a{color:var(--hl-a)} .hl-v{color:var(--hl-v)}
+.hl-le{color:var(--red);font-weight:650} .hl-lw{color:var(--amber);font-weight:650} .hl-li{color:var(--cyan)}
+.hl-err{background:color-mix(in srgb,var(--red) 12%,transparent)}
 #copied{position:fixed;z-index:50;pointer-events:none;padding:3px 8px;border-radius:var(--r-s);background:var(--green);color:#000;font:650 calc(var(--t-s)*var(--fs,1)) var(--sans);opacity:0;transition:opacity .25s}
 #copied.on{opacity:1}
 a.link{color:var(--cyan);text-decoration:underline;text-underline-offset:2px;word-break:break-all}
@@ -8428,8 +8448,9 @@ const tkLink = a => a.ticketNo && a.ticketIssue && S?.prRepo
 // 2026-11-12: "I want his card to show James Weaver and conversation to show Weaver").
 const carded = a => a.fullName || shown(a.name);
 // The little Markdown agents write: ``` fenced blocks, tables, # headings, - bullets, `code` and **bold**; web
-// addresses become links, and so do full paths to documents the page can show (DOC_TYPES on the server).
-const DOC = /(^|[\s(>])((?:~|\/home|\/tmp\/claude-\d+)\/[^\s<>"'`()]+\.(?:md|markdown|txt|sql|log))(?=$|[\s<).,;:!?])/gim;
+// addresses become links, and so do full paths to files the page can show (DOC_TYPES and CODE_TYPES on the server).
+const DOC_EXTS = "md|markdown|txt|sql|log|cs|csproj|php|tpl|ts|tsx|js|jsx|mjs|py|sh|html|htm|xml|css|scss|less|json|yaml|yml|tf|hcl|ini|conf|j2";
+const DOC = new RegExp(String.raw`(^|[\s(>])((?:~|\/home|\/tmp\/claude-\d+)\/[^\s<>"'\x60()]+\.(?:${DOC_EXTS}))(?=$|[\s<).,;:!?])`, "gim");
 // A name in an agent's words reads as the page spells it, on the page only: the words stored and sent are untouched,
 // and so is anything meant literally, which is `code`, a web address or a path.
 const spelled = html => Object.entries(S?.shownNames || {}).reduce((out, [name, as]) =>
@@ -8490,6 +8511,94 @@ document.addEventListener("mouseup", e => {
     note.classList.add("on"); clearTimeout(note.hide); note.hide = setTimeout(() => note.classList.remove("on"), 900);
   }, 0);
 });
+// Code is coloured by its language: a file by its type, a fenced block by the name after its ```. Each language is its
+// comments, strings and keywords (and any marks of its own, such as a JSON key); one pass over the text finds the
+// first of them at each point, so a keyword inside a string or a comment stays part of that string or comment. A
+// language this does not know, or plain text, shows as it is.
+const words = s => new Set(s.split(" "));
+const END = String.raw`(?![\s\S])`;   // the end of the text: the patterns run line by line (m), so $ is a line's end
+const C_COMMENT = String.raw`\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|${END})`, HASH = String.raw`(?:^|(?<=\s))#(?!\[)[^\n]*`;
+const QUOTED = q => `${q}(?:[^${q}\\\\\\n]|\\\\[\\s\\S])*${q}?`;
+const STRINGS = [QUOTED('"'), QUOTED("'")].join("|"), TICKS = "`(?:[^`\\\\]|\\\\[\\s\\S])*`?";
+const NUMBER = String.raw`\b(?:0x[\da-f]+|\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?)\b`;
+const JS_WORDS = "break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return static super switch this throw try typeof var void while with yield async await as true false null undefined";
+const HL_LANGS = {
+  sql: {c: String.raw`--[^\n]*|#[^\n]*|\/\*[\s\S]*?(?:\*\/|${END})`, s: STRINGS + "|`[^`\\n]*`?", ci: true,
+    k: words("select from where and or not in is null like between join inner left right outer full cross on using as distinct group by order having limit offset union all insert into values update set delete create alter drop table view index unique primary key foreign references constraint default if exists case when then else end with recursive returning database schema column add modify change rename to truncate begin commit rollback transaction grant revoke asc desc true false interval cast coalesce count sum avg min max over partition row_number auto_increment engine charset collate procedure function trigger declare return replace ignore duplicate lock unlock tables use show describe explain")},
+  js: {c: C_COMMENT, s: STRINGS + "|" + TICKS, k: words(JS_WORDS + " interface type enum implements private public protected readonly declare namespace abstract keyof satisfies"),
+    t: String.raw`(?<![\w)\]])<\/?[A-Za-z][\w.:-]*`},
+  cs: {c: C_COMMENT, s: String.raw`@"(?:[^"]|"")*"?|\$?` + QUOTED('"') + "|" + QUOTED("'"),
+    k: words("abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach get goto if implicit in init int interface internal is lock long namespace new null object operator out override params partial private protected public readonly record ref return sbyte sealed set short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile when where while yield")},
+  php: {c: C_COMMENT + "|" + HASH, s: STRINGS, v: String.raw`\$\w+`, t: String.raw`<\?php|<\?=?|\?>`,
+    k: words("abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile enum extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield true false null self parent")},
+  py: {c: HASH, s: String.raw`[rbfu]{0,2}(?:"{3}[\s\S]*?(?:"{3}|${END})|'{3}[\s\S]*?(?:'{3}|${END})|` + STRINGS + ")",
+    k: words("and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield None True False self")},
+  sh: {c: HASH, s: STRINGS, v: String.raw`\$(?:\{[^}\n]*\}|\w+|[@*#?$!0-9])`,
+    k: words("if then else elif fi for in do done while until case esac function return local export readonly declare set unset shift exit break continue source eval exec trap true false")},
+  css: {c: String.raw`\/\*[\s\S]*?(?:\*\/|${END})|\/\/[^\n]*`, s: STRINGS, v: String.raw`[$@][\w-]+|--[\w-]+`, a: String.raw`[\w-]+(?=\s*:[^{};\n]*[;}\n])`,
+    k: words("important media import include mixin extend if else each for return use forward supports keyframes font-face")},
+  json: {s: STRINGS, a: QUOTED('"') + String.raw`(?=\s*:)`, k: words("true false null")},
+  yaml: {c: HASH, s: STRINGS, a: String.raw`(?<=^[ \t]*(?:- )?)(?!-\s)[^\s#:'"{}\[\],&*!|>][^#:\n]*?(?=:(?:\s|$))`, t: String.raw`^---$|[&*][\w-]+|!\S+`,
+    k: words("true false null yes no on off")},
+  hcl: {c: C_COMMENT + "|" + HASH, s: STRINGS, a: String.raw`(?<=^[ \t]*)[\w-]+(?=\s*=)`, v: String.raw`\$\{[^}\n]*\}`,
+    k: words("resource data variable output locals module provider terraform backend required_providers for_each count depends_on lifecycle dynamic content each true false null for in if")},
+  ini: {c: String.raw`(?<=^[ \t]*)[;#][^\n]*`, s: STRINGS, t: String.raw`(?<=^[ \t]*)\[[^\]\n]*\]`, a: String.raw`(?<=^[ \t]*)[\w.\-]+(?=\s*[=:])`, k: words("true false on off yes no")},
+};
+const HL_ALIAS = {mysql: "sql", postgres: "sql", postgresql: "sql", psql: "sql", plsql: "sql", sqlite: "sql", ts: "js", typescript: "js", tsx: "js",
+  javascript: "js", jsx: "js", mjs: "js", node: "js", json5: "json", jsonc: "json", csharp: "cs", "c#": "cs", python: "py", bash: "sh", shell: "sh",
+  zsh: "sh", console: "sh", yml: "yaml", tf: "hcl", terraform: "hcl", conf: "ini", toml: "ini", scss: "css", less: "css", html: "xml", htm: "xml",
+  tpl: "xml", csproj: "xml", svg: "xml", vue: "xml", log: "log"};
+const hlLang = name => { const n = String(name || "").trim().split(/\s/)[0].toLowerCase(); return HL_ALIAS[n] || n; };
+const hlRe = {};
+// A language's one pattern: comment, string, tag, attribute or key, variable, number, then any word (a keyword or not).
+const hlPattern = L => hlRe[L] ||= (({c, s, t, a, v}) => new RegExp([c, s, t, a, v, NUMBER, String.raw`[A-Za-z_][\w-]*`]
+  .map(x => `(${x || "(?!)"})`).join("|"), "gim"))(HL_LANGS[L]);
+const HL_CLASS = ["c", "s", "t", "a", "v", "n"];
+const hlSpan = (cls, text) => `<span class="hl-${cls}">${esc(text)}</span>`;
+function hlTokens(text, L) {
+  const lang = HL_LANGS[L], re = hlPattern(L);
+  let out = "", at = 0, m;
+  re.lastIndex = 0;
+  while ((m = re.exec(text))) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    out += esc(text.slice(at, m.index));
+    let i = 0;
+    while (m[i + 1] === undefined) i++;
+    out += i < HL_CLASS.length ? hlSpan(HL_CLASS[i], m[0])
+      : lang.k.has(lang.ci ? m[0].toLowerCase() : m[0]) ? hlSpan("k", m[0]) : esc(m[0]);
+    at = re.lastIndex;
+  }
+  return out + esc(text.slice(at));
+}
+// Markup is its comments and its tags, and inside a tag its name, attributes and their values.
+const hlMarkup = text => text.split(/(<!--[\s\S]*?(?:-->|$)|<[!?\/]?[A-Za-z][^<>]*>?)/).map((part, i) => !(i % 2) ? esc(part)
+  : part.startsWith("<!--") ? hlSpan("c", part)
+  : part.replace(/^(<[!?\/]?)([\w.:-]*)([\s\S]*?)(\/?\??>?)$/, (_, open, name, rest, close) => esc(open) + hlSpan("t", name)
+    + rest.split(/("[^"]*"?|'[^']*'?)/).map((r, j) => j % 2 ? hlSpan("s", r) : r.replace(/[^\s=]+/g, w => hlSpan("a", w))).join("")
+    + esc(close))).join("");
+// A log line's time and level stand out, and a line at error level is tinted.
+const LOG_TIME = /^(\[?\d{4}-\d\d-\d\d[T ][\d:.,]+(?:Z|[+-]\d\d:?\d\d)?\]?|\w{3} [ \d]\d \d\d:\d\d:\d\d)/;
+const LOG_LEVEL = /\b(FATAL|CRIT(?:ICAL)?|ERROR|ERR|WARN(?:ING)?|NOTICE|INFO|DEBUG|TRACE)\b/;
+const hlLog = text => text.split("\n").map(line => {
+  const t = LOG_TIME.exec(line)?.[0] || "", rest = line.slice(t.length), lv = LOG_LEVEL.exec(rest);
+  const level = lv ? (/^(FATAL|CRIT|ERR)/.test(lv[1]) ? "e" : /^WARN/.test(lv[1]) ? "w" : "i") : "";
+  const body = lv ? esc(rest.slice(0, lv.index)) + `<span class="hl-l${level}">${lv[1]}</span>` + esc(rest.slice(lv.index + lv[1].length)) : esc(rest);
+  const html = (t ? hlSpan("n", t) : "") + body;
+  return level === "e" ? `<span class="hl-err">${html}</span>` : html;
+}).join("\n");
+// What a code box holds, coloured for its language and escaped. The page redraws every few seconds, so the last few
+// results are kept and an unchanged file is coloured once. Past 250 KB a file is left plain: colouring it would hold
+// the page up for most of a second.
+const hlKept = new Map();
+const hl = (text, name) => {
+  const L = hlLang(name), key = L + "\n" + text;
+  if (hlKept.has(key)) return hlKept.get(key);
+  const html = text.length > 250_000 ? esc(text) : L === "xml" ? hlMarkup(text) : L === "log" ? hlLog(text) : HL_LANGS[L] ? hlTokens(text, L) : esc(text);
+  hlKept.set(key, html);
+  if (hlKept.size > 40) hlKept.delete(hlKept.keys().next().value);
+  return html;
+};
+const hlFile = (path, text) => hl(text, /\.([\w]+)$/.exec(path)?.[1]);
 // A fenced block is a code box; on a card (flat) it is code-styled lines in the text instead, so the card's few-line
 // cut ends on a whole line rather than slicing through a box.
 // A block indented under a list item loses its fence's indent from every line, as Markdown has it, so what it shows
@@ -8498,9 +8607,14 @@ const unfence = (code, before) => {
   const n = /(?:^|\n)([ \t]*)$/.exec(before)?.[1].length || 0, strip = new RegExp(`^[ \\t]{0,${n}}`, "gm");
   return code.replace(/\n[ \t]*$/, "").replace(strip, "");
 };
-const md = (s, flat) => String(s ?? "").split(/```[^\n]*\n?/)
-  .map((part, i, all) => !(i % 2) ? prose(part) : flat ? `<code class="flat">${esc(unfence(part, all[i - 1]))}</code>\n`
-    : `<pre class="code">${esc(unfence(part, all[i - 1]))}${COPY}${TO_SHELL}</pre>`).join("");
+// A block is coloured for the language named after its opening fence (```sql), which is the fence before it.
+const md = (s, flat) => {
+  s = String(s ?? "");
+  const fences = [...s.matchAll(/```([^\n]*)\n?/g)].map(m => m[1]);
+  return s.split(/```[^\n]*\n?/).map((part, i, all) => !(i % 2) ? prose(part)
+    : flat ? `<code class="flat">${hl(unfence(part, all[i - 1]), fences[i - 1])}</code>\n`
+    : `<pre class="code">${hl(unfence(part, all[i - 1]), fences[i - 1])}${COPY}${TO_SHELL}</pre>`).join("");
+};
 const ago = s => s == null ? "" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d";
 const k = n => n == null ? "–" : n < 1000 ? "" + n : n < 1e6 ? (n / 1000).toFixed(n < 1e5 ? 1 : 0) + "k" : (n / 1e6).toFixed(1) + "M";
 const gauge = p => p == null ? "var(--faint)" : p >= 85 ? "var(--red)" : p >= 60 ? "var(--amber)" : "var(--green)";
@@ -8578,7 +8692,7 @@ function showDoc(e, a) {
   $("#docbox").classList.add("on");
   fetch(a.href).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(
     text => { if ($("#docname").textContent === name) { docText = text; $("#docall").hidden = false; }
-      return /\.(md|markdown)$/i.test(name) ? docMd(text) : `<pre class="code">${esc(text)}${COPY}</pre>`; },
+      return /\.(md|markdown)$/i.test(name) ? docMd(text) : `<pre class="code">${hlFile(name, text)}${COPY}</pre>`; },
     status => `<span style="color:var(--mute)">${status === 404 ? "No such document, or not one this page shows." : "Could not load it."}</span>`)
     .then(html => { if ($("#docname").textContent === name) { $("#docbody").innerHTML = html; $("#docbody").scrollTop = 0; } });
   return false;
@@ -11824,7 +11938,7 @@ function customHtml(ceil, tabRow) {
       const doc = ed ? `<textarea class="fedit" data-name="~edit:${esc(n.path)}" spellcheck="false">\n${esc(ed.text)}</textarea>`
         : !d ? `<div class="blank">Loading…</div>`
         : d.text == null ? `<div class="blank">${d.status === 404 ? "No such document, or not one this page shows" : "Could not load it"}</div>`
-        : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${esc(d.text)}</pre>`}</div>`;
+        : `<div class="fdoc">${/\.(md|markdown)$/i.test(n.path) ? docMd(d.text) : `<pre class="code">${hlFile(n.path, d.text)}</pre>`}</div>`;
       body = !n.path ? `<div class="blank">${pageLocked() ? "" : fileRecent().length ? `<div class="frecent"><div>Recently opened</div>${fileRecent().slice(0, 10).map(f =>
           `<a data-recent="${esc(f)}" title="${esc(f)}"><b>${esc(f.split("/").pop())}</b><span>${esc(f)}</span></a>`).join("")}</div>` : "Type a document's full path above: the folder's files are suggested as you type"}</div>`
         : `<div class="teamlog filelog" data-name="~file:${esc(path)}"><div class="thead"><span>${esc(n.path.split("/").pop())}</span><span title="${esc(n.path)}">${esc(n.path)}</span>${fileTools(n.path)}${maxButton(path === maxed)}</div>${doc}</div>`;
@@ -17340,12 +17454,12 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
         t("a File pane's edit is saved over the version it began from, keeping the line endings; a stale version is refused",
           (first, saved, again), (200, b"one\r\nthree\r\n", 409))
         os.makedirs(T + "/browse/sub")
-        for f in ("a.md", ".hidden.md", "b.json"):
+        for f in ("a.md", ".hidden.md", "b.json", ".c.json", "d.bin", "api-token.yaml"):
             open(T + "/browse/" + f, "w").close()
         got = code("/dir?p=" + urllib.parse.quote(T + "/browse"))
-        t("a File pane's path box lists a home folder's folders first, then the documents the pane shows; nothing outside home",
+        t("a File pane's path box lists a home folder's folders first, then the documents and code it shows (no hidden or secret-named code); nothing outside home",
           (json.loads(got[1] or b"[]"), code("/dir?p=/etc")[0]),
-          ([{"name": "sub", "dir": True}, {"name": ".hidden.md", "dir": False}, {"name": "a.md", "dir": False}], 404))
+          ([{"name": "sub", "dir": True}, {"name": ".hidden.md", "dir": False}, {"name": "a.md", "dir": False}, {"name": "b.json", "dir": False}], 404))
         server.shutdown()
         # a question with previews, as the pane draws it: the preview of the option under the cursor beside the options
         shot = ("─" * 60 + "\n ☐ Test\n\nWhich footer?\n\n❯ 1. Footer empty        ┌──────────────────┐\n"
