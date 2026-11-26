@@ -47,7 +47,11 @@ for PR"*):
   `feature-ticket.sh release <id>`. Nothing rides in the PR.
 - **Tests for what you changed.** Unit tests for what you wrote (enforced); the e2e script for API
   behaviour you changed; the journeys doc when navigation changes. Targeted runs while developing;
-  the full gate is CI's, on the PR.
+  the full gate is CI's, on the PR. A new test goes into the test class that already covers that code, where there
+  is one; a new test file is for code that has none, not for each ticket. Keep a test file under about 60 KB
+  (roughly 1,500 lines), so nobody reads a huge file to change one test: when the class it belongs in is already
+  over that, put the new tests in a second file beside it, named for the behaviour they cover. Leave existing
+  large files as they are: splitting one is its own ticket, not part of yours.
 - **Proving your own change, in a handover a tester can rely on.** Targeted tests while you build,
   and a **control that goes red on the old code**. For each reading the handover names the full head
   sha, the command, its exit code and the counts, and which control went red on which old sha. A
