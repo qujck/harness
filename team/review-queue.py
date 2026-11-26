@@ -24,7 +24,8 @@ reviewer's, whoever asked. Every wake is a notice in the file,
 which the waiting-agents mod delivers once, as a queued prompt, in the session it names; it also reminds a reviewer
 that sits idle with requests waiting.
 
-The queue is $AGENT_REVIEW_QUEUE, else ~/.local/state/<project>/review-queue.json:
+The queue is $AGENT_REVIEW_QUEUE, else ~/.local/state/<project>/review-queue.json, the project being the main checkout
+of the directory it is run in (project_root), whichever worktree or path it is run from:
   {"items": [item, ...], "notices": [{"id", "to", "text", "at"}, ...], "next": the next id, "at", "by"}
 where an item is {"id", "kind": "code"|"test", "key", "pr", "head", "files", "changed", "read_for", "owner", "by", "added",
 "state": "waiting"|"taken"|"lead"|"done", "held", "taken_by", "taken", "verdict": "clean"|"findings", "words", "closed"}.
@@ -42,8 +43,48 @@ import tempfile
 import time
 
 HOME = os.path.expanduser("~")
-ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
+
+
+def main_checkout(path):
+    """The main checkout of the git repository holding path, so every linked worktree of a project answers the same."""
+    try:
+        r = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    common = r.stdout.strip()
+    return os.path.dirname(common) if r.returncode == 0 and common.endswith("/.git") else None
+
+
+def project_root():
+    """$HARNESS_ROOT, else the main checkout of the directory it is run in, else of the script's own path, the first of
+    those with a roster. A project's team/ is a symlink to the harness's, and each agent works in its own worktree, so
+    neither the script's path nor the worktree names the project: run from any worktree of a project, or as the
+    harness's own copy from inside one, it is that project's queue and roster."""
+    if os.environ.get("HARNESS_ROOT"):
+        return os.environ["HARNESS_ROOT"]
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for start in (os.getcwd(), here):
+        root = main_checkout(start)
+        if root and os.path.isfile(os.path.join(root, "agents/roster.json")):
+            return root
+    return main_checkout(here) or here
+
+
+def env_file_value(root, name):
+    """A NAME=value line from the project's harness.env, as the waiting-agents mod reads it."""
+    try:
+        for line in open(os.path.join(root, "harness.env")):
+            m = re.match(r"\s*(?:export\s+)?" + name + r"=(.*)$", line)
+            if m:
+                return m.group(1).strip().strip("\"'") or None
+    except OSError:
+        pass
+    return None
+
+
+ROOT = project_root()
+PROJECT = os.environ.get("HARNESS_PROJECT") or env_file_value(ROOT, "HARNESS_PROJECT") or os.path.basename(ROOT)
 QUEUE = os.path.expanduser(os.environ.get("AGENT_REVIEW_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "review-queue.json"))
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
 LEDGER_DB = os.environ.get("LEDGER_DB") or os.path.join(ROOT, "scripts/ledger-db.sh")

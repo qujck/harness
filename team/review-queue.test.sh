@@ -128,6 +128,29 @@ with ThreadPoolExecutor(12) as ex:
 expect("requests added at once all land, each with its own id",
        len({i["id"] for i in q()["items"] if i["key"].startswith("CD-")}), 12)
 
+# One project, whichever worktree or path it is run from: a project's team/ is a symlink to the harness's and each
+# agent works in a linked worktree, and neither may split the queue or lose the roster.
+def resolved(cwd, script):
+    env = {k: v for k, v in os.environ.items() if k not in ("HARNESS_ROOT", "HARNESS_PROJECT", "AGENT_REVIEW_QUEUE", "ROSTER_FILE")}
+    r = subprocess.run([sys.executable, "-c", "import runpy, sys; g = runpy.run_path(sys.argv[1], run_name='probe'); print(g['QUEUE'], g['ROSTER'])", script],
+                       cwd=cwd, env=env | {"HOME": T}, capture_output=True, text=True)
+    return r.stdout.split()
+proj = os.path.join(T, "proj")
+git = lambda *a: subprocess.run(["git", "-C", proj, *a], capture_output=True, text=True, check=True)
+os.makedirs(os.path.join(proj, "agents"))
+open(os.path.join(proj, "agents", "roster.json"), "w").write("{}")
+git("init", "-q"); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+wt = os.path.join(T, "proj-dev")
+git("worktree", "add", "-q", "--detach", wt)
+os.symlink(here, os.path.join(wt, "team"))
+want = [os.path.join(T, ".local/state/proj/review-queue.json"), os.path.join(proj, "agents/roster.json")]
+expect("from a worktree, by its team/ symlink: the main checkout's queue and roster",
+       resolved(wt, os.path.join(wt, "team", "review-queue.py")), want)
+expect("from a worktree, by the harness's own path: the same", resolved(wt, os.path.join(here, "review-queue.py")), want)
+expect("from the main checkout: the same", resolved(proj, os.path.join(here, "review-queue.py")), want)
+open(os.path.join(proj, "harness.env"), "w").write('HARNESS_PROJECT="named"\n')
+expect("harness.env names the project", resolved(wt, os.path.join(here, "review-queue.py"))[0], os.path.join(T, ".local/state/named/review-queue.json"))
+
 # agents_web serves the file to the Work pane.
 import importlib.machinery, importlib.util
 os.environ.update(HOME=T, AGENT_REVIEW_QUEUE=Q)
