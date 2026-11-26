@@ -24,7 +24,7 @@
                              delivery lead is told the team is back up to start the day
   POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
   /api/standup/summary?who=  the last stand-up summary kept, everyone's or one agent's
-  POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary")
+  POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary"); {"clear": true, "who": ""} clears it
   POST /api/terminal/ID/attach|detach|submitted   {"agent", "label"} an agent attached to a terminal, detached, or its command
                              sent there by the owner; /api/terminal/read|suggest are agent-terminal's (see "an agent attached to a terminal")
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
@@ -3921,9 +3921,15 @@ def standup_keep(entry, kept):
 
 def standup_last(who):
     """The last summary of everyone's work (who empty) or one agent's, for a page that has none yet:
-    {"at", "summary", "text": the write-up it was asked for}; {} with none kept."""
-    k = next((k for k in standup_kept() if k.get("text") and k.get("who", "") == who), {})
-    return {x: k[x] for x in ("at", "summary", "text") if x in k}
+    {"at", "summary", "text": the write-up it was asked for}; {} with none kept, or once it was cleared."""
+    k = next((k for k in standup_kept() if (k.get("text") or k.get("cleared")) and k.get("who", "") == who), {})
+    return {} if k.get("cleared") else {x: k[x] for x in ("at", "summary", "text") if x in k}
+
+
+def standup_clear(who):
+    """Clears the summary shown for everyone's work (who empty) or one agent's, until another is made. The summaries
+    kept for their write-ups stay, so the same work summarised again comes back at once."""
+    standup_keep({"key": "cleared\0" + who, "at": int(time.time()), "who": who, "cleared": True}, standup_kept())
 
 
 def standup_summary(text, fresh=False, who=""):
@@ -5999,13 +6005,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def standup(self):
         """The spoken summary of the stand-up write-up the page sends: {"text": "...", "fresh": true to write it again,
-        "who": the agent it is of, or empty for everyone} -> {"at": its time, "summary": "..."}."""
+        "who": the agent it is of, or empty for everyone} -> {"at": its time, "summary": "..."}; {"clear": true, "who"}
+        clears the one shown."""
         n = int(self.headers.get("Content-Length") or 0)
         if n > STANDUP_MAX:
             return self.send(413, b"the stand-up is too long to summarise\n", "text/plain")
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
             text, fresh, who = body.get("text"), body.get("fresh") is True, str(body.get("who") or "")
+            if body.get("clear") is True:
+                standup_clear(who)
+                return self.send(200, b"{}", "application/json")
         except (ValueError, AttributeError):
             text, fresh, who = None, False, ""
         if not isinstance(text, str) or not text.strip():
@@ -6625,12 +6635,17 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wksumgo,.wkhead .wksumgo{font-weight:650;font-size:calc(var(--t-s)*var(--fs,1));color:var(--cyan);cursor:pointer;text-transform:none;letter-spacing:0;margin-left:6px}
 .wkhead .wksumgo.busy{color:var(--mute);cursor:default;animation:stopping .9s ease-in-out infinite}
 .wksumold{padding:2px 8px;color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1))}
+.wksumstale{margin:6px 4px 2px;padding:5px 9px;border-radius:var(--r-m);background:var(--amber);color:#000;font-weight:650;cursor:pointer}
 .wksumerr{padding:2px 8px;color:var(--red)}
 .wkmore{padding:6px 8px;color:var(--cyan);cursor:pointer;font-size:calc(var(--t-s)*var(--fs,1))}
 .wkdetail{margin:0 8px 6px 42px;padding:6px 10px;border-left:2px solid var(--line2)}
 .wkd{display:flex;gap:10px;padding:2px 0;font-size:calc(var(--t-s)*var(--fs,1))}
 .wkd > b{flex:none;width:5.5em;font-weight:500;color:var(--mute)}
 .wkd i{color:var(--faint);font-style:normal;margin-left:4px}
+.wkhead .wksumi{display:inline-flex;width:16px;height:16px;padding:2px;margin-left:4px;border-radius:var(--r-s,4px);color:var(--mute);cursor:pointer}
+.wkhead .wksumi.first{margin-left:auto}
+.wkhead .wksumi:hover{background:var(--on);color:var(--text)}
+.wkhead .wksumi svg{width:100%;height:100%}
 .wkcopy,.wkhead .wkcopy{margin-left:auto;font-weight:400;font-size:calc(var(--t-s)*var(--fs,1));color:var(--cyan);cursor:pointer;text-transform:none;letter-spacing:0}
 .workq .wkcopy + .wqfold{margin-left:6px}
 
@@ -8803,6 +8818,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   reply: '<path d="M6.5 3.5 2.5 7.5l4 4M2.5 7.5h6.5a4.5 4.5 0 0 1 4.5 4.5v1"/>',
   power: '<path d="M8 1.5v6"/><path d="M4.3 3.6a5.5 5.5 0 1 0 7.4 0"/>',
   close: '<path d="M4 4l8 8M12 4l-8 8"/>',
+  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/>',
   pin: '<path d="M5.5 1.5h5M6.5 1.5v4.2L4 9h8L9.5 5.7V1.5M8 9v5.5"/>',
   pencil: '<path d="M10.5 2.5l3 3L5.5 13.5H2.5v-3z"/>',
   calendar: '<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>',
@@ -11031,6 +11047,13 @@ async function wkSummarise() {
   else Object.assign(s, {busy: false, err: r ? (await r.text()).trim() : "the page did not answer"});
   wkRedraw();
 }
+// Clear empties the summary here and in every other browser, until another is made
+async function wkSumClear() {
+  const who = wkGet("agent", ""), s = wkSumOf(who);
+  if (s.busy) return;
+  Object.assign(s, {summary: "", text: "", err: "", at: Math.floor(Date.now() / 1000)}); wkRedraw();
+  await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({clear: true, who})}).catch(() => null);
+}
 async function wkSumLook(who, s) {
   if (s.busy || Date.now() - s.looked < 30000) return;
   s.looked = Date.now();
@@ -11050,15 +11073,18 @@ function wkSummaryBox(d) {
     if (!parts.length) parts.push(["", []]);
     parts.at(-1)[1].push(l.replace(/^[-•*]\s*/, ""));
   });
-  const list = lines.length ? parts.map(([h, items]) => `${h ? `<div class="wksumh">${esc(h)}</div>` : ""}<ul>${items.map(l => `<li>${inline(l)}</li>`).join("")}</ul>`).join("") + (stale ? `<div class="wksumold">The work has moved on since this was written.</div>` : "")
+  // a summary older than the work says so above its bullets, in the colour that waits on the owner, and redoes it on a click
+  const old = stale && !s.busy ? `<div class="wksumstale" data-wksum title="Summarise again">The work has moved on since this was written: summarise again</div>` : "";
+  const list = lines.length ? old + parts.map(([h, items]) => `${h ? `<div class="wksumh">${esc(h)}</div>` : ""}<ul>${items.map(l => `<li>${inline(l)}</li>`).join("")}</ul>`).join("")
     : !body ? `<div class="wksumold">Yesterday and Today, a bullet a piece of work, to read out at stand-up.</div>` : "";
   const go = s.busy ? `<b class="wksumgo busy">Summarising…</b>` : text ? `<b class="wksumgo" data-wksum>${s.summary ? "Summarise again" : "Summarise"}</b>` : "";
-  return `<div class="wksum"><div class="wkhead"><b>Summary</b>${go}${lines.length ? `<b class="wkcopy" data-wkcopysum>Copy</b>` : ""}</div>${body}${list}</div>`;
+  return `<div class="wksum"><div class="wkhead"><b>Summary</b>${go}${lines.length ? `<b class="wksumi first" data-wkcopysum title="Copy the summary">${MENU_ICON.copy}</b><b class="wksumi" data-wksumclear title="Clear the summary">${MENU_ICON.close}</b>` : ""}</div>${body}${list}</div>`;
 }
 document.addEventListener("click", e => {
   if (e.target.closest("[data-wksum]")) return wkSummarise();
   const c = e.target.closest("[data-wkcopysum]");
-  if (c) navigator.clipboard?.writeText(wkSumOf(wkGet("agent", "")).summary).then(() => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); });
+  if (c) navigator.clipboard?.writeText(wkSumOf(wkGet("agent", "")).summary).then(() => { c.innerHTML = MENU_ICON.check; c.title = "Copied"; setTimeout(() => { c.innerHTML = MENU_ICON.copy; c.title = "Copy the summary"; }, 1500); });
+  if (e.target.closest("[data-wksumclear]")) wkSumClear();
 });
 function wkStandup(d, n) {
   const owner = n?.owner, all = wkStandupLists(d).map(([name, items]) => [name, items.filter(i => !owner || String(i.who || "").includes(owner))]);
@@ -13284,7 +13310,8 @@ function thUnreadFirst(all, un, sel) {
   return [...all].sort((a, b) => at(a) - at(b));
 }
 function thListHtml(list, sel, un = {}, filter = "", colour = "") {
-  const c = t => colour && t.name === sel ? ` style="--c:${colour}"` : "";   // the open one's, where the list's own place has none
+  // the open one's colour, where the list's own place has none; any other in its latest agent's, for its unread count
+  const c = t => { const k = t.name === sel ? colour : colours[t.agents?.[0]]; return k ? ` style="--c:${k}"` : ""; };
   if (thFolded()) return THMORE + `<div class="thtools">${filter}${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
     const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
