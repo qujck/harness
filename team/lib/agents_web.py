@@ -6403,6 +6403,11 @@ html.phone #menu .wbtns button{min-height:44px}
 #menu .wmi .wtxt{min-width:0;display:flex;flex-direction:column;gap:2px;max-width:340px}
 #menu .wmi .wtxt b{font-weight:650}
 #menu .wmi .wtxt span{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* a one-line row (the attach menu): the name, then the role's icon and name beside it */
+#menu .mi.wmi.one{align-items:center}
+#menu .wmi.one .wtxt{flex-direction:row;align-items:center;gap:8px;max-width:none}
+#menu .wmi.one .wtxt b{min-width:6.5em}
+#menu .wmi.one .wtxt span{display:inline-flex;align-items:center;white-space:nowrap;-webkit-line-clamp:unset}
 #menu .wmi .wago{margin-left:auto;padding-left:10px;color:var(--amber);font:600 calc(var(--t-s)*var(--fs,1)) var(--mono);white-space:nowrap}
 .bench{flex:1;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 6px;align-items:center;color:var(--faint);font-size:calc(var(--t-s)*var(--fs,1))}
 .bench .rrow{display:flex;gap:5px;min-width:0;overflow:hidden;padding:1px}   /* one row, overlapped to fit: fitBench; room for a stacked card's rim */
@@ -9330,7 +9335,7 @@ function shellAttachMenu(btn) {
   if (menuOn("shattach")) return menuOff(true);
   const id = btn.dataset.shattach, now = S.termAgents?.[id]?.agent, at = name => Object.entries(S.termAgents || {}).find(([k, v]) => k !== id && v.agent === name);
   const them = byRole(S.agents.filter(a => a.live));
-  menuAt(btn, "shattach", `<div class="hd"><div>Attach to ${esc(btn.dataset.label)}</div></div>` + (them.length ? them.map(a => `<div class="mi wmi" data-pick="${esc(a.name)}">${face(a, "")}` +
+  menuAt(btn, "shattach", `<div class="hd"><div>Attach to ${esc(btn.dataset.label)}</div></div>` + (them.length ? them.map(a => `<div class="mi wmi one" data-pick="${esc(a.name)}">${face(a, "")}` +
     `<span class="wtxt"><b>${esc(shown(a.name))}</b><span>${a.name === now ? "Attached here" : at(a.name) ? `Attached to ${esc(termOf(at(a.name)[0])?.name || "another terminal")}` : roleWith(a)}</span></span></div>`).join("") : `<div class="mi off">No agent is running</div>`) +
     `<div class="sep"></div><div class="mi off">It reads what the terminal prints from now on, and can show you a command to run</div>` +
     (now ? `<div class="mi" data-none>${MENU_ICON.close}Detach ${esc(shown(now))}</div>` : ""));
