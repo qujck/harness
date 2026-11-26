@@ -9,7 +9,9 @@
 #   claim <id>…        push the lock branch, then record the claim on the row (refused if either exists)
 #   claims             every lock branch on the remote with the row's holder and status
 #   park <id> "<why>"  the row's park (status stays, the lock STAYS UP) — the ask goes on the row
-#   release <id>       delete the lock branch(es) — only for a row already archived / wont_do
+#   release <id>       delete the lock branch(es) — only for a row already archived / wont_do. With
+#                      AGENT_BENCH_ON_MERGE=1 (harness.env; default 0) it then starts team/agent-bench-due.sh <id>,
+#                      which benches the ticket's developer and tester once each is idle
 #   exists <id>        row on the ledger? lock branch on the remote? exit 0 yes · 1 no · 2 CANNOT TELL
 #
 # Raise, groom, amend, flip-passing, archive, wont-do are ledger-db.sh verbs: this file never writes a
@@ -21,6 +23,7 @@ REPO_ROOT="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/harness-env.sh"
 REMOTE="${FEATURE_TICKET_REMOTE:-origin}"
 LDB="${LDB:-bash $HERE/ledger-db.sh}"   # overridable so the self-test can stub the ledger
+BENCH_DUE="${AGENT_BENCH_DUE_CMD:-bash $HERE/../team/agent-bench-due.sh}"   # overridable so the self-test can stub it
 
 ok()   { printf '  \033[1;32mok\033[0m    %s\n' "$*"; }
 warn() { printf '  \033[1;33mwarn\033[0m  %s\n' "$*"; }
@@ -110,6 +113,9 @@ release is for work already in main (flip-passing → archive first). Handing it
   done < <(_lock_branches "$id")
   (( n )) || warn "no lock branch for $id — already released, or the merge deleted it"
   $LDB release "$id" "lock released by feature-ticket.sh after $st" >/dev/null 2>&1 || true
+  if [[ "${AGENT_BENCH_ON_MERGE:-0}" == 1 ]]; then
+    $BENCH_DUE "$id" || warn "could not start the bench of $id's developer and tester (agent-bench-due.sh); bench them by hand"
+  fi
 }
 
 cmd_exists() {
@@ -136,6 +142,10 @@ _ft_self_test() {
   _t "exists: no row, no branch → 1"    1 "$( (cd "$tmp/w"; LDB='true #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_exists zzz >/dev/null 2>&1'; echo $?) )"
   _t "exists: ledger unreadable → 2, never 'safe'" 2 "$( (cd "$tmp/w"; LDB='false #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_exists zzz >/dev/null 2>&1'; echo $?) )"
   _t "release refuses a row that is not finished" 1 "$( (cd "$tmp/w"; LDB='printf in_progress #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_release abc_x >/dev/null 2>&1'; echo $?) )"
+  _t "release, AGENT_BENCH_ON_MERGE=1: starts the bench of the ticket's agents" "due abc_x" "$( (cd "$tmp/w"; AGENT_BENCH_ON_MERGE=1 AGENT_BENCH_DUE_CMD='echo due' LDB='printf archived #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_release abc_x 2>/dev/null | grep -o "due abc_x"') )"
+  git -C "$tmp/w" push -q origin main:refs/heads/abc_x 2>/dev/null
+  _t "release, unset: starts nothing" "" "$( (cd "$tmp/w"; AGENT_BENCH_DUE_CMD='echo due' LDB='printf archived #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_release abc_x 2>/dev/null | grep -o "due abc_x"') )"
+  git -C "$tmp/w" push -q origin main:refs/heads/abc_x 2>/dev/null   # the lock back up for the claim checks below
   _t "claim refuses a finished row"        1 "$( (cd "$tmp/w"; LDB='printf archived #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim abcd >/dev/null 2>&1'; echo $?) )"
   _t "claim refuses a held lock"           1 "$( (cd "$tmp/w"; LDB='printf selected #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim abc_x >/dev/null 2>&1'; echo $?) )"
   _t "claim: wins the push, records the row" 0 "$( (cd "$tmp/w"; LDB='printf selected #' bash -c '. '"$HERE"'/feature-ticket.sh --self-test-lib; cmd_claim zzz >/dev/null 2>&1'; echo $?) )"

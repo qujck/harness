@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job "<job>"] [--model <model>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
 #   HARNESS_PROJECT=<project> bash team/agent-spawn.sh bench <Name> [--dry-run] [--by-hand]   (team/agent-bench.sh)
 #   bash team/agent-spawn.sh --self-test
 #
@@ -71,8 +71,8 @@
 # ticket is not read or watched. AGENT_SPAWN_LEDGER names a stand-in for scripts/ledger-db.sh (the self-test's).
 #
 # EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
-# time · name · role · ticket · model · budget verdict · the owner's words (or -) · the budget line · why that
-# model. That is where an off-budget start shows who said yes, and every start why it runs on its model; the
+# time · name · role · ticket (job:<words> for a --job) · model · budget verdict · the owner's words (or -) · the budget
+# line · why that model · who ran it (AGENT_SPAWNER, else the roster name of the session's GIT_AUTHOR_EMAIL, else -). That is where an off-budget start shows who said yes, and every start why it runs on its model; the
 # start line prints the same. A real spawn needs HARNESS_PROJECT in the environment, or AGENT_SPAWN_LOG naming the
 # file: the name lib/harness-env.sh derives from the repo directory does not count (from the harness checkout it
 # says "harness", a log the project's own tools never read), so without either it is a usage error, exit 2, and
@@ -132,7 +132,9 @@
 #   AGENT_SPAWN_LEAD_NEEDS_PEER=1   a lead is refused when no lead of the OTHER lead role is active on the roster:
 #        there would be no handover to read. Its prompt names that lead. Unset or 0 = any other lead, or none.
 #   AGENT_SPAWN_REQUIRE_NAME=1   --name is required (a dry run and the real run then cannot pick different people).
-#   AGENT_SPAWN_REQUIRE_TICKET=1   a developer or tester needs --ticket.
+#   AGENT_SPAWN_REQUIRE_TICKET=1   a developer or tester needs --ticket, or --job "<the job>" for work with no ticket.
+#        A --job is the delivery lead's alone, whatever this says: the caller (who ran it, above) must be the
+#        delivery-lead on the roster, or the spawn is refused (exit 1). The job is in the first prompt and the record.
 #
 # Exit: 0 started (or a dry run said what it would start) · 1 refused, or started but the claim never appeared ·
 # 2 a usage error.
@@ -151,7 +153,7 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id>] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
+USAGE="usage: agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job \"<job>\"] [--model <model>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
@@ -289,9 +291,9 @@ spawn_ticket_verdict() {
 # PURE: is this a model name Claude Code could take (an alias, a full id, a [1m]-style suffix)?
 spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$ ]]; }
 
-# The first prompt. $1 name · $2 role · $3 ticket (may be empty) · $4 the other lead, for a lead
+# The first prompt. $1 name · $2 role · $3 ticket (may be empty) · $4 the other lead, for a lead · $5 a job with no ticket
 spawn_prompt() {
-  local n="$1" r="$2" t="${3:-}" o="${4:-}" p
+  local n="$1" r="$2" t="${3:-}" o="${4:-}" j="${5:-}" p
   if [[ "$r" == delivery-lead || "$r" == head-of-testing ]]; then
     p="You are $n, the $r, started by team/agent-spawn.sh to take over from ${o:-the other lead}."
     p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
@@ -301,9 +303,13 @@ spawn_prompt() {
     printf '%s' "$p"; return
   fi
   p="You are $n, a $r on this project's agent team, started by team/agent-spawn.sh"
-  [[ -n "$t" ]] && p+=" for ticket $t. That ticket is yours and you hold no other." || p+="."
+  if [[ -n "$t" ]]; then p+=" for ticket $t. That ticket is yours and you hold no other."
+  elif [[ -n "$j" ]]; then p+=" for a job with no ticket: $j."
+  else p+="."; fi
   p+=" Read docs/roles/$r.md and AGENTS.md first, then run \`bash scripts/init.sh\`."
-  if [[ -z "$t" ]]; then
+  if [[ -z "$t" && -n "$j" ]]; then
+    p+=" Then tell the delivery lead you are ready for that job."
+  elif [[ -z "$t" ]]; then
     p+=" Then tell the delivery lead you are ready and ask which ticket is yours."
   elif [[ "$r" == developer ]]; then
     p+=" Then claim it yourself, \`bash scripts/feature-ticket.sh claim $t\`, and tell the delivery lead you have it."
@@ -817,6 +823,30 @@ EOF
   out="$(AGENT_SPAWN_REQUIRE_TICKET=1 run head-of-testing --dry-run)"; rc=$?
   _t "  a lead needs none" "$rc" 0
 
+  # --job: ticketless work, the delivery lead's alone, in the prompt and the record with who ran it
+  out="$(AGENT_SPAWN_REQUIRE_TICKET=1 AGENT_SPAWNER=Lea run tester --job "check the docs build" --dry-run)"; rc=$?
+  _t "AGENT_SPAWN_REQUIRE_TICKET=1: the delivery lead's --job stands in for a ticket" "$rc" 0
+  _has "  and the dry run says what for" "$out" "for a job with no ticket: check the docs build"
+  out="$(AGENT_SPAWN_REQUIRE_TICKET=1 AGENT_SPAWNER=Rex run tester --job "check the docs build" --dry-run)"; rc=$?
+  _t "  anyone else's --job is refused" "$rc" 1
+  _has "  saying it is the delivery lead's" "$out" "--job is the delivery lead's: Rex is not the delivery-lead"
+  out="$(AGENT_SPAWNER= GIT_AUTHOR_EMAIL=LEA@proj.local run tester --job "check the docs build" --dry-run)"; rc=$?
+  _t "  the caller is found from GIT_AUTHOR_EMAIL when AGENT_SPAWNER is unset" "$rc" 0
+  out="$(AGENT_SPAWNER= GIT_AUTHOR_EMAIL= run tester --job "check the docs build" --dry-run)"; rc=$?
+  _t "  and with no identity at all it is refused" "$rc" 1
+  out="$(AGENT_SPAWNER=Lea run tester --ticket HAR-12 --job "x y" --dry-run)"; rc=$?
+  _t "  --ticket and --job together are a usage error" "$rc" 2
+  out="$(AGENT_SPAWNER=Lea run head-of-testing --job "x y" --dry-run)"; rc=$?
+  _t "  a lead takes no --job" "$rc" 2
+  out="$(AGENT_SPAWNER=Lea run tester --job "" --dry-run)"; rc=$?
+  _t "  an empty --job is a usage error" "$rc" 2
+  _has "the prompt carries the job" "$(spawn_prompt Tia tester "" "" "check the docs build")" "for a job with no ticket: check the docs build."
+  fresh; rm -f "$T/spawns.tsv"; out="$(AGENT_SPAWNER=Lea run tester --name Tess --job "check the docs build")"; rc=$?
+  _t "a real --job spawn starts" "$rc" 0
+  _t "  and is recorded as job:<words>, with who ran it" "$(awk -F'\t' '$2=="Tess"{print $4"|"$10}' "$T/spawns.tsv")" 'job:check the docs build|Lea'
+  fresh; rm -f "$T/spawns.tsv"; out="$(AGENT_SPAWNER= GIT_AUTHOR_EMAIL= run tester --name Tess --ticket HAR-12)"; rc=$?
+  _t "a spawn with no known caller records - as who ran it" "$(awk -F'\t' '$2=="Tess"{print $4"|"$10}' "$T/spawns.tsv")" 'HAR-12|-'
+
   # AGENT_LAUNCH_ENV
   fresh; out="$(AGENT_LAUNCH_ENV='MSBUILDDISABLENODEREUSE=1 X_Y=a/b' run tester --ticket HAR-12)"; rc=$?
   _t "AGENT_LAUNCH_ENV: the spawn starts" "$rc" 0
@@ -956,7 +986,7 @@ case "${1:-}" in
   bench) shift; exec bash "$_here/agent-bench.sh" "$@" ;;
 esac
 
-ROLE="" WANT="" TICKET="" MODEL="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
+ROLE="" WANT="" TICKET="" JOB="" MODEL="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
 while (( $# )); do
   case "$1" in
     developer|tester|delivery-lead|head-of-testing) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
@@ -966,6 +996,10 @@ while (( $# )); do
                 spawn_owner_ok_text_ok "$OWNER_OK" \
                   || { printf "agent-spawn: --owner-ok needs the owner's words on one line, and got %q\n" "$OWNER_OK" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --ticket) [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; TICKET=${2#\#}; shift ;;   # "#6854" is 6854
+    --job)    [[ $# -ge 2 ]] || { echo "agent-spawn: --job needs the job in words" >&2; echo "$USAGE" >&2; exit 2; }
+              JOB=$2; shift
+              spawn_owner_ok_text_ok "$JOB" \
+                || { printf 'agent-spawn: --job needs the ticketless job on one line, and got %q\n' "$JOB" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
     --why)    [[ $# -ge 2 ]] || { echo "agent-spawn: --why needs the reason for the model" >&2; echo "$USAGE" >&2; exit 2; }
               WHY=$2; shift
@@ -979,7 +1013,8 @@ while (( $# )); do
 done
 [[ -n "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }
 LEAD=0; [[ "$ROLE" == delivery-lead || "$ROLE" == head-of-testing ]] && LEAD=1
-(( LEAD )) && [[ -n "$TICKET" ]] && { printf 'agent-spawn: a lead takes over from the other lead and holds no ticket; drop --ticket\n%s\n' "$USAGE" >&2; exit 2; }
+(( LEAD )) && [[ -n "$TICKET$JOB" ]] && { printf 'agent-spawn: a lead takes over from the other lead and holds no ticket or job; drop --ticket and --job\n%s\n' "$USAGE" >&2; exit 2; }
+[[ -z "$TICKET" || -z "$JOB" ]] || { printf 'agent-spawn: --ticket or --job, not both\n%s\n' "$USAGE" >&2; exit 2; }
 # The project settings that are usage: a mode that is not one, an environment that is not NAME=value words, a
 # name or ticket the project requires (header, PROJECT SETTINGS).
 case "$TREE_MODE" in claude-worktree|sibling) ;;
@@ -988,8 +1023,8 @@ spawn_launch_env_ok "$LAUNCH_ENV" \
   || { printf "agent-spawn: AGENT_LAUNCH_ENV='%s' is not NAME=value words; nothing started.\n" "$LAUNCH_ENV" >&2; exit 2; }
 [[ "$REQUIRE_NAME" != 1 || -n "$WANT" ]] \
   || { printf 'agent-spawn: this project names who starts: --name <Name> (AGENT_SPAWN_REQUIRE_NAME=1), so a dry run and the real run start the same agent\n%s\n' "$USAGE" >&2; exit 2; }
-[[ "$REQUIRE_TICKET" != 1 ]] || (( LEAD )) || [[ -n "$TICKET" ]] \
-  || { printf 'agent-spawn: this project starts a %s for a ticket: --ticket <id> (AGENT_SPAWN_REQUIRE_TICKET=1)\n%s\n' "$ROLE" "$USAGE" >&2; exit 2; }
+[[ "$REQUIRE_TICKET" != 1 ]] || (( LEAD )) || [[ -n "$TICKET$JOB" ]] \
+  || { printf 'agent-spawn: this project starts a %s for a ticket: --ticket <id>, or the delivery lead'"'"'s --job "<the job>" for work with no ticket (AGENT_SPAWN_REQUIRE_TICKET=1)\n%s\n' "$ROLE" "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$WHY" ]] \
   || { printf 'agent-spawn: a real spawn says why it runs on its model: --why "<the reason for that model>"\n%s\n' "$USAGE" >&2; exit 2; }
 (( DRY )) || [[ -n "$PROJECT_GIVEN" || -n "${AGENT_SPAWN_LOG:-}" ]] \
@@ -1005,6 +1040,11 @@ if [[ -z "$MODEL" ]]; then
 fi
 [[ -z "$MODEL" ]] || spawn_model_ok "$MODEL" || { printf 'agent-spawn: %q is not a model name\n' "$MODEL" >&2; exit 2; }
 [[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
+# Who ran it: AGENT_SPAWNER, else the roster's name for the session's GIT_AUTHOR_EMAIL. A --job is the delivery lead's.
+SPAWNER="${AGENT_SPAWNER:-$(roster_lookup_name "${GIT_AUTHOR_EMAIL:-}" 2>/dev/null)}"
+if [[ -n "$JOB" && "$(roster_lookup_role "$SPAWNER" 2>/dev/null)" != delivery-lead ]]; then
+  printf 'agent-spawn: --job is the delivery lead'"'"'s: %s is not the delivery-lead on the roster, so no agent is started for work with no ticket (the caller is AGENT_SPAWNER, else the roster name of GIT_AUTHOR_EMAIL)\n' "${SPAWNER:-the caller (no rostered identity)}" >&2; exit 1
+fi
 # `claude --worktree` exits at once in a folder whose trust dialog was never accepted, so the session would die
 # unseen behind tmux. Claude Code records the acceptance in .claude.json, per exact folder. (Sibling mode asks of the
 # agent's own tree, once its name is known, below.)
@@ -1101,7 +1141,7 @@ if [[ -n "$STACKS_CMD" ]]; then
   fi
 fi
 
-PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET" "$OTHER_LEAD")"
+PROMPT="$(spawn_prompt "$NAME" "$ROLE" "$TICKET" "$OTHER_LEAD" "$JOB")"
 if [[ -n "$PROMPT_CMD" ]]; then
   EXTRA="$(spawn_project_cmd "$PROMPT_CMD" "$NAME" "$ROLE" "${TICKET:--}" "${OTHER_LEAD:--}")" \
     || { echo "agent-spawn: the first prompt's project part failed (AGENT_SPAWN_PROMPT_CMD), so the prompt is not whole; nothing started." >&2; exit 1; }
@@ -1119,7 +1159,7 @@ CMD+=(--name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
 CMD+=(--remote-control "$SESSION" "$PROMPT")
 START_DIR="$HARNESS_ROOT"; [[ "$TREE_MODE" == sibling ]] && START_DIR="$TREE"
-WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}"
+WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}${JOB:+ for a job with no ticket: $JOB}"
 
 # The ticket, for a developer: the row must be one this developer could claim, or nothing starts.
 TICKET_LINE="" CLAIM_STATE=""
@@ -1234,7 +1274,8 @@ for _m in "${MARKS[@]}" ${OWNER_OK:+"HARNESS_OWNER_OK=$OWNER_OK"}; do
 done
 # The record: who was started, against which budget line, on whose word.
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" >> "$SPAWN_LOG" \
+LOGGED_TICKET="${TICKET:-${JOB:+job:$JOB}}"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${LOGGED_TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" "${SPAWNER:--}" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
 printf 'started %s in tmux session %s, on %s (%s), with Remote Control on%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
 [[ -z "$STACKS_LINE" ]] || printf '  %s\n' "$STACKS_LINE"
