@@ -4164,7 +4164,7 @@ def state():
         "now": now, "week": account_pct(rows, "week"), "session": account_pct(rows, "five_hour"), "plan": (plan := budget_plan()), "even": even_plan(plan), "day": day_budget(), "reset": setting("AGENT_WEEK_RESET"),
         "disk": disk(), "full": disks_full(),
         "tabs": tabs,
-        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "tickets": tickets_on(), "termAgents": term_agents(),
+        "project": setting("AGENT_PROJECT_TITLE") or PROJECT, "agents": agents, "bench": bench, "owner": setting("AGENT_OWNER_NAME") or "Owner", "shownNames": shown_names(), "fonts": local_fonts(), "tickets": tickets_on(), "termAgents": term_agents(),
         "teamPaused": paused, "nudgerPaused": os.path.exists(NUDGER_PAUSED), "starting": sorted(_starting), "halting": sorted(_halting),
         "compacting": sorted(_compacting | {a["name"] for a in agents if a["compacting"]}), "teamUp": team_up(), "repos": dict(_repos),
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
@@ -4178,6 +4178,19 @@ def state():
 # instead.
 PORTRAITS = os.environ.get("AGENTS_PORTRAITS") or os.path.join(HOME, ".claude", "agents-portraits")
 PORTRAIT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}
+# Font files of the owner's own for the Settings menu's font choices (AGENT_FONTS, else ~/.claude/agents-fonts), served
+# at /fonts/: kept on this machine, out of the repository, as a font licensed for personal use only must be.
+FONTS_DIR = os.environ.get("AGENT_FONTS") or os.path.join(HOME, ".claude", "agents-fonts")
+FONT_TYPES = {".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2"}
+FONT_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]*(\.ttf|\.otf|\.woff2?)")
+
+
+def local_fonts():
+    """The font files in FONTS_DIR, by name."""
+    try:
+        return sorted(f for f in os.listdir(FONTS_DIR) if FONT_FILE.fullmatch(f))
+    except OSError:
+        return []
 
 
 def portrait(name, kind=""):
@@ -5773,6 +5786,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, b"no such portrait\n", "text/plain")
             with open(f, "rb") as fh:
                 self.send(200, fh.read(), PORTRAIT_TYPES[m[2]], "private, max-age=86400")
+        elif (m := FONT_FILE.fullmatch(urllib.parse.unquote(path[7:]))) and path.startswith("/fonts/"):
+            f = os.path.join(FONTS_DIR, m[0])
+            if not os.path.isfile(f):
+                return self.send(404, b"no such font\n", "text/plain")
+            with open(f, "rb") as fh:
+                self.send(200, fh.read(), FONT_TYPES[m[1]], "private, max-age=86400")
         else:
             self.send(404, b"not found\n", "text/plain")
 
@@ -6993,6 +7012,10 @@ section.tab h2{min-height:41px;display:flex;justify-content:space-between;align-
 .name{white-space:nowrap;background:var(--c);color:#000;font-weight:650;padding:0 8px 2px;border-radius:var(--r-s);font-size:calc(var(--t-l)*var(--fs,1))}
 /* Text on an agent's colour is the owner badge's: black in the dark theme, white in the light. */
 .name,.tabbar button,#dbottom,.card .newest{color:var(--ownerfg)}
+/* the fonts chosen in Settings: the page's text, its code and terminal text, and an agent's name wherever it is shown */
+:root.font-text{--sans:var(--font-text)}
+:root.font-code{--mono:var(--font-code)}
+:root.font-names :is(.name,.tabbar button,.it .who,.chr .nm,.workq .who){font-family:var(--font-names)}
 .role{color:var(--mute);font-size:calc(var(--t-m)*var(--fs,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ticket{white-space:nowrap;flex:none;margin-left:auto;font:650 calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--cyan);background:#39c5cf14;border:1px solid #39c5cf33;padding:1px 7px;border-radius:var(--r-s)}
 .row2{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0;padding:0 12px 8px;font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--mute)}
@@ -14640,7 +14663,42 @@ menuButton($("#help"), helpMenu);
 // until any key is given an agent, then only the keys given one; a jump goes to the agent's message box (its card's,
 // its tab's or a Combined pane's chat, else its view) or always to its view. The defaults are the page as it is
 // without them.
-const SETTINGS = {fs: 100, conv: 100, box: 100, suggest: "on", mod: "alt", keys: {}, jump: "box", viewKeys: {}};
+const SETTINGS = {fs: 100, conv: 100, box: 100, suggest: "on", mod: "alt", keys: {}, jump: "box", viewKeys: {}, fonts: {}};
+// The fonts a part of the page can be given instead of its own (owner, 2026-11-17: the team's names in a font like the
+// Lord of the Rings', and easy-to-read text fonts, monospace too, not too bold): free Google Fonts, each loaded only
+// once something is set to it. Key -> [name, family, weights, group]. Reading fonts load no weight above 600, so the
+// page's bold labels (650) come out semibold. The font files in the page's fonts folder (S.fonts) are offered too, as
+// "file:<name>".
+const FONTS = Object.fromEntries([
+  ["Sans", [["inter", "Inter"], ["plex", "IBM Plex Sans"], ["atkinson", "Atkinson Hyperlegible Next"], ["lexend", "Lexend"],
+    ["figtree", "Figtree"], ["dmsans", "DM Sans"], ["work", "Work Sans"], ["open", "Open Sans"], ["noto", "Noto Sans"],
+    ["source", "Source Sans 3"], ["nunito", "Nunito"]]],
+  ["Serif", [["lora", "Lora", "400;500;600"], ["sserif", "Source Serif 4"], ["literata", "Literata"], ["garamond", "EB Garamond", "400;500;600"]]],
+  ["Monospace", [["jetbrains", "JetBrains Mono"], ["plexmono", "IBM Plex Mono"], ["fira", "Fira Code"], ["scp", "Source Code Pro"],
+    ["roboto", "Roboto Mono"], ["dmmono", "DM Mono", "300;400;500"], ["redhat", "Red Hat Mono"]]],
+  ["Decorative", [["cinzel", "Cinzel", "500;700", "Cinzel (film titles)"], ["cinzeldec", "Cinzel Decorative", "700"],
+    ["uncial", "Uncial Antiqua", "400", "Uncial Antiqua (Elvish)"], ["almendra", "Almendra", "400;700"], ["medieval", "MedievalSharp", "400"],
+    ["fell", "IM Fell English SC", "400", "IM Fell English SC (old book)"]]],
+].flatMap(([group, fonts]) => fonts.map(([k, family, weights = "300;400;500;600", name = family]) => [k, [name, family, weights, group]])));
+// The parts of the page a font can be set for; each is styled by its :root.font-<key> rule.
+const FONT_PARTS = [["text", "Text"], ["code", "Code"], ["names", "Agent names"]];
+// A font choice's family, loaded into the page the first time: a Google Font's stylesheet, or an @font-face for a file
+// from the fonts folder. "" for the page's own.
+function fontFamily(key) {
+  if (key?.startsWith("file:")) {
+    const file = key.slice(5), family = file.replace(/\.[^.]+$/, ""), id = "lf-" + family.replace(/\W/g, "-");
+    if (!document.getElementById(id)) document.head.insertAdjacentHTML("beforeend",
+      `<style id="${id}">@font-face{font-family:"${family}";src:url("/fonts/${encodeURIComponent(file)}")}</style>`);
+    return family;
+  }
+  const f = FONTS[key];
+  if (!f) return "";
+  const id = "gf-" + f[1].replace(/ /g, "-");
+  if (!document.getElementById(id)) document.head.insertAdjacentHTML("beforeend",
+    `<link id="${id}" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${f[1].replace(/ /g, "+")}:wght@${f[2]}&display=swap">`);
+  return f[1];
+}
+
 // The modifiers a jump key can be held with: Cmd only on a Mac (elsewhere it is the system's own key), and Shift only
 // outside a text box, where Shift with a digit types its symbol. A saved choice this machine lacks falls back to Alt.
 const MAC = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || "");
@@ -14656,8 +14714,21 @@ function applySettings() {
   set.fs === 100 ? root.removeProperty("--fs") : root.setProperty("--fs", set.fs / 100);
   set.conv === 100 ? root.removeProperty("--conv") : root.setProperty("--conv", set.conv / 100);
   set.box === 100 ? root.removeProperty("--boxfs") : root.setProperty("--boxfs", set.box / 100);
+  for (const [part] of FONT_PARTS) {
+    const family = fontFamily((set.fonts || {})[part]);
+    document.documentElement.classList.toggle("font-" + part, !!family);
+    family ? root.setProperty("--font-" + part, `"${family}",${part === "code" ? "ui-monospace,monospace" : "system-ui,sans-serif"}`) : root.removeProperty("--font-" + part);
+  }
 }
 applySettings();
+// A font choice for a part of the page: the page's own, the fonts folder's ("Yours"), then each group of FONTS.
+function fontPick(part, now) {
+  const opt = (v, l) => `<option value="${esc(v)}"${v === now ? " selected" : ""}>${esc(l)}</option>`;
+  const groups = {Yours: (S.fonts || []).map(f => ["file:" + f, f.replace(/\.[^.]+$/, "")])};
+  for (const [k, f] of Object.entries(FONTS)) (groups[f[3]] ||= []).push([k, f[0]]);
+  return `<select data-font="${part}">${opt("", "the page's own")}` + Object.entries(groups).filter(([, fs]) => fs.length)
+    .map(([g, fs]) => `<optgroup label="${esc(g)}">${fs.map(([v, l]) => opt(v, l)).join("")}</optgroup>`).join("") + `</select>`;
+}
 function settingsMenu(redraw) {
   if (!redraw && menuOn("settings")) { menuOff(true); return; }
   const set = settings(), keyed = jumpKeys(), names = [...S.agents, ...S.bench].map(a => a.name);
@@ -14676,6 +14747,7 @@ function settingsMenu(redraw) {
     `<label class="set"><span>Message box text</span>${pick('data-set="box"', set.box, sizes)}</label>` +
     `<label class="set"><span>Theme</span>${pick("data-theme", themeNow(), [["dark", "Dark"], ["light", "Light"], ["custom", "Custom"]])}</label>` +
     (themeNow() === "custom" ? `<button data-edit-theme>Edit the custom theme…</button>` : "") +
+    FONT_PARTS.map(([part, label]) => `<label class="set"><span>${esc(label)} font</span>${fontPick(part, (set.fonts || {})[part] || "")}</label>`).join("") +
     `<label class="set"><span>Suggested prompts</span>${pick('data-set="suggest"', set.suggest, [["on", "shown"], ["off", "hidden"]])}</label>` +
     `<div class="hd"><div>Jump to an agent</div></div>` +
     `<label class="set"><span>Hold</span>${pick('data-set="mod"', set.mod, Object.entries(MODS))}</label>` +
@@ -14693,7 +14765,8 @@ function settingsMenu(redraw) {
       const v = views().views, keys = Object.fromEntries(Object.entries(viewKeys()).map(([d, i]) => [d, v[i].name]).filter(([d, n]) => n !== sel.dataset.view && d !== sel.value));
       if (sel.value) keys[sel.value] = sel.dataset.view;
       now.viewKeys = keys;
-    } else now[sel.dataset.set] = ["mod", "jump", "session", "suggest"].includes(sel.dataset.set) ? sel.value : +sel.value;
+    } else if (sel.dataset.font) now.fonts = {...now.fonts, [sel.dataset.font]: sel.value};
+    else now[sel.dataset.set] = ["mod", "jump", "session", "suggest"].includes(sel.dataset.set) ? sel.value : +sel.value;
     localStorage.setItem("settings", JSON.stringify(now)); applySettings(); settingsMenu(true); draw();
   });
   menu.querySelector("[data-reset]").onclick = () => { localStorage.removeItem("settings"); applySettings(); settingsMenu(true); };
@@ -17294,7 +17367,7 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "tickets", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "fonts", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "tickets", "week"])
         t("the Repositories count: the branches behind, most first, with what keeps one there",
           behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
                           "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"
@@ -17453,6 +17526,14 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
             saved = f.read()
         t("a File pane's edit is saved over the version it began from, keeping the line endings; a stale version is refused",
           (first, saved, again), (200, b"one\r\nthree\r\n", 409))
+        g["FONTS_DIR"] = T + "/fonts"
+        os.makedirs(T + "/fonts")
+        with open(T + "/fonts/Mine.woff2", "wb") as f:
+            f.write(b"wOF2")
+        open(T + "/fonts/notes.txt", "w").close()
+        t("the Settings menu's own fonts are the font files in the fonts folder, served at /fonts/; nothing else is",
+          (local_fonts(), code("/fonts/Mine.woff2")[:2], code("/fonts/notes.txt")[0], code("/fonts/..%2Froster.json")[0]),
+          (["Mine.woff2"], (200, b"wOF2"), 404, 404))
         os.makedirs(T + "/browse/sub")
         for f in ("a.md", ".hidden.md", "b.json", ".c.json", "d.bin", "api-token.yaml"):
             open(T + "/browse/" + f, "w").close()
