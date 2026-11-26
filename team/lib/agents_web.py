@@ -25,7 +25,7 @@
   POST /api/foryou/clear  {"n": 3} that For you item cleared by the owner (see "for you")
   /api/standup/summary?who=  the last stand-up summary kept, everyone's or one agent's
   POST /api/standup/summary  {"text": "...", "fresh": true or not, "who": ""} the Work pane's stand-up summary (see "the stand-up summary"); {"clear": true, "who": ""} clears it
-  POST /api/terminal/ID/attach|detach|submitted   {"agent", "label"} an agent attached to a terminal, detached, or its command
+  POST /api/terminal/ID/attach|detach|submitted|finished   {"agent", "label"} an agent attached to a terminal, detached, its agent told the command has finished, or its command
                              sent there by the owner; /api/terminal/read|suggest are agent-terminal's (see "an agent attached to a terminal")
   POST /api/team/stop        the delivery lead is asked to wind the team down, as the owner asks before a shutdown
   POST /api/repos/update     team/repos-update.sh on its own (the Repositories button); 409 while one is running
@@ -5360,6 +5360,15 @@ def term_tell(name, text, still):
     threading.Thread(target=tell, daemon=True).start()
 
 
+def term_finished(tid):
+    """Tells the agent attached to a terminal that the owner says the command there has finished; an error's words, or None."""
+    t = _term_agents.get(tid)
+    if not t:
+        return "no agent is attached to that terminal"
+    term_tell(t.agent, f"The owner says the command in their terminal \"{t.label}\" has finished.", lambda: _term_agents.get(tid) is t)
+    return None
+
+
 def term_attach(tid, label, name):
     """Attaches an agent to a shell a page has open; an error's words, or None. Whoever was attached to the shell, and
     wherever else the agent was, is detached."""
@@ -5774,7 +5783,7 @@ class Handler(BaseHTTPRequestHandler):
         repos = self.path == "/api/repos/update"
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
-        term = re.fullmatch(r"/api/terminal/(?:([a-z0-9]{4,32})/(attach|detach|submitted)|(read|suggest))", self.path)
+        term = re.fullmatch(r"/api/terminal/(?:([a-z0-9]{4,32})/(attach|detach|submitted|finished)|(read|suggest))", self.path)
         if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/foryou/clear", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
@@ -5840,8 +5849,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200 if ok else 500, json.dumps({"sent": ok}).encode(), "application/json")
 
     def terminal(self, tid, what):
-        """An agent attached to a terminal: attached ({"agent", "label"}), detached, or its command submitted ({"n"}), from the
-        page; what is new read ({"as", "wait": seconds}) and a command shown ({"as", "text"}; "" for none), from
+        """An agent attached to a terminal: attached ({"agent", "label"}), detached, told by the owner that the command has
+        finished, or its command submitted ({"n"}), from the page; what is new read ({"as", "wait": seconds}) and a command shown ({"as", "text"}; "" for none), from
         agent-terminal."""
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -5856,6 +5865,9 @@ class Handler(BaseHTTPRequestHandler):
         if what == "detach":
             term_detach(tid, "the owner detached you")
             return self.send(200, b"{}", "application/json")
+        if what == "finished":
+            why = term_finished(tid)
+            return no(why) if why else self.send(200, b"{}", "application/json")
         if what == "submitted":
             with _term_agents_lock:
                 t = _term_agents.get(tid)
@@ -7377,7 +7389,8 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 /* the row keeps the room of three lines, as the terminal would be resized with it: one with a longer command grows up over the terminal, whole */
 .shagentat{flex:none;position:relative;height:78px}
 .shagent{position:absolute;inset:auto 0 0 0;z-index:3;min-height:100%;box-sizing:border-box;display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border:1px solid var(--line2);border-radius:var(--r-m);background:linear-gradient(var(--card1),var(--card1)),var(--bg)}
-.shagent > .face{flex:none;width:28px;height:28px;margin:0;cursor:pointer}
+.shagent .shwho{flex:none;display:flex;flex-direction:column;align-items:center;gap:6px}   /* the agent's face, and under it the button that tells it */
+.shagent .shwho > .face{flex:none;width:28px;height:28px;margin:0;cursor:pointer}
 .shagent .shcmd{flex:1;min-width:0;min-height:64px;max-height:200px;margin:0;padding:4px 8px;box-sizing:border-box;resize:none;overflow-y:hidden;border:1px solid var(--line2);border-radius:var(--r-s);
   background:var(--soft);color:var(--text);font:calc(var(--t-s)*var(--fs,1))/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;outline:none}
 .shagent .shcmd:focus{border-color:var(--c)}
@@ -7389,6 +7402,10 @@ html.phembed.phone #detail .box > .head,html.phembed.phone #detail .box .rail{di
 .shagent .shsubmit svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .shagent .shnewer{border-color:var(--amber);color:var(--amber)}
 .shagent .shnewer[hidden]{display:none}
+.shagent .shdone{display:grid;place-items:center;width:28px;padding:0}
+.shagent .shdone svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.shagent .shdone.done{border-color:var(--green);color:var(--green);opacity:1}
+.shagent .shdone.fail{border-color:var(--red);color:var(--red);opacity:1}
 .shagent .shdetach{display:grid;place-items:center;width:28px;padding:0;border:0;background:none;color:var(--mute)}
 .shagent .shdetach:hover{color:var(--text)}
 .shagent .shdetach svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
@@ -9225,8 +9242,10 @@ const shells = {}, shellEnc = new TextEncoder();
 // is a line break, and the agent has no way to type there. A command the owner has changed is not replaced by the
 // agent's next, which waits behind "New command".
 const shDraft = {};   // terminal id -> {n, base: the agent's command as last taken into the box, value: the box}
+const SH_TELL = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h10a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5v-2.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5z"/><path d="M5.5 7l1.8 1.8L10.5 5.5"/></svg>`;   // a message saying done
 const SH_RETURN = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 3.5v4a2 2 0 0 1-2 2H3M6 6.5l-3 3 3 3"/></svg>`;
-const shellAgentRow = (id, t) => `<div class="shagentat"><div class="shagent" data-name="~shagent:${id}" data-shagent="${id}" style="--c:${t.a.colour}">${face(t.a, `data-shopen data-menu-name="${esc(t.agent)}"`)}` +
+const shellAgentRow = (id, t) => `<div class="shagentat"><div class="shagent" data-name="~shagent:${id}" data-shagent="${id}" style="--c:${t.a.colour}"><div class="shwho">${face(t.a, `data-shopen data-menu-name="${esc(t.agent)}"`)}` +
+  `<button class="shdone" title="Tell ${esc(shown(t.agent))} the command has finished" aria-label="Tell ${esc(shown(t.agent))} the command has finished">${SH_TELL}</button></div>` +
   `<textarea class="shcmd" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" writingsuggestions="false" data-gramm="false" placeholder="${esc(shown(t.agent))} can show a command here for you to run" aria-label="The command ${esc(shown(t.agent))} shows"></textarea>` +
   `<button class="shnewer" hidden title="Show ${esc(shown(t.agent))}'s newer command in place of this one">New command</button><button class="shsubmit" title="Send" aria-label="Send">${SH_RETURN}</button>` +
   `<button class="shdetach" title="Detach ${esc(shown(t.agent))} from this terminal" aria-label="Detach ${esc(shown(t.agent))}">${MENU_ICON.close}</button></div></div>`;
@@ -9272,6 +9291,11 @@ document.addEventListener("click", e => {
   const id = row.dataset.shagent, t = S.termAgents?.[id], d = shDraft[id], s = shells[id]; if (!t || !d) return;
   if (b.matches("[data-shopen]")) return touched ? void agentMenu(b, t.agent, true, false) : (menuOff(true), openDetail(t.agent));
   if (b.matches(".shdetach")) { shellPost(id + "/detach", {}).then(() => load()).catch(() => {}); delete S.termAgents[id]; return draw(); }
+  if (b.matches(".shdone")) {
+    b.disabled = true;
+    const mark = ok => { b.classList.add(ok ? "done" : "fail"); setTimeout(() => { b.classList.remove("done", "fail"); b.disabled = false; }, 1500); };
+    return shellPost(id + "/finished", {}).then(r => mark(r.ok), () => mark(false));
+  }
   if (b.matches(".shnewer")) { Object.assign(d, {n: t.n, base: t.text, value: t.text}); return shellAgents(); }
   const text = row.querySelector(".shcmd").value.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "").replace(/\s+$/, "");
   if (!text.trim() || !s || s.ended || s.ws?.readyState !== 1) return;
