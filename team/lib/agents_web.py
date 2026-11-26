@@ -8924,7 +8924,7 @@ const seekWrap = html => {
 // ticket it held as it said them (the one it holds now, where its transcript does not tell); anyone else's open with their thread in brackets, "[SE-2736]" or "[GitHub billing block · ask]",
 // which is cut from the text shown; the owner's are in the thread their "Re <thread>: " names (cut too), else in the
 // agent's last one; an agent's message to another, in the ticket its "[KEY]" names, and else as peerThread works out. The same ask asked again, word for word, in
-// the same thread before the owner has written there is folded into the first, which keeps the times it was asked (_asked).
+// the same thread before the owner has written there, or marked it dealt with, is folded into the first, which keeps the times it was asked (_asked).
 // An ask in other words is a new message and is shown: the owner wrote elsewhere and the agent answered him in the open
 // thread, so folding it hid every word of it (owner, 2026-11-23: "I can't see your messages").
 const THREAD_TAG = /^\s*\[([^\]\n]{1,60}?)(\s*·\s*ask)?\]\s*/, THREAD_RE = /^Re ([^:\n]{1,60}): /, THREAD_KEY = /^\s*\[([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)\]/;
@@ -9027,8 +9027,10 @@ function threadItems(items, name) {
       if (it.kind === "peer") cur[ag] = null;
     } else if (it.kind === "event") cur[ag] = null;
     if (ask) {
-      const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim();
-      if (first && !first.past === !it.past && same(first.text) === same(shownText)) { first._asked.push(it.ts); continue; }
+      const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim(), dealt = thCleared[ag]?.[th];
+      // not folded into one the owner marked dealt with: the same ask asked after that is a new one, shown in full
+      if (first && !first.past === !it.past && same(first.text) === same(shownText) &&
+          !(dealt != null && (first._asked.at(-1) || "") <= dealt && (it.ts || "") > dealt)) { first._asked.push(it.ts); continue; }
       out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
       continue;
     }
