@@ -1,0 +1,25 @@
+# team/agents-tunnel.service — a reference systemd user unit that carries the team page to its public name through a
+# Cloudflare tunnel, behind a Cloudflare Access login (see "ON A PHONE" in team/agents-web.sh).
+#
+#   1. Create the tunnel in Cloudflare Zero Trust, with a public hostname routed to http://127.0.0.1:8787, and an Access
+#      application for that hostname that allows only you.
+#   2. Save the tunnel's token where only you can read it; it is the whole credential for the tunnel:
+#        mkdir -p ~/.cloudflared && ( umask 077; cat > ~/.cloudflared/agents-tunnel.token )   # paste, then Ctrl+D
+#   3. Set AGENT_WEB_PUBLIC_HOST, AGENT_WEB_ACCESS_TEAM and AGENT_WEB_ACCESS_AUD in harness.env and restart the page.
+#   4. cp team/agents-tunnel.service ~/.config/systemd/user/
+#      systemctl --user daemon-reload && systemctl --user enable --now agents-tunnel
+#
+# It stays off until the token file exists, and needs cloudflared on its PATH.
+[Unit]
+Description=The team page's Cloudflare tunnel: AGENT_WEB_PUBLIC_HOST to http://127.0.0.1:8787, behind an Access login
+ConditionPathExists=%h/.cloudflared/agents-tunnel.token
+After=network-online.target agents-web.service
+
+[Service]
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env cloudflared tunnel --no-autoupdate run --token-file %h/.cloudflared/agents-tunnel.token
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
