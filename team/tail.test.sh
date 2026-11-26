@@ -2,7 +2,7 @@
 # Tests the team page's transcript follower (agents_web.py's Tail): that a conversation read once is then read on only from
 # where it stopped, gives the same turns as reading it whole, holds back a line still being written, starts again on a
 # file cut short or replaced, keeps the model and last compaction up to date, keeps a bounded number of turns, and stops
-# following a transcript nobody asks about. Every transcript is written here; nothing live is read.
+# following a transcript nobody asks about, and keeps the queue of waiting messages straight. Every transcript is written here; nothing live is read.
 #
 #   bash team/tail.test.sh
 set -uo pipefail
@@ -106,6 +106,20 @@ aw._paths.pop("other")
 aw.feed("other", 10)
 expect("a transcript nobody asked about for an hour stops being followed", P in aw._tails, False)
 expect("one asked about is followed", os.path.join(T, "proj", "y", "other.jsonl") in aw._tails, True)
+
+# The queue of messages waiting for the next turn: another session's message is taken off by its text without the
+# hop-chain it was queued with, and one delivered with no dequeue record leaves the queue, so the next dequeue takes
+# the right message and nothing stays pending.
+q = lambda op, text=None: dumps({"type": "queue-operation", "operation": op, **({"content": text} if text else {})})
+peer = '<cross-session-message from="uds:/s" hop-chain="ab12" from-name="Bo">hi</cross-session-message>'
+lines = [q("enqueue", "<task-notification>done</task-notification>"),
+         dumps({"type": "user", "message": {"role": "user", "content": "<task-notification>done</task-notification>"}}),
+         q("enqueue", peer), q("enqueue", "from the owner"), q("remove", peer.replace(' hop-chain="ab12"', "")),
+         q("enqueue", "and again"), q("dequeue")]
+items, queue = [], []
+aw.parse_into(lines, items, queue)
+expect("a delivered message and a peer's taken without its hop-chain leave the queue; the dequeue takes the oldest",
+       [x["text"] for x in queue], ["and again"])
 
 sys.exit(1 if fails else 0)
 EOF

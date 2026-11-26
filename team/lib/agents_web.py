@@ -2873,15 +2873,33 @@ LANE = {"owner": "owner", "said": "owner", "shell": "owner", "peer": "team", "se
 NOT_OWNER = re.compile(r"^(<[a-z-]+[ >]|\[(Automated nudge|Cross-session|[\w-]+ mod, not the owner|team page, not the owner))")
 
 
+HOP_CHAIN = re.compile(r' hop-chain="[^"]*"')   # a message from another session carries it when queued, not when taken
+
+
+def queue_text(text):
+    """A queued message's text as it is matched: another session's message without its hop-chain."""
+    return HOP_CHAIN.sub("", text) if isinstance(text, str) else ""
+
+
 def queued(queue, e):
     """Applies one queue-operation record to the queue of messages waiting for the agent's next turn: an enqueue
     adds one; a dequeue takes the oldest; a remove (taken in mid-turn) or popAll (pulled back to the box) takes the
     one with its text."""
-    op, text = e.get("operation"), e.get("content")
+    op, text = e.get("operation"), queue_text(e.get("content"))
     if op == "enqueue":
-        queue.append({"text": text or "", "ts": e.get("timestamp")})
+        queue.append({"text": text, "ts": e.get("timestamp")})
     elif queue and op in ("dequeue", "remove", "popAll"):
         hit = next((q for q in queue if op != "dequeue" and q["text"] == text), queue[0])
+        queue.remove(hit)
+
+
+def delivered(queue, text):
+    """Takes a queued message off the queue once it reaches the conversation. Claude Code sometimes delivers one with
+    no dequeue record, and left queued it would show as pending for good and make every later dequeue take the
+    wrong message."""
+    text = queue_text(text)
+    hit = next((q for q in queue if q["text"] == text), None) if text else None
+    if hit:
         queue.remove(hit)
 
 
@@ -2908,6 +2926,8 @@ def parse_into(lines, items, queue):
         if e.get("type") not in ("user", "assistant", "attachment") or e.get("isSidechain"):
             continue
         ts, content = e.get("timestamp"), (e.get("message") or {}).get("content")
+        if e["type"] == "user" and queue:
+            delivered(queue, content)
         new = []
         origin = e.get("origin") if isinstance(e.get("origin"), dict) else {}
         if e["type"] == "attachment":
