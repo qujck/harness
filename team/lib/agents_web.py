@@ -7535,6 +7535,10 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 #detail .rail{grid-column:2;grid-row:2;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px;border-left:1px solid var(--line)}
 #detail .left{grid-column:1;grid-row:2}
 #detail .box.rail-left{grid-template-columns:var(--rail) minmax(0,1fr)}
+/* the rail's inner edge is dragged to widen or narrow it while it is a column; a double-click puts it back */
+#drailgrip{position:absolute;z-index:3;width:7px;cursor:col-resize;touch-action:none}
+#drailgrip:hover,#drailgrip.drag{background:var(--hover)}
+#detail .box:is(.rail-top,.rail-bottom) #drailgrip,html.only #drailgrip{display:none}
 /* Characters: every agent as a portrait tile, in a custom pane */
 /* the tiles' panel follows the pane's rounded corners: the bottom two under the pane bar, all four when locked */
 .chrs{border-radius:0 0 var(--r-l) var(--r-l);flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;display:grid;grid-template-columns:repeat(auto-fill,calc(112px * var(--tz,1)));grid-auto-rows:calc(112px * var(--tz,1));gap:calc(8px * var(--tz,1));padding:12px 3px 12px 12px;align-content:start;background:var(--chpanel)}
@@ -8379,7 +8383,7 @@ html.phoneoff #phoneback{display:block}
 <div id="lightbox"><figure><div id="lbwrap"><img id="lbimg" alt="" draggable="false"></div><figcaption><span id="lbcount"></span><span id="lbname"></span><span class="zoom"><b id="lbout" title="Zoom out (−)">−</b><b id="lbfit" title="Fit to the window (0)">Fit</b><b id="lbin" title="Zoom in (+)">+</b><span id="lbpct"></span></span><a id="lbtab" target="_blank" rel="noopener">Open in a new tab</a></figcaption></figure><span class="x" id="lbx" title="Close (Esc)">✕</span><b class="lbnav" id="lbprev" title="Previous image (←)">‹</b><b class="lbnav" id="lbnext" title="Next image (→)">›</b></div>
 <div id="graphbox"><div class="doc"><div class="dochead"><span id="graphname"></span><span id="graphsum"></span><span class="seg" id="graphspan"></span><span class="x" id="graphx" title="Close (Esc)">✕</span></div><div id="graphbody"></div></div></div>
 <div id="docbox"><div class="doc"><div class="dochead"><span id="docname"></span><b id="doccopy" class="di" title="Copy path"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.8 9.2a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.9.9"/><path d="M9.2 6.8a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.9-.9"/></svg></b><b id="docall" class="di" title="Copy all" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg></b><a id="docsave" class="di" title="Save as…"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.8 7 8 10.2 11.2 7M2.5 11v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V11"/></svg></a><a id="doctab" class="di" title="Open as text" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h5v5M14 2 7.5 8.5M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/></svg></a><span class="x" id="docx" title="Close (Esc)">✕</span></div><div id="docbody"></div></div></div>
-<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="retagrow" id="dre" hidden></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div></div><div class="rail" id="drail"></div></div></div>
+<div id="detail"><div class="box"><div class="head" id="dhead"></div><div class="left"><div class="thlist" id="dthreads"></div><div class="conv" id="dconv"></div><button id="dbottom" title="Back to the newest turn">↓ Newest</button><div class="att" id="datt"></div><button id="dsug" hidden></button><div class="retagrow" id="dre" hidden></div><div class="sayrow" id="dsayrow"><button class="add" id="dadd" title="Add images or files (Ctrl+U)"></button><textarea class="say" id="dsay" rows="1" autocomplete="off"></textarea><button class="send" title="Send (Enter)"></button><button class="stop" id="dstop" title="Stop this turn, as Esc does in the terminal"></button></div></div><div class="rail" id="drail"></div><div id="drailgrip" title="Drag to resize; double-click for the default width"></div></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const ONLY = new URLSearchParams(location.search).has("only");
@@ -13366,7 +13370,33 @@ function showRail() {
   for (const e in EDGES) box.classList.toggle("rail-" + e, e === edge && e !== "right");
   const b = $("#dhead .railseg b");
   if (b) b.textContent = "Cards " + EDGES[edge];
+  placeGrip();
 }
+// The rail's width, remembered in this browser; the grip sits on whichever edge of the rail faces the conversation.
+const RAIL_MIN = 160;
+function setRail(w) {
+  const box = $("#detail .box");
+  // at most 60% of the view; a hidden view has no width yet, so a remembered width is taken as it is
+  if (w) box.style.setProperty("--rail", Math.round(Math.max(RAIL_MIN, Math.min(w, box.clientWidth * 0.6 || w))) + "px");
+  else box.style.removeProperty("--rail");
+  placeGrip();
+}
+function placeGrip() {
+  const rail = $("#drail"), g = $("#drailgrip");
+  g.style.top = rail.offsetTop + "px"; g.style.height = rail.offsetHeight + "px";
+  g.style.left = (railEdge() === "left" ? rail.offsetLeft + rail.offsetWidth : rail.offsetLeft) - 3 + "px";
+}
+$("#drailgrip").onpointerdown = e => {
+  const g = $("#drailgrip"), r = $("#detail .box").getBoundingClientRect();
+  e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("drag");
+  g.onpointermove = m => setRail(railEdge() === "left" ? m.clientX - r.left : r.right - m.clientX);
+  g.onpointerup = () => {
+    g.onpointermove = g.onpointerup = null; g.classList.remove("drag");
+    localStorage.setItem("railw", parseInt($("#detail .box").style.getPropertyValue("--rail")) || "");
+  };
+};
+$("#drailgrip").ondblclick = () => { setRail(0); localStorage.removeItem("railw"); };
+new ResizeObserver(placeGrip).observe($("#detail .box"));
 
 async function openDetail(name) {
   if (seek?.src === "conversation") { if (seek.fresh && seek.name === name) seek.fresh = false; else seek = null; }   // a hit marks only the view it opened
@@ -13380,7 +13410,7 @@ async function openDetail(name) {
   $("#dhead .x").onclick = closeDetail; laneClicks($("#dhead"));
   menuButton($("#dmore"), rested => agentMenu($("#dmore"), name, false, rested));
   $("#dhead .railseg b").onclick = () => { const k = Object.keys(EDGES); localStorage.setItem("rail", k[(k.indexOf(railEdge()) + 1) % k.length]); showRail(); };
-  showRail();
+  setRail(+(localStorage.getItem("railw") || 0)); showRail();
   facts();
   $("#detail").classList.add("open");
   rail();
