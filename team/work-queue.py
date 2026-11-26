@@ -15,7 +15,8 @@ the ledger: it holds what the lead has put in it.
   team/work-queue.py list
 
 ID is the work's id, as the ledger names it (a ticket's slug, or a key such as ABC-123). The queue is
-$AGENT_WORK_QUEUE, else ~/.local/state/<project>/work-queue.json:
+$AGENT_WORK_QUEUE (the environment, else HARNESS_ENV_FILE, else harness.env, as the page reads it), else
+~/.local/state/<project>/work-queue.json:
   {"now": [item, ...], "next": [item, ...], "later": [item, ...], "parked": [item, ...], "done": [item, ...],
    "at": epoch seconds of the last change, "by": who made it}
 where an item is {"key": ID, "title": "...", "who": "Name" or "", "note": "..." or "", "url": an http(s) link or ""},
@@ -35,8 +36,27 @@ import time
 
 HOME = os.path.expanduser("~")
 ROOT = os.environ.get("HARNESS_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.environ.get("HARNESS_PROJECT") or os.path.basename(ROOT)
-QUEUE = os.path.expanduser(os.environ.get("AGENT_WORK_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "work-queue.json"))
+
+
+def setting(name):
+    """A setting as the page has it: the environment, else HARNESS_ENV_FILE, else the project's harness.env (the files
+    team/agents-web.sh exports before the page starts), so a change made from a shell without them lands in the file
+    the Work queue pane reads."""
+    if os.environ.get(name):
+        return os.environ[name]
+    for path in (os.environ.get("HARNESS_ENV_FILE"), os.path.join(ROOT, "harness.env")):
+        try:
+            for line in open(path) if path else ():
+                m = re.match(r"\s*(?:export\s+)?" + name + r"=(.*)$", line)
+                if m and m.group(1).strip().strip("\"'"):
+                    return m.group(1).strip().strip("\"'")
+        except OSError:
+            pass
+    return None
+
+
+PROJECT = setting("HARNESS_PROJECT") or os.path.basename(ROOT)
+QUEUE = os.path.expanduser(setting("AGENT_WORK_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "work-queue.json"))
 KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,254}$")
 LISTS = ("now", "next", "later", "parked", "done")
 DONE_DAYS = 14

@@ -9,7 +9,8 @@ stop, so a session blocked on a prompt or busy in a long tool call is not taken 
 session compacting, which the page shows, until the session starts again. An agent that needs the owner but is
 not blocked on a prompt runs `owner-wanted.sh "<one line>"`, and the page pulses it amber with that line until the
 owner next types in its session. The delivery lead keeps the work the team means to start, as Now, Next and
-Later, what is Parked, and what is Done, with `work-queue.py`, and the page's Work queue pane draws it on two tabs,
+Later, what is Parked, and what is Done, with `work-queue.py` (its file `$AGENT_WORK_QUEUE` from the environment, else
+`HARNESS_ENV_FILE`, else `harness.env`, as the page reads it; `work-queue.test.sh` tests that), and the page's Work queue pane draws it on two tabs,
 Doing and Done; Done splits at the stand-ups a stand-up log (`$AGENT_STANDUPS`) marks FINAL. An agent the owner has attached to
 a Terminal pane's tab reads what the terminal prints, and shows a command only the owner's Send puts there, with
 `agent-terminal` (`terminal.test.sh` tests it). A developer's handover and a tester's check name the same change by
