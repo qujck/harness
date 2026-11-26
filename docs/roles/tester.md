@@ -69,7 +69,10 @@ for PR"*):
   1. **Check the handover, do not repeat it.** Readings at the same sha with a command, exit code and
      counts are taken as read; one without them, at another sha, or that you cannot reconcile is a
      contradiction you lead with. An item the handover lacks goes back to the developer; you do not fill
-     it by re-running their tests.
+     it by re-running their tests. Check its fingerprint with `team/diff-fingerprint.sh` against the same
+     base, in your own checkout or read-only in theirs, never with `git add`, `reset` or `stash` in another
+     agent's worktree. A fingerprint not made with the script is asked for again before it is called a
+     mismatch.
   2. **Spend the rest of the time attacking.** Your own mutants the developer did not try; the other
      surfaces, themes, locales, viewports and states the change reaches; a rendered sweep outside the
      developer's assertions; the limits the developer named. Each attack runs only the tests that can see it, filtered to them. The finds

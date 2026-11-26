@@ -54,8 +54,11 @@ for PR"*):
   large files as they are: splitting one is its own ticket, not part of yours.
 - **Proving your own change, in a handover a tester can rely on.** Targeted tests while you build,
   and a **control that goes red on the old code**. For each reading the handover names the full head
-  sha, the command, its exit code and the counts, and which control went red on which old sha. A
-  tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
+  sha, the command, its exit code and the counts, and which control went red on which old sha. It
+  also gives the change's fingerprint, `team/diff-fingerprint.sh <base> <head>` (16 hex characters; for
+  work not yet committed, `team/diff-fingerprint.sh <base>`, which gives the same value), so the tester
+  can tell they have the same change. A hash made by hand follows git's abbreviation length, which
+  differs between checkouts. A tester does not re-run that evidence ([tester.md](tester.md)); they take it as read at that sha and
   attack the change. A reading without sha, command, exit code and counts is one they must run again.
   Name what your tests do NOT cover; that list is where the attack starts. A control red on the old code
   shows the test can fail one way: for each guard the change adds, and each control or absence check in a
