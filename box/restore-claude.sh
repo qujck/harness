@@ -64,10 +64,19 @@ ident() { # ident <name> -> "env GIT_...=... " or nothing
   [ -n "$e" ] && printf 'env AGENT_NAME=%s GIT_AUTHOR_NAME=%s GIT_AUTHOR_EMAIL=%s GIT_COMMITTER_NAME=%s GIT_COMMITTER_EMAIL=%s ' "$1" "$1" "$e" "$1" "$e"
 }
 
-resume() { # resume <claude-name> -> the command that resumes it as itself
+# The reasoning effort an agent was last spawned at: column 11 of team/agent-spawn.sh's record of every spawn, "-"
+# for none. An agent with no effort recorded resumes at the session default.
+SPAWN_LOG=${AGENT_SPAWN_LOG:-/home/peter/.local/state/strength/agent-spawns.tsv}
+effort_of() { # effort_of <claude-name> -> " --effort <level>", or nothing
+  local e
+  e=$(awk -F'\t' -v n="$1" '$2 == n { e = $11 } END { print e }' "$SPAWN_LOG" 2>/dev/null)
+  case "$e" in low|medium|high|xhigh|max) printf ' --effort %s' "$e" ;; esac
+}
+
+resume() { # resume <claude-name> -> the command that resumes it as itself, at the effort it was spawned at
   local f; f=$(transcript "$1")
-  if [ -n "$f" ]; then echo "$(ident "$1")claude --resume $(basename "$f" .jsonl)"
-  else echo "$(ident "$1")claude --resume $1"; fi
+  if [ -n "$f" ]; then echo "$(ident "$1")claude$(effort_of "$1") --resume $(basename "$f" .jsonl)"
+  else echo "$(ident "$1")claude$(effort_of "$1") --resume $1"; fi
 }
 
 # Resume in the conversation's PROJECT directory, the one its transcript is filed
