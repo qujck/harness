@@ -21,7 +21,8 @@ SELF="$_here/$(basename -- "${BASH_SOURCE[0]}")"
 . "$_here/../scripts/lib/selftest-flag.sh"
 
 # PURE: is this a login's label? $1 -> 0 | 1
-claude_as_label_ok() { [[ "${1-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+# LC_ALL=C: under en_US.UTF-8 bash's [a-z] admits é and ß (found by strength's tester on its roster.sh, 2026-11-27).
+claude_as_label_ok() { local LC_ALL=C; [[ "${1-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
 
 claude_as_self_test() {
   local fails=0 T out rc bad
@@ -66,6 +67,13 @@ claude_as_self_test() {
     _t "'$bad' is not a label" "$rc" 2
   done
 
+  # é and ß are not labels in a UTF-8 locale either: a token file by that name must not be reached.
+  printf 'tok-u\n' > "$T/home/.claude/logins/é.token"; printf 'tok-u\n' > "$T/home/.claude/logins/ß.token"
+  for bad in é ß; do
+    out="$(LC_ALL=en_US.UTF-8 as "$bad" --name Ada)"; rc=$?
+    _t "'$bad' is not a label under en_US.UTF-8" "$rc" 2
+    _not "  and its token is not read" "$out" "token=tok-u"
+  done
   mkdir -p "$T/elsewhere"; printf 'tok-789\n' > "$T/elsewhere/other.token"
   _has "AGENT_LOGINS names another directory" "$(LOGINS="$T/elsewhere" as other)" "token=tok-789"
 

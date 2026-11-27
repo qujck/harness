@@ -310,7 +310,8 @@ spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$
 # PURE: is this a reasoning effort Claude Code takes (--effort)?
 spawn_effort_ok() { case "${1-}" in low|medium|high|xhigh|max) return 0 ;; *) return 1 ;; esac; }
 # PURE: is this a login's label (team/claude-as.sh's)?
-spawn_login_ok() { [[ "${1-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+# LC_ALL=C: under en_US.UTF-8 bash's [a-z] admits é and ß (found by strength's tester on its roster.sh, 2026-11-27).
+spawn_login_ok() { local LC_ALL=C; [[ "${1-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
 # The login a roster name always starts on: its row's "login", else nothing. $1 name
 spawn_login_of() { _roster_json | jq -r --arg n "$1" '[.agents[]? | select(.name == $n) | .login // ""] | first // ""' 2>/dev/null; }
 # PURE: the effort a --why names as a clause of its own ("routine fix, effort low", "effort max; a migration"), else
@@ -933,6 +934,10 @@ JSON
   fresh; out="$(lrun developer --name Dot --login third)"; rc=$?
   _t "a --login naming another than the row's is refused" "$rc" 1
   _has "  naming both" "$out" "Dot's roster row has the second login, not third"
+  for _bad in é ß; do
+    fresh; out="$(LC_ALL=en_US.UTF-8 lrun developer --name Eve --login "$_bad")"; rc=$?
+    _t "--login '$_bad' is not a label under en_US.UTF-8" "$rc" 2
+  done
   fresh; out="$(lrun developer --name Eve --login third)"; rc=$?
   _t "--login with --name of a row that has none starts it there this once" "$rc" 0
   _has "  on that login" "$out" "on the third login, without Remote Control"
