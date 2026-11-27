@@ -55,14 +55,14 @@ select_ere() { # stdin: changed paths -> stdout: ERE | __ALL__ | "" (nothing to 
     # a row's fragments are ALTERNATIVE names; the row is live when at least one names a spec on disk.
     # A row whose fragments name NO spec (every spec renamed) must not select nothing: everything runs.
     local live=0; for fr in $f; do fragment_has_spec "$fr" && { live=1; break; }; done
-    if (( live == 0 )); then echo "ui-relevant-specs: the row(s) for $p name no spec under $SPEC_DIR ($(paste -sd'|' <<<"$f")) — running EVERYTHING (a renamed spec must not select nothing)" >&2; printf '__ALL__\n'; return 0; fi
+    if (( live == 0 )); then echo "ui-relevant-specs: the row(s) for $p name no spec under $SPEC_DIR ($(paste -sd'|' - <<<"$f")) — running EVERYTHING (a renamed spec must not select nothing)" >&2; printf '__ALL__\n'; return 0; fi
     frags="$frags"$'\n'"$f"
   done <<<"$surface"
   frags="$(printf '%s\n' "$frags" | awk 'NF' | sort -u)"
   local n; n="$(printf '%s\n' "$frags" | awk 'NF' | wc -l)"
   if [[ "$(selection_verdict "$unmapped" "$n")" == all ]]; then printf '__ALL__\n'; return 0; fi
   [[ -n "$ALWAYS_SPECS" ]] && frags="$frags"$'\n'"$(tr '|' '\n' <<<"$ALWAYS_SPECS")"
-  local ere; ere="$(printf '%s\n' "$frags" | awk 'NF' | sort -u | paste -sd'|')"
+  local ere; ere="$(printf '%s\n' "$frags" | awk 'NF' | sort -u | paste -sd'|' -)"
   echo "ui-relevant-specs: $n fragment(s) selected${ALWAYS_SPECS:+ (always: $ALWAYS_SPECS)}" >&2
   printf '%s\n' "$ere"
 }

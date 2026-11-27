@@ -620,7 +620,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   # off the configured domain is the only member that can tell the two apart
   _fx="$(mktemp)"; printf '{"agents":[{"name":"Kai","email":"kai@other.test","role":"developer","status":"active"},{"name":"Nil","role":"developer","status":"active"}]}' > "$_fx"
   t 'GIT_AUTHOR_EMAIL=kai@other.test GIT_COMMITTER_EMAIL=kai@other.test' 'the launch env carries the row address, not <name>@ROSTER_DOMAIN' \
-    "$(ROSTER_FILE="$_fx" roster_launch_env Kai | /usr/bin/grep EMAIL | paste -sd' ')"
+    "$(ROSTER_FILE="$_fx" roster_launch_env Kai | /usr/bin/grep EMAIL | paste -sd' ' -)"
   ROSTER_FILE="$_fx" roster_launch_env Nil >/dev/null 2>&1 \
     && { printf '  FAIL  a row with no address got a launch identity\n'; fails=1; } \
     || printf '  ok    a row with no address gets no launch identity\n'

@@ -1725,7 +1725,7 @@ attach() {
   # ambiguous, and picking arbitrarily means acting on somebody else's stack.
   # COMPOSE_PROJECT_NAME is written to .agent/env by init.sh and is the only unambiguous handle.
   local proj api
-  proj="$(grep -oP '^COMPOSE_PROJECT_NAME=\K.*' .agent/env 2>/dev/null || true)"
+  proj="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .agent/env 2>/dev/null || true)"
   if [[ -z "$proj" ]]; then
     echo "ledger-db attach: no COMPOSE_PROJECT_NAME in .agent/env — run scripts/init.sh first." >&2
     echo "  Refusing to guess which of $(docker ps --format '{{.Names}}' | grep -c api) api containers is yours." >&2
