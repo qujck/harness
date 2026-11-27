@@ -2765,12 +2765,17 @@ _socket_names = {}
 
 # A command that claims or releases the ticket its agent holds (feature-ticket.sh), as a command of its own in a shell line.
 SET_TICKET = re.compile(r"(?:^|[\n;&|])\s*(?:bash\s+)?(?:[~\w./${}\"-]*/)?feature-ticket\.sh\s+(claim|release)\s+([A-Za-z0-9][\w-]*)")
+# ... or that moves its ledger work marker onto a ticket (ledger-db.sh work on|switch): the ticket it is now working on
+WORK_TICKET = re.compile(r"(?:^|[\n;&|])\s*(?:bash\s+)?(?:[~\w./${}\"-]*/)?ledger-db\.sh\s+work\s+(on|switch)\s+#?([A-Za-z0-9][\w-]*)")
+TICKET_VERBS = (b"feature-ticket.sh", b"ledger-db.sh")
 
 
 def took_ticket(command):
     """The ticket a shell command takes up, "" where it puts it down, None where it does neither."""
-    hits = SET_TICKET.findall(command) if isinstance(command, str) and "feature-ticket.sh" in command else []
-    return None if not hits else "" if hits[-1][0] == "release" else hits[-1][1]
+    if not isinstance(command, str) or ("feature-ticket.sh" not in command and "ledger-db.sh" not in command):
+        return None
+    hits = sorted([(m.start(), m[1], m[2]) for r in (SET_TICKET, WORK_TICKET) for m in r.finditer(command)])
+    return None if not hits else "" if hits[-1][1] == "release" else hits[-1][2]
 
 
 def tool_line(block):
@@ -3047,6 +3052,7 @@ class Tail:
     def __init__(self, path):
         self.path, self.lock, self.used = path, threading.Lock(), time.time()
         self.ino, self.off, self.has, self.made = None, None, {}, {}
+        self.seed = None   # the ticket its session was spawned for, if any: what it held before its turns say
 
     def sync(self):
         st = os.stat(self.path)
@@ -3159,8 +3165,11 @@ class Tail:
                 break
             span *= 4
         trim_turns(items, TAIL_KEEP)
-        if items and "held" not in items[0] and self.off > span:
-            held = self.find_held(self.off - span)
+        if items and "held" not in items[0]:
+            held = self.find_held(self.off - span) if self.off > span else None
+            # nothing in the transcript took a ticket up: the one its session was spawned for (HARNESS_TICKET), as a
+            # session started with --ticket never claims it in its own turns
+            held = self.seed if held is None else held
             if held is not None:
                 items[0]["held"] = held
         return items, queue
@@ -3176,7 +3185,7 @@ class Tail:
                 lines = f.read(end - start).split(b"\n")
                 end = start
                 for raw in reversed(lines):
-                    if b"feature-ticket.sh" not in raw or b'"tool_use"' not in raw:
+                    if not any(v in raw for v in TICKET_VERBS) or b'"tool_use"' not in raw:
                         continue
                     try:
                         blocks = (json.loads(raw).get("message") or {}).get("content")
@@ -3218,9 +3227,10 @@ class Tail:
 _tails, _swept = {}, [0]
 
 
-def followed(sid):
+def followed(sid, seed=None):
     """The followed transcript of a session, or None when it has none. Transcripts nobody has asked about for
-    TAIL_IDLE seconds stop being followed."""
+    TAIL_IDLE seconds stop being followed. `seed`, the ticket its session was spawned for, is what it held before
+    its turns tell; a new one reads its turns again."""
     path = transcript(sid) if sid else None
     if not path:
         return None
@@ -3228,6 +3238,11 @@ def followed(sid):
     with _lock:
         t = _tails.get(path) or _tails.setdefault(path, Tail(path))
         t.used = now
+        if seed and seed != t.seed:
+            with t.lock:
+                t.seed = seed
+                t.has.pop("turns", None)
+                t.made.clear()
         if now - _swept[0] > 300:
             _swept[0] = now
             for p in [p for p, x in _tails.items() if now - x.used > TAIL_IDLE]:
@@ -3235,15 +3250,15 @@ def followed(sid):
     return t
 
 
-def tickets_held(sid):
+def tickets_held(sid, seed=None):
     """The tickets a session has taken up, as far as its turns kept tell: [[time, ticket or ""], ...], oldest first."""
-    t = followed(sid) if sid else None
+    t = followed(sid, seed) if sid else None
     return t.tickets() if t else []
 
 
-def feed(sid, limit):
+def feed(sid, limit, seed=None):
     """The last `limit` turns of a session's conversation, oldest first, from the end of its transcript."""
-    t = followed(sid)
+    t = followed(sid, seed)
     return t.turns(limit) if t else []
 
 
@@ -4124,6 +4139,26 @@ def colour(role):
 
 
 _looked = {"live": {}, "where": {}}   # the running sessions and their panes, as state() last read them
+_spawned_for = {}   # pane id -> (when read, the ticket its session was spawned for)
+
+
+def spawned_for(pane):
+    """The ticket an agent's session was spawned for: HARNESS_TICKET in its tmux session's environment (agent-spawn.sh
+    --ticket sets it), "" for none. Read once a minute per pane."""
+    now, was = time.time(), _spawned_for.get(pane)
+    if was and now - was[0] < 60:
+        return was[1]
+    out = run("tmux", "show-environment", "-t", pane, "HARNESS_TICKET") if pane else ""
+    m = re.match(r"HARNESS_TICKET=([A-Za-z0-9][\w-]*)\s*$", out or "")
+    _spawned_for[pane] = (now, m[1] if m else "")
+    return _spawned_for[pane][1]
+
+
+def working_on(tickets, seed, board):
+    """The ticket an agent is working on: the last its own turns took up (a claim, or a ledger work marker moved),
+    else the one its session was spawned for, else its first claim on the board. The board's order says nothing of
+    which claim is live (owner, 2026-11-27: Tucker's words on #5368 were filed under a parked claim)."""
+    return (tickets[-1][1] if tickets else seed) or board
 
 
 def state():
@@ -4135,6 +4170,7 @@ def state():
     _looked.update(live=live, where=where)
     take_shots([w["pane"] for w in where.values()])
     tfacts = ticket_facts(list(held.values()))
+    seeds = {n: spawned_for(w["pane"]) for n, w in where.items() if w.get("pane")}
     agents, bench, after, mod = [], [], compact_after(), compact_mod()
     for r in grouped(roster()):
         name = r["name"]
@@ -4163,6 +4199,11 @@ def state():
         ser = series(burns.get(sid), now) if sid else []
         since = ((rec or {}).get("statusUpdatedAt") or 0) / 1000
         want, want_held = wanted(sid) if sid else (None, None)
+        seed = seeds.get(name, "")
+        tks = tickets_held(sid, seed) if role in ("dev", "tester") else []
+        cur = working_on(tks, seed, held.get(name.lower(), ""))
+        if cur and cur not in tfacts:
+            tfacts.update(ticket_facts([cur]))
         agents.append({
             "name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]),
             "tab": tab, "live": bool(rec), "status": (rec or {}).get("status") or ("off" if not rec else "?"),
@@ -4171,15 +4212,15 @@ def state():
             "ctxUsed": used, "ctxWindow": window,
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""), "login": (row.get("login") or "") if row else None,
-            "ticket": held.get(name.lower(), ""),
-            "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("ref"),
-            "tickets": tickets_held(sid) if role in ("dev", "tester") else [],
-            "ticketIssue": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
-            "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
+            "ticket": cur,
+            "ticketNo": (tfacts.get(cur) or {}).get("ref"),
+            "tickets": tks,
+            "ticketIssue": (tfacts.get(cur) or {}).get("issue"),
+            "ticketTitle": (tfacts.get(cur) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was), "compactAt": compact_points(after, name, window, mod),
-            "feed": with_ask(by_lane(feed(sid, 300), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
+            "feed": with_ask(by_lane(feed(sid, 300, seed), 10) if sid else [], (rec or {}).get("status"), where.get(name)),
             "suggest": suggestion(where[name]["pane"]) if rec and rec.get("status") == "idle" and name in where else "",
             "pfoot": pane_footer(where[name]["pane"]) if rec and name in where else None,
         })
@@ -17665,6 +17706,21 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
           [("Lea", "Work", "", "idle"), ("Ada", "Developers", "feat_x", "busy")])
         t("  developers and testers with no session are on the bench, and so is a stopped standing agent",
           [(b["name"], b["standing"]) for b in st["bench"]], [("Ben", False), ("Tess", False), ("Max", True)])
+        # Ada's session was spawned for feat_y, her second board claim (Tucker's #5368, owner 2026-11-27: his words were
+        # filed under a parked claim listed first); her turns never claim it
+        with open(T + "/bin/tmux", "a") as f:
+            f.write('[ "$1" = show-environment ] && [ "$3" = %1 ] && [ "$4" = HARNESS_TICKET ] && echo HARNESS_TICKET=feat_y\n')
+        _spawned_for.clear()
+        ada = next(a for a in state()["agents"] if a["name"] == "Ada")
+        t("  an agent spawned for a ticket is on that one, not its first board claim, and its words are filed under it",
+          (ada["ticket"], sorted({it.get("ticket") for it in feed("s0", 50, "feat_y") if it["kind"] == "said"}), ada["tickets"][:1]),
+          ("feat_y", ["feat_y"], [["", "feat_y"]]))
+        was_wo, g["working_on"] = g["working_on"], lambda tickets, seed, board: board
+        try:
+            ada = next(a for a in state()["agents"] if a["name"] == "Ada")
+        finally:
+            g["working_on"] = was_wo
+        t("  negative control: on board order alone she is on the parked claim, so the arm above can fail", ada["ticket"], "feat_x")
         t("last sessions: each running agent's session is kept on disk as its last",
           {n: v["sessionId"] for n, v in json.load(open(LAST_FILE))["agents"].items()}, {"Ada": "s0", "Lea": "s1"})
         # Ben, benched, has two conversations in his own folder (spawn's worktree), the newer his last; Old, retired, has one
@@ -18110,6 +18166,16 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
         t("a ticket is taken by a claim and put down by a release, as a command and not as a word in one",
           (took_ticket("cd x && bash scripts/feature-ticket.sh claim 6854"), took_ticket("bash scripts/feature-ticket.sh release 6854"),
            took_ticket("grep -n 'feature-ticket.sh claim 6854' README.md"), took_ticket("ls")), ("6854", "", None, None))
+        t("  and a ledger work marker moved onto a ticket takes that one up, the last command in a line winning; work off, a mention and a board read do not",
+          (took_ticket("bash scripts/ledger-db.sh work on feat_b"), took_ticket("bash scripts/ledger-db.sh work switch #5368"),
+           took_ticket("bash scripts/feature-ticket.sh claim feat_a && bash scripts/ledger-db.sh work switch feat_b"),
+           took_ticket("bash scripts/ledger-db.sh work switch feat_b; bash scripts/feature-ticket.sh claim feat_a"),
+           took_ticket("bash scripts/ledger-db.sh work off"), took_ticket("grep 'ledger-db.sh work on feat_b' x"), took_ticket("bash scripts/ledger-db.sh board")),
+          ("feat_b", "5368", "feat_b", "feat_a", None, None, None))
+        t("working_on: the last ticket its turns took up, else the one it was spawned for, else its first board claim (a parked one before the live one is Tucker's #5368, owner 2026-11-27)",
+          (working_on([["", "feat_spawned"], ["t", "feat_moved"]], "feat_spawned", "feat_parked"), working_on([], "feat_live", "feat_parked"),
+           working_on([], "", "feat_parked"), working_on([["", "feat_a"], ["t", ""]], "feat_a", "feat_parked")),
+          ("feat_moved", "feat_live", "feat_parked", "feat_parked"))
         t("  resting the mouse opens no menu there, and Open in an agent's menu opens its view",
           ("if (wait > 0) { if (!touched && !phoneOn()) menuRest(" in PAGE, "if (menuOn(btn.dataset.menu) || touched || phoneOn()) return;" in PAGE,
            "(open || phoneOn() ? openDetail : x => menuGo(x, anchor))" in PAGE), (True, True, True))
