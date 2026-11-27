@@ -6791,7 +6791,7 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thx:hover{color:var(--text)}
 .thitem:hover > .thx{visibility:visible}
 .thitem:not(.thmini) > .thx{position:absolute;top:2px;right:2px}
-.thitem > .thtop + .thkey{font:400 calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--mute)}   /* a ticket's title under its key */
+.thitem > .thtop + .thkey{font:400 calc(var(--t-s)*var(--fs,1)) var(--sans);color:var(--mute)}   /* a ticket's title under its key */
 .thl.thclosed{display:inline-block;margin:0;padding:0 7px;border-radius:10px;font:650 .72em/1.6 var(--sans);background:var(--track);color:var(--mute);align-self:center}
 .thitem > .thtop{display:flex;align-items:baseline;gap:6px;align-self:stretch}
 .thitem > .thtop > .unseen{align-self:center;margin:0}
@@ -6809,6 +6809,8 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thitem > b{font-weight:650;padding-right:16px}
 .thl > .unseen{position:static;display:inline-block;margin-left:6px}
 .unseen.ask{background:var(--amber) !important;color:#000 !important}
+/* a thread's count of new messages is blue; amber is kept for a thread with a question for the owner */
+:is(.thlist, #dthreads, .thchips, .phthrow) .unseen:not(.ask), .thmore:not(.ask){background:#2f81f7;color:#fff}
 .thitem .thmeta{color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
 .thitem .thsum{color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .thitem .thl{margin:2px 0 0;padding:1px 8px;border-radius:10px;font-size:.8em;font-weight:650}
@@ -6816,9 +6818,19 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thhead{position:sticky;top:-14px;z-index:2;margin:-14px 0 4px;padding:12px 0 10px;background:var(--box);border-bottom:1px solid var(--line)}
 .thname{display:flex;align-items:baseline;gap:10px}
 .thname b{font-size:calc(var(--t-l)*var(--fs,1));font-weight:650}
-.thname span{color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--mono)}
+.thname span{color:var(--mute);font:calc(var(--t-s)*var(--fs,1)) var(--sans)}
 .thask{margin-top:10px;padding:10px 14px;border-radius:var(--r-m,8px);background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}
 .thask small{display:block;margin-top:4px;opacity:.85}
+/* scrolled up from the newest lines, a thread's open ask is one line, so it covers as little of them as it can */
+.thhead.mini{padding:4px 0}
+.thhead.mini:has(.thask) > .thname{display:none}
+.thhead.mini .thask{display:flex;align-items:center;gap:8px;margin-top:0;padding:4px 10px;white-space:nowrap}
+.thhead.mini .thask > small{display:none}
+.teamlog.combined .thhead.mini:has(> .mroles) .thask{margin-right:34px}   /* clear of whose messages show */
+.thhead.mini .thaskq{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.thhead.mini .thask > .phqa{flex:none;flex-wrap:nowrap;margin:0}
+.thhead.mini .thask > .phqa button{min-height:22px}
+.thhead.mini .thclr{order:9;float:none;margin:0}
 .thask.ok{background:color-mix(in srgb, var(--green) 18%, transparent);color:var(--green)}
 .thl.ask{background:color-mix(in srgb, var(--amber) 20%, transparent);color:var(--amber)}   /* a thread or line waiting on the owner */
 .pbar .pown input.tfilter{flex:0 0 110px;font-family:var(--sans)}
@@ -7311,6 +7323,18 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog.combined .thhead > .mroles{position:absolute;right:0;top:9px;font-weight:400}   /* whose messages show, in the open thread's head */
 .teamlog.combined .thhead:has(> .mroles) > .thname{padding-right:34px}
 .thtools .troles{flex:none;margin-right:auto;font-weight:400}
+.thtools .thsumm{flex:1;min-width:0;line-height:1.3;color:var(--mute);font:400 calc(var(--t-s)*var(--fs,1)) var(--sans)}
+.thsetbtn{display:grid;place-items:center;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
+.thsetbtn:hover{background:var(--on);color:var(--text)}
+.thsetbtn svg{width:14px;height:14px}
+.thtools .thmore.down{order:0}
+.thtools .thmore{position:static;margin:0;flex:none;font-size:calc(var(--t-xs)*var(--fs,1));box-shadow:none}
+#menu .thset{width:300px}
+#menu .mchips{display:flex;flex-wrap:wrap;gap:4px;padding:4px 10px 8px}
+#menu .mchips .chip{cursor:pointer;font-size:calc(var(--t-s)*var(--fs,1))}
+.thitem > .thtop > .thwho{margin:0 0 0 4px;flex:0 1 auto;min-width:0;overflow:hidden;flex-wrap:nowrap;align-self:center}
+.thitem > .thtop > :is(.thk, .thclosed){flex:none}
+.thitem > .thtop .thk{font-family:var(--mono)}   /* a ticket's key in monospace; every title in the page's own font */
 .thchips .troles{flex:none}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
 .teamlog .thead:has(> .cnames .name, > .cnames .chr, > .cnames .face){align-items:flex-start}
@@ -9192,12 +9216,31 @@ function threadItems(items, name) {
     } else if (["peer", "sent"].includes(it.kind)) {
       if ((m = text.match(THREAD_KEY))) th = m[1]; else { th = peerThread(it, ag); guess = true; }
       if (it.kind === "peer") cur[ag] = null;
+      // a message to another agent saying a ticket waits on the owner is an ask of the owner in that ticket's thread
+      // (from an agent that talks to the owner: a developer's or tester's goes to the lead, whose own words count)
+      const waits = it.kind === "sent" && !it.summary && !["dev", "tester"].includes(a?.role) && thWaitsOnOwner(text);
+      if (waits) {
+        for (const key of waits.keys.length ? waits.keys : th ? [th] : []) {
+          const k = ag + "\n" + key, was = open[k];
+          if (was?._via && thAskLine(was._askText) === thAskLine(waits.line)) { was._asked.push(it.ts); continue; }
+          open[k] = {...it, _thread: key, _ask: true, _via: true, _askText: waits.line, _asked: [it.ts]};
+          if (key !== th) out.push({...open[k], _shadow: true});   // its ask in the other ticket's thread, the message itself in its own
+        }
+        if (open[ag + "\n" + th]?.ts === it.ts) { out.push(open[ag + "\n" + th]); continue; }
+      }
     } else if (it.kind === "event") cur[ag] = null;
+    // the agent says its ask is resolved or withdrawn: the ask is closed
+    if (it.kind === "said" && !ask && open[ag + "\n" + th] && THREAD_WITHDRAWN.test(shownText)) { open[ag + "\n" + th] = null; out.push({...it, text: shownText, _thread: th, _withdraws: true}); continue; }
     if (ask) {
-      const k = ag + "\n" + th, first = open[k], same = x => String(x).replace(/\s+/g, " ").trim(), dealt = thCleared[ag]?.[th];
-      // not folded into one the owner marked dealt with: the same ask asked after that is a new one, shown in full
-      if (first && !first.past === !it.past && same(first.text) === same(shownText) &&
-          !(dealt != null && (first._asked.at(-1) || "") <= dealt && (it.ts || "") > dealt)) { first._asked.push(it.ts); continue; }
+      const k = ag + "\n" + th, first = open[k], dealt = thCleared[ag]?.[th];
+      // the same question asked again (its asking part the same, word for word) is folded into the newest asking of it,
+      // the earlier ones left out, unless the owner marked the earlier dealt with: a different question, or one asked
+      // after that, is a new ask, shown in full
+      if (first && !first._via && !first.past === !it.past && thAskLine(first.text) === thAskLine(shownText) && !(dealt != null && (first._asked.at(-1) || "") <= dealt && (it.ts || "") > dealt)) {
+        out.splice(out.indexOf(first), 1);
+        out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [...first._asked, it.ts]});
+        continue;
+      }
       out.push(open[k] = {...it, text: shownText, _thread: th, _ask: true, _asked: [it.ts]});
       continue;
     }
@@ -9205,12 +9248,24 @@ function threadItems(items, name) {
   }
   return out;
 }
+// what an agent writes to withdraw an ask: it is resolved, or the owner need not do anything
+const THREAD_WITHDRAWN = /\b(withdraw(?:n|ing)?\b(?! from)|(?:this|it|that)(?: is|'s) (?:now )?(?:resolved|sorted|fixed)\b|no longer need\b|(?:you )?(?:don't|do not|no longer) need to do anything|nothing (?:more )?for you to do|ignore (?:my|the|that) (?:earlier |last )?(?:ask|question))/i;
+// a message saying something waits on the owner ("MS-181 and MS-188 wait only on Peter's Approve"): the sentence
+// that says so, and the tickets it names (none: the message's own thread)
+function thWaitsOnOwner(text) {
+  const who = String(S?.owner || "").trim();
+  if (!who || who === "Owner") return null;
+  const re = new RegExp(`\\b(?:wait(?:s|ing)?|held|blocked)\\b[^.?!\\n]{0,20}?\\b(?:on|for)\\s+${who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const line = String(text).split(/(?<=[.?!])\s+|\n+/).find(s => re.test(s));
+  return line ? {line: line.trim(), keys: [...new Set(keysIn(line))]} : null;
+}
 // a line's thread as a small label in an agent's conversation shown whole, and how many times an ask was asked
 const threadLabel = it => (it._thread ? `<span class="thl${it._guess ? " guess" : ""}" data-thread="${esc(it._thread)}" title="Open the thread ${esc(it._thread)}${it._guess ? " (not tagged: worked out from the message)" : ""}">${esc(it._thread)}</span>` : "") +
   (it._asked?.length > 1 ? `<span class="thl ask" title="Asked at ${esc(it._asked.map(t => String(t).slice(11, 16)).join(", "))}">asked ${it._asked.length}×</span>` : "");
 function feedHtml(items, name, compact, on = laneOf(name), only = null, newAfter = null) {
   if (name) items = items.concat(echoItems(items, name));
   if (!items.threaded) items = threadItems(items, name);   // a Combined pane's are threaded agent by agent (combinedLines)
+  if (only == null && items.some(it => it._shadow)) items = Object.assign(items.filter(it => !it._shadow), {threaded: items.threaded});   // a message whose ask is in another ticket's thread too: once, in its own
   if (only != null && !items.threaded) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
   const hit = it => seekTurn(it, it._agent || name);
   // after the name badges at the start of its text, else at the start
@@ -9307,7 +9362,7 @@ function card(a, ceil, conv, extra = "", {key = "", keep = false, lead = ""} = {
     ${cls === "wanted" ? `<div class="wantline">${esc(a.wanted)}</div>` : ""}
     <div class="row2"><span class="model">${esc(model)} ${esc(a.effort)}</span><span class="model">${a.rate ? k(a.rate) + " tok/min" : ""}</span><span class="model" style="margin-left:auto">${esc(a.cwd)}</span></div>
     ${spark(a.series, ceil, a.colour)}
-    ${thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(shownList, pick.name, un)}</div><div class="thchips">${thChipsHtml(unFirst, pick.name, un)}</div>${(pick.name === EVERY ? body : body.replace(`placeholder="${esc(`Message ${shown(a.name)}…`)}"`, `placeholder="${esc(`Reply in ${pick.title}…`)}"`))}</div>` : body}</div>`;
+    ${thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(shownList, pick.name, un, a.name)}</div><div class="thchips">${thChipsHtml(unFirst, pick.name, un)}</div>${(pick.name === EVERY ? body : body.replace(`placeholder="${esc(`Message ${shown(a.name)}…`)}"`, `placeholder="${esc(`Reply in ${pick.title}…`)}"`))}</div>` : body}</div>`;
 }
 // A List row's status, after its name and ticket: its state in words, then the pane's footer ("in shell · 1 shell").
 const mstat = (a, st) => [st === "wanted" ? STATE.wanted : STATE[st] || st, a.live && a.pfoot].filter(Boolean).join(" · ");
@@ -9853,7 +9908,7 @@ function draw() {
   const tabRow = (key, agents, badge, none) => {   // none: nobody is picked until one is (a Meeting's row)
     const sel = agents.find(a => a.name === localStorage.getItem("tab:" + key)) || (none ? null : agents[0]);
     if (badge === "icon")
-      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel && thMode(a.name) !== "threads" ? 0 : unseen(a), ask = n && Object.values(unseenBy(a)).some(o => o.ask);
+      return [sel, `<div class="tabbar icontabs" data-sec="${esc(key)}">${agents.map(a => { const n = a === sel && thMode(a.name) !== "threads" ? 0 : unseen(a), ask = n && phAsks(a).length > 0;
         return `<span class="ftab" style="--c:${a.colour}">${face(a, `data-tab="${esc(a.name)}" data-name="${esc(a.name)}" title="${esc(a.fullName || a.name)}"`, a === sel ? " sel" : "")}${n ? unseenBadge(n, ask) : ""}</span>`; }).join("")}</div>`];
     if (badge === "card")
       return [sel, `<div class="tabbar chrtabs" data-sec="${esc(key)}">${agents.map(a => tiles([a]).replace(/ title="[^"]*"/g, "")   // no tooltips: a rest shows the agent's menu
@@ -9943,7 +9998,18 @@ const benchStyle = () => ({card: "icon"}[localStorage.getItem("bench")] || local
   || (localStorage.getItem("page") === "custom" && leaves(layout().root).some(([, n]) => n.show === "characters") ? "icon" : "name");
 // A pane's scrolling part fades at an edge while there is more beyond it.
 const FADES = ".card.full .feed, .teamlog:not(.summary) .feed, .fdoc, .others, .chrs, #wkcard .wkc-thread, #wkcard .wkc-more";
+// A thread's head over its lines: its open ask in full at the newest lines, one line once scrolled up from them, and
+// in full again at the bottom. The margins keep the change of the head's height from flipping it back.
+function thHeadFit(el) {
+  const head = el?.querySelector(":scope > .thhead"); if (!head) return;
+  const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (!head.classList.contains("mini") && d > 30 + head.offsetHeight) el.dataset.thmini = "1";
+  else if (d < 30) delete el.dataset.thmini;
+  head.classList.toggle("mini", !!el.dataset.thmini);
+}
+document.addEventListener("scroll", e => { if (e.target.querySelector?.(":scope > .thhead")) thHeadFit(e.target); }, true);
 function edges(el) {
+  thHeadFit(el);
   const head = el.querySelector(":scope > .thhead");
   el.style.setProperty("--fo", head ? Math.max(1, Math.round(head.getBoundingClientRect().bottom - el.getBoundingClientRect().top)) + "px" : "1px");
   el.style.setProperty("--ft", el.scrollTop > 1 ? "28px" : "0px");
@@ -12008,16 +12074,19 @@ function customHtml(ceil, tabRow) {
     // unlocked, the bar: the grip, the tabs, + for another tab and the pane's menu; under them the showing tab's own
     // settings: its roles, agent, document, badges or gauges, and Full or Summary
     const locked = pageLocked(), full = n.show && !["others", "characters", "file", "machine", "daylog", "search", "workqueue", "pipeline", "work", "tokens", "shell"].includes(n.show);
+    // a Combined pane listing its threads has its roles, badges and Full or Summary in the list's ⋯ instead (its agents
+    // stay along its top)
+    const thset = n.show === "combined" && fullView(n) && thMode(COMB + path) === "threads";
     const own = [
-      CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) ? roleChips(path, n) : "",   // Token usage has them in the pane
+      CHIP_VIEWS.includes(n.show) && !["meeting", "tokens"].includes(n.show) && !thset ? roleChips(path, n) : "",   // Token usage has them in the pane
       n.show === "daylog" ? dayLogFilters(n) : "",
       n.show === "file" ? `<input data-act="path" value="${esc(n.path || "")}" placeholder="Type a file path" spellcheck="false" title="A document's full path: Enter to show it, or choose from the list of the folder typed so far">` : "",
       n.show === "agent" && S.agents.some(a => a.name === n.name) ? agentPick(n, false) : "",
-      ["tabs", "combined"].includes(n.show) ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : "",
+      ["tabs", "combined"].includes(n.show) && !thset ? `<select data-act="badge" title="How agents are shown">${BADGES.map(([v, label]) => `<option value="${v}"${v === (n.badge || "name") ? " selected" : ""}>${label}</option>`).join("")}</select>` : "",
       n.show === "meeting" && !meetOf(n) ? meetChips(path, n) : "",
       n.show === "machine" ? `<span class="seg">${[["gauges", "Gauges"], ["rows", "Rows"]].map(([v, label]) =>
         `<b data-act="machine" data-v="${v}" class="${v === (n.machine || "gauges") ? "on" : ""}">${label}</b>`).join("")}</span>` : "",
-      full ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
+      full && !thset ? `<span class="seg">${[["full", "Full", "The whole conversation"], ["summary", "Summary", "The newest turns"]].map(([v, label, title]) =>
         `<b data-act="view" data-v="${v}" class="${(v === "full") === fullView(n) ? "on" : ""}" title="${title}">${label}</b>`).join("")}</span>` : ""].join("");
     const bar = locked ? "" : `<div class="pbar">
       <b data-act="move" class="pmove" title="Drag onto another pane to swap the two">⠿</b>
@@ -12304,7 +12373,7 @@ function combinedHtml(path, n, full, big) {
     : ""}<span class="name pick" style="--c:${talk.colour}" ${pick}>${esc(shown(talk.name))} ▾</span>${all.length ? reTag(re) : ""}${termMark(talk.name)}${one ? "" : `<span class="x" data-chat="${esc(path)}" title="Close the chat">${MENU_ICON.close}</span>`}</div>${sayRow(talk)}</div>` : "";
   const feed = `<div class="feed" data-key="${esc(fkey)}"${keep ? " data-kept" : ""}>${keep ? "" : !chosen.length ? `<div class="empty">no agent in these roles is running</div>` : thr && !one ? `<div class="empty">the roles counted have no threads</div>` : head + feedHtml(log, "", !full, ALL, one ? one.name : null, mark)}</div>${full ? `<button class="newest" title="Back to the newest turn">↓ Newest</button>` : ""}${chat}`;
   const un = thr ? combinedUnseen(tl) : {}, unFirst = thUnreadFirst(all, un, one?.name), tbtn = roleFilter(n, "troles", path, "Counting");
-  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(unFirst, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, tbtn, talk?.colour || colours[one?.agents[0]] || "")}</div>` +
+  const body = thr ? `<div class="thbody${thFolded() ? " thfold" : ""}"><div class="thlist">${thListHtml(thHoldOrder(unFirst, $(`#main .pane[data-path="${path}"] .teamlog.combined .thlist`)), one?.name, un, key, talk?.colour || colours[one?.agents[0]] || "")}</div>` +
     `<div class="thchips">${tbtn}${thChipsHtml(unFirst, one?.name, un)}</div>${feed}</div>` : feed;
   const off = a => ppBenched(a.name) ? " benched" : "";
   return `<div class="teamlog combined${full ? "" : " summary"}${thr ? " thon" : ""}" data-name="${key}"><div class="thead">${n.badge === "card" && chosen.length ? `<span class="cnames chrrow">${tiles(them)}</span>`
@@ -13475,6 +13544,7 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
     const upto = Math.max(ts, ...(it._asked || []).map(x => Date.parse(x) || 0)); t.any = Math.max(t.any, upto); if (counts(it)) t.last = Math.max(t.last, upto);
     const at = (it._asked || [it.ts]).at(-1) || ""; if (at > (t.at || "")) t.at = at;
     if (it._ask && !it.past) ask[th] = it;   // one of an earlier conversation's ended with it
+    if (it._withdraws) ask[th] = null;
     if (["owner", "echo", "pending"].includes(it.kind)) { if (ask[th]) t.answered = ts; ask[th] = null; }
     if (it.kind === "said" && !it.summary && !thNotice(it.text) && counts(it)) t.latest = it.text;
   }
@@ -13499,6 +13569,8 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
   // thread open
   const un = thNoClosed() && d ? unseenBy({name}, items) : null;
   const list = un && thListOf(key), stay = thHeld(list) ? new Set([...list.querySelectorAll(".thitem")].map(e => e.dataset.thread)) : null;
+  // an ask said in a message to another agent ("waits only on Peter's Approve") is closed once its ticket is
+  for (const t of by.values()) if (t.ask?._via && closed(t.name)) t.ask = null;
   const shut = t => !!un && t.name !== sel && !stay?.has(t.name) && isKey(t.name) && !t.ask && !un[t.name]?.n && closed(t.name);
   const hid = thHidden[name] || {};
   for (const th of by.keys()) tkWant(th);
@@ -13605,6 +13677,54 @@ document.addEventListener("click", e => {
   menu.style.cssText = `top:${r.bottom + 4}px;left:${Math.max(8, Math.min(r.left, innerWidth - 168))}px`;
   document.body.append(menu);
 }, true);
+// A thread list's settings, in one ⋯ menu over it (owner, 2026-11-27): in a Combined pane, who is shown (its agents
+// stay in the row along its top, to open one directly), whose messages
+// are counted, the order, Remove closed, Full or Summary and how its agents are shown; an agent's, the order and Remove
+// closed. A line over the list says what they are.
+const thSetBtn = key => `<b class="thsetbtn" data-thset="${esc(key)}" title="Who is shown, what is counted and the order">${MENU_ICON.more}</b>`;
+const thSortWords = () => TH_SORTS.find(([k]) => k === thSort())[1].toLowerCase();
+function thSummary(key) {
+  const n = key.startsWith(COMB) ? combNode(key) : null, closed = thNoClosed() ? " · closed left out" : "";
+  if (!n) return thSortWords() + closed;
+  const lit = roleList().filter(r => roleLit(n, r.role)), name = r => plural(roleList().find(x => x.role === r)?.name || r);
+  const who = !pickedAny(n) || lit.length === roleList().length ? "Everyone" : !lit.length ? `${combinedAgents(n).length} agents` : lit.length <= 2 ? lit.map(r => name(r.role)).join(", ") : `${lit.length} roles`;
+  const {list, on} = rolesIn(n, "troles"), out = list.map(r => r.role).filter(r => !on.includes(r));
+  const count = !out.length ? "counting everyone" : !on.length ? "counting no one" : out.length <= 2 ? "counting all but " + out.map(name).join(", ") : on.length <= 2 ? "counting " + on.map(name).join(", ") : `counting ${on.length} roles`;
+  return `${who} · ${count} · ${thSortWords()}${closed}`;
+}
+function thSetHtml(key) {
+  const n = key.startsWith(COMB) ? combNode(key) : null;
+  const chip = (k, label, on, icon = "", tip = "") => `<b class="chip${on ? " on" : ""}" data-ths="${esc(k)}"${tip ? ` title="${esc(tip)}"` : ""}>${icon}${esc(label)}</b>`;
+  const sect = (head, chips) => `<div class="hd"><div>${head}</div></div><div class="mchips">${chips}</div>`;
+  const order = sect("Order", TH_SORTS.map(([k, , l]) => chip("sort:" + k, l, k === thSort())).join("") +
+    chip("noclosed", "Remove closed", thNoClosed(), "", "Leave out each thread whose ticket is closed, unless it has something unread or is open"));
+  if (!n) return `<div class="thset">${order}</div>`;
+  const {list, on} = rolesIn(n, "troles"), every = !pickedAny(n);
+  return `<div class="thset">` +
+    sect("Shown", chip("who:", "Everyone", every) + roleList().map(r => chip("who:" + r.role, r.name, !every && roleLit(n, r.role), roleMark(r))).join("")) +
+    sect("Counted in the threads", chip("count:*", "Everyone", on.length === list.length) + list.map(r => chip("count:" + r.role, r.name, on.includes(r.role), roleMark(r))).join("")) +
+    order +
+    sect("Conversation", chip("view:full", "Full", fullView(n)) + chip("view:summary", "Summary", !fullView(n))) +
+    sect("Agents shown as", BADGES.map(([v, l]) => chip("badge:" + v, l, (n.badge || "name") === v)).join("")) + `</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-thset]"), it = e.target.closest?.("#menu [data-ths]");
+  if (!b && !it) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  if (b) { const k = "thset:" + b.dataset.thset; if (menuOn(k)) return menuOff(true); menuAt(b, k, thSetHtml(b.dataset.thset)); return; }
+  const key = menu.dataset.key.slice("thset:".length), [what, v] = [it.dataset.ths.split(":")[0], it.dataset.ths.slice(it.dataset.ths.indexOf(":") + 1)];
+  const path = key.startsWith(COMB) ? key.slice(COMB.length) : null;
+  const change = f => { const l = layout(), n = nodeAt(l.root, path); f(n); saveLayout(l); };
+  if (what === "sort") localStorage.setItem("thsort", v);
+  else if (what === "noclosed") localStorage.setItem("thnoclosed", thNoClosed() ? "0" : "1");
+  else if (what === "who") { change(n => pickRole(n, v)); setTimeout(load); }
+  else if (what === "count") change(n => { const out = rolesOut(n, "troles"), every = rolesIn(n, "troles").list.map(x => x.role);
+    n.troles = v !== "*" ? out.includes(v) ? out.filter(x => x !== v) : [...out, v] : every.some(x => out.includes(x)) ? [] : every; });
+  else if (what === "view") { change(n => { n.view = v; }); setTimeout(load); }
+  else if (what === "badge") change(n => { n.badge = v; });
+  thFlip = true; draw(); if (open) renderConv(); wkRedraw(); thFlip = false;
+  if (menuOn("thset:" + key)) menuAt(null, "thset:" + key, thSetHtml(key), false, true);
+}, true);
 const thFoldBtn = () => `<b class="thfoldbtn" data-thfold title="${thFolded() ? "Show the threads in full" : "Fold the threads to their badges"}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="${thFolded() ? "M4.5 2.5 8 6l-3.5 3.5" : "M7.5 2.5 4 6l3.5 3.5"}"/></svg></b>`;
 const THMORE = `<b class="unseen thmore up" data-thmore="up"></b><b class="unseen thmore down" data-thmore="down"></b>`;
 // the edge counts of a thread list: its unread threads above and below what shows
@@ -13623,7 +13743,7 @@ document.addEventListener("scroll", e => { if (e.target.matches?.("#dthreads, .t
 document.addEventListener("click", e => {
   const b = e.target.closest?.("[data-thmore]"); if (!b) return;
   e.stopImmediatePropagation();
-  const list = b.parentElement, box = list.getBoundingClientRect(), un = [...list.querySelectorAll(".thitem")].filter(x => x.querySelector(".unseen"));
+  const list = b.closest(".thlist, #dthreads"), box = list.getBoundingClientRect(), un = [...list.querySelectorAll(".thitem")].filter(x => x.querySelector(".unseen"));
   const t = b.dataset.thmore === "up" ? un.filter(x => x.getBoundingClientRect().bottom < box.top + 20).at(-1) : un.find(x => x.getBoundingClientRect().top > box.bottom - 20);
   t?.scrollIntoView({block: "nearest", behavior: "smooth"});
 }, true);
@@ -13634,26 +13754,26 @@ function thUnreadFirst(all, un, sel) {
   const at = t => !t.name || t.name === EVERY || t.ask || pins.has(t.name) ? 0 : sel !== EVERY && t.name !== sel && un[t.name]?.n ? 1 : 2;
   return [...all].sort((a, b) => at(a) - at(b));
 }
-function thListHtml(list, sel, un = {}, filter = "", colour = "") {
+function thListHtml(list, sel, un = {}, key = "", colour = "") {
   // the open one's colour, where the list's own place has none; any other in its latest agent's, for its unread count
   const c = t => { const k = t.name === sel ? colour : colours[t.agents?.[0]]; return k ? ` style="--c:${k}"` : ""; };
-  if (thFolded()) return THMORE + `<div class="thtools">${filter}${thSortBtn(false)}${thFoldBtn()}</div>` + list.map(t => {
-    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
+  if (thFolded()) return THMORE + `<div class="thtools">${thSetBtn(key)}${thFoldBtn()}</div>` + list.map(t => {
+    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask && !!t.ask) : "";   // Everything open: all of it is in view
     const tip = t.title + (t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : "");
     return `<div class="thitem thmini${t.name === sel ? " on" : ""}"${c(t)} data-thread="${esc(t.name)}" title="${esc(tip)}">${badge}${thPinBtn(t)}<span class="thl${t.ask ? " ask" : ""}">${esc(t.key || (t.name === EVERY ? "All" : t.name) || "General")}</span>${thX(t)}</div>`;
   }).join("");
-  return THMORE + `<div class="thtools">${filter}${thSortBtn()}${thFoldBtn()}</div>` + list.map(t => {
-    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask) : "";   // Everything open: all of it is in view
+  return `<div class="thtools"><span class="thsumm" title="${esc(thSummary(key))}">${esc(thSummary(key))}</span>${THMORE}${thSetBtn(key)}${thFoldBtn()}</div>` + list.map(t => {
+    const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name), badge = u?.n ? unseenBadge(u.n, u.ask && !!t.ask) : "";   // Everything open: all of it is in view
     const tag = t.ask ? `<span class="thl ask">waiting on you · asked ${t.ask._asked.length}×</span>`
       : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<span class="thl ok">answered</span>`
       : t.name && t.name !== EVERY && t.latest ? `<span class="thsum">${esc(t.latest.replace(/\s+/g, " ").slice(0, 70))}</span>` : "";   // All and General: their names alone
-    const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "", meta = t.name && t.name !== EVERY && !t.key ? "not a ticket" : "";
+    const ago = t.last ? `<i class="thago">${thAgo(t.last)}</i>` : "";
     // a ticket's key first (else the thread's name), with the count and the time since its last line, then the ticket's title under it
     const closed = t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : "";
-    const head = `<b class="thtop">${badge}<span>${esc(t.key || t.title)}</span>${closed}${ago}</b>` + (t.key && t.title !== t.key ? `<span class="thkey">${esc(t.title)}</span>` : "");
-    const who = t.name && t.agents?.length ? `<span class="thwho ppdesk">${t.agents.slice(0, 8).map(x => `<span title="${esc(shown(x))}${ppBenched(x) ? " (benched)" : ""}">${ppFace(x)}</span>`).join("")}${t.agents.length > 8 ? `<i title="${esc(t.agents.slice(8).map(shown).join(", "))}">+${t.agents.length - 8}</i>` : ""}</span>` : "";
-    return `<div class="thitem${t.name === sel ? " on" : ""}"${c(t)} data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}${who}` +
-      (meta ? `<span class="thmeta">${meta}</span>` : "") + `${tag}</div>`;
+    const who = t.name && t.agents?.length ? `<span class="thwho ppdesk">${t.agents.slice(0, 5).map(x => `<span title="${esc(shown(x))}${ppBenched(x) ? " (benched)" : ""}">${ppFace(x)}</span>`).join("")}${t.agents.length > 5 ? `<i title="${esc(t.agents.slice(5).map(shown).join(", "))}">+${t.agents.length - 5}</i>` : ""}</span>` : "";
+    // its key (else its name), with its count, who is in it and the time since its last line; a ticket's title under it
+    const head = `<b class="thtop">${badge}<span${t.key ? ` class="thk"` : ""}>${esc(t.key || t.title)}</span>${closed}${who}${ago}</b>` + (t.key && t.title !== t.key ? `<span class="thkey">${esc(t.title)}</span>` : "");
+    return `<div class="thitem${t.name === sel ? " on" : ""}"${c(t)} data-thread="${esc(t.name)}">${head}${thX(t)}${thPinBtn(t)}${tag}</div>`;
   }).join("");
 }
 // the open thread's head, kept at the top: its name, its key or "not a ticket", and the ask open in it (amber, the
@@ -13672,9 +13792,9 @@ function thHeadHtml(t, name) {
   // Combined pane each agent's, with its name
   const at = a => phAnswered[a + "\n" + t.name] || 0, done = t.parts ? Math.max(0, ...t.parts.map(p => at(p[0]))) : at(name);
   const asks = (t.asks || (t.ask ? [{agent: "", ask: t.ask}] : [])).filter(x => !(at(x.agent || name) > (Date.parse(x.ask._asked.at(-1)) || 0)));
-  const qa = x => `<div class="phqa dqa">${(thYesNo(x.ask.text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
+  const qa = x => `<div class="phqa dqa">${(thYesNo((x.ask._askText || x.ask.text)) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]])
     .map(([w, l]) => `<button data-thqa="${w}" data-thqth="${esc(t.name)}" data-agent="${esc(x.agent)}">${l}</button>`).join("")}</div>`;
-  const ask = asks.length ? asks.map(x => `<div class="thask">${thClrBtn(t, x.agent)}<b>Open ask</b>${x.agent ? ` from <span class="name" style="--c:${colours[x.agent] || "#888"}">${esc(shown(x.agent))}</span>` : ""} · ${inline(thAskLine(x.ask.text))}<small>First asked ${thWhen(x.ask._asked[0])}` +
+  const ask = asks.length ? asks.map(x => `<div class="thask">${thClrBtn(t, x.agent)}<b>Open ask</b>${x.agent ? ` from <span class="name" style="--c:${colours[x.agent] || "#888"}">${esc(shown(x.agent))}</span>` : ""} · <span class="thaskq">${inline(thAskLine((x.ask._askText || x.ask.text)))}</span><small>First asked ${thWhen(x.ask._asked[0])}` +
       `${x.ask._asked.length > 1 ? ` · asked again ${x.ask._asked.slice(1).map(thWhen).join(", ")} (folded in here, not repeated below)` : ""}</small>${qa(x)}</div>`).join("")
     : done ? `<div class="thask ok">Answered ${thWhen(done)}</div>` : t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "";
   return `<div class="thhead"><div class="thname"><b>${esc(t.key || t.title)}</b>${t.closed ? `<span class="thl thclosed">closed</span>` : ""}<span>${t.name === EVERY ? "every thread" : t.name ? esc(t.key ? (t.title !== t.key ? t.title : "") : "not a ticket") : "anything else"}</span></div>${ask}</div>`;
@@ -13694,6 +13814,10 @@ document.addEventListener("click", e => {
   wkRedraw(); thFlip = false;
 }, true);
 var thFlip = false;   // the list redrawn under the pointer, as its fold button was pressed
+// the thread pressed: a click opens it, even where the list was redrawn between the press and the release
+let thPressed = null;
+addEventListener("pointerdown", e => { const el = e.target.closest?.(".thitem[data-thread], .thl[data-thread]"); thPressed = el ? {th: el.dataset.thread, at: Date.now()} : null; }, true);
+const thAimed = el => thPressed && Date.now() - thPressed.at < 2000 ? thPressed.th : el.dataset.thread;
 document.addEventListener("click", e => {
   const m = e.target.closest?.("[data-thm]"), item = e.target.closest?.(".thitem[data-thread]"), label = e.target.closest?.(".thl[data-thread]");
   const agent = (m || item || label) && thAgent(e.target);
@@ -13703,7 +13827,7 @@ document.addEventListener("click", e => {
   const x = !m && (item || label).classList.contains("on") && threadAt(e.target);
   if (x) { thOpen(agent, x.th); if (e.detail < 2 && threadShut === x.key || threadMenu(x.el, agent, x.th)) return; }
   if (m) localStorage.setItem("threads:" + agent, m.dataset.thm);
-  if (item || label) thOpen(agent, (item || label).dataset.thread);
+  if (item || label) thOpen(agent, thAimed(item || label));
   thShow(agent, e.target.closest("#detail"));
 }, true);
 document.addEventListener("click", e => {
@@ -13909,7 +14033,7 @@ const thSeg = name => `<span class="seg thseg" data-name="${esc(name)}">${[["thr
   `<b data-thm="${m}" class="${thMode(name) === m ? "on" : ""}" title="${tip}">${MENU_ICON[i]}</b>`).join("")}</span>`;
 // a narrow view's threads: a row of chips over the open thread
 const thChipsHtml = (all, sel, un = {}) => all.map(t => { const u = t.name === sel || sel === EVERY ? null : thUn(un, t.name);
-  return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span>`; }).join("");
+  return `<span class="thl${t.name === sel ? " on" : ""}${t.ask ? " ask" : ""}" data-thread="${esc(t.name)}" title="${esc(t.title)}${t.ask ? `: waiting on you, asked ${t.ask._asked.length}×` : ""}">${esc(t.title)}${t.ask ? ` · ${t.ask._asked.length}×` : ""}${u?.n ? unseenBadge(u.n, u.ask && !!t.ask) : ""}</span>`; }).join("");
 // The thread a message from the open agent's box goes to where the box is not in a thread (All, or Everything): the
 // newest ask still open, unless the owner picked another or none (General), shown over the box as "Re: LFE-1493 ▾".
 // The pick holds until the message is sent.
@@ -13968,12 +14092,12 @@ function phInboxHtml(all, un) {
   const top = all.filter(t => !t.name || t.name === EVERY), wait = all.filter(t => t.ask && t.name && t.name !== EVERY), other = all.filter(t => t.name && t.name !== EVERY && !t.ask);
   const plain = t => { const u = thUn(un, t.name);
     return `<button class="phthrow plain${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b></span>` +
-      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
-  const row = t => { const u = un[t.name], text = phPlain(t.ask ? thAskLine(t.ask.text) : t.latest);
+      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask && !!t.ask) : ""}</span></button>`; };
+  const row = t => { const u = un[t.name], text = phPlain(t.ask ? thAskLine((t.ask._askText || t.ask.text)) : t.latest);
     const where = t.key ? [t.title !== t.key && esc(t.title), t.closed ? "closed" : t.stage && esc(t.stage)].filter(Boolean).join(" · ") : t.name ? "not a ticket" : "anything else";
     return `<button class="phthrow${t.ask ? " ask" : ""}" data-phth="${esc(t.name)}"><span class="l1"><b>${esc(t.key || t.title)}</b><i>${phAgo(t)}</i></span>` +
       `<span class="l2">${where}</span>${text ? `<span class="l3">${esc(text)}</span>` : ""}` +
-      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask) : ""}</span></button>`; };
+      `<span class="r">${t.ask ? `<span class="thl ask">asked ${t.ask._asked.length}×</span>` : ""}${u?.n ? unseenBadge(u.n, u.ask && !!t.ask) : ""}</span></button>`; };
   // a prompt open in the agent's pane is answered from the inbox too
   const prompt = convFeed.filter(it => it.kind === "ask");
   return (prompt.length ? feedHtml(prompt, open, false) : "") + top.map(plain).join("") +
@@ -13985,10 +14109,10 @@ const thYesNo = text => { const q = (thAskLine(text).match(/[^.!?:]*\?\s*$/) || 
   return /\b(yes or no|yes\/no)\b/i.test(thAskLine(text)) || !!q && !/^(what|which|who|whom|whose|when|where|why|how)\b/i.test(q) && !/\bor\b/i.test(q); };
 function phThHeadHtml(t) {
   const done = phAnswered[open + "\n" + t.name], open_ = t.ask && !(done > (Date.parse(t.ask._asked.at(-1)) || 0));
-  const qa = !open_ ? "" : thYesNo(t.ask.text) ? `<div class="phqa"><button data-phqa="Yes">Yes</button><button data-phqa="No">No</button><button data-phqa="Why?">Ask why</button></div>`
+  const qa = !open_ ? "" : thYesNo((t.ask._askText || t.ask.text)) ? `<div class="phqa"><button data-phqa="Yes">Yes</button><button data-phqa="No">No</button><button data-phqa="Why?">Ask why</button></div>`
     : `<div class="phqa"><button data-phqa="">Reply</button></div>`;
   const clr = open_ ? thClrBtn(t) : "";
-  const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · ${inline(thAskLine(t.ask.text))}<small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
+  const ask = open_ ? `<div class="thask">${clr}<b>Open ask</b> · <span class="thaskq">${inline(thAskLine((t.ask._askText || t.ask.text)))}</span><small>asked ${t.ask._asked.length}× · since ${thWhen(t.ask._asked[0])}</small>${qa}</div>`
     : done || t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(Math.max(done || 0, t.answered || 0))}</div>` : "";
   const who = t.key ? `${t.title !== t.key ? esc(t.title) + " · " : ""}${esc(shown(open))}` : t.name && t.name !== EVERY ? `not a ticket · ${esc(shown(open))}` : esc(shown(open));
   return `<div class="thhead phth">${EMBED ? `<b class="phthback" data-phthback title="Back to the threads" aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></b>` : ""}<div class="phthname"><b>${esc(t.key || t.title)}</b><span>${who}${t.closed ? ` <span class="thl thclosed">closed</span>` : ""}</span></div>${ask}</div>`;
@@ -14043,13 +14167,14 @@ function renderConv() {
     const ag = S.agents.find(x => x.name === open), un = ag ? unseenBy(ag, convFeed) : {};
     patch(conv, phTh[open] == null ? phInboxHtml(phThAll(open), un) : phThHeadHtml(phThSel(open)) + feedHtml(convFeed, open, false, laneOf(open), phTh[open] === EVERY ? null : phTh[open], phNew[open]));
   } else if (on) {
-    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, un = ag ? unseenBy(ag, convFeed) : {}, html = thListHtml(thHoldOrder(thUnreadFirst(all, un, sel), list), sel, un, "", ag?.colour || "");
+    const ag = S.agents.find(x => x.name === open), sel = thPick(all, open).name, un = ag ? unseenBy(ag, convFeed) : {}, html = thListHtml(thHoldOrder(thUnreadFirst(all, un, sel), list), sel, un, open, ag?.colour || "");
     patch(list, html);
     thEdges(list);
     patch(conv, thHeadHtml(all.find(t => t.name === sel), open) + feedHtml(convFeed, open, false, laneOf(open), sel === EVERY ? null : sel, newMarkAt(open, sel)));
   } else {
     patch(conv, convFeed.length ? feedHtml(convFeed, open, false, laneOf(open), null, newMarkAt(open, EVERY)) : `<div class="empty">no conversation yet</div>`);
   }
+  thHeadFit(conv);
   const a = S.agents.find(x => x.name === open);
   if (a) shutBox($("#dsay"), a);
   reDraw();
@@ -15840,7 +15965,7 @@ function phListHtml() {
     return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${ago(a.held)}</small><b>${esc(shown(a.name))}: ${esc(phPlain(ask?.text) || "a prompt is open")}</b></span>${PH_ICON.chev}</button>`; };
   // an agent's newest open ask in a thread, a tap opening that thread
   const thBanner = a => { const t = phAsks(a)[0]; if (!t || a.status === "waiting") return "";
-    return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-thopen="${esc(t.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${thAgo(Date.parse(t.ask._asked.at(-1)))}</small><b>${esc(shown(a.name))}: ${esc(phPlain(thAskLine(t.ask.text)))}</b></span>${PH_ICON.chev}</button>`; };
+    return `<button class="ph-wait waiting" data-open="${esc(a.name)}" data-thopen="${esc(t.name)}" data-menu-name="${esc(a.name)}">${phPor(a)}<span class="ph-mid"><small>Waiting for you · ${thAgo(Date.parse(t.ask._asked.at(-1)))}</small><b>${esc(shown(a.name))}: ${esc(phPlain(thAskLine((t.ask._askText || t.ask.text))))}</b></span>${PH_ICON.chev}</button>`; };
   const banners = wait.map(banner).join("") + S.agents.filter(a => a.live).map(thBanner).join("");
   const row = (a, big) => { const st = stOf(a), last = phLast(a), n = unseen(a);
     return `<button class="ph-row ${st}${big ? " big" : ""}${switching(a)}" data-open="${esc(a.name)}" data-menu-name="${esc(a.name)}">${phPor(a, big ? "" : " s")}<span class="ph-mid"><span class="ph-line1"><span class="ph-name">${esc(shown(a.name))}</span>` +
