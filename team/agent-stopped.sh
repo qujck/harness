@@ -22,7 +22,7 @@ selftest() {
   HOME=$T HARNESS_PROJECT=p AGENT_NAME=Ada bash "$_here/agent-stopped.sh" >/dev/null; check "records the agent" "$(cut -f1 "$F")" Ada
   HOME=$T HARNESS_PROJECT=p AGENT_NAME=Lea bash "$_here/agent-stopped.sh" >/dev/null
   HOME=$T HARNESS_PROJECT=p AGENT_NAME=Ada bash "$_here/agent-stopped.sh" >/dev/null
-  check "one line a name, the newest last" "$(cut -f1 "$F" | paste -sd,)" "Lea,Ada"
+  check "one line a name, the newest last" "$(cut -f1 "$F" | paste -sd, -)" "Lea,Ada"
   check "  with the time" "$(awk -F'\t' '$2 ~ /^[0-9]+$/' "$F" | wc -l | tr -d ' ')" 2
   (cd "$T" && HOME=$T HARNESS_PROJECT=p AGENT_NAME= bash "$_here/agent-stopped.sh" >/dev/null 2>&1); check "no name is refused" "$?" 1
   bash "$_here/agent-stopped.sh" --now >/dev/null 2>&1; check "an argument is refused" "$?" 2
