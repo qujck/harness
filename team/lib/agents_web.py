@@ -118,6 +118,24 @@ PUBLIC_HOST = os.environ.get("AGENT_WEB_PUBLIC_HOST") or ""
 ACCESS_TEAM = (os.environ.get("AGENT_WEB_ACCESS_TEAM") or "").removeprefix("https://").split(".")[0]
 ACCESS_AUD = os.environ.get("AGENT_WEB_ACCESS_AUD") or ""
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
+
+
+def load_roster(path):
+    """The roster at `path`, its people read from the file its `_people_file` names when it names one
+    (strength keeps its people outside git, #7164; the rules and machines stay in the git file). A pointer
+    to a file that cannot be read gives no people, never the git file's stale ones."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    people = data.pop("_people_file", None) if isinstance(data, dict) else None
+    if people:
+        for k in ("agents", "humans", "assistants"):
+            data.pop(k, None)
+        try:
+            with open(people, encoding="utf-8") as f:
+                data.update(json.load(f))
+        except (OSError, ValueError):
+            data["agents"] = []
+    return data
 # {name: the name the page shows the owner}, for the agent's menu and tooltips only. A name is still one spelling
 # everywhere else (the roster's rule), so this file is the page's, and an agent not in it shows its name.
 FULL_NAMES = os.environ.get("AGENT_FULL_NAMES") or ""
@@ -231,8 +249,7 @@ def setting(name):
 def roster():
     """The active agents in the roster's order, then its assistants: name, role id and address."""
     try:
-        with open(ROSTER) as f:
-            data = json.load(f)
+        data = load_roster(ROSTER)
     except (OSError, json.JSONDecodeError):
         return []
     rows = [{"name": a["name"], "role": a.get("role", ""), "email": (a.get("email") or "").lower()}
@@ -4321,8 +4338,7 @@ def team_json():
     The turns are the same 300 the page's state and each agent's view read (feed caches by length), so the Team pane
     shows the messages Combined does, and does not wait on a read of its own, which took 15-25s after a restart."""
     try:
-        with open(ROSTER) as f:
-            data = json.load(f)
+        data = load_roster(ROSTER)
     except (OSError, json.JSONDecodeError):
         data = {}
     team, msgs = {a.get("name") for a in (data.get("agents") or []) + (data.get("assistants") or [])} - {None}, []

@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { compactedText, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, pronounsLine, requestPath, rosterPathOf, statusText, type Window } from './compact.ts'
+import { compactedText, compactWindowOf, configPath, guard, hardAtOf, nudgeDue, nudgeText, parseCompactAfter, parseRequest, peopleFileOf, pronounsLine, requestPath, rosterPathOf, statusText, type Window } from './compact.ts'
 
 // Store keys, per session: the token count at the last nudge (re-armed when the count drops under it),
 // the mtime of the last request file acted on (a file is acted on once; the agent may write it again),
@@ -61,7 +61,11 @@ async function windowOf($: EngineInterface): Promise<Window | undefined> {
 async function pronounsOf($: EngineInterface): Promise<string> {
   const path = rosterPathOf({ ROSTER_FILE: await $.env.get('ROSTER_FILE'), PWD: await $.env.get('PWD') })
   if (!path) return ''
-  try { return (await $.fs.exists(path)) ? pronounsLine(await $.fs.read(path)) : '' } catch { return '' }
+  try {
+    if (!(await $.fs.exists(path))) return ''
+    const text = await $.fs.read(path), people = peopleFileOf(text)
+    return pronounsLine(people ? await $.fs.read(people) : text)
+  } catch { return '' }
 }
 
 // A request file newer than the last one handled is read, acted on, and remembered by its mtime.

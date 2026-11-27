@@ -27,6 +27,17 @@ export type SessionFile = {
 
 // agents/roster.json: the active rows of `agents`. The delivery lead watches; every other active role
 // is watched. Assistants are kept apart in `assistants` and are never watched.
+// ⚠ A ROSTER MAY NAME WHERE ITS PEOPLE LIVE. Strength keeps its people outside git (#7164): its
+// agents/roster.json holds the rules, the machines and `_people_file`, the path of the file holding agents,
+// humans and assistants, which is all this reads. A pointer is followed once; no pointer, or text that is
+// not a roster, comes back as it was.
+export function peopleFileOf(rosterText: string): string | undefined {
+  try {
+    const p = (JSON.parse(rosterText) as { _people_file?: unknown })?._people_file
+    return typeof p === 'string' && p.startsWith('/') ? p : undefined
+  } catch { return undefined }
+}
+
 export function parseRoster(json: string): Roster {
   const lead = new Set<string>()
   const team = new Set<string>()

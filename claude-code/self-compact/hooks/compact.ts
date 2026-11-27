@@ -190,6 +190,17 @@ export function rosterPathOf(env: { ROSTER_FILE?: string; PWD?: string }): strin
   return env.PWD ? `${env.PWD}/agents/roster.json` : undefined
 }
 
+// ⚠ A ROSTER MAY NAME WHERE ITS PEOPLE LIVE. Strength keeps its people outside git (#7164): its
+// agents/roster.json holds the rules, the machines and `_people_file`, the path of the file holding agents,
+// humans and assistants, which is all this reads. A pointer is followed once; no pointer, or text that is
+// not a roster, comes back as it was.
+export function peopleFileOf(rosterText: string): string | undefined {
+  try {
+    const p = (JSON.parse(rosterText) as { _people_file?: unknown })?._people_file
+    return typeof p === 'string' && p.startsWith('/') ? p : undefined
+  } catch { return undefined }
+}
+
 // Only a value in the roster's set is named (strength's ROSTER_PRONOUNS): "she", 7, ["she/her"], "She/Her" or a value
 // carrying a newline is left out like a missing one, so nothing malformed reaches a prompt (#6923 review F1).
 export const PRONOUNS = ['she/her', 'he/him', 'they/them'] as const

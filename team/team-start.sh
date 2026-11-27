@@ -33,6 +33,8 @@ _here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project="${TEAM_START_PROJECT:-}"
 [ -n "$project" ] || { [ -n "${ROSTER_FILE:-}" ] && project="$(cd "$(dirname "$ROSTER_FILE")/.." 2>/dev/null && pwd)"; }
 roster="${ROSTER_FILE:-$project/agents/roster.json}"
+# A roster naming its people's file (strength #7164: `_people_file`) is read there; only people are read here.
+_people="$(jq -r '._people_file // empty' "$roster" 2>/dev/null)"; [ -n "$_people" ] && roster="$_people"
 # --make-tree makes a standing agent's missing tree before printing its line; a project whose onboarding
 # predates it gets --launch-line, which refuses a missing tree and prints the command that makes it.
 launch_line() {

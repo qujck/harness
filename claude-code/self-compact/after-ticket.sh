@@ -32,8 +32,9 @@ ends_ticket() {
 }
 
 # role_of <name> <roster> -> the roster role for name (any case), or nothing   (pure)
-role_of() {
-  jq -r --arg n "${1,,}" '.agents[] | select((.name | ascii_downcase) == $n) | .role // empty' "$2" 2>/dev/null | head -1
+role_of() {  # <name> <roster>: a roster naming its people's file (`_people_file`, strength #7164) is read there
+  local f="$2" p; p="$(jq -r '._people_file // empty' "$f" 2>/dev/null)"; [[ -n "$p" ]] && f="$p"
+  jq -r --arg n "${1,,}" '.agents[] | select((.name | ascii_downcase) == $n) | .role // empty' "$f" 2>/dev/null | head -1
 }
 
 run() {
@@ -64,6 +65,8 @@ self_test() {
   printf '{"agents":[{"name":"OBrian","role":"test-reviewer"},{"name":"Addy","role":"code-reviewer"},{"name":"Ada","role":"developer"}]}' > "$d/roster.json"
   _t "the roster's role, any case" "$(role_of obrian "$d/roster.json")" test-reviewer
   _t "an unreadable roster: no role" "$(role_of Addy "$d/none.json")" ""
+  printf '{"_people_file":"%s","agents":[{"name":"Addy","role":"developer"}]}' "$d/roster.json" > "$d/git.json"
+  _t "a roster naming its people's file is read there, not its own stale rows (#7164)" "$(role_of Addy "$d/git.json")" code-reviewer
   # the real entry point: a reviewer's work off writes this session's request and says so; a developer's writes nothing
   out="$(p 'bash scripts/ledger-db.sh work off' | GIT_AUTHOR_NAME=Addy AFTER_TICKET_ROSTER="$d/roster.json" XDG_STATE_HOME="$d/s" bash "$HERE/after-ticket.sh")"
   r="$(jq -r .instructions "$d/s/self-compact/sid-1.json" 2>/dev/null)"

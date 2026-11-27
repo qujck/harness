@@ -197,7 +197,29 @@ ROSTER_DOMAIN="${ROSTER_DOMAIN:-${HARNESS_PROJECT:-harness}.local}"
 roster_email_of_name() { printf '%s@%s\n' "${1,,}" "$ROSTER_DOMAIN"; }
 
 # ── file-backed wrappers ────────────────────────────────────────────────────────────────────────
-_roster_json() { local f; f="$(roster_file)"; [[ -r "$f" ]] && cat "$f" || printf '{"agents":[]}'; }
+# ⚠ A ROSTER FILE MAY NAME WHERE ITS PEOPLE LIVE. Strength keeps its people outside git (#7164): its
+# agents/roster.json holds the rules, the machines and `_people_file`, the path of the file holding
+# agents, humans and assistants. The people come from that file and everything else from this one;
+# every reader goes through here, so spawn, bench, the dashboard and the gates see one team.
+# A pointer to a file that cannot be read is said on stderr (once per call) and yields no people: an
+# unreadable register reads as nobody, never as the git file's stale people.
+roster_people_file() { local f; f="$(roster_file)"; [[ -r "$f" ]] && jq -r '._people_file // empty' "$f" 2>/dev/null; }
+_roster_json() {
+  local f p; f="$(roster_file)"
+  [[ -r "$f" ]] || { printf '{"agents":[]}'; return; }
+  p="$(roster_people_file)"
+  if [[ -z "$p" ]]; then cat "$f"
+  elif [[ -r "$p" ]] && jq -s '(.[0] | del(._people_file)) + .[1]' "$f" "$p" 2>/dev/null; then :
+  else printf 'roster: %s names its people in %s, which cannot be read — no people\n' "$f" "$p" >&2
+       jq '{agents: []} + (del(._people_file) | del(.agents, .humans, .assistants))' "$f"
+  fi
+}
+# A project whose people live elsewhere writes them with its own tool (strength: scripts/roster.sh,
+# which locks and logs). This library writing the git file would put people back into git.
+_roster_writable() {
+  local p; p="$(roster_people_file)"
+  [[ -z "$p" ]] || { printf '%s: this roster keeps its people in %s — change them with the project'"'"'s own tool (strength: bash scripts/roster.sh), not here\n' "$1" "$p" >&2; return 1; }
+}
 
 roster_lookup_name()   { _roster_json | roster_name_for_email  "${1:-}"; }
 roster_lookup_role()   { _roster_json | roster_role_for_name   "${1:-}"; }
@@ -232,6 +254,7 @@ roster_any_name()      { _roster_json | roster_name_for_any_email "${1:-}"; }
 roster_add() {
   local name="${1:?roster_add <name> <role> <date> [evidence] [full name]}" role="${2:?role}" date="${3:?date}"
   local ev="${4:-declared}" full="${5:-}" f tmp
+  _roster_writable roster_add || return 1
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_add: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
@@ -261,6 +284,7 @@ roster_add() {
 # Marks retired and stamps the date. The row STAYS — see the reader's constraint above.
 roster_retire() {
   local name="${1:?roster_retire <name> <date> [note]}" date="${2:?date}" note="${3:-}" f tmp
+  _roster_writable roster_retire || return 1
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_retire: no roster at %s\n' "$f" >&2; return 1; }
   roster_has_name "$name" || { printf 'roster_retire: %q is not in the roster\n' "$name" >&2; return 1; }
@@ -302,8 +326,8 @@ roster_retire() {
 roster_offboarded_on() {
   local name="${1:?roster_offboarded_on <name>}" f
   f="$(roster_file)"; [[ -r "$f" ]] || return 1
-  jq -r --arg n "${name,,}" '
-    (.agents[] | select((.name // "" | ascii_downcase) == $n) | .offboarded // "") // ""' "$f" 2>/dev/null
+  _roster_json | jq -r --arg n "${name,,}" '
+    (.agents[] | select((.name // "" | ascii_downcase) == $n) | .offboarded // "") // ""' 2>/dev/null
 }
 
 # roster_role <name> <role> <date> [evidence]
@@ -316,6 +340,7 @@ roster_offboarded_on() {
 roster_role() {
   local name="${1:?roster_role <name> <role> <date> [evidence]}" role="${2:?role}" date="${3:?date}"
   local ev="${4:-declared}" f tmp
+  _roster_writable roster_role || return 1
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_role: no roster at %s\n' "$f" >&2; return 1; }
   case "$role" in
@@ -345,6 +370,7 @@ roster_role() {
 roster_remit() {
   local name="${1:?roster_remit <name> <remit> <date> [evidence]}" remit="${2:?remit}" date="${3:?date}"
   local ev="${4:-declared}" f tmp tor
+  _roster_writable roster_remit || return 1
   f="$(roster_file)"
   [[ -r "$f" ]] || { printf 'roster_remit: no roster at %s\n' "$f" >&2; return 1; }
   roster_has_name "$name" || { printf 'roster_remit: %q is not in the roster\n' "$name" >&2; return 1; }
@@ -705,6 +731,30 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && selftest_is_flag "${1:-}"; then
   roster_role Wren2 wizard 2026-09-11 >/dev/null 2>&1 \
     && { printf '  FAIL  an unknown role was accepted by roster_role\n'; fails=1; } \
     || printf '  ok    an unknown role is refused by roster_role\n'
+
+  # ── A roster that names its people's file (strength #7164) ─────────────────────────────────────
+  _pd="$(mktemp -d)"
+  printf '{"agents":[{"name":"Live","email":"live@x","role":"developer","status":"active"}],"assistants":[{"name":"Asst"}]}\n' > "$_pd/people.json"
+  printf '{"_people_file":"%s","_rules":["r"],"machines":[{"name":"m1"}],"agents":[{"name":"Stale","email":"stale@x","role":"developer","status":"active"}]}\n' "$_pd/people.json" > "$_pd/roster.json"
+  _pt() { [[ "$2" == "$3" ]] && printf '  ok    %s\n' "$1" || { printf '  FAIL  %s: want [%s] got [%s]\n' "$1" "$2" "$3"; fails=1; }; }
+  _pt "a pointered roster's people come from the people file" "Live" "$(ROSTER_FILE="$_pd/roster.json" roster_list_active | cut -f1 | paste -sd,)"
+  _pt "…its assistants too" "Asst" "$(ROSTER_FILE="$_pd/roster.json" _roster_json | jq -r '[.assistants[].name] | join(",")')"
+  _pt "…and its machines from the git file" "m1" "$(ROSTER_FILE="$_pd/roster.json" _roster_json | jq -r '[.machines[].name] | join(",")')"
+  _pt "…the pointer itself is not passed on" "false" "$(ROSTER_FILE="$_pd/roster.json" _roster_json | jq 'has("_people_file")')"
+  _pt "CONTROL: a roster with no pointer reads as it is" "Stale" "$(sed 's/"_people_file":"[^"]*",//' "$_pd/roster.json" > "$_pd/plain.json"; ROSTER_FILE="$_pd/plain.json" roster_list_active | cut -f1 | paste -sd,)"
+  _pt "an unreadable people file is nobody, not the git file's stale rows" "" "$(mv "$_pd/people.json" "$_pd/gone.json"; ROSTER_FILE="$_pd/roster.json" roster_list_active 2>/dev/null | cut -f1 | paste -sd,)"
+  _pt "…and it says so" "1" "$(ROSTER_FILE="$_pd/roster.json" roster_list_active 2>&1 >/dev/null | grep -c 'cannot be read')"
+  mv "$_pd/gone.json" "$_pd/people.json"; cp "$_pd/roster.json" "$_pd/before.json"
+  ROSTER_FILE="$_pd/roster.json" roster_add Newbie developer 2026-11-27 >/dev/null 2>"$_pd/err"; _rc=$?
+  _pt "a pointered roster refuses this library's add" "1" "$_rc"
+  _pt "…naming the project's own tool" "1" "$(grep -c 'scripts/roster.sh' "$_pd/err")"
+  _pt "…and leaves both files as they were" "same" "$(cmp -s "$_pd/before.json" "$_pd/roster.json" && ! grep -q Newbie "$_pd/people.json" && echo same)"
+  for _v in "roster_retire Live 2026-11-27" "roster_role Live tester 2026-11-27" "roster_remit Live code-reviewer 2026-11-27"; do
+    ROSTER_FILE="$_pd/roster.json" $_v >/dev/null 2>&1 && { printf '  FAIL  a pointered roster accepted %s\n' "${_v%% *}"; fails=1; } || printf '  ok    a pointered roster refuses %s\n' "${_v%% *}"
+  done
+  _pt "…retire, role and remit changed nothing either" "same" "$(cmp -s "$_pd/before.json" "$_pd/roster.json" && echo same)"
+  _pt "roster_offboarded_on reads the people file too" "" "$(ROSTER_FILE="$_pd/roster.json" roster_offboarded_on Live)"
+  rm -rf "$_pd"
 
   # The real register must satisfy its own schema — a fixture proving nothing about the shipped file
   # is the gap this catches.

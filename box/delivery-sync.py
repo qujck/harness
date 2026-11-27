@@ -24,6 +24,24 @@ import sys
 import time
 
 ROSTER = os.environ.get("ROSTER_FILE", "/home/peter/dev/strength/agents/roster.json")
+
+
+def load_roster(path):
+    """The roster at `path`, its people read from the file its `_people_file` names when it names one
+    (strength keeps its people outside git, #7164; the rules and machines stay in the git file). A pointer
+    to a file that cannot be read gives no people, never the git file's stale ones."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    people = data.pop("_people_file", None) if isinstance(data, dict) else None
+    if people:
+        for k in ("agents", "humans", "assistants"):
+            data.pop(k, None)
+        try:
+            with open(people, encoding="utf-8") as f:
+                data.update(json.load(f))
+        except (OSError, ValueError):
+            data["agents"] = []
+    return data
 # The owner's /color for each role that is spawned.
 COLOURS = {"developer": "blue", "tester": "yellow"}
 SESSIONS = os.environ.get("DELIVERY_SYNC_SESSIONS", os.path.expanduser("~/.claude/sessions"))
@@ -52,8 +70,7 @@ def children(pid):
 
 
 def roster():
-    with open(ROSTER) as f:
-        return [a for a in json.load(f).get("agents", []) if a.get("status") == "active"]
+    return [a for a in load_roster(ROSTER).get("agents", []) if a.get("status") == "active"]
 
 
 def main():

@@ -56,6 +56,9 @@ running() { # running <claude-name>
 # (strength scripts/start-agent.sh). Rostered agents get their GIT_AUTHOR_* /
 # GIT_COMMITTER_* from agents/roster.json; anyone not on it (the house assistant) gets none.
 ROSTER=$(git -C "$S" show origin/main:agents/roster.json 2>/dev/null || cat "$S/agents/roster.json" 2>/dev/null || true)
+# The people may live outside git (strength #7164): the roster names their file in `_people_file`.
+_people=$(jq -r '._people_file // empty' <<<"$ROSTER" 2>/dev/null)
+[ -n "$_people" ] && ROSTER=$(cat "$_people" 2>/dev/null || true)
 ident() { # ident <name> -> "env GIT_...=... " or nothing
   local e
   e=$(jq -r --arg n "$1" '.agents[]? | select(.name==$n and .status=="active") | .email' <<<"$ROSTER" 2>/dev/null)
