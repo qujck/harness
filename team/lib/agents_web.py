@@ -11500,7 +11500,7 @@ document.addEventListener("click", e => {
   if (pin) { wkPin(pin.dataset.wkpin); return wkRedraw(); }
   const row = e.target.closest(".wkrow[data-wkkey]");
   if (row && !e.target.closest("a,button,input,[data-wkagent]")) {
-    if (!phoneOn()) { wkCardPane = Math.max(0, [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent).indexOf(row.closest(".teamlog.wk"))); return wkCardOpen(row.dataset.wkkey); }
+    if (!phoneOn()) { wkCardPane = Math.max(0, [...document.querySelectorAll("#main .teamlog.wk")].filter(e => e.offsetParent).indexOf(row.closest(".teamlog.wk"))); return wkCardOpen(row.dataset.wkkey); }
     wkSet("open", wkGet("open") === row.dataset.wkkey ? "" : row.dataset.wkkey); wkRedraw();
   }
 });
@@ -11525,9 +11525,10 @@ let wkCardSeen = null;   // watches the card's conversation change size, to keep
 let wkCardFloat = false;   // the card in the middle of the window, opened from elsewhere with no Work pane in view
 let wkCardKey = "", wkCardTo = [], wkCardPane = 0, wkCardMore = true;    // wkCardMore: the details card open   // wkCardPane: which Work pane on the page (0 the first) the card covers
 // the card sits over the Work pane it came from, kept on it as the page redraws, resizes or the pane moves
+// (a Work pane in #main: the card is drawn as one too, and must never sit over itself)
 const wkCardTint = () => $("#wkcard .wkc-chat")?.style.setProperty("--c", colours[wkCardTo[0]] || "var(--line2)");
 function wkCardPlace() {
-  const box = $("#wkcard"), pane = [...document.querySelectorAll(".teamlog.wk")].filter(e => e.offsetParent)[wkCardPane];
+  const box = $("#wkcard"), pane = [...document.querySelectorAll("#main .teamlog.wk")].filter(e => e.offsetParent)[wkCardPane];
   if (!box?.classList.contains("on")) return;
   box.querySelectorAll(".wkc-thread, .wkc-more").forEach(edges);   // their fades, as their size or content changes
   if (!pane && !wkCardFloat) return wkCardClose();
@@ -11711,7 +11712,7 @@ async function wkCardSay(name, input) {
 // a click on its Work pane outside the card (its head, a tab) closes the card, and still does what it would
 document.addEventListener("click", e => {
   if (!$("#wkcard")?.classList.contains("on") || e.target.closest?.("#wkcard")) return;
-  const pane = [...document.querySelectorAll(".teamlog.wk")].filter(x => x.offsetParent)[wkCardPane];
+  const pane = [...document.querySelectorAll("#main .teamlog.wk")].filter(x => x.offsetParent)[wkCardPane];
   if (!wkCardFloat && pane && pane.contains(e.target)) wkCardClose();
 }, true);
 document.addEventListener("click", e => {
