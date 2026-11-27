@@ -607,7 +607,7 @@ def context_rows():
 
 def account_pct(rows, key):
     """The highest used % among the rows written within a minute of the freshest (agents-dash.sh week_used)."""
-    vals = [(r["_ts"], (r.get(key) or {}).get("used_pct")) for r in rows.values()]
+    vals = [(r["_ts"], (r.get(key) or {}).get("used_pct")) for r in rows.values() if not r.get("login")]   # a named login's figures are another subscription's
     vals = [(t, v) for t, v in vals if v is not None]
     if not vals:
         return None
@@ -4120,7 +4120,7 @@ def state():
                 was = last.get(name) or resting_session(name)
                 row = rows.get(was, {}) if was else {}
                 bench.append({"name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]), **portraits(name),
-                              "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""),
+                              "model": row.get("model") or transcript_model(was), "effort": row.get("effort", ""), "login": (row.get("login") or "") if row else None,
                               "lastCompact": last_compact(was), "standing": role in STANDING,
                               "tickets": tickets_held(was) if role in ("dev", "tester") else []})
             continue
@@ -4140,7 +4140,7 @@ def state():
             "wanted": want, "wantedHeld": want_held, "wantedSince": wanted_since(sid) if want else None,
             "ctxUsed": used, "ctxWindow": window,
             "ctxPct": round(used * 100 / window) if used and window else None,
-            "model": row.get("model", ""), "effort": row.get("effort", ""),
+            "model": row.get("model", ""), "effort": row.get("effort", ""), "login": (row.get("login") or "") if row else None,
             "ticket": held.get(name.lower(), ""),
             "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("ref"),
             "tickets": tickets_held(sid) if role in ("dev", "tester") else [],
@@ -15278,6 +15278,10 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const pulse = icon => icon.replace("<svg", '<svg class="switching"');   // pulses until it is done
   // its model, effort and burn, over its usage graph drawn to the team's scale, as on its card
   const model = a.model ? `<div>${esc(a.model)}${a.effort ? " · " + esc(a.effort) : ""}${a.rate ? " · " + k(a.rate) + " tok/min" : ""}</div>` : "";
+  // the subscription that pays for it: this machine's own ("default"), or a named login's ("seconded"); one with no
+  // session to read it from says nothing
+  const sub = a.login ? `<div title="Runs on the ${esc(a.login)} login, not this machine's own">Subscription: seconded (${esc(a.login)})</div>`
+    : a.login === "" ? "<div>Subscription: default</div>" : "";
   const usage = bench ? "" : spark(a.series, Math.max(1, ...S.agents.flatMap(x => x.series)), a.colour);
   const compact = S.compacting.includes(name) ? `<div class="mi off">${pulse(MENU_ICON.compact)}Compacting…</div>`
     : `<div class="mi" data-go="compact">${MENU_ICON.compact}Compact now</div>`;
@@ -15293,7 +15297,7 @@ function agentMenu(anchor, name, beside, rested, confirm, stay) {
   const chatIn = a.live && anchor.closest?.(".teamlog.combined") && anchor.closest(".pane")?.dataset.path;   // a Combined pane's chat
   // its name and details, with its second portrait, else its portrait, on the right
   menuAt(anchor, key, `<div class="hd"><div class="hrow"><div class="htxt"><span class="name" style="--c:${a.colour}">${esc(a.fullName || a.name)}</span><div>${roleWith(a)}${a.ticket ? " · " + tkLink(a) : ""}</div>` +
-    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}</div>` +
+    `<div>${STATE[st] || esc(st)}${a.held == null ? "" : " · " + ago(a.held)}${ctx}</div>${model}${sub}</div>` +
     `${a.altPortrait || a.portrait ? `<span class="mpor"><img src="${esc(a.altPortrait || a.portrait)}" alt=""></span>` : ""}</div>${usage}${compactAt(a)}${lastCompact(a)}</div>` +
     (bench || !a.live ? (name === open ? "" : `<div class="mi" data-go="read">${MENU_ICON.open}Conversation history</div>`) + (bench && !bench.standing ? "" : power) :   // one not running has its last conversation to read, and a benched standing agent or a stopped one its Start
       (name === open ? "" : `<div class="mi" data-go="open">${MENU_ICON.open}Open<kbd>Click</kbd></div>`) +   // not the agent already in the view
@@ -17275,6 +17279,10 @@ def self_test():
         print(("ok   " if got == want else "FAIL ") + what + ("" if got == want else f"\n     got {got!r}, want {want!r}"))
         if got != want:
             fails.append(what)
+
+    own = {"a": {"_ts": 100, "week": {"used_pct": 41}}, "b": {"_ts": 101, "login": "second", "week": {"used_pct": 97}}}
+    t("the account's week leaves out a session on a named login", account_pct(own, "week"), 41)
+    t("  and a named login alone is no reading", account_pct({"b": own["b"]}, "week"), None)
 
     T = tempfile.mkdtemp()
     globals()["UP_FILE"] = T + "/live-agents.json"   # never the real record of who is up

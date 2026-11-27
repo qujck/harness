@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # team/agent-spawn.sh — start an onboarded developer or tester for ONE ticket: off the bench.
 #
-#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job "<job>"] [--model <model>] [--effort <level>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
+#   HARNESS_PROJECT=<project> bash team/agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job "<job>"] [--model <model>] [--effort <level>] [--login <label>] --why "<reason>" [--owner-ok "<words>"] [--verification-support] [--dry-run]
 #   HARNESS_PROJECT=<project> bash team/agent-spawn.sh bench <Name> [--dry-run] [--by-hand]   (team/agent-bench.sh)
 #   bash team/agent-spawn.sh --self-test
 #
@@ -33,7 +33,17 @@
 #                claims nothing; it tells the delivery lead it is ready to test the ticket.
 #
 #   remote       --remote-control <session>: every spawned session can be reached from claude.ai/code and the
-#                Claude mobile app under its tmux session's name (owner, 2026-10-25)
+#                Claude mobile app under its tmux session's name (owner, 2026-10-25), except one on a named login
+#
+# A LOGIN FOLLOWS THE NAME. A roster row's "login" is the login that agent always starts on: the owner's token in
+# ~/.claude/logins/<label>.token (AGENT_LOGINS names another directory), through team/claude-as.sh in place of
+# `claude`, so another subscription pays for that agent every time it is spawned while it stays a local member of the
+# team. Such a session has no Remote Control (a login's token cannot carry it), and the record keeps the label so
+# box/restore-claude.sh resumes it on the same login. Without --name a spawn with no --login picks only among names
+# with no "login", and --login <label> only among the names whose "login" is that label; --name takes its row's login,
+# and a --login naming another is refused (exit 1). --login with --name of a row that has none starts it on that login
+# this once. A label is lower-case letters, digits and dashes (else a usage error, exit 2), and one with no token file
+# is refused before anything starts (exit 1).
 #
 # THE BUDGET GATES DEVELOPERS ONLY (owner, 2026-10-25). Every run prints team/agents-budget.sh's line, or
 # team/agents-day-budget.sh's while a day is open (its `day  on` / `day  over` read as `budget  on` / `over`; a
@@ -77,7 +87,7 @@
 # EVERY REAL SPAWN IS RECORDED, one TSV line in ~/.local/state/<project>/agent-spawns.tsv (AGENT_SPAWN_LOG):
 # time · name · role · ticket (job:<words> for a --job) · model · budget verdict · the owner's words (or -) · the budget
 # line · why that model · who ran it (AGENT_SPAWNER, else the roster name of the session's GIT_AUTHOR_EMAIL, else -) ·
-# the effort (or -). That is where an off-budget start shows who said yes, and every start why it runs on its model; the
+# the effort (or -) · the login (or -). That is where an off-budget start shows who said yes, and every start why it runs on its model; the
 # start line prints the same. A real spawn needs HARNESS_PROJECT in the environment, or AGENT_SPAWN_LOG naming the
 # file: the name lib/harness-env.sh derives from the repo directory does not count (from the harness checkout it
 # says "harness", a log the project's own tools never read), so without either it is a usage error, exit 2, and
@@ -158,10 +168,12 @@ export ROSTER_FILE="${ROSTER_FILE:-$HARNESS_ROOT/agents/roster.json}"
 # shellcheck source=lib/agent-session.sh
 . "$_here/lib/agent-session.sh"
 
-USAGE="usage: agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job \"<job>\"] [--model <model>] [--effort <level>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
+USAGE="usage: agent-spawn.sh [spawn] developer|tester|delivery-lead|head-of-testing [--name <Name>] [--ticket <id> | --job \"<job>\"] [--model <model>] [--effort <level>] [--login <label>] --why \"<why that model>\" [--owner-ok \"<the owner's words>\"] [--verification-support] [--dry-run]"
 SPAWN_LOG="${AGENT_SPAWN_LOG:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/agent-spawns.tsv}"
 BUDGET_SH="${AGENT_SPAWN_BUDGET:-$_here/agents-budget.sh}"
 DAY_BUDGET_SH="${AGENT_SPAWN_DAY_BUDGET:-$_here/agents-day-budget.sh}"
+LOGINS="${AGENT_LOGINS:-$HOME/.claude/logins}"
+CLAUDE_AS="$_here/claude-as.sh"
 LEDGER_SH="${AGENT_SPAWN_LEDGER:-bash $_here/../scripts/ledger-db.sh}"
 CLAIM_WAIT_S="${AGENT_SPAWN_CLAIM_WAIT_S:-600}"
 CLAIM_POLL_S="${AGENT_SPAWN_CLAIM_POLL_S:-5}"
@@ -297,6 +309,10 @@ spawn_ticket_verdict() {
 spawn_model_ok() { [[ "${1-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9]+\])?$ ]]; }
 # PURE: is this a reasoning effort Claude Code takes (--effort)?
 spawn_effort_ok() { case "${1-}" in low|medium|high|xhigh|max) return 0 ;; *) return 1 ;; esac; }
+# PURE: is this a login's label (team/claude-as.sh's)?
+spawn_login_ok() { [[ "${1-}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+# The login a roster name always starts on: its row's "login", else nothing. $1 name
+spawn_login_of() { _roster_json | jq -r --arg n "$1" '[.agents[]? | select(.name == $n) | .login // ""] | first // ""' 2>/dev/null; }
 # PURE: the effort a --why names as a clause of its own ("routine fix, effort low", "effort max; a migration"), else
 # nothing. A level elsewhere in the words ("low effort high-risk change", "no need for effort max") is not one.
 spawn_effort_in_why() {
@@ -470,7 +486,7 @@ EOF
             ROSTER_FILE="${RF:-$T/repo/agents/roster.json}" CLAUDE_CONFIG_DIR="$T/claude" CONTEXT_DIR="$T/ctx" PATH="$T/bin:$PATH" \
             AGENT_SPAWN_BUDGET="$T/bin/budget" AGENT_SPAWN_DAY_BUDGET="$T/bin/day" AGENT_SPAWN_LOG="${LOGF-$T/spawns.tsv}" \
             AGENT_SPAWN_LEDGER="bash $T/bin/ledger" AGENT_SPAWN_CLAIM_WAIT_S="${CW:-2}" AGENT_SPAWN_CLAIM_POLL_S=1 \
-            AGENT_SPAWN_FIXTURE_BIN="${FB:-$T/bin}" bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
+            AGENT_SPAWN_FIXTURE_BIN="${FB:-$T/bin}" AGENT_LOGINS="$T/logins" bash "$SELF" "$@" ${WHYARGS[@]+"${WHYARGS[@]}"} 2>&1; }
   local WHYARGS=(--why "routine test")   # every run in this test says why its model, unless a test empties it
 
   # the pick: only Ada is free (Ben is running, Cy is retired, Tess is a tester, Lea the lead)
@@ -874,7 +890,7 @@ EOF
   _t "--effort: the spawn starts" "$rc" 0
   _has "  claude at that effort, after the model" "$(grep '^new-session' "$T/tmux.log")" "--model opus --effort low --remote-control"
   _has "  and the start line says it" "$out" "on opus at effort low (routine test)"
-  _t "  the record's last column is the effort" "$(awk -F'\t' 'END{print NF"|"$11}' "$T/spawns.tsv")" '11|low'
+  _t "  the record's eleventh column is the effort, and the last the login" "$(awk -F'\t' 'END{print NF"|"$11"|"$12}' "$T/spawns.tsv")" '12|low|-'
   fresh; out="$(WHYARGS=(); run tester --name Tess --ticket HAR-12 --why "deep retest, effort xhigh")"; rc=$?
   _has "\"effort <level>\" in --why sets it" "$(grep '^new-session' "$T/tmux.log")" "--effort xhigh"
   fresh; out="$(WHYARGS=(); run tester --name Tess --ticket HAR-12 --why "low effort high-risk change")"; rc=$?
@@ -888,6 +904,53 @@ EOF
   _t "an unknown effort is a usage error" "$rc" 2
   _has "  naming the levels" "$out" "huge is not an effort: low, medium, high, xhigh or max"
   _t "  starting and recording nothing" "$(_starts)/$(wc -l < "$T/spawns.tsv")" "0/$before"
+
+  # A LOGIN FOLLOWS THE NAME: a row's "login" is the login it always starts on, through claude-as.sh, without Remote
+  # Control, and the record keeps the label. The token is on no command line. The logins are $T/logins, never the box's.
+  cat > "$T/login.json" <<'JSON'
+{"agents":[
+ {"name":"Lea","email":"lea@proj.local","role":"delivery-lead","status":"active"},
+ {"name":"Dot","email":"dot@proj.local","role":"developer","status":"active","login":"second"},
+ {"name":"Eve","email":"eve@proj.local","role":"developer","status":"active"}]}
+JSON
+  local lsum; lsum="$(cksum < "$T/login.json")"
+  mkdir -p "$T/logins"; echo not-a-real-token > "$T/logins/second.token"; echo not-a-real-token > "$T/logins/third.token"
+  lrun() { RF="$T/login.json" run "$@"; }
+  fresh; out=""; for _ in 1 2 3 4 5 6; do out+="$(lrun developer --dry-run)"$'\n'; done
+  _t "a spawn with no --login never picks a name kept for a login" "$(grep -c 'would start Dot' <<<"$out")" 0
+  _has "  and picks one with none, with Remote Control on" "$out" "would start Eve (developer) in tmux session Eve, on the account default model, with Remote Control on"
+  fresh; out=""; for _ in 1 2 3 4 5 6; do out+="$(lrun developer --login second --dry-run)"$'\n'; done
+  _t "--login picks only among that login's names" "$(grep -c 'would start Eve' <<<"$out")" 0
+  _has "  a dry run says the login" "$out" "would start Dot (developer) in tmux session Dot, on the account default model, on the second login, without Remote Control"
+  _has "  and its start line carries it" "$out" "--name Dot --login second --why"
+  fresh; rm -f "$T/spawns.tsv"; out="$(lrun developer --name Dot)"; rc=$?; line="$(grep '^new-session' "$T/tmux.log")"
+  _t "--name starts the name on its row's login" "$rc" 0
+  _has "  and the start line says so" "$out" "started Dot (developer) in tmux session Dot, on the account default model (routine test), on the second login, without Remote Control"
+  _has "  through claude-as.sh" "$line" "HARNESS_SPAWNED=1 bash $_here/claude-as.sh second --worktree proj-dot --name Dot"
+  _not "  with no Remote Control" "$line" "--remote-control"
+  _not "  and the token is on no command line" "$(cat "$T/tmux.log")" "not-a-real-token"
+  _t "  the record keeps the label" "$(awk -F'\t' 'END{print $12}' "$T/spawns.tsv")" second
+  fresh; out="$(lrun developer --name Dot --login third)"; rc=$?
+  _t "a --login naming another than the row's is refused" "$rc" 1
+  _has "  naming both" "$out" "Dot's roster row has the second login, not third"
+  fresh; out="$(lrun developer --name Eve --login third)"; rc=$?
+  _t "--login with --name of a row that has none starts it there this once" "$rc" 0
+  _has "  on that login" "$out" "on the third login, without Remote Control"
+  fresh; out="$(lrun developer)"; line="$(grep '^new-session' "$T/tmux.log")"
+  _t "a spawn on the box's own login records -" "$(awk -F'\t' 'END{print $12}' "$T/spawns.tsv")" -
+  _has "  and keeps Remote Control" "$line" "claude --worktree proj-eve --name Eve --remote-control proj-eve"
+  fresh; out="$(lrun developer --login third --dry-run)"; rc=$?
+  _t "--login with no free name kept for it is refused" "$rc" 1
+  _has "  naming where the names are" "$out" "no free developer is kept for the third login; on another login: Dot (second) Eve (none)"
+  rm "$T/logins/second.token"; fresh; before=$(wc -l < "$T/spawns.tsv")
+  out="$(lrun developer --name Dot)"; rc=$?
+  _t "a login with no token file is refused" "$rc" 1
+  _has "  naming it" "$out" "no login named second in $T/logins"
+  _t "  starting and recording nothing" "$(_starts)/$(wc -l < "$T/spawns.tsv")" "0/$before"
+  echo not-a-real-token > "$T/logins/second.token"
+  fresh; out="$(lrun developer --name Dot --login ../second --dry-run)"; rc=$?
+  _t "a label that is not one is a usage error" "$rc" 2
+  _t "a spawn on a login writes no roster" "$(cksum < "$T/login.json")" "$lsum"
 
   # AGENT_LAUNCH_ENV
   fresh; out="$(AGENT_LAUNCH_ENV='MSBUILDDISABLENODEREUSE=1 X_Y=a/b' run tester --ticket HAR-12)"; rc=$?
@@ -1028,7 +1091,7 @@ case "${1:-}" in
   bench) shift; exec bash "$_here/agent-bench.sh" "$@" ;;
 esac
 
-ROLE="" WANT="" TICKET="" JOB="" MODEL="" EFFORT="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
+ROLE="" WANT="" TICKET="" JOB="" MODEL="" EFFORT="" LOGIN="" WHY="" OWNER_OK="" VSUPPORT=0 DRY=0
 while (( $# )); do
   case "$1" in
     developer|tester|delivery-lead|head-of-testing) [[ -z "$ROLE" ]] || { echo "$USAGE" >&2; exit 2; }; ROLE=$1 ;;
@@ -1044,6 +1107,7 @@ while (( $# )); do
                 || { printf 'agent-spawn: --job needs the ticketless job on one line, and got %q\n' "$JOB" >&2; echo "$USAGE" >&2; exit 2; } ;;
     --model)  [[ $# -ge 2 ]] || { echo "$USAGE" >&2; exit 2; }; MODEL=$2; shift ;;
     --effort) [[ $# -ge 2 ]] || { echo "agent-spawn: --effort needs a level" >&2; echo "$USAGE" >&2; exit 2; }; EFFORT=$2; shift ;;
+    --login)  [[ $# -ge 2 ]] || { echo "agent-spawn: --login needs a login's label" >&2; echo "$USAGE" >&2; exit 2; }; LOGIN=$2; shift ;;
     --why)    [[ $# -ge 2 ]] || { echo "agent-spawn: --why needs the reason for the model" >&2; echo "$USAGE" >&2; exit 2; }
               WHY=$2; shift
               spawn_owner_ok_text_ok "$WHY" \
@@ -1086,6 +1150,8 @@ fi
 EFFORT="${EFFORT,,}"
 [[ -z "$EFFORT" ]] || spawn_effort_ok "$EFFORT" \
   || { printf 'agent-spawn: %q is not an effort: low, medium, high, xhigh or max\n%s\n' "$EFFORT" "$USAGE" >&2; exit 2; }
+[[ -z "$LOGIN" ]] || spawn_login_ok "$LOGIN" \
+  || { printf "agent-spawn: %q is not a login's label: lower-case letters, digits and dashes\n%s\n" "$LOGIN" "$USAGE" >&2; exit 2; }
 [[ -r "$ROSTER_FILE" ]] || { echo "agent-spawn: no roster at $ROSTER_FILE" >&2; exit 1; }
 # Who ran it: AGENT_SPAWNER, else the roster's name for the session's GIT_AUTHOR_EMAIL. A --job is the delivery lead's.
 SPAWNER="${AGENT_SPAWNER:-$(roster_lookup_name "${GIT_AUTHOR_EMAIL:-}" 2>/dev/null)}"
@@ -1120,6 +1186,19 @@ if [[ -n "$WANT" ]]; then
   NAME=""; for n in "${FREE[@]}"; do [[ "${n,,}" == "${WANT,,}" ]] && NAME=$n; done
   [[ -n "$NAME" ]] || { printf 'agent-spawn: %s is not a free %s (free: %s)\n' "$WANT" "$ROLE" "${FREE[*]:-none}" >&2; exit 1; }
 else
+  # Without --name, only the names kept for the spawn's login are picked from: those with no "login", or --login's.
+  KEPT=() ELSEWHERE=()
+  for n in ${FREE[@]+"${FREE[@]}"}; do
+    l="$(spawn_login_of "$n")"
+    if [[ "$l" == "$LOGIN" ]]; then KEPT+=("$n"); else ELSEWHERE+=("$n (${l:-none})"); fi
+  done
+  if (( ${#FREE[@]} > 0 && ${#KEPT[@]} == 0 )); then
+    WHOSE="the box's own login"; [[ -z "$LOGIN" ]] || WHOSE="the $LOGIN login"
+    printf 'agent-spawn: no free %s is kept for %s; on another login: %s\n' "$ROLE" "$WHOSE" "${ELSEWHERE[*]}" >&2
+    printf '  Spawn one of them with --name <Name>, or give a roster row that "login".\n' >&2
+    exit 1
+  fi
+  FREE=(${KEPT[@]+"${KEPT[@]}"})
   if (( ${#FREE[@]} == 0 )); then
     if roster_list_active | awk -F'\t' -v r="$ROLE" '$2 == r { f = 1 } END { exit !f }'; then
       printf 'agent-spawn: every %s on the roster is running, so none is free.\n' "$ROLE" >&2
@@ -1133,6 +1212,17 @@ else
   NAME=${FREE[RANDOM % ${#FREE[@]}]}
 fi
 
+# The name's login: its row's "login", which an explicit --login may repeat and never replace. The label must be one
+# the owner has a token file for, or nothing starts.
+l="$(spawn_login_of "$NAME")"
+[[ -z "$l" || -z "$LOGIN" || "$l" == "$LOGIN" ]] \
+  || { printf "agent-spawn: %s's roster row has the %s login, not %s; nothing started.\n" "$NAME" "$l" "$LOGIN" >&2; exit 1; }
+LOGIN="${LOGIN:-$l}"
+if [[ -n "$LOGIN" ]]; then
+  spawn_login_ok "$LOGIN" \
+    || { printf "agent-spawn: %s's roster \"login\", %q, is not a login's label: lower-case letters, digits and dashes; nothing started.\n" "$NAME" "$LOGIN" >&2; exit 1; }
+  [[ -r "$LOGINS/$LOGIN.token" ]] || { printf 'agent-spawn: no login named %s in %s; nothing started.\n' "$LOGIN" "$LOGINS" >&2; exit 1; }
+fi
 SESSION="$(agent_session_name "$NAME")"
 TSESSION="$(agent_tmux_session "$NAME")"
 OTHER_LEAD=""
@@ -1200,12 +1290,16 @@ mapfile -t IDENT <<<"$IDENT_TXT"
 read -ra XENV <<<"$LAUNCH_ENV"
 MARKS=(HARNESS_SPAWNED=1)
 if (( LEAD )); then MARKS+=("HARNESS_ROLE=$ROLE"); elif [[ -n "$TICKET" ]]; then MARKS+=("HARNESS_TICKET=$TICKET"); fi
-CMD=(env "${IDENT[@]}" ${XENV[@]+"${XENV[@]}"} "${MARKS[@]}" claude)
+# On a login, claude-as.sh starts claude with the login's token, and without Remote Control (header).
+if [[ -n "$LOGIN" ]]; then CLAUDE=(bash "$CLAUDE_AS" "$LOGIN"); REACH="on the $LOGIN login, without Remote Control"
+else CLAUDE=(claude); REACH="with Remote Control on"; fi
+CMD=(env "${IDENT[@]}" ${XENV[@]+"${XENV[@]}"} "${MARKS[@]}" "${CLAUDE[@]}")
 [[ "$TREE_MODE" == sibling ]] || CMD+=(--worktree "$SESSION")
 CMD+=(--name "$NAME")
 [[ -n "$MODEL" ]] && CMD+=(--model "$MODEL")
 [[ -n "$EFFORT" ]] && CMD+=(--effort "$EFFORT")
-CMD+=(--remote-control "$SESSION" "$PROMPT")
+[[ -n "$LOGIN" ]] || CMD+=(--remote-control "$SESSION")
+CMD+=("$PROMPT")
 START_DIR="$HARNESS_ROOT"; [[ "$TREE_MODE" == sibling ]] && START_DIR="$TREE"
 WHAT="$NAME ($ROLE)${TICKET:+ for $TICKET}${JOB:+ for a job with no ticket: $JOB}"
 
@@ -1254,9 +1348,9 @@ fi
 [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && RULE=ask
 
 if (( DRY )); then
-  printf 'would start %s in tmux session %s, on %s%s, with Remote Control on%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "${EFFORT:+ at effort $EFFORT}" "${HOW:+: $HOW}"
+  printf 'would start %s in tmux session %s, on %s%s, %s%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "${EFFORT:+ at effort $EFFORT}" "$REACH" "${HOW:+: $HOW}"
   printf '  start exactly this one with: %s %s --name %s%s%s%s%s\n' \
-    "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}" "${WHY_ARG:- --why \"<why that model>\"}" \
+    "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}${LOGIN:+ --login $LOGIN}" "${WHY_ARG:- --why \"<why that model>\"}" \
     "$([[ "$RULE" == ask ]] && printf ' --owner-ok "<the owner'"'"'s words>"')"
   [[ -n "$WHY" ]] || printf '  the real spawn needs --why: the reason for the model it starts on.\n'
   printf '  first prompt: %s\n' "$PROMPT"
@@ -1279,13 +1373,13 @@ fi
 if [[ "$CAP_RULE" == full || "$CAP_RULE" == unknown ]] && [[ -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s: at the cap\n' "$CAP_LINE" >&2
   printf '  a spawn at the cap needs the owner'"'"'s OK whatever the role: ask in one line (ticket, name, the line above), then start it with\n' >&2
-  printf '  their words on the line: %s %s --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}" "$WHY_ARG" >&2
+  printf '  their words on the line: %s %s --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$ROLE" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}${LOGIN:+ --login $LOGIN}" "$WHY_ARG" >&2
   exit 1
 fi
 if [[ "$RULE" == ask && -z "$OWNER_OK" ]]; then
   printf 'agent-spawn: %s\n' "$BUDGET_LINE" >&2
   printf '  a developer spawn off budget needs the owner'"'"'s OK: ask in one line (ticket, name, budget line), then start it with\n' >&2
-  printf '  their words on the line: %s developer --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}" "$WHY_ARG" >&2
+  printf '  their words on the line: %s developer --name %s%s%s%s --owner-ok "<their words>"\n' "$RUN_AS" "$NAME" "${TICKET:+ --ticket $TICKET}" "${MODEL:+ --model $MODEL}${EFFORT:+ --effort $EFFORT}${LOGIN:+ --login $LOGIN}" "$WHY_ARG" >&2
   printf '  (a tester is not budget-gated and starts regardless; a developer fixing what verification found starts with --verification-support)\n' >&2
   exit 1
 fi
@@ -1323,9 +1417,9 @@ done
 # The record: who was started, against which budget line, on whose word.
 mkdir -p "$(dirname -- "$SPAWN_LOG")" 2>/dev/null
 LOGGED_TICKET="${TICKET:-${JOB:+job:$JOB}}"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${LOGGED_TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" "${SPAWNER:--}" "${EFFORT:--}" >> "$SPAWN_LOG" \
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAME" "$ROLE" "${LOGGED_TICKET:--}" "${MODEL:--}" "$VERDICT" "${OWNER_OK:--}" "$BUDGET_LINE" "$WHY" "${SPAWNER:--}" "${EFFORT:--}" "${LOGIN:--}" >> "$SPAWN_LOG" \
   || echo "agent-spawn: could not record the spawn in $SPAWN_LOG (the agent is running)" >&2
-printf 'started %s in tmux session %s, on %s%s (%s), with Remote Control on%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "${EFFORT:+ at effort $EFFORT}" "$WHY" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
+printf 'started %s in tmux session %s, on %s%s (%s), %s%s\n' "$WHAT" "$TSESSION" "${MODEL:-the account default model}" "${EFFORT:+ at effort $EFFORT}" "$WHY" "$REACH" "${OWNER_OK:+; owner OK: \"$OWNER_OK\"}$( (( VSUPPORT )) && printf '; verification support')${HOW:+; $HOW}"
 [[ -z "$STACKS_LINE" ]] || printf '  %s\n' "$STACKS_LINE"
 printf '  %s\n' "$BUDGET_LINE"
 printf '  %s\n' "$CAP_LINE"

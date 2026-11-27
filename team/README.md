@@ -3,7 +3,11 @@
 The scripts that run a team of agent sessions side by side on one machine: start a developer or tester for one
 ticket (`agent-spawn.sh`), stop it when the ticket has merged (`agent-bench.sh`, which also removes its Docker containers, `agent-containers.sh`), decide whether the week's usage
 allows another start (`agents-budget.sh`), and watch the team (`agents-dash.sh`, `agent-context.sh`, or in a browser `agents-web.sh`, all fed by the
-status-line row `statusline-publish.sh` publishes; the row's contract is `docs/context-publisher.md`). The row's
+status-line row `statusline-publish.sh` publishes; the row's contract is `docs/context-publisher.md`). An agent whose
+roster row has a `"login"` always starts on that named login through `claude-as.sh` (the token
+the owner keeps in `~/.claude/logins/<label>.token`), so another subscription pays for it while it stays on this box's team;
+its row carries the label, the budget, the panel and the page leave its usage out of this box's, and the page's agent
+menu reads `Subscription: seconded (<label>)`, else `Subscription: default`. The row's
 `activity` comes from `activity-hook.sh`, which the hooks call on every prompt, tool call, permission request and
 stop, so a session blocked on a prompt or busy in a long tool call is not taken for idle; a compaction marks the
 session compacting, which the page shows, until the session starts again. An agent that needs the owner but is

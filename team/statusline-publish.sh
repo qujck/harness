@@ -50,13 +50,16 @@ cap="$(jq -r --arg m "$model_id" '.modelSettings[$m].autoCompactWindow // .autoC
         "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" 2>/dev/null)"
 window="${cw:-null}"
 if [ -n "$cap" ] && [ "$cap" -gt 0 ] 2>/dev/null && [ -n "$cw" ] && [ "$cap" -lt "$cw" ] 2>/dev/null; then window=$cap; fi
+# The named login the session runs on (team/claude-as.sh sets AGENT_LOGIN), null on the box's own: its usage figures
+# are that login's subscription's, not this box's.
 jq -c --arg agent "${name:-unnamed}" --arg sid "$sid" --arg ts "$(date -u +%FT%TZ)" --arg cwd "$(pwd)" \
    --arg wt "$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename)" \
    --arg activity "$activity" --argjson idle_s "$idle_s" --arg resp_at "${resp_at:-}" --argjson total "${out_total:-0}" --arg has_tokens "${last_out:+1}" \
-   --argjson window "$window" '
+   --arg login "${AGENT_LOGIN:-}" --argjson window "$window" '
   { agent: $agent, session_id: $sid, ts: $ts, cwd: $cwd, worktree: ($wt | if . == "" then null else . end),
     model: (.model.display_name // .model.id // "?"),
     effort: ((.effort | objects | .level) // null),
+    login: ($login | if test("^[a-z0-9][a-z0-9-]*$") then . else null end),
     context: { remaining_pct: (.context_window.remaining_percentage // null),
                window: $window,
                used: (.context_window.total_input_tokens // null) },

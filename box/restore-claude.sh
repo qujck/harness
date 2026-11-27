@@ -73,10 +73,25 @@ effort_of() { # effort_of <claude-name> -> " --effort <level>", or nothing
   case "$e" in low|medium|high|xhigh|max) printf ' --effort %s' "$e" ;; esac
 }
 
-resume() { # resume <claude-name> -> the command that resumes it as itself, at the effort it was spawned at
-  local f; f=$(transcript "$1")
-  if [ -n "$f" ]; then echo "$(ident "$1")claude$(effort_of "$1") --resume $(basename "$f" .jsonl)"
-  else echo "$(ident "$1")claude$(effort_of "$1") --resume $1"; fi
+# The named login an agent was last spawned on: column 12 of the same record, "-" for the box's own. An agent on one
+# resumes through harness team/claude-as.sh on it; a login whose token file is gone is reported, and the agent resumes
+# on the box's own.
+LOGINS=${AGENT_LOGINS:-/home/peter/.claude/logins}
+CLAUDE_AS=/home/peter/dev/harness/team/claude-as.sh
+claude_of() { # claude_of <claude-name> -> "bash <claude-as.sh> <label>", or "claude"
+  local l
+  l=$(awk -F'\t' -v n="$1" '$2 == n { l = $12 } END { print l }' "$SPAWN_LOG" 2>/dev/null)
+  if [ -n "$l" ] && [ "$l" != - ]; then
+    if [ -r "$LOGINS/$l.token" ]; then echo "bash $CLAUDE_AS $l"; return; fi
+    echo "WARNING $1 was spawned on the $l login, which $LOGINS no longer holds: resuming it on this box's own" >&2
+  fi
+  echo claude
+}
+
+resume() { # resume <claude-name> -> the command that resumes it as itself, on the login and at the effort it was spawned on
+  local f c; f=$(transcript "$1"); c=$(claude_of "$1")
+  if [ -n "$f" ]; then echo "$(ident "$1")$c$(effort_of "$1") --resume $(basename "$f" .jsonl)"
+  else echo "$(ident "$1")$c$(effort_of "$1") --resume $1"; fi
 }
 
 # Resume in the conversation's PROJECT directory, the one its transcript is filed

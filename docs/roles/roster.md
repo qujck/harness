@@ -7,7 +7,10 @@ The register is `agents/roster.json`, written by `bash scripts/agent-onboard.sh 
 worked in the repo: `name`, `role`, `email`, `status` (`active` | `retired`), `onboarded`,
 `offboarded`, `evidence`, and an optional `full_name` (free text, `--full-name "Deacon St. John"` at
 onboarding) for the name people read; the `name` stays the identity, since it must fit
-`^[A-Za-z][A-Za-z0-9_-]{1,31}$` (so James O'Brian is `OBrian`). Four roles exist in every project that uses this harness, whatever the
+`^[A-Za-z][A-Za-z0-9_-]{1,31}$` (so James O'Brian is `OBrian`). An optional `login` (a label: lower-case letters,
+digits and dashes), added by hand, is the named login that agent always starts on: `team/agent-spawn.sh` starts it
+through `team/claude-as.sh` with the owner's token in `~/.claude/logins/<label>.token`, so another subscription pays
+for it while it stays on this box's team. Four roles exist in every project that uses this harness, whatever the
 team size — a solo project holds all four in one head and still benefits from knowing which hat
 is on:
 
