@@ -7133,7 +7133,7 @@ svg.spark{display:block;width:100%;height:26px;flex:none}
 .it.pending .badge{flex:none;font:650 calc(var(--t-xs)*var(--fs,1)) var(--mono);color:var(--amber);border:1px dashed var(--amber);border-radius:var(--r-s);padding:0 5px;margin-top:2px}
 .it.live{align-items:center}
 .it.live .who{color:var(--c,var(--green));border:1px solid var(--c,var(--green));animation:livepulse 1.4s ease-in-out infinite}
-.it.live .tx{font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--c,var(--green));-webkit-line-clamp:1}
+.it.live .tx{font:calc(var(--t-m)*var(--fs,1)) var(--mono);color:var(--c,var(--green));min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* one line, however long its count grows */
 .it.live .ago{display:none}
 @keyframes livepulse{0%,100%{opacity:.45;box-shadow:none}50%{opacity:1;box-shadow:0 0 10px 1px var(--c,var(--green))}}
 .it.tools .tx{font:calc(var(--t-s)*var(--fs,1)) var(--mono);color:var(--faint);-webkit-line-clamp:1}
@@ -7287,7 +7287,7 @@ table.md th,table.md td{border:1px solid var(--line2);padding:2px 8px;text-align
 table.md th{background:var(--line);font-weight:650}
 .feed .it .tx{max-height:9em}
 /* an agent pane's card: its longer conversation, every turn in full, scrolled */
-.card.full .feed{overflow:auto;justify-content:flex-start;mask-image:none}
+.card.full .feed{overflow:auto;scrollbar-gutter:stable;justify-content:flex-start;mask-image:none}
 .card.full .feed > :first-child:not(.thhead){margin-top:auto}   /* a thread's head stays at the top; its lines go to the bottom */
 .card.full .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap;max-height:none}
 /* The Team pane: one transcript of the messages between agents, sender then recipient on each line. */
@@ -7304,7 +7304,7 @@ table.md th{background:var(--line);font-weight:650}
 .filelog .ftools .fmsg.bad{color:var(--red)}
 .filelog textarea.fedit{flex:1;min-height:0;resize:none;margin:0;padding:12px 16px;border:0;border-top:1px solid var(--line2);outline:none;background:var(--soft);color:var(--text);font:calc(var(--t-s)*var(--fs,1))/1.5 var(--mono);tab-size:4}
 .teamlog .thead > span:nth-child(2){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:calc(var(--t-s)*var(--fs,1)) var(--mono);font-weight:400;color:var(--mute)}
-.teamlog:not(.summary) .feed{overflow:auto;justify-content:flex-start;mask-image:none}
+.teamlog:not(.summary) .feed{overflow:auto;scrollbar-gutter:stable;justify-content:flex-start;mask-image:none}
 /* what scrolls in a pane fades out at the top while there is more above and at the bottom while there is more below
    (edges() sets --ft and --fb), keeping a feed's line beneath its head; a thread's head held at the top stays clear,
    the fade starting under it (--fo) */
@@ -7332,8 +7332,9 @@ table.md th{background:var(--line);font-weight:650}
 #menu .thset{width:300px}
 #menu .mchips{display:flex;flex-wrap:wrap;gap:4px;padding:4px 10px 8px}
 #menu .mchips .chip{cursor:pointer;font-size:calc(var(--t-s)*var(--fs,1))}
-.thitem > .thtop > .thwho{margin:0 0 0 4px;flex:0 1 auto;min-width:0;overflow:hidden;flex-wrap:nowrap;align-self:center}
+.thitem > .thtop > .thwho{margin:0 0 0 4px;flex:0 1 auto;min-width:20px;height:20px;overflow:hidden;flex-wrap:wrap;align-self:center}   /* only whole faces: one that does not fit wraps out of sight */
 .thitem > .thtop > :is(.thk, .thclosed){flex:none}
+.thitem > .thtop > span:not([class]){min-width:0;overflow-wrap:anywhere}
 .thitem > .thtop .thk{font-family:var(--mono)}   /* a ticket's key in monospace; every title in the page's own font */
 .thchips .troles{flex:none}
 /* the names wrap onto more lines rather than push the lane buttons down, each line under the first */
@@ -7849,7 +7850,7 @@ html.phone #detail.phthread .box .rail{display:none !important}   /* a thread fu
 .teamlog .chead .x:hover{color:var(--text);background:var(--line2)}
 .teamlog .chead .x svg{width:14px;height:14px}
 .teamlog .newest{--c:var(--ownerbg);color:var(--ownerfg)}
-#detail .conv{flex:1;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+#detail .conv{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
 .sayrow{flex:none;display:flex;align-items:flex-start;gap:6px;margin:0 12px 10px}   /* 12px in, as the conversation above it (.feed), so the box lines up with its text */
 .pastechip{position:fixed;z-index:60;display:flex;align-items:center;gap:10px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--box);color:var(--mute);font-size:calc(var(--t-s)*var(--fs,1));box-shadow:0 4px 14px #0004}
 .pastechip b{padding:2px 9px;border-radius:999px;background:var(--on);color:var(--text);font-weight:500;cursor:pointer}
@@ -7916,6 +7917,7 @@ html:not(.phone) #detail .sayrow > .say{padding-left:42px}
 #detail .stop::before{width:12px;height:12px}
 #detail .conv .it{font-size:calc(var(--t-l)*var(--fs,1))}
 #detail .conv .it .tx{-webkit-line-clamp:unset;white-space:pre-wrap}
+.card.full .it.live .tx,.teamlog:not(.summary) .it.live .tx,#detail .conv .it.live .tx{white-space:nowrap}   /* the working line stays one line in a full conversation too */
 /* text shown whole flows as a block, so a message's badges open its first line and its later lines run beneath them */
 .card.full .it .tx,.teamlog:not(.summary) .it .tx,#detail .conv .it .tx,.it.ask .tx{display:block}
 #detail .conv .it.tools .tx{white-space:normal}
