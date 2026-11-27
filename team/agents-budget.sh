@@ -205,6 +205,18 @@ budget_self_test() {
     && printf '  ok   %s\n' "a woken row whose last response is old is not counted; one without resp_at falls back to ts" \
     || { printf '  FAIL the woken-row reading: got %q\n' "$r"; fails=$((fails+1)); }
 
+  # a session on a named login (team/claude-as.sh) reports another subscription's week: its row is left out
+  rm -f "$T/ctx/"*.json
+  printf '{"ts":"2026-10-21T11:00:00Z","week":{"used_pct":41}}\n' > "$T/ctx/a.json"
+  printf '{"ts":"2026-10-21T11:00:01Z","login":"second","week":{"used_pct":97}}\n' > "$T/ctx/b.json"
+  r=$(CONTEXT_DIR="$T/ctx" week_used)
+  [[ "$r" == "41 $(date -u -d 2026-10-21T11:00:00Z +%s)" ]] \
+    && printf '  ok   %s\n' "a row from a session on a named login is not this box's week" \
+    || { printf '  FAIL the named-login reading: got %q\n' "$r"; fails=$((fails+1)); }
+  rm -f "$T/ctx/a.json"
+  r=$(CONTEXT_DIR="$T/ctx" week_used)
+  [[ "$r" == "-1 0" ]] && printf '  ok   %s\n' "  and alone it is no reading" || { printf '  FAIL a named login alone: got %q\n' "$r"; fails=$((fails+1)); }
+
   if (( fails == 0 )); then echo "agents-budget --self-test: PASS"; return 0; fi
   echo "agents-budget --self-test: FAIL ($fails)"; return 1
 }

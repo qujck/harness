@@ -29,6 +29,7 @@ file to install) writes **one JSON file per session** to `CONTEXT_DIR`
 | `resp_at` | epoch seconds when the publisher last saw a new response (the mtime of the session's `.<sid>.tokens` file), or null before its first; the week reader (`team/lib/week-usage.sh`) judges a row by it, since a session waking from idle goes `working` before its first response and still carries its old `week` figure |
 | `five_hour.used_pct` | the account's five-hour usage, when the payload carries it |
 | `model` | the model's display name (`Opus 5.5`); the panel shows `O5.5` |
+| `login` | the label of the named login the session runs on (`AGENT_LOGIN`, which `team/claude-as.sh` sets), null on the box's own. Its `week` and `five_hour` figures are another subscription's: the week reader (`team/lib/week-usage.sh`) and the page leave them out, and the page's agent menu reads `Subscription: seconded (<label>)`, else `Subscription: default` |
 | `effort` | the session's reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`) from the payload's `effort.level`; null for a model without one. The panel shows its first letter, `X` for max |
 | `context.used` | the tokens in the window now (the payload's `total_input_tokens`) |
 | `context.window` | the window the publisher's own gauge is measured against: an `/autocompact` cap when one applies, else the model's `context_window_size` |

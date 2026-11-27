@@ -66,6 +66,7 @@ team/agents-dash.sh	verify
 team/agents-web.sh	verify
 scripts/check-context-is-never-a-reason-to-do-less.sh	verify
 team/agent-spawn.sh	verify
+team/claude-as.sh	verify
 team/agent-bench.sh	verify
 team/agent-containers.sh	verify
 team/team-start.sh	verify

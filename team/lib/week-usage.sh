@@ -15,12 +15,13 @@
 # keeps rewriting its row with the figure from before it went idle, and a reset of the week can leave
 # `resets_at` unchanged, so judging rows by `ts` alone let sessions idle since before a reset hold the reading at
 # 99% while working ones read 1% (owner, 2026-11-21). A row nothing writes any more drops out the same way. A
-# file that is not JSON is skipped, not fatal.
+# file that is not JSON is skipped, not fatal. A row with a `login` is a session on a named login (team/claude-as.sh):
+# its figure is another subscription's week, so it is left out.
 #
 # Reads CONTEXT_DIR (default ~/.local/state/<project>/context).
 week_used() {
   local dir="${CONTEXT_DIR:-$HOME/.local/state/${HARNESS_PROJECT:-harness}/context}"
-  cat "$dir"/*.json 2>/dev/null | jq -rR 'fromjson? // empty | select(.week.used_pct != null)
+  cat "$dir"/*.json 2>/dev/null | jq -rR 'fromjson? // empty | select(.week.used_pct != null and .login == null)
       | ((.ts | fromdateiso8601?) // 0) as $t
       | [$t, .week.used_pct,
          (if (.resp_at | type) == "number" then .resp_at
