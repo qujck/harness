@@ -24,7 +24,8 @@ spawned agent, so the spawn and the bench find a restored agent the same way. Tw
 | `Web` | The team page on http://127.0.0.1:8787 (`box/team-web.sh`) |
 
 The script resumes each agent by conversation ID, in the directory its conversation is filed under, with its
-git identity from the strength roster. Each spawned developer and tester gets its role's colour from
+git identity from the strength roster, at the reasoning effort it was last spawned at (the last column of
+`~/.local/state/strength/agent-spawns.tsv`, `team/agent-spawn.sh --effort`; none recorded, the session default). Each spawned developer and tester gets its role's colour from
 `box/delivery-sync.py`, which tmux runs whenever a session is created; it never moves or stops an agent.
 
 ## Who comes back

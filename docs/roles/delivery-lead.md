@@ -176,8 +176,9 @@ Spawn and bench never write `agents/roster.json`; only onboarding and retiring d
     the week catches up. On a yes, start it with their words on the line, `--owner-ok "<their words>"`; the words must be their actual words on one line (the script refuses a flag, blanks or the `<…>` placeholder in that slot as a usage error, so a slip never records a fake approval);
     the spawn refuses an off-budget developer without that, and never refuses one with it. The OK is
     recorded with the spawn in `~/.local/state/<project>/agent-spawns.tsv` (time, name, role, ticket,
-    model, verdict, the owner's words, the budget line, the reason for the model, who ran it), one row per
-    real spawn. Where the project sets `AGENT_SPAWN_REQUIRE_TICKET=1`, a developer or tester for work with no
+    model, verdict, the owner's words, the budget line, the reason for the model, who ran it, the effort), one
+    row per real spawn. `--effort low|medium|high|xhigh|max` (or "effort <level>" as a clause of `--why`) starts
+    the agent at that reasoning effort, and `box/restore-claude.sh` resumes it so. Where the project sets `AGENT_SPAWN_REQUIRE_TICKET=1`, a developer or tester for work with no
     ticket is yours alone to start, with `--job "<the job>"` in place of `--ticket`; the record shows it as
     `job:<the job>`.
   - developer started to fix what verification found (owner, 2026-10-31): add `--verification-support`
