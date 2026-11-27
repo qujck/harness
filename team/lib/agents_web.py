@@ -8049,12 +8049,79 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-perf .ptrend{align-self:stretch;margin-top:10px}
 #phone .ph-perf .ptrend svg{display:block;width:100%;height:64px}
 #phone .ph-perf .ptrend small{display:flex;justify-content:space-between;margin-top:3px;font:calc(var(--t-xs)*var(--fs,1)) var(--mono);color:var(--faint)}
-#phone .ph-body[data-tab=mix]{padding:8px;overflow:hidden}
-#phone .ph-pane .teamlog .thead.phmix{padding-right:48px}
-#phone .ph-pane .thead .phmixmore{position:absolute;top:4px;right:4px;width:40px;height:40px;min-width:0;padding:0;border-radius:20px;color:var(--text)}
-#phone .ph-pane .thead .phmixmore svg{width:22px;height:22px}
-#phone .ph-pane .thead .phmixmore.some::after{content:"";position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:4px;background:var(--amber)}
-#phone .ph-pane .thead .phmixmore:active{background:var(--on)}
+/* the Combined tab: its head (title, the settings in a line, Threads or All, ⋯), its thread list, a thread opened full
+   screen with its asks pinned over it, the flat feed, and the box under them */
+#phone .ph-body[data-tab=mix]{padding:0;overflow:hidden}
+#phone .phmix{gap:0}
+#phone .phmtop{flex:none;border-bottom:1px solid var(--line2)}
+#phone .phmhead{display:flex;align-items:center;gap:6px;min-height:56px;padding:6px 4px 6px 14px}
+#phone .phmtitle{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start}
+#phone .phmtitle > b{font-size:18px;font-weight:700;line-height:1.2}
+#phone .phmsum{max-width:100%;min-height:24px;padding:0;border:0;background:none;color:#2f81f7;font:500 12.5px var(--sans);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+#phone .phmseg{flex:none;display:flex;padding:3px;border-radius:11px;background:var(--track)}
+#phone .phmseg b{display:grid;place-items:center;width:40px;height:34px;border-radius:8px;color:var(--mute);cursor:pointer}
+#phone .phmseg b.on{background:var(--text);color:var(--box)}
+#phone .phmseg svg{width:16px;height:16px}
+#phone .phmmore{flex:none;display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:22px;background:none;color:var(--text);cursor:pointer}
+#phone .phmmore svg{width:22px;height:22px}
+#phone .phmmore:active{background:var(--on)}
+#phone .phmscroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px;padding:0 12px 16px}
+#phone .phmscroll > .phthh{margin:14px 2px 0}
+#phone .phmrow{min-height:56px}
+#phone .phmrow .l2{display:flex;align-items:center;gap:8px;min-width:0;overflow:visible}
+#phone .phmkey{flex:none;color:#2f81f7;font:600 12px var(--mono)}
+#phone .phmfaces{flex:none;display:flex;align-items:center;padding-left:6px}
+#phone .phmfaces :is(.ph-por,.pp-ini){width:20px;height:20px;margin-left:-6px;font-size:8px;border-radius:50%;box-shadow:0 0 0 2px var(--card1)}
+#phone .phmfaces .ph-por > .fr{border-radius:50%}
+#phone .phmfaces i{margin-left:4px;font:11px var(--sans);font-style:normal;color:var(--mute)}
+#phone .phmrow .l2 .thl{flex:none;margin:0;padding:1px 8px;border-radius:10px;font:650 11px var(--sans)}
+#phone .phmrow .l3{font-family:var(--sans)}
+#phone .phmquiet{flex:none;min-height:44px;margin-top:6px;border:1.5px dashed var(--line2);border-radius:12px;background:none;color:var(--mute);font:500 13.5px var(--sans);cursor:pointer}
+#phone.phmixth .ph-top,#phone.phmixth .ph-nav{display:none}
+#phone .phmthh{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:4px;align-items:center;padding:6px 12px 8px 4px}
+#phone .phmback{display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:22px;background:none;color:var(--text);cursor:pointer}
+#phone .phmback svg{width:22px;height:22px}
+#phone .phmtop > .thask{margin:0 12px 10px}
+#phone .phmask > small{display:block;margin:0 0 4px;font:700 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;opacity:.9}
+#phone .phmask .thaskq{color:var(--text)}
+#phone .phmask .phqa{gap:8px}
+#phone .phmask .phqa button{min-height:40px}
+#phone .phmask .phqa button:first-child{background:var(--amber);border-color:var(--amber);color:#000}
+#phone .phmlog{border:0;border-radius:0;background:none}
+#phone .phmlog .feed{border-top:0;padding:8px 12px}
+#phone .phmfold{flex:none;align-self:stretch;min-height:32px;margin:2px 0;border:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:none;color:var(--mute);font:12px var(--sans);cursor:pointer}
+#phone .phmix[data-mode=all] .it.thasked{margin:0 -12px;padding:6px 12px;background:color-mix(in srgb,var(--amber) 9%,transparent)}
+#phone .phmix[data-mode=all] .it.thasked .heads::after{content:"asks you";margin:0 6px 0 2px;padding:0 7px;border-radius:10px;background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber);font-size:.78em;font-weight:650;line-height:1.6;vertical-align:1px}
+#phone .phmbox{padding:6px 0 0}
+#phone .phmbox[hidden]{display:none}
+#phone .phmto{display:flex;align-items:center;gap:6px;min-width:0;margin:0 12px 6px;color:var(--mute);font-size:12px}
+#phone .phmto select{min-width:0;max-width:50%;height:28px;padding:0 6px;border:0;border-radius:8px;font:650 12.5px var(--sans);text-overflow:ellipsis}
+#phone .phmto .phmtosel{background:var(--c);color:#fff}
+#phone .phmto .phmresel{background:var(--track);color:var(--text)}
+#phone .phmto .phmresel.ask{background:color-mix(in srgb,var(--amber) 20%,transparent)}
+#phone .phmto .retag{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#phone .phmbox .sayrow{flex-wrap:nowrap;margin:0 12px calc(10px + env(safe-area-inset-bottom));gap:8px}
+#phone .phmbox .sayrow .say{min-height:44px;padding:11px 46px 11px 14px;border-radius:22px}
+#phone .phmbox .sayrow .send{width:44px;height:44px;margin:0 0 0 calc(-8px - 44px);align-self:flex-end}
+#phone .phmbox .sayrow .add{width:44px;height:44px;border-radius:12px}
+#phsheet .r > .seg2{flex:none}
+#phsheet label.r,#phsheet div.r{cursor:default}
+#phsheet .phmsheet .cicon{display:grid;place-items:center;flex:none;width:28px;height:28px}
+#phsheet .phmsheet .cicon svg{width:20px;height:20px}
+#phsheet .phmsheet .cdot{flex:none;width:10px;height:10px;margin:0 9px;border-radius:5px}
+#phsheet .phmsheet .phmag{padding-left:22px;font-weight:500}
+#phsheet .phmsheet .phmrolerow{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+#phsheet .phmsheet .phmrolerow > .phmrole{flex:1;min-width:0;border-bottom:0}
+#phsheet .phmsheet .phmfold{flex:none;display:grid;place-items:center;width:48px;border:0;background:none;color:var(--mute);cursor:pointer}
+#phsheet .phmsheet .phmfold svg{width:16px;height:16px;transition:transform .15s}
+#phsheet .phmsheet .phmfold.open svg{transform:rotate(90deg)}
+#phsheet .phmsheet .ph-por{position:relative;flex:none;width:28px;height:28px}
+#phsheet .phmsheet .ph-por > .fr{display:block;width:100%;height:100%;box-sizing:border-box;border-radius:50%;border:2px solid var(--c);overflow:hidden;background:var(--chtile)}
+#phsheet .phmsheet .ph-por :is(img,svg){display:block;width:100%;height:100%;object-fit:cover}
+#phsheet .phmsheet .ph-por.bench > .fr > *{filter:grayscale(1);opacity:.55}
+#phsheet .phmsheet .pp-ini{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:var(--track);font-size:11px}
+#phsheet .r > .phmtick{display:grid;place-items:center;width:24px;height:24px;flex:none;color:#2f81f7}
+#phsheet .phmtick svg{width:18px;height:18px}
 #phone :is(.ph-row,.ph-wait),html.phone #drail .phf,#phone .teamlog .cnames .name{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 /* on the phone every menu (an agent's card, a filter's choices) is a sheet from the bottom, over a dimmed page; it
    closes on a tap on the page or pulled down (owner, 2026-11-08) */
@@ -8287,9 +8354,13 @@ html.phone #phmenuback.on.closing,#phone .pp-sheet.closing .pp-scrim{background:
 /* the team menu, a sheet from the bottom */
 #phsheet{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;justify-content:flex-end;background:#0007}
 #phsheet.on{display:flex}
-#phsheet .sh{display:flex;flex-direction:column;gap:16px;max-height:88vh;overflow-y:auto;padding:10px 16px calc(22px + env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--box);color:var(--text);font:15px var(--sans);box-shadow:0 -10px 30px #0004}
+#phsheet .sh{display:flex;flex-direction:column;gap:16px;max-height:88vh;max-height:calc(100dvh - 68px - env(safe-area-inset-top));overflow-y:auto;padding:10px 16px calc(22px + env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--box);color:var(--text);font:15px var(--sans);box-shadow:0 -10px 30px #0004}
 #phsheet{transition:background .2s}
 #phsheet .sh{transition:transform .22s cubic-bezier(.2,.8,.2,1);overscroll-behavior:contain}
+/* a sheet taller than the screen scrolls inside, keeping its grab bar and rows whole and taking no width for a scrollbar */
+#phsheet .sh{scrollbar-width:none}
+#phsheet .sh::-webkit-scrollbar{display:none}
+#phsheet .sh > *{flex-shrink:0}
 #phsheet.closing{background:#0000;pointer-events:none}
 #phsheet .grab{align-self:center;width:40px;height:5px;border-radius:3px;background:var(--line2);box-sizing:content-box;padding:8px 40px 10px;margin:-8px 0 -10px;background-clip:content-box;cursor:grab;touch-action:none}
 #phsheet select{flex:none;max-width:55%;height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line2);background:var(--card1);color:var(--text);font:500 14px var(--sans)}
@@ -8864,7 +8935,7 @@ function item(it, compact, agent, tag) {
   // the badges open the text's first line, and its later lines run the full width beneath them (not a live line's)
   const inline = !!heads && it.kind !== "live";
   const said = it.kind === "said" && agent ? ` data-said="${esc(agent)}"` : "";
-  return `<div class="it ${it.kind}${it.summary ? " summary" : ""}${it._guess ? " guess" : ""}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}${said}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}${it.summary ? ` <span class="sumtag" title="Written by Claude Code from what the agent is doing, not a message of the agent's">· summary</span>` : ""}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
+  return `<div class="it ${it.kind}${it.summary ? " summary" : ""}${it._guess ? " guess" : ""}${it._ask && !it.past ? " thasked" : ""}${it.kind === "ask" || it.kind === "live" ? "" : " l-" + it.lane}${pics ? " pics" : ""}"${pc}${tag ? ` data-agent="${esc(agent)}"` : ""}${said}>${inline ? "" : heads}<span class="tx">${inline ? `<span class="heads">${heads}</span>` : ""}${compact === true ? md(it.text.replace(/\n\s*\n+/g, "\n"), true) : md(it.text)}${it.summary ? ` <span class="sumtag" title="Written by Claude Code from what the agent is doing, not a message of the agent's">· summary</span>` : ""}</span>${it.kind === "ask" ? askButtons(it, agent) : ""}<span class="ago" data-ts="${esc(it.ts || "")}">${since(it.ts)}</span>${pics}</div>`;
 }
 // An open prompt's options in the order shown, one under another, each naming its option by number and label so that it
 // answers only the prompt it was drawn for: a button for each, and for a Type something option a box to write the answer
@@ -12277,7 +12348,8 @@ function combinedLines(chosen) {
 // Its threads: each agent's (threadsOf) of one name together, with who is in it (agents, the latest first), each one's own
 // (parts) and each one's open ask (asks; a benched agent waits for no answer). What is in no thread is left to the whole
 // conversation.
-const COMB = "~combined:", combNode = key => { try { return nodeAt(layout().root, key.slice(COMB.length)); } catch (e) { return null; } };
+// (the phone's Combined tab is one too, its settings its own: phMixNode)
+const COMB = "~combined:", PH_MIX = COMB + "phone", combNode = key => { if (key === PH_MIX) return phMixNode(); try { return nodeAt(layout().root, key.slice(COMB.length)); } catch (e) { return null; } };
 function combinedThreads(key, chosen = thChosen(key), out = [], lines = combinedLines(chosen).filter((on => it => inCombined(on, it))(clanesOf(combNode(key))))) {
   const by = new Map(), drawn = new Set(lines.map(it => it._in ?? it._thread ?? "")), sel = localStorage.getItem("thread:" + key);
   for (const a of chosen) for (const t of threadsOf(combinedConv(a), a, sel, key, out)) {
@@ -13315,7 +13387,7 @@ function seenUpTo(items) {
   for (const it of items) { const ts = (it._asked || [it.ts]).at(-1); if (seenKind(it) && ts > (seen[it._agent] || "")) seen[it._agent] = ts; }
   localStorage.setItem("seen", JSON.stringify(seen));
 }
-const unseenBadge = (n, ask) => `<span class="unseen${ask ? " ask" : ""}" title="${n} message${n > 1 ? "s" : ""} since you last looked${ask ? ", one asking you something" : ""}">${n >= 10 ? "10+" : n}</span>`;
+const unseenBadge = (n, ask, most = "10+") => `<span class="unseen${ask ? " ask" : ""}" title="${n} message${n > 1 ? "s" : ""} since you last looked${ask ? ", one asking you something" : ""}">${n >= 10 ? most : n}</span>`;
 // In Threads, each thread is seen apart (seenTh: agent -> thread -> the time of its newest line when last seen): only
 // the thread open in an agent's card or view is seen by being shown. A line is unseen when newer than both its
 // thread's time and the agent's.
@@ -13686,11 +13758,16 @@ document.addEventListener("click", e => {
 // closed. A line over the list says what they are.
 const thSetBtn = key => `<b class="thsetbtn" data-thset="${esc(key)}" title="Who is shown, what is counted and the order">${MENU_ICON.more}</b>`;
 const thSortWords = () => TH_SORTS.find(([k]) => k === thSort())[1].toLowerCase();
+// who a Combined pane shows, in a few words
+const thRoleName = r => plural(roleList().find(x => x.role === r)?.name || r);
+function thWho(n) {
+  const lit = roleList().filter(r => roleLit(n, r.role));
+  return !pickedAny(n) || lit.length === roleList().length ? "Everyone" : !lit.length ? `${combinedAgents(n).length} agents` : lit.length <= 2 ? lit.map(r => thRoleName(r.role)).join(", ") : `${lit.length} roles`;
+}
 function thSummary(key) {
   const n = key.startsWith(COMB) ? combNode(key) : null, closed = thNoClosed() ? " · closed left out" : "";
   if (!n) return thSortWords() + closed;
-  const lit = roleList().filter(r => roleLit(n, r.role)), name = r => plural(roleList().find(x => x.role === r)?.name || r);
-  const who = !pickedAny(n) || lit.length === roleList().length ? "Everyone" : !lit.length ? `${combinedAgents(n).length} agents` : lit.length <= 2 ? lit.map(r => name(r.role)).join(", ") : `${lit.length} roles`;
+  const who = thWho(n), name = thRoleName;
   const {list, on} = rolesIn(n, "troles"), out = list.map(r => r.role).filter(r => !on.includes(r));
   const count = !out.length ? "counting everyone" : !on.length ? "counting no one" : out.length <= 2 ? "counting all but " + out.map(name).join(", ") : on.length <= 2 ? "counting " + on.map(name).join(", ") : `counting ${on.length} roles`;
   return `${who} · ${count} · ${thSortWords()}${closed}`;
@@ -16014,17 +16091,24 @@ function phFacesHtml() {
     (off.length ? `<section><h2>Stopped</h2><div class="ph-grid bench">${off.map(a => `<button class="ph-tile${switching(a)}" data-menu-name="${esc(a.name)}">${phPor({...a, live: undefined}, " bench")}${esc(shown(a.name))}</button>`).join("")}</div></section>` : "") +
     `<div class="ph-hint">Tap a portrait to open the agent · press and hold for its details</div>`;
 }
-let phDayAt = 0, phMixAt = 0, phTeamAt = 0;
-// The Combined tab: every running agent's conversation as one, in time order. Its Roles and lanes filters are the
-// phone's own, kept in this browser (owner, 2026-11-08); until one is used, the desktop's first Combined pane's here,
-// else every role, every lane.
+let phDayAt = 0, phMixAt = 0, phTeamAt = 0, phMixRead = false;
+// The Combined tab (owner, 2026-11-27): the threads of the agents it shows, as the desktop's Combined pane has them
+// (combinedThreads), by what they need; one opened full screen, its open asks pinned over it with their quick answers;
+// or, with All chosen, every message in time order. Its settings are the phone's own, kept in this browser and set in
+// its sheet (phMixSheet); until who is shown is chosen, the desktop's first Combined pane's. Summary until Full is
+// chosen, so the agents' words come before their commands (owner, 2026-11-13).
 function phMixNode() {
-  let mine; try { mine = JSON.parse(localStorage.getItem("phonemix")); } catch (e) {}
-  // Summary until Full is chosen, so the agents' words come before their tool lines (owner, 2026-11-13)
-  const full = mine?.full === true;
-  if (mine && Array.isArray(mine.roles) && Array.isArray(mine.clanes)) return {show: "combined", roles: mine.roles, clanes: mine.clanes, full};
+  const mine = phNode("phonemix"), every = roleList().map(r => r.role);
   const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "combined");
-  return {show: "combined", roles: Array.isArray(desk?.roles) && desk.roles.length ? desk.roles : roleList().map(r => r.role), clanes: desk ? clanesOf(desk) : CALL, full};
+  const from = Array.isArray(mine.pick) || Array.isArray(mine.roles) ? mine : desk || {};
+  const who = Array.isArray(from.pick) ? {pick: from.pick} : Array.isArray(from.roles) && from.roles.length && !every.every(r => from.roles.includes(r)) ? {roles: from.roles} : {};
+  return {show: "combined", ...who, clanes: Array.isArray(mine.clanes) ? CALL.filter(l => mine.clanes.includes(l)) : CALL, full: mine.full === true, count: ["all", "you", "chosen"].includes(mine.count) ? mine.count : "you",
+    cpick: Array.isArray(mine.cpick) ? mine.cpick.filter(x => typeof x === "string") : [], sort: mine.sort === "name" ? "name" : "time", quiet: mine.quiet === true};
+}
+// kept as chosen ("Everyone" as no roles), and any agent it brings in read at once
+function phMixSave(n) {
+  localStorage.setItem("phonemix", JSON.stringify({...(Array.isArray(n.pick) ? {pick: n.pick} : {roles: rolesPicked(n)}), clanes: n.clanes, full: n.full, count: n.count, cpick: n.cpick, sort: n.sort, quiet: n.quiet}));
+  phMixAt = 0; phoneDraw();
 }
 // The Token usage tab: the desktop's pane drawn for a phone, its view (n.graph), roles opened (n.tkopen) and order
 // (n.tksort) the phone's own, kept in this browser; until one is chosen, the desktop's first Token usage pane's, with
@@ -16043,16 +16127,8 @@ function phTokAct(t) {
   else return false;
   localStorage.setItem("phonetokens", JSON.stringify(n)); phoneDraw(); return true;
 }
-// a filter's choice flips one role or lane, keeps the result as the phone's own, and reads any agent it brings in
-function phMixFlip(key, x) {
-  const n = phMixNode(), on = key === "roles" ? n.roles : n.clanes, next = on.includes(x) ? on.filter(y => y !== x) : [...on, x];
-  localStorage.setItem("phonemix", JSON.stringify({roles: key === "roles" ? next : n.roles, clanes: key === "roles" ? n.clanes : next, full: n.full}));
-  phMixAt = 0; phoneDraw();
-}
-function phMixFull(full) { const n = phMixNode(); localStorage.setItem("phonemix", JSON.stringify({roles: n.roles, clanes: n.clanes, full})); phoneDraw(); }
-// The role chips over the Combined, Team and Day log tabs (and the Day log's kinds of entry), each a row that scrolls
-// sideways: All, then each role in its colour, lit while it shows. Combined keeps the roles it shows, every one until
-// some are picked; Team and the Day log keep the roles picked, none meaning every one.
+// The role chips over the Team, Search and Day log tabs (and the Day log's kinds of entry), each a row that scrolls
+// sideways: All, then each role in its colour, lit while it shows; the roles picked are kept, none meaning every one.
 function phRoleChips(on, all) {
   return `<div class="ph-chiprow" data-chips="role"><b class="chip${all ? " on" : ""}" data-role="">All</b>${roleList().map(r =>
     `<b class="chip${!all && on.includes(r.role) ? " on" : ""}" data-role="${esc(r.role)}">${roleMark(r)}${esc(r.name)}</b>`).join("")}</div>`;
@@ -16065,11 +16141,7 @@ const phSearchNode = () => { const v = phNode("phonesearch"); return {show: "sea
 function phChipAct(tab, chip) {
   const flip = (on, x) => on.includes(x) ? on.filter(y => y !== x) : [...on, x];
   if (chip.dataset.kind != null) { const n = phDayNode(); localStorage.setItem("phoneday", JSON.stringify({...n, kinds: chip.dataset.kind ? flip(n.kinds, chip.dataset.kind) : []})); }
-  else if (tab === "mix") {
-    const n = phMixNode(), every = roleList().map(r => r.role), all = every.every(r => n.roles.includes(r)), r = chip.dataset.role;
-    const next = !r ? every : all ? [r] : flip(n.roles, r);
-    localStorage.setItem("phonemix", JSON.stringify({roles: next.length ? next : every, clanes: n.clanes, full: n.full})); phMixAt = 0;
-  } else { const key = tab === "day" ? "phoneday" : tab === "search" ? "phonesearch" : "phoneteam", n = tab === "day" ? phDayNode() : tab === "search" ? phSearchNode() : phTeamNode();
+  else { const key = tab === "day" ? "phoneday" : tab === "search" ? "phonesearch" : "phoneteam", n = tab === "day" ? phDayNode() : tab === "search" ? phSearchNode() : phTeamNode();
     localStorage.setItem(key, JSON.stringify({...n, roles: chip.dataset.role ? flip(n.roles, chip.dataset.role) : []})); }
   phoneDraw();
 }
@@ -16079,26 +16151,285 @@ function phKindChips(n) {
   return kinds.length ? `<div class="ph-chiprow" data-chips="kind"><b class="chip${n.kinds.length ? "" : " on"}" data-kind="">All types</b>${kinds.map(k => { const [what, , d] = dayLogKind(k);
     return `<b class="chip${n.kinds.includes(k) ? " on" : ""}" data-kind="${esc(k)}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>${esc(what)}</b>`; }).join("")}</div>` : "";
 }
-// the Combined tab's filters: one ⋯ in its header, lit while something is left out, opening its Roles and its lanes
-function phMixFilters(body) {
-  const head = body.querySelector(".teamlog .thead");
-  if (!head) return;
-  head.querySelectorAll(".fbtn").forEach(b => b.remove()); head.classList.add("phmix");
-  const n = phMixNode(), some = n.roles.length < roleList().length || n.clanes.length < CALL.length;
-  head.insertAdjacentHTML("beforeend", `<b class="phmixmore fbtn${some ? " some" : ""}" data-menu="phmix" role="button" aria-label="Filter: roles and lanes" title="Roles and lanes">${PH_ICON.more}</b>`);
-  head.querySelector(".phmixmore").onclick = e => { e.stopPropagation(); phMixMenu(e.currentTarget); };
+// The Combined tab's threads and lines: its threads (combinedThreads) each with the asks still open (t.open: those not
+// answered here since last asked), when one was last answered (t.done) or withdrawn (t.gone), and their new messages
+// counted as Count as new says (un), an ask of the owner always counting.
+const phMixOpen = (agent, th, ask) => !((phAnswered[agent + "\n" + th] || 0) > (Date.parse(ask._asked.at(-1)) || 0));
+function phMixData() {
+  // only the kinds of message chosen, but an ask of the owner whatever they are
+  const n = phMixNode(), chosen = combinedAgents(n).map(a => a.name), lines = combinedLines(chosen).filter(it => it._ask || inCombined(n.clanes, it));
+  const counts = it => !!it._ask || (n.count === "you" ? it.kind === "said" : n.count === "chosen" ? n.cpick.includes(it.kind === "peer" ? it.who : it._agent) : true);
+  const all = combinedThreads(PH_MIX, chosen, [], lines), un = combinedUnseen(lines.filter(counts)), gone = {};
+  for (const it of lines) if (it._withdraws && (it.ts || "") > (gone[it._thread] || "")) gone[it._thread] = it.ts;
+  for (const t of all) {
+    t.open = t.asks.filter(x => phMixOpen(x.agent, t.name, x.ask));
+    t.done = Math.max(t.answered, ...t.asks.map(x => phAnswered[x.agent + "\n" + t.name] || 0));
+    t.gone = Date.parse(gone[t.name]) || 0;
+  }
+  return {n, chosen, lines, all, un};
 }
-function phMixMenu(btn) {
-  if (menuOn("phmix")) return menuOff(true);
-  const tick = MENU_ICON.check.replace("<svg", '<svg class="tick"');
-  const row = (k, l, t, icon) => `<div class="mi" data-k="${k}" data-lane="${esc(l)}">${icon || ""}${esc(t)}${tick}</div>`;
-  menuAt(btn, "phmix", `<div class="hd"><div>Show</div></div>` + row("view", "summary", "Summary: the newest turns") + row("view", "full", "Full: the whole conversation") +
-    `<div class="hd sec"><div>Roles</div></div>` + roleItems().map(([l, t, icon]) => row("roles", l, t, icon)).join("") +
-    `<div class="hd sec"><div>Lanes</div></div>` + CLANES.map(([l, t]) => row("clanes", l, t || S.owner, MENU_ICON[l])).join(""), false);
-  const ticks = () => { const n = phMixNode(); menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.querySelector("svg.tick").classList.toggle("off",
-    mi.dataset.k === "view" ? (mi.dataset.lane === "full") !== n.full : !n[mi.dataset.k].includes(mi.dataset.lane))); };
-  ticks();
-  menu.querySelectorAll(".mi[data-k]").forEach(mi => mi.onclick = () => { if (mi.dataset.k === "view") phMixFull(mi.dataset.lane === "full"); else phMixFlip(mi.dataset.k, mi.dataset.lane); ticks(); });
+// the line under its title: who is shown, Summary or Full in the flat feed, and what counts as new; in the list the order
+// and the quiet threads where they are not the usual
+function phMixSumm(n, flat) {
+  const c = n.cpick.filter(x => ppAgent(x));
+  const count = n.count === "all" ? "counting everyone" : n.count === "you" ? "counting to you" : !c.length ? "counting no one" : c.length <= 2 ? "counting " + c.map(shown).join(", ") : `counting ${c.length} agents`;
+  return [thWho(n), flat && (n.full ? "full" : "summary"), count, !flat && n.sort === "name" && "by name", !flat && n.quiet && "quiet shown"].filter(Boolean).join(" · ");
+}
+const phMixHead = (n, flat) => `<div class="phmhead"><div class="phmtitle"><b>Combined</b><button class="phmsum" data-phmset title="Combined settings">${esc(phMixSumm(n, flat))} ▾</button></div>` +
+  `<span class="phmseg" role="group" aria-label="Threads or every message">${[["threads", "threads", "Threads"], ["all", "lines", "Every message"]].map(([m, i, l]) => `<b data-phmmode="${m}" class="${(thMode(PH_MIX) === "all") === (m === "all") ? "on" : ""}" role="button" aria-label="${l}" title="${l}">${MENU_ICON[i]}</b>`).join("")}</span>` +
+  `<button class="phmmore" data-phmset aria-label="Combined settings">${PH_ICON.more}</button></div>`;
+// A thread's row: its title and the time of its last message; its key, who is in it and whether it asks the owner, was
+// answered or withdrawn; who said what last (an ask's asking part); and its new messages.
+const PH_DAY = 864e5;
+let phMixQuiet = false;   // the quiet threads opened under their button
+function phMixRow(t, un) {
+  const x = t.open[0], u = un[t.name], at = x ? Date.parse(x.ask._asked.at(-1)) || t.last : t.last, now = Date.now();
+  const tag = x ? `<span class="thl ask">asks you</span>` : t.gone > t.done && now - t.gone < PH_DAY ? `<span class="thl ok">withdrawn</span>` : t.done && now - t.done < PH_DAY ? `<span class="thl ok">answered</span>` : "";
+  const by = x ? x.agent : t.parts.find(p => p[1].latest === t.latest)?.[0], text = phPlain(x ? thAskLine(x.ask._askText || x.ask.text) : t.latest);
+  const who = t.agents.length ? `<span class="phmfaces">${t.agents.slice(0, 4).map(ppFace).join("")}${t.agents.length > 4 ? `<i>+${t.agents.length - 4}</i>` : ""}</span>` : "";
+  return `<button class="phthrow phmrow${x ? " ask" : ""}" data-phmth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b><i>${thAgo(at)}</i></span>` +
+    `<span class="l2">${t.key ? `<span class="phmkey">${esc(t.key)}</span>` : ""}${who}${tag}</span>` + (text ? `<span class="l3">${by ? esc(shown(by)) + ": " : ""}${esc(text)}</span>` : "") +
+    `<span class="r">${u?.n ? unseenBadge(u.n, u.ask && !!x, "9+") : ""}</span></button>`;
+}
+// the list: those waiting on the owner, the newest ask first; then the rest in the order chosen, but for those quiet a
+// day with no ask open, folded under a button unless Quiet threads shows them
+function phMixListHtml(d) {
+  const {n, all, un} = d;
+  if (!d.chosen.length) return `<div class="ph-empty">No one is shown: choose who from ⋯</div>`;
+  if (!all.length) return `<div class="ph-empty">${phMixRead ? "No threads lately" : "Reading the conversations…"}</div>`;
+  const wait = all.filter(t => t.open.length).sort((a, b) => (b.open[0].ask._asked.at(-1) || "").localeCompare(a.open[0].ask._asked.at(-1) || ""));
+  const rest = all.filter(t => !t.open.length).sort(n.sort === "name" ? (a, b) => thByTicket(a, b, 1) : (a, b) => b.last - a.last);
+  const quiet = rest.filter(t => Date.now() - t.last > PH_DAY), active = rest.filter(t => !quiet.includes(t)), row = t => phMixRow(t, un);
+  return (wait.length ? `<h3 class="phthh ask">Waiting on you · ${wait.length}</h3>${wait.map(row).join("")}` : "") +
+    (active.length ? `<h3 class="phthh">Active</h3>${active.map(row).join("")}` : "") +
+    (!quiet.length ? "" : n.quiet ? `<h3 class="phthh">Quiet</h3>${quiet.map(row).join("")}`
+      : `<button class="phmquiet" data-phmquiet aria-expanded="${phMixQuiet}">${phMixQuiet ? "Hide quiet threads" : `Quiet threads (${quiet.length})`}</button>${phMixQuiet ? quiet.map(row).join("") : ""}`);
+}
+// The quick answers to an ask: Approve (Approve both where it names two tickets or pull requests), Not yet and Ask why
+// for an approval; Yes, No and Ask why for a yes-or-no question (thYesNo); else Reply, which goes to the box.
+function thQuick(text) {
+  const line = thAskLine(text);
+  if (/\b(approve|your approval)\b/i.test(line)) { const two = new Set(keysIn(line)).size === 2 || new Set(line.match(/#\d+/g) || []).size === 2;
+    return [[two ? "Approve both" : "Approve", two ? "Approve both" : "Approve"], ["Not yet", "Not yet"], ["Why?", "Ask why"]]; }
+  return thYesNo(text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]];
+}
+// A thread opened: a back arrow, its title and "KEY · stage · who is in it", and each ask open in it pinned under them,
+// amber with its quick answers, green once answered.
+function phMixThHead(t) {
+  const sub = [t.key !== t.title && t.key, t.key && (t.closed ? "closed" : t.stage), t.agents.map(shown).join(", ")].filter(Boolean).join(" · ");   // the key once, where it is the title
+  const ask = x => phMixOpen(x.agent, t.name, x.ask)
+    ? `<div class="thask phmask"><small>Open ask · from ${esc(shown(x.agent))} · ${thAgo(Date.parse(x.ask._asked.at(-1)))}${x.ask._asked.length > 1 ? ` · asked ${x.ask._asked.length}×` : ""}</small>` +
+      `<span class="thaskq">${inline(thAskLine(x.ask._askText || x.ask.text))}</span><div class="phqa">${thQuick(x.ask._askText || x.ask.text).map(([w, l]) => `<button data-phmqa="${esc(w)}" data-agent="${esc(x.agent)}">${l}</button>`).join("")}</div></div>`
+    : `<div class="thask ok">Answered ${thWhen(phAnswered[x.agent + "\n" + t.name])}</div>`;
+  const asks = t.asks.map(ask).join("") || (t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "");
+  return `<div class="phmthh phth"><button class="phmback" data-phmback aria-label="Back to the threads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>` +
+    `<div class="phthname"><b>${esc(t.title)}</b><span>${esc(sub)}</span></div></div>${asks}`;
+}
+// Lines, oldest first: the newest PH_MIX_LINES messages and the earlier ones as asked for, behind "N earlier messages";
+// in Summary each run of commands folded to "N commands hidden" until tapped. Where the new ones begin is marked, as
+// in the desktop's pane (combinedNew).
+const PH_MIX_LINES = 20, phMixMore = {}, phMixCmds = new Set();
+function phMixFeed(of, only, full, key) {
+  const cmd = it => it.lane === "auto", want = PH_MIX_LINES + (phMixMore[key] || 0);
+  let i = of.length, k = 0;
+  while (i > 0 && k < want) if (!cmd(of[--i])) k++;
+  const log = Object.assign(of.slice(i), {threaded: true}), hidden = of.slice(0, i).filter(it => !cmd(it)).length;
+  const mark = looking() && !open ? combinedNew(PH_MIX, key, log) : newMarkAt(PH_MIX, key), fresh = mark ? log.filter(it => seenKind(it) && (it.ts || "") > mark) : [];
+  const out = hidden ? [`<button class="phmfold" data-phmmore="${esc(key)}">${hidden} earlier message${hidden > 1 ? "s" : ""} · show</button>`] : [];
+  const seg = run => feedHtml(Object.assign(run, {threaded: true}), "", false, ALL, only);
+  for (let a = 0; a < log.length;) {
+    let b = a + 1;
+    const c = !full && cmd(log[a]);
+    while (b < log.length && (!full && cmd(log[b])) === c && log[b] !== fresh[0]) b++;
+    const run = log.slice(a, b), id = run[0].ts + "\n" + run[0]._agent;
+    if (run[0] === fresh[0]) out.push(`<div class="newline"><span>${fresh.length} new message${fresh.length > 1 ? "s" : ""}</span></div>`);
+    if (c && !phMixCmds.has(id)) { const n = run.reduce((s, it) => s + (it.calls?.length || 1), 0); out.push(`<button class="phmfold" data-phmcmds="${esc(id)}">${n} command${n > 1 ? "s" : ""} hidden</button>`); }
+    else out.push(seg(run));
+    a = b;
+  }
+  return {html: out.join("") || `<div class="empty">nothing here lately</div>`, log};
+}
+// The message box: to whoever asked in the thread open, else its last to speak (combTo), in that thread; in the flat feed
+// to whoever was picked, else whoever asks in the thread picked, else the last to speak, in the thread picked, else the
+// one with the newest ask open (General: none). It is built again only when whom it is to changes.
+let phMixTo = null, phMixRe = null;   // the flat feed's picks, until a message is sent
+function phMixBox(el, d, t) {
+  const live = d.chosen.filter(x => S.agents.some(a => a.name === x && a.live)), opts = d.all.filter(x => x.name);
+  let to, re;
+  if (t) { to = combTo(PH_MIX, t, d.n, d.chosen); re = t.name; }
+  else {
+    const asks = opts.filter(x => x.open.length).sort((a, b) => (b.open[0].ask._asked.at(-1) || "").localeCompare(a.open[0].ask._asked.at(-1) || ""));
+    re = phMixRe ?? asks[0]?.name ?? ""; const rt = re ? opts.find(x => x.name === re) : null;
+    to = live.includes(phMixTo) ? phMixTo : [rt?.open[0]?.agent, ...(rt?.agents || []), d.lines.findLast(it => it.kind === "said" && live.includes(it._agent))?._agent, live[0]].find(x => live.includes(x));
+  }
+  const a = S.agents.find(x => x.name === to);
+  el.hidden = !a;
+  if (!a) { el.innerHTML = ""; el.dataset.to = ""; return; }
+  const head = `<span>To</span><select class="phmtosel" aria-label="To">${live.map(x => `<option value="${esc(x)}"${x === to ? " selected" : ""}>${esc(shown(x))}</option>`).join("")}</select>` +
+    (t ? reTag(t) : `<select class="phmresel${opts.find(x => x.name === re)?.open.length ? " ask" : ""}" aria-label="Thread">${[{name: ""}, ...opts].map(x => `<option value="${esc(x.name)}"${x.name === re ? " selected" : ""}>${x.name ? "Re " + esc(reLabel(x)) + (x.open.length ? " · asks you" : "") : "General"}</option>`).join("")}</select>`);
+  if (el.dataset.to !== to) {
+    el.dataset.to = to; el.style.setProperty("--c", a.colour);
+    el.innerHTML = `<div class="phmto"></div>${sayRow(a)}`;
+    const i = el.querySelector("textarea.say");
+    i.value = draft(to); grow(i); shutBox(i, a); showAtt(to);
+    i.oninput = () => { emojify(i); grow(i); keep(i); };
+    i.onkeydown = e => {
+      if (emoKey(e, i)) return;
+      const v = i.value.trim(), th = i.dataset.re;
+      if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.isComposing && th && v && !v.startsWith("/") && !THREAD_RE.test(v)) i.value = `Re ${th}: ${v}`;
+      keys(e, i, to);
+      if (e.key === "Enter" && !i.value) phMixTo = phMixRe = null;   // sent: the flat feed's box goes back to the newest ask
+    };
+    i.onpaste = e => pasted(e, to);
+    el.querySelector(".add")?.addEventListener("click", e => { e.stopPropagation(); pick(to, i); });
+  }
+  el.querySelector("textarea.say").dataset.re = re;
+  const h = el.querySelector(".phmto");
+  if (h.dataset.html !== head) { h.dataset.html = head; h.innerHTML = head; }
+  h.querySelector(".phmtosel").onchange = e => { if (t) combPick[PH_MIX + "\n" + t.name] = e.target.value; else phMixTo = e.target.value; phoneDraw(); };
+  const rs = h.querySelector(".phmresel"); if (rs) rs.onchange = e => { phMixRe = e.target.value; if (!phMixRe) phMixTo ??= to; phoneDraw(); };   // General keeps whom it was to
+}
+// The tab drawn: its list, its flat feed, or the thread open (phMixTh), full screen with no header or toolbar; a feed
+// kept at its newest message unless scrolled up. What shows of a thread or the feed is seen, as the desktop's pane sees it.
+let phMixTh = null;
+function phMixDraw(body) {
+  const d = phMixData(), t = phMixTh != null && d.all.find(x => x.name === phMixTh);
+  if (!t) phMixTh = null;
+  $("#phone").classList.toggle("phmixth", !!t);
+  const mode = t ? "thread" : thMode(PH_MIX) === "all" ? "all" : "list";
+  let pane = body.querySelector(":scope > .phmix"), first = false;
+  if (pane?.dataset.mode !== mode) {
+    first = true;
+    body.innerHTML = `<div class="ph-pane phmix" data-mode="${mode}"><div class="phmtop"></div>` + (mode === "list" ? `<div class="phmscroll"></div>`
+      : `<div class="teamlog combined phmlog"><div class="feed"></div><div class="phmbox chat"></div></div>`) + `</div>`;
+    pane = body.firstChild;
+  }
+  const top = pane.querySelector(".phmtop");
+  if (mode === "list") { patch(top, phMixHead(d.n, false)); patch(pane.querySelector(".phmscroll"), phMixListHtml(d)); return; }
+  const f = pane.querySelector(".feed"), end = first || f.scrollHeight - f.scrollTop - f.clientHeight < 60, key = t ? t.name : EVERY;
+  const {html, log} = phMixFeed(t ? d.lines.filter(it => (it._in ?? it._thread ?? "") === t.name) : d.lines, t ? t.name : null, d.n.full, key);
+  patch(top, t ? phMixThHead(t) : phMixHead(d.n, true));
+  if (f.dataset.html !== html) { f.dataset.html = html; patch(f, html); }
+  if (looking() && !open) { if (t) { thRead(PH_MIX, t); thReadTo(log, t.name); } else seenUpTo(log); }
+  phMixBox(pane.querySelector(".phmbox"), d, t);
+  if (end) f.scrollTop = f.scrollHeight;
+}
+function phMixGo(th) {
+  phMixTh = th; localStorage.setItem("thread:" + PH_MIX, th);
+  history.pushState({...(history.state || {}), phmix: th}, "");
+  phoneDraw();
+}
+addEventListener("popstate", () => { if (phMixTh != null && history.state?.phmix == null) { phMixTh = null; if (phoneOn()) phoneDraw(); } });   // back, from a thread to the list
+// a tap on the tab: a thread to open (its row, or its label on a line), back, Threads or All, its settings, the quiet
+// threads, earlier messages or folded commands to show, a quick answer, or a line's reply arrow (the box set to answer it)
+function phMixClick(e) {
+  const at = s => e.target.closest(s);
+  let b;
+  if ((b = at("[data-phmth], .feed .thl[data-thread]"))) phMixGo(b.dataset.phmth ?? b.dataset.thread);
+  else if (at("[data-phmback]")) history.back();
+  else if ((b = at("[data-phmmode]"))) { localStorage.setItem("threads:" + PH_MIX, b.dataset.phmmode); phoneDraw(); }
+  else if (at("[data-phmset]")) { phMenuAt = "mix"; phoneMenu(); }
+  else if (at("[data-phmquiet]")) { phMixQuiet = !phMixQuiet; phoneDraw(); }
+  else if ((b = at("[data-phmmore], [data-phmcmds]"))) {
+    const f = b.closest(".feed"), below = f.scrollHeight - f.scrollTop;
+    if (b.dataset.phmmore != null) phMixMore[b.dataset.phmmore] = (phMixMore[b.dataset.phmmore] || 0) + COMB_LINES; else phMixCmds.add(b.dataset.phmcmds);
+    phoneDraw(); f.scrollTop = f.scrollHeight - below;   // the lines that were in view stay there
+  }
+  else if ((b = at("[data-phmqa]"))) phMixAnswer(b.dataset.agent, phMixTh, b.dataset.phmqa);
+  else if ((b = at("[data-rep]"))) {
+    if (phMixTh != null) combPick[PH_MIX + "\n" + phMixTh] = b.dataset.rep; else { phMixTo = b.dataset.rep; phMixRe = b.dataset.repth; }
+    phoneDraw(); $("#phone .phmbox textarea.say")?.focus();
+  }
+  else return false;
+  return true;
+}
+// A quick answer: the word, in the thread, to the agent that asked, from the box (set to that agent); the ask turns
+// green until the answer shows in its conversation. Reply puts the cursor in the box.
+function phMixAnswer(agent, th, word) {
+  combPick[PH_MIX + "\n" + th] = agent; phoneDraw();
+  const box = $("#phone .phmbox textarea.say");
+  if (!box) return;
+  if (!word) { box.focus(); return; }
+  box.value = `Re ${th}: ${word}`; phAnswered[agent + "\n" + th] = Date.now(); say(agent, box); phoneDraw();
+}
+// The Combined tab's settings, a sheet in the Team menu's style: who is shown and which kinds of message (each a page of
+// its own, as the Toolbar's), what counts as new (the agents chosen on a page of their own), the order, Summary or Full, and whether the quiet threads
+// show. A change applies at once.
+function phMixSheet(slide) {
+  const sh = $("#phsheet"), n = phMixNode();
+  if (phMenuAt === "mixlanes") return phMixLanes(slide);
+  if (phMenuAt !== "mix") return phMixPicker(slide);
+  const seg = (k, v, l) => `<button data-go="${k}:${v}" class="${n[k] === v ? "on" : ""}">${l}</button>`, c = n.cpick.filter(x => ppAgent(x));
+  sh.innerHTML = `<div class="sh phmsheet" role="dialog" aria-label="Combined settings"><span class="grab"></span>${PH_SHX}<h2>COMBINED</h2>` +
+    `<div class="note">Asks waiting on you always count, whatever these are set to.</div><div class="rows">` +
+    `<button class="r" data-go="who"><span>Show threads from<small>${esc(thWho(n))}</small></span>${PH_ICON.chev}</button>` +
+    `<button class="r" data-go="lanes"><span>Message types<small>${n.clanes.length === CALL.length ? "All" : esc(CLANES.filter(([l]) => n.clanes.includes(l)).map(([, t]) => t || shown(S.owner)).join(", ") || "None")}</small></span>${PH_ICON.chev}</button>` +
+    `<label class="r"><span>Count as new</span><select class="csel">${[["all", "Everything"], ["you", "Messages to you"], ["chosen", "Chosen agents…"]].map(([v, l]) => `<option value="${v}"${n.count === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>` +
+    (n.count === "chosen" ? `<button class="r" data-go="count"><span>Agents counted<small>${esc(c.map(shown).join(", ") || "None yet")}</small></span>${PH_ICON.chev}</button>` : "") +
+    `<div class="r"><span>Sort</span><div class="seg2">${seg("sort", "time", "Newest")}${seg("sort", "name", "Name")}</div></div>` +
+    `<div class="r"><span>Messages</span><div class="seg2">${seg("full", false, "Summary")}${seg("full", true, "Full")}</div></div>` +
+    `<div class="r"><span>Quiet threads</span><div class="seg2">${seg("quiet", false, "Hide")}${seg("quiet", true, "Show")}</div></div></div></div>`;
+  phMixSheetOn(sh, slide);
+  sh.querySelector(".csel").onchange = e => { n.count = e.target.value; phMixSave(n); if (n.count === "chosen") { phMenuAt = "mixcount"; phMixSheet("slidein"); } else phMixSheet(); };
+  sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const [go, v] = b.dataset.go.split(":");
+    if (go === "close") return phoneMenuOff();
+    if (go === "who" || go === "count" || go === "lanes") { phMenuAt = "mix" + go; return phMixSheet("slidein"); }
+    n[go] = go === "sort" ? v : v === "true"; phMixSave(n); phMixSheet();
+  });
+}
+// a page of the sheet: whose threads show, or whose new messages count, by role and by agent, each ticked while it is in.
+// Each role starts folded, showing how many of its agents are in; its › opens it to its agents (phMixUnfolded, for the visit).
+const phMixUnfolded = new Set();
+function phMixPicker(slide) {
+  const sh = $("#phsheet"), n = phMixNode(), who = phMenuAt === "mixwho", team = [...S.agents, ...S.bench];
+  const on = a => who ? inPick(n, a) : n.cpick.includes(a.name), tick = x => `<span class="phmtick${x ? " on" : ""}">${x ? MENU_ICON.check : ""}</span>`;
+  const rows = phByRole().map(([r, list]) => { const open = phMixUnfolded.has(r.role), k = list.filter(on).length;
+    return `<div class="phmrolerow"><button class="r phmrole" data-go="role" data-v="${esc(r.role)}">${roleMark(r)}<span>${esc(plural(r.name))}<small>${k} of ${list.length}</small></span>${tick(who ? roleLit(n, r.role) : list.every(on))}</button>` +
+      `<button class="phmfold${open ? " open" : ""}" data-go="fold" data-v="${esc(r.role)}" aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} the ${esc(plural(r.name))}">${PH_ICON.chev}</button></div>` +
+      (open ? list.map(a => `<button class="r phmag" data-go="agent" data-v="${esc(a.name)}">${ppFace(a.name)}<span>${esc(shown(a.name))}${a.live ? "" : "<small>stopped</small>"}</span>${tick(on(a))}</button>`).join("") : ""); }).join("");
+  sh.innerHTML = `<div class="sh tbsheet phmsheet" role="dialog" aria-label="${who ? "Show threads from" : "Count as new"}"><span class="grab"></span>${PH_SHX}` +
+    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the Combined settings">${PH_ICON.chev}</button><h2>${who ? "SHOW THREADS FROM" : "COUNT AS NEW FROM"}</h2></div>` +
+    `<div class="rows">${who ? `<button class="r" data-go="every"><span>Everyone</span>${tick(!pickedAny(n))}</button>` : ""}${rows}</div></div>`;
+  phMixSheetOn(sh, slide);
+  sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const go = b.dataset.go, v = b.dataset.v;
+    if (go === "close") return phoneMenuOff();
+    if (go === "back") { phMenuAt = "mix"; return phMixSheet("slideback"); }
+    if (go === "fold") { phMixUnfolded.has(v) ? phMixUnfolded.delete(v) : phMixUnfolded.add(v); return phMixPicker(); }
+    if (who) {
+      if (go === "every") { delete n.pick; delete n.roles; }
+      else if (go === "role") pickRole(n, v);
+      else { const now = team.filter(a => inPick(n, a)).map(a => a.name), next = now.includes(v) ? now.filter(x => x !== v) : [...now, v];
+        delete n.roles; if (!next.length || team.every(a => next.includes(a.name))) delete n.pick; else n.pick = next; }
+    } else {
+      const them = go === "role" ? team.filter(a => a.role === v).map(a => a.name) : [v], all = them.every(x => n.cpick.includes(x));
+      n.cpick = all ? n.cpick.filter(x => !them.includes(x)) : [...new Set([...n.cpick, ...them])];
+    }
+    phMixSave(n); phMixPicker();
+  });
+}
+// a page of the sheet: which kinds of message show, in the threads and the feed, as the desktop pane's lane filter
+function phMixLanes(slide) {
+  const sh = $("#phsheet"), n = phMixNode();
+  sh.innerHTML = `<div class="sh tbsheet phmsheet" role="dialog" aria-label="Message types"><span class="grab"></span>${PH_SHX}` +
+    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the Combined settings">${PH_ICON.chev}</button><h2>MESSAGE TYPES</h2></div>` +
+    `<div class="rows">${CLANES.map(([l, t]) => `<button class="r" data-go="lane" data-v="${l}"><span class="cicon">${MENU_ICON[l] || ""}</span><span>${esc(t || shown(S.owner))}<small>${esc(CLANE_TIP[l])}</small></span>` +
+      `<span class="phmtick">${n.clanes.includes(l) ? MENU_ICON.check : ""}</span></button>`).join("")}</div></div>`;
+  phMixSheetOn(sh, slide);
+  sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const go = b.dataset.go, v = b.dataset.v;
+    if (go === "close") return phoneMenuOff();
+    if (go === "back") { phMenuAt = "mix"; return phMixSheet("slideback"); }
+    n.clanes = n.clanes.includes(v) ? n.clanes.filter(x => x !== v) : CALL.filter(x => x === v || n.clanes.includes(x));
+    phMixSave(n); phMixLanes();
+  });
+}
+function phMixSheetOn(sh, slide) {
+  const panel = sh.querySelector(".sh");
+  if (!sh.classList.contains("on")) { sh.classList.add("on"); panel.style.transform = "translateY(100%)"; requestAnimationFrame(() => requestAnimationFrame(() => { panel.style.transform = ""; })); }
+  if (slide) panel.classList.add(slide);
+  phSheetDrag(panel);
 }
 // The page under a menu on the phone is dimmed, and a tap there closes the menu and does nothing else; the menu
 // follows a finger pulling it down and closes if pulled far enough.
@@ -16141,7 +16472,7 @@ async function phLoad(tab) {
         const d = await (await fetch("/api/agent/" + encodeURIComponent(a.name), {cache: "no-store"})).json(), t = JSON.stringify(d.feed);
         if (t !== paneText[a.name]) { paneConv[a.name] = d.feed; paneText[a.name] = t; paneVer[a.name] = (paneVer[a.name] || 0) + 1; }
       })]);
-      phoneDraw();
+      phMixRead = true; phoneDraw();
     }
     if (tab === "team" && Date.now() - phTeamAt > 3500) {
       phTeamAt = Date.now();
@@ -16205,6 +16536,7 @@ function phoneDraw() {
       const dash = e.target.closest("[data-dash]");
       if (dash) { try { phDashAct(dash.dataset.dash); } catch (e) { phError(e); } return; }
       if (body.dataset.tab === "tokens" && phTokAct(e.target)) return;
+      if (body.dataset.tab === "mix" && phMixClick(e)) return;
       const chip = e.target.closest(".ph-chiprow .chip");
       if (chip) return phChipAct(body.dataset.tab, chip);
       const gauge = body.dataset.tab === "perf" && e.target.closest(".mini.perf[data-pk]");
@@ -16250,24 +16582,17 @@ function phoneDraw() {
     nav.innerHTML = bar.map(k => `<button data-tab="${k}">${PH_ICON[k]}<span>${PH_TABS.find(([x]) => x === k)[1]}</span></button>`).join("");
   }
   ph.querySelectorAll(".ph-nav [data-tab]").forEach(b => { b.classList.toggle("on", b.dataset.tab === tab); b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"); });
+  // the Combined icon carries the count of the threads waiting on the owner, in amber: their conversations are read every
+  // half minute while another tab shows
+  if (bar.includes("mix") && tab !== "mix" && Date.now() - phMixAt > 30000) phLoad("mix");
+  const asks = bar.includes("mix") && phMixRead ? phMixData().all.filter(t => t.open.length).length : 0, ask = asks ? `<span class="unseen ask" title="${asks} thread${asks > 1 ? "s" : ""} waiting on you">${asks > 9 ? "9+" : asks}</span>` : "";
+  ph.querySelectorAll('.ph-nav [data-tab="mix"]').forEach(b => { const was = b.querySelector(".unseen"); if ((was?.outerHTML || "") !== ask) { was?.remove(); if (ask) b.insertAdjacentHTML("beforeend", ask); } });
   const body = ph.querySelector(".ph-body");
   body.dataset.tab = tab;
-  if (tab !== "mix") delete body.dataset.html;
+  if (tab !== "mix") { phMixTh = null; ph.classList.remove("phmixth"); }
   if (tab === "list") patch(body, phListHtml());
   else if (tab === "faces") patch(body, phFacesHtml());
-  else if (tab === "mix") {
-    // the transcript is drawn again only when it changes, and stays at its newest turn unless scrolled up
-    const mn = phMixNode(), html = phRoleChips(mn.roles, roleList().every(r => mn.roles.includes(r.role))) + combinedHtml("phone", mn, mn.full, false);
-    if (body.dataset.html !== html) {
-      const f = body.querySelector(".feed"), end = !f || f.scrollHeight - f.scrollTop - f.clientHeight < 60, was = f?.scrollTop, chipsAt = body.querySelector(".ph-chiprow")?.scrollLeft;
-      body.innerHTML = `<div class="ph-pane">${html}</div>`; body.dataset.html = html;
-      if (chipsAt) body.querySelector(".ph-chiprow").scrollLeft = chipsAt;
-      body.querySelectorAll(".maxbtn, .newest").forEach(b => b.remove());
-      phMixFilters(body);
-      const g = body.querySelector(".feed"); if (g) g.scrollTop = end ? g.scrollHeight : was;
-    }
-    phLoad(tab);
-  }
+  else if (tab === "mix") { phMixDraw(body); phLoad(tab); }
   else if (tab === "work") {
     patch(body, `<div class="ph-pane">${workHtml(false, null)}</div>`);
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
@@ -16353,6 +16678,7 @@ function phoneMenu(again, slide) {
   let sh = $("#phsheet");
   if (!sh) { sh = document.createElement("div"); sh.id = "phsheet"; document.body.append(sh); sh.onclick = e => { if (e.target === sh) phoneMenuOff(); }; }
   if (phMenuAt === "toolbar") return phToolbarMenu(slide);
+  if (phMenuAt.startsWith("mix")) return phMixSheet(slide);
   const t = phTeamState(), lead = S.agents.find(a => a.name === S.lead);   // the first running of delivery lead, head of testing, head of operations, assistant
   const starting = S.starting.includes("team"), stopping = S.halting.includes("team"), down = t.word === "Stopped";
   const light = document.documentElement.classList.contains("light"), fs = settings().fs || 100;
@@ -16726,6 +17052,8 @@ function phBodySwipe(body) {
           return {el: list(), host: body, go: () => { localStorage.setItem("workqueue:tab", to); body.scrollTop = 0; phoneDraw(); }, after: list};
         }
       }
+      // in a Combined thread, a swipe to the right goes back to its list
+      if (body.dataset.tab === "mix" && phMixTh != null) return {el: dir < 0 ? body : null, host: body, go: () => history.back(), after: () => body};
       const bar = phToolbar(), to = bar[bar.indexOf(body.dataset.tab) + dir];
       return {el: body, go: to && (() => { localStorage.setItem("phonetab", to); body.scrollTop = 0; try { phoneDraw(); } catch (err) { phError(err); } }), after: () => body};
     });
@@ -17539,8 +17867,10 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
           ("background:${meterFill(m)}" in PAGE, 'const meterFill = m => m.colour ? plugColour(m.colour) : "linear-gradient(90deg,#2ea043,#3fb950)"' in PAGE), (True, True))
         t("the header can show the Favourites, as the Bench, and the desktop agent menu adds and removes one",
           ('bench: "Bench", favs: "Favourites"' in PAGE, "phFavToggle" in PAGE), (True, True))
-        t("  Combined has its own Summary or Full, Roles and lanes, behind one ⋯ in its header, kept in this browser",
-          ('data-menu="phmix"' in PAGE, 'menuAt(btn, "phmix", `<div class="hd"><div>Show</div></div>`' in PAGE, 'localStorage.setItem("phonemix"' in PAGE), (True, True, True))
+        t("  Combined is threads, a thread full screen with its asks' quick answers, or a flat feed, with a settings sheet (who, message types, counted, sort, Summary or Full, quiet) kept in this browser",
+          ("function phMixDraw(body)" in PAGE, "function phMixAnswer(agent, th, word)" in PAGE, "function phMixSheet(slide)" in PAGE,
+           "function phMixLanes(slide)" in PAGE, 'localStorage.setItem("phonemix"' in PAGE, "phMixMenu" not in PAGE,
+           "#phsheet .sh > *{flex-shrink:0}" in PAGE), (True,) * 6 + (True,))
         t("  its agents are by role unless Status is chosen, favourites first on Agents and Portraits, each group by name",
           ('const phOrder = () => localStorage.getItem("phoneorder") === "state" ? "state" : "role";' in PAGE,
            'const fav = favs.length ? `<section class="ph-favs"><h2>${MENU_ICON.star}Favourites</h2><div class="ph-grid">' in PAGE,
