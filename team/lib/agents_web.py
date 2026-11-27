@@ -128,6 +128,7 @@ BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budg
 DAY_BUDGET = os.environ.get("AGENTS_DAY_BUDGET") or os.path.join(ROOT, "team/agents-day-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
 CLAUDE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
+SEEN_FILE = os.environ.get("AGENTS_SEEN_FILE") or os.path.join(HOME, ".local/state/agents/seen.json")   # what the owner has read, shared by every browser
 SESSIONS = os.path.join(CLAUDE, "sessions")
 PROJECTS = os.path.join(CLAUDE, "projects")
 ACTIVITY = os.environ.get("ACTIVITY_DIR") or os.path.join(STATE_DIR, "activity")   # "<state> <epoch>" per session id, from team/activity-hook.sh
@@ -4170,7 +4171,7 @@ def state():
         "lead": lead_name({a["name"] for a in agents if a["live"]}),
         "prRepo": os.environ.get("AGENTS_PR_REPO", ""),
     }
-    return {**st, "plugins": plugins(bar_facts(st))}
+    return {**st, "plugins": plugins(bar_facts(st)), "seen": seen_marks()}
 
 
 # Portraits for the Characters pane: <name in lower case>.png, .webp or .jpg in this folder (AGENTS_PORTRAITS, else
@@ -4210,6 +4211,45 @@ def portraits(name):
 
 _state = {"at": 0, "st": None, "body": None}
 _state_build = threading.Lock()
+
+
+_seen_lock = threading.Lock()
+
+
+def seen_marks():
+    """What the owner has read, kept for every browser: {"seen": {agent: time}, "seenth": {agent: {thread: time}}}, each
+    time that of the newest line read."""
+    try:
+        with open(SEEN_FILE) as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return {"seen": {}, "seenth": {}}
+    return {"seen": got.get("seen") if isinstance(got.get("seen"), dict) else {},
+            "seenth": got.get("seenth") if isinstance(got.get("seenth"), dict) else {}}
+
+
+def seen_merge(new):
+    """Marks from a browser added to those kept, each mark the later of the two, so a device behind never makes read
+    lines unread. Returns what is kept."""
+    later = lambda a, b: b if isinstance(b, str) and b > (a if isinstance(a, str) else "") else a
+    with _seen_lock:
+        have = seen_marks()
+        for name, ts in (new.get("seen") or {}).items():
+            if isinstance(name, str):
+                have["seen"][name] = later(have["seen"].get(name), ts)
+        for name, ths in (new.get("seenth") or {}).items():
+            if isinstance(name, str) and isinstance(ths, dict):
+                mine = have["seenth"].setdefault(name, {})
+                for th, ts in ths.items():
+                    if isinstance(th, str):
+                        mine[th] = later(mine.get(th), ts)
+        have["seen"] = {k: v for k, v in have["seen"].items() if isinstance(v, str)}
+        os.makedirs(os.path.dirname(SEEN_FILE), exist_ok=True)
+        tmp = SEEN_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(have, f)
+        os.replace(tmp, SEEN_FILE)
+    return have
 
 
 def state_now(age):
@@ -5868,7 +5908,7 @@ class Handler(BaseHTTPRequestHandler):
         nudger = re.fullmatch(r"/api/nudger/(pause|resume)", self.path)
         meet = re.fullmatch(r"/api/meeting(?:/(\d{8}-\d{4}-[a-z0-9]{4})/(say|add|pause|end|handover))?", self.path)
         term = re.fullmatch(r"/api/terminal/(?:([a-z0-9]{4,32})/(attach|detach|submitted|finished)|(read|suggest))", self.path)
-        if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/standup/summary"):
+        if not m and not team and not repos and not nudger and not meet and not term and self.path not in ("/api/paste", "/api/doc", "/api/seen", "/api/standup/summary"):
             return self.send(404, b"not found\n", "text/plain")
         origins = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"} | ({f"https://{PUBLIC_HOST}"} if PUBLIC_HOST else set())
         origin = self.headers.get("Origin")
@@ -5891,6 +5931,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.terminal(term.group(1), term.group(2) or term.group(3))
         if nudger:
             return self.nudger(nudger.group(1) == "pause")
+        if self.path == "/api/seen":
+            try:
+                new = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4_000_000)) or b"{}")
+            except ValueError:
+                return self.send(400, b"not JSON\n", "text/plain")
+            if not isinstance(new, dict):
+                return self.send(400, b"not an object\n", "text/plain")
+            return self.send(200, json.dumps(seen_merge(new)).encode(), "application/json")
         if self.path == "/api/standup/summary":
             return self.standup()
         if self.path == "/api/doc":
@@ -13213,6 +13261,7 @@ function paintAgents() {
 }
 function takeState(st) {
   S = st;
+  if (st.seen) seenShared(st.seen);
   for (const a of [...S.agents, ...S.bench]) a.roleColour = a.colour;
   paintAgents();
 }
@@ -13342,6 +13391,28 @@ async function load(tick) {
 // agent whose card is on the page (in tabs, only the picked one), and the open one while its view is. A message from an agent, or to or from
 // it, newer than that is unseen. It is counted only in the lanes the agent's card shows (unseenBy).
 const seen = JSON.parse(localStorage.getItem("seen") || "{}");
+// The marks are kept by the server too, so every browser shares them: each state brings the server's, taken where later
+// than this browser's, and a mark of this browser's later than the server's is sent to it (a second after the last).
+let seenSendAt = null, seenSent = "";
+function seenSave() {
+  const body = JSON.stringify({seen, seenth: seenTh});
+  localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh));
+  if (body === seenSent) return;
+  clearTimeout(seenSendAt);
+  seenSendAt = setTimeout(() => { seenSent = body; fetch("/api/seen", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body})
+    .then(r => { if (!r.ok) seenSent = ""; }, () => { seenSent = ""; }); }, 1000);
+}
+function seenShared(got) {
+  let took = false, ahead = false;
+  const join = (mine, theirs) => {
+    for (const [k, v] of Object.entries(theirs || {})) if (typeof v === "string" && v > (mine[k] || "")) { mine[k] = v; took = true; }
+    for (const [k, v] of Object.entries(mine)) if (typeof v === "string" && v > ((theirs || {})[k] || "")) ahead = true;
+  };
+  join(seen, got.seen);
+  for (const name of new Set([...Object.keys(seenTh), ...Object.keys(got.seenth || {})])) join(seenTh[name] ||= {}, got.seenth?.[name]);
+  if (ahead) seenSave();
+  else if (took) { localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh)); }
+}
 const SEEN_KINDS = ["said", "peer", "sent"], seenKind = it => SEEN_KINDS.includes(it.kind) && !it.summary;   // a summary is never unread
 // A conversation shown on lines not seen before (a thread with a count opened, or lines arriving while it is shown)
 // marks where they begin with "N new messages", for a few seconds (NEW_FOR), as long as a count shows. The mark is
@@ -13380,12 +13451,13 @@ function markSeen(names) {
       if (m > (seenTh[a.name]?.[th] || "")) (seenTh[a.name] ||= {})[th] = m;
     } else if (newest > (seen[a.name] || "")) seen[a.name] = newest;
   }
-  localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh));
+  seenSave();
 }
 // a message shown in a Combined pane has been seen, as an agent's card counts its own as seen
 function seenUpTo(items) {
-  for (const it of items) { const ts = (it._asked || [it.ts]).at(-1); if (seenKind(it) && ts > (seen[it._agent] || "")) seen[it._agent] = ts; }
-  localStorage.setItem("seen", JSON.stringify(seen));
+  let more = false;
+  for (const it of items) { const ts = (it._asked || [it.ts]).at(-1); if (seenKind(it) && ts > (seen[it._agent] || "")) { seen[it._agent] = ts; more = true; } }
+  if (more) seenSave();
 }
 const unseenBadge = (n, ask, most = "10+") => `<span class="unseen${ask ? " ask" : ""}" title="${n} message${n > 1 ? "s" : ""} since you last looked${ask ? ", one asking you something" : ""}">${n >= 10 ? most : n}</span>`;
 // In Threads, each thread is seen apart (seenTh: agent -> thread -> the time of its newest line when last seen): only
@@ -13688,13 +13760,13 @@ function thRead(agent, t) {
   if (t.parts) { for (const [a, p] of t.parts) thRead(a, p); return; }
   if (!seen[agent] || (t.at || "") <= thSeen(agent, t.name)) return;
   (seenTh[agent] ||= {})[t.name] = t.at;
-  localStorage.setItem("seenth", JSON.stringify(seenTh));
+  seenSave();
 }
 // the lines of a Combined pane's thread that are in view, seen
 function thReadTo(lines, th) {
   let more = false;
   for (const it of lines) { const ts = (it._asked || [it.ts]).at(-1) || ""; if (seenKind(it) && seen[it._agent] && ts > thSeen(it._agent, th)) { (seenTh[it._agent] ||= {})[th] = ts; more = true; } }
-  if (more) localStorage.setItem("seenth", JSON.stringify(seenTh));
+  if (more) seenSave();
 }
 // removed until something new arrives in it, and what it held counts as seen
 function thRemove(agent, t) {
@@ -13767,10 +13839,12 @@ function thWho(n) {
 function thSummary(key) {
   const n = key.startsWith(COMB) ? combNode(key) : null, closed = thNoClosed() ? " · closed left out" : "";
   if (!n) return thSortWords() + closed;
-  const who = thWho(n), name = thRoleName;
-  const {list, on} = rolesIn(n, "troles"), out = list.map(r => r.role).filter(r => !on.includes(r));
-  const count = !out.length ? "counting everyone" : !on.length ? "counting no one" : out.length <= 2 ? "counting all but " + out.map(name).join(", ") : on.length <= 2 ? "counting " + on.map(name).join(", ") : `counting ${on.length} roles`;
-  return `${who} · ${count} · ${thSortWords()}${closed}`;
+  return `${thWho(n)} · ${thCountWords(n)} · ${thSortWords()}${closed}`;
+}
+// which roles a Combined pane's threads are counted from, in a few words
+function thCountWords(n) {
+  const name = thRoleName, {list, on} = rolesIn(n, "troles"), out = list.map(r => r.role).filter(r => !on.includes(r));
+  return !out.length ? "counting everyone" : !on.length ? "counting no one" : out.length <= 2 ? "counting all but " + out.map(name).join(", ") : on.length <= 2 ? "counting " + on.map(name).join(", ") : `counting ${on.length} roles`;
 }
 function thSetHtml(key) {
   const n = key.startsWith(COMB) ? combNode(key) : null;
@@ -16102,12 +16176,12 @@ function phMixNode() {
   const desk = views().views.flatMap(v => v.layout ? leaves(v.layout.root).map(([, n]) => n) : []).find(n => n.show === "combined");
   const from = Array.isArray(mine.pick) || Array.isArray(mine.roles) ? mine : desk || {};
   const who = Array.isArray(from.pick) ? {pick: from.pick} : Array.isArray(from.roles) && from.roles.length && !every.every(r => from.roles.includes(r)) ? {roles: from.roles} : {};
-  return {show: "combined", ...who, clanes: Array.isArray(mine.clanes) ? CALL.filter(l => mine.clanes.includes(l)) : CALL, full: mine.full === true, count: ["all", "you", "chosen"].includes(mine.count) ? mine.count : "you",
-    cpick: Array.isArray(mine.cpick) ? mine.cpick.filter(x => typeof x === "string") : [], sort: mine.sort === "name" ? "name" : "time", quiet: mine.quiet === true};
+  return {show: "combined", ...who, clanes: Array.isArray(mine.clanes) ? CALL.filter(l => mine.clanes.includes(l)) : CALL, full: mine.full === true,
+    troles: rolesOut(Array.isArray(mine.troles) ? mine : desk || {}, "troles").filter(r => typeof r === "string"), quiet: mine.quiet === true};
 }
 // kept as chosen ("Everyone" as no roles), and any agent it brings in read at once
 function phMixSave(n) {
-  localStorage.setItem("phonemix", JSON.stringify({...(Array.isArray(n.pick) ? {pick: n.pick} : {roles: rolesPicked(n)}), clanes: n.clanes, full: n.full, count: n.count, cpick: n.cpick, sort: n.sort, quiet: n.quiet}));
+  localStorage.setItem("phonemix", JSON.stringify({...(Array.isArray(n.pick) ? {pick: n.pick} : {roles: rolesPicked(n)}), clanes: n.clanes, full: n.full, troles: n.troles, quiet: n.quiet}));
   phMixAt = 0; phoneDraw();
 }
 // The Token usage tab: the desktop's pane drawn for a phone, its view (n.graph), roles opened (n.tkopen) and order
@@ -16153,13 +16227,13 @@ function phKindChips(n) {
 }
 // The Combined tab's threads and lines: its threads (combinedThreads) each with the asks still open (t.open: those not
 // answered here since last asked), when one was last answered (t.done) or withdrawn (t.gone), and their new messages
-// counted as Count as new says (un), an ask of the owner always counting.
+// (un), all from the roles counted in the threads, as the desktop pane's.
 const phMixOpen = (agent, th, ask) => !((phAnswered[agent + "\n" + th] || 0) > (Date.parse(ask._asked.at(-1)) || 0));
 function phMixData() {
   // only the kinds of message chosen, but an ask of the owner whatever they are
   const n = phMixNode(), chosen = combinedAgents(n).map(a => a.name), lines = combinedLines(chosen).filter(it => it._ask || inCombined(n.clanes, it));
-  const counts = it => !!it._ask || (n.count === "you" ? it.kind === "said" : n.count === "chosen" ? n.cpick.includes(it.kind === "peer" ? it.who : it._agent) : true);
-  const all = combinedThreads(PH_MIX, chosen, [], lines), un = combinedUnseen(lines.filter(counts)), gone = {};
+  // the threads, and what is new in them, from the roles counted, as the desktop pane has them (its Counting)
+  const tl = lines.filter(it => notOut(it, it._agent, n.troles)), all = combinedThreads(PH_MIX, chosen, n.troles, tl), un = combinedUnseen(tl), gone = {};
   for (const it of lines) if (it._withdraws && (it.ts || "") > (gone[it._thread] || "")) gone[it._thread] = it.ts;
   for (const t of all) {
     t.open = t.asks.filter(x => phMixOpen(x.agent, t.name, x.ask));
@@ -16168,37 +16242,38 @@ function phMixData() {
   }
   return {n, chosen, lines, all, un};
 }
-// the line under its title: who is shown, Summary or Full in the flat feed, and what counts as new; in the list the order
-// and the quiet threads where they are not the usual
+// the line under its title: who is shown, Summary or Full in the flat feed, and the roles counted; in the list the order,
+// closed threads left out and the quiet threads where they are not the usual
 function phMixSumm(n, flat) {
-  const c = n.cpick.filter(x => ppAgent(x));
-  const count = n.count === "all" ? "counting everyone" : n.count === "you" ? "counting to you" : !c.length ? "counting no one" : c.length <= 2 ? "counting " + c.map(shown).join(", ") : `counting ${c.length} agents`;
-  return [thWho(n), flat && (n.full ? "full" : "summary"), count, !flat && n.sort === "name" && "by name", !flat && n.quiet && "quiet shown"].filter(Boolean).join(" · ");
+  return [thWho(n), flat && (n.full ? "full" : "summary"), thCountWords(n), !flat && thSort() !== "time-desc" && thSortWords(), !flat && thNoClosed() && "closed left out", !flat && n.quiet && "quiet shown"].filter(Boolean).join(" · ");
 }
 const phMixHead = (n, flat) => `<div class="phmhead"><div class="phmtitle"><b>Combined</b><button class="phmsum" data-phmset title="Combined settings">${esc(phMixSumm(n, flat))} ▾</button></div>` +
   `<span class="phmseg" role="group" aria-label="Threads or every message">${[["threads", "threads", "Threads"], ["all", "lines", "Every message"]].map(([m, i, l]) => `<b data-phmmode="${m}" class="${(thMode(PH_MIX) === "all") === (m === "all") ? "on" : ""}" role="button" aria-label="${l}" title="${l}">${MENU_ICON[i]}</b>`).join("")}</span>` +
   `<button class="phmmore" data-phmset aria-label="Combined settings">${PH_ICON.more}</button></div>`;
-// A thread's row: its title and the time of its last message; its key, who is in it and whether it asks the owner, was
-// answered or withdrawn; who said what last (an ask's asking part); and its new messages.
+// A thread's row: its title and the time of its last message; its key, who is in it, whether it asks the owner or was
+// answered or withdrawn in the last minute (as the desktop's list says answered), and whether its ticket is closed; who
+// said what last (an ask's asking part); and its new messages.
 const PH_DAY = 864e5;
 let phMixQuiet = false;   // the quiet threads opened under their button
 function phMixRow(t, un) {
   const x = t.open[0], u = un[t.name], at = x ? Date.parse(x.ask._asked.at(-1)) || t.last : t.last, now = Date.now();
-  const tag = x ? `<span class="thl ask">asks you</span>` : t.gone > t.done && now - t.gone < PH_DAY ? `<span class="thl ok">withdrawn</span>` : t.done && now - t.done < PH_DAY ? `<span class="thl ok">answered</span>` : "";
+  const tag = x ? `<span class="thl ask">asks you</span>` : t.gone > t.done && now - t.gone < ANSWERED_FOR ? `<span class="thl ok">withdrawn</span>`
+    : t.done && now - t.done < ANSWERED_FOR ? `<span class="thl ok">answered</span>` : "";
   const by = x ? x.agent : t.parts.find(p => p[1].latest === t.latest)?.[0], text = phPlain(x ? thAskLine(x.ask._askText || x.ask.text) : t.latest);
   const who = t.agents.length ? `<span class="phmfaces">${t.agents.slice(0, 4).map(ppFace).join("")}${t.agents.length > 4 ? `<i>+${t.agents.length - 4}</i>` : ""}</span>` : "";
   return `<button class="phthrow phmrow${x ? " ask" : ""}" data-phmth="${esc(t.name)}"><span class="l1"><b>${esc(t.title)}</b><i>${thAgo(at)}</i></span>` +
-    `<span class="l2">${t.key ? `<span class="phmkey">${esc(t.key)}</span>` : ""}${who}${tag}</span>` + (text ? `<span class="l3">${by ? esc(shown(by)) + ": " : ""}${esc(text)}</span>` : "") +
+    `<span class="l2">${t.key ? `<span class="phmkey">${esc(t.key)}</span>` : ""}${who}${tag}${t.closed ? `<span class="thl thclosed" title="Done in Work">closed</span>` : ""}</span>` + (text ? `<span class="l3">${by ? esc(shown(by)) + ": " : ""}${esc(text)}</span>` : "") +
     `<span class="r">${u?.n ? unseenBadge(u.n, u.ask && !!x, "9+") : ""}</span></button>`;
 }
-// the list: those waiting on the owner, the newest ask first; then the rest in the order chosen, but for those quiet a
+// the list: those waiting on the owner, the newest ask first; then the rest, pinned first then in the order chosen (both
+// the desktop's), but for those quiet a
 // day with no ask open, folded under a button unless Quiet threads shows them
 function phMixListHtml(d) {
   const {n, all, un} = d;
   if (!d.chosen.length) return `<div class="ph-empty">No one is shown: choose who from ⋯</div>`;
   if (!all.length) return `<div class="ph-empty">${phMixRead ? "No threads lately" : "Reading the conversations…"}</div>`;
   const wait = all.filter(t => t.open.length).sort((a, b) => (b.open[0].ask._asked.at(-1) || "").localeCompare(a.open[0].ask._asked.at(-1) || ""));
-  const rest = all.filter(t => !t.open.length).sort(n.sort === "name" ? (a, b) => thByTicket(a, b, 1) : (a, b) => b.last - a.last);
+  const pins = new Set([...wkPins(), ...thPins()]), rest = all.filter(t => !t.open.length).sort((a, b) => pins.has(b.name) - pins.has(a.name) || thSortCmp(a, b));
   const quiet = rest.filter(t => Date.now() - t.last > PH_DAY), active = rest.filter(t => !quiet.includes(t)), row = t => phMixRow(t, un);
   return (wait.length ? `<h3 class="phthh ask">Waiting on you · ${wait.length}</h3>${wait.map(row).join("")}` : "") +
     (active.length ? `<h3 class="phthh">Active</h3>${active.map(row).join("")}` : "") +
@@ -16353,60 +16428,73 @@ function phMixAnswer(agent, th, word) {
   box.value = `Re ${th}: ${word}`; phAnswered[agent + "\n" + th] = Date.now(); say(agent, box); phoneDraw();
 }
 // The Combined tab's settings, a sheet in the Team menu's style: who is shown and which kinds of message (each a page of
-// its own, as the Toolbar's), what counts as new (the agents chosen on a page of their own), the order, Summary or Full, and whether the quiet threads
-// show. A change applies at once.
+// its own, as the Toolbar's), the roles counted in the threads (a page too), the order and closed tickets (this browser's,
+// shared with its desktop panes), Summary or Full, and whether the quiet threads show. A change applies at once.
 function phMixSheet(slide) {
   const sh = $("#phsheet"), n = phMixNode();
   if (phMenuAt === "mixlanes") return phMixLanes(slide);
+  if (phMenuAt === "mixcount") return phMixCount(slide);
   if (phMenuAt !== "mix") return phMixPicker(slide);
-  const seg = (k, v, l) => `<button data-go="${k}:${v}" class="${n[k] === v ? "on" : ""}">${l}</button>`, c = n.cpick.filter(x => ppAgent(x));
+  const seg = (k, v, l, on = n[k] === v) => `<button data-go="${k}:${v}" class="${on ? "on" : ""}">${l}</button>`;
   sh.innerHTML = `<div class="sh phmsheet" role="dialog" aria-label="Combined settings"><span class="grab"></span>${PH_SHX}<h2>COMBINED</h2>` +
-    `<div class="note">Asks waiting on you always count, whatever these are set to.</div><div class="rows">` +
+    `<div class="note">Order, closed tickets and pins are this browser's, as on its desktop pane.</div><div class="rows">` +
     `<button class="r" data-go="who"><span>Show threads from<small>${esc(thWho(n))}</small></span>${PH_ICON.chev}</button>` +
     `<button class="r" data-go="lanes"><span>Message types<small>${n.clanes.length === CALL.length ? "All" : esc(CLANES.filter(([l]) => n.clanes.includes(l)).map(([, t]) => t || shown(S.owner)).join(", ") || "None")}</small></span>${PH_ICON.chev}</button>` +
-    `<label class="r"><span>Count as new</span><select class="csel">${[["all", "Everything"], ["you", "Messages to you"], ["chosen", "Chosen agents…"]].map(([v, l]) => `<option value="${v}"${n.count === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>` +
-    (n.count === "chosen" ? `<button class="r" data-go="count"><span>Agents counted<small>${esc(c.map(shown).join(", ") || "None yet")}</small></span>${PH_ICON.chev}</button>` : "") +
-    `<div class="r"><span>Sort</span><div class="seg2">${seg("sort", "time", "Newest")}${seg("sort", "name", "Name")}</div></div>` +
+    `<button class="r" data-go="count"><span>Counted in the threads<small>${esc(thCountWords(n).replace(/^counting /, "").replace(/^./, c => c.toUpperCase()))}</small></span>${PH_ICON.chev}</button>` +
+    `<label class="r"><span>Order</span><select class="osel">${TH_SORTS.map(([v, , l]) => `<option value="${v}"${thSort() === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>` +
+    `<div class="r"><span>Closed tickets</span><div class="seg2">${seg("closed", "show", "Show", !thNoClosed())}${seg("closed", "remove", "Remove", thNoClosed())}</div></div>` +
     `<div class="r"><span>Messages</span><div class="seg2">${seg("full", false, "Summary")}${seg("full", true, "Full")}</div></div>` +
     `<div class="r"><span>Quiet threads</span><div class="seg2">${seg("quiet", false, "Hide")}${seg("quiet", true, "Show")}</div></div></div></div>`;
   phMixSheetOn(sh, slide);
-  sh.querySelector(".csel").onchange = e => { n.count = e.target.value; phMixSave(n); if (n.count === "chosen") { phMenuAt = "mixcount"; phMixSheet("slidein"); } else phMixSheet(); };
+  sh.querySelector(".osel").onchange = e => { localStorage.setItem("thsort", e.target.value); phoneDraw(); phMixSheet(); };
   sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const [go, v] = b.dataset.go.split(":");
     if (go === "close") return phoneMenuOff();
     if (go === "who" || go === "count" || go === "lanes") { phMenuAt = "mix" + go; return phMixSheet("slidein"); }
-    n[go] = go === "sort" ? v : v === "true"; phMixSave(n); phMixSheet();
+    if (go === "closed") { localStorage.setItem("thnoclosed", v === "remove" ? "1" : "0"); phoneDraw(); return phMixSheet(); }
+    n[go] = v === "true"; phMixSave(n); phMixSheet();
   });
 }
-// a page of the sheet: whose threads show, or whose new messages count, by role and by agent, each ticked while it is in.
+// a page of the sheet: whose threads show, by role and by agent, each ticked while it is in.
 // Each role starts folded, showing how many of its agents are in; its › opens it to its agents (phMixUnfolded, for the visit).
 const phMixUnfolded = new Set();
 function phMixPicker(slide) {
-  const sh = $("#phsheet"), n = phMixNode(), who = phMenuAt === "mixwho", team = [...S.agents, ...S.bench];
-  const on = a => who ? inPick(n, a) : n.cpick.includes(a.name), tick = x => `<span class="phmtick${x ? " on" : ""}">${x ? MENU_ICON.check : ""}</span>`;
+  const sh = $("#phsheet"), n = phMixNode(), team = [...S.agents, ...S.bench];
+  const on = a => inPick(n, a), tick = x => `<span class="phmtick${x ? " on" : ""}">${x ? MENU_ICON.check : ""}</span>`;
   const rows = phByRole().map(([r, list]) => { const open = phMixUnfolded.has(r.role), k = list.filter(on).length;
-    return `<div class="phmrolerow"><button class="r phmrole" data-go="role" data-v="${esc(r.role)}">${roleMark(r)}<span>${esc(plural(r.name))}<small>${k} of ${list.length}</small></span>${tick(who ? roleLit(n, r.role) : list.every(on))}</button>` +
+    return `<div class="phmrolerow"><button class="r phmrole" data-go="role" data-v="${esc(r.role)}">${roleMark(r)}<span>${esc(plural(r.name))}<small>${k} of ${list.length}</small></span>${tick(roleLit(n, r.role))}</button>` +
       `<button class="phmfold${open ? " open" : ""}" data-go="fold" data-v="${esc(r.role)}" aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} the ${esc(plural(r.name))}">${PH_ICON.chev}</button></div>` +
       (open ? list.map(a => `<button class="r phmag" data-go="agent" data-v="${esc(a.name)}">${ppFace(a.name)}<span>${esc(shown(a.name))}${a.live ? "" : "<small>stopped</small>"}</span>${tick(on(a))}</button>`).join("") : ""); }).join("");
-  sh.innerHTML = `<div class="sh tbsheet phmsheet" role="dialog" aria-label="${who ? "Show threads from" : "Count as new"}"><span class="grab"></span>${PH_SHX}` +
-    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the Combined settings">${PH_ICON.chev}</button><h2>${who ? "SHOW THREADS FROM" : "COUNT AS NEW FROM"}</h2></div>` +
-    `<div class="rows">${who ? `<button class="r" data-go="every"><span>Everyone</span>${tick(!pickedAny(n))}</button>` : ""}${rows}</div></div>`;
+  sh.innerHTML = `<div class="sh tbsheet phmsheet" role="dialog" aria-label="Show threads from"><span class="grab"></span>${PH_SHX}` +
+    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the Combined settings">${PH_ICON.chev}</button><h2>SHOW THREADS FROM</h2></div>` +
+    `<div class="rows"><button class="r" data-go="every"><span>Everyone</span>${tick(!pickedAny(n))}</button>${rows}</div></div>`;
   phMixSheetOn(sh, slide);
   sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     const go = b.dataset.go, v = b.dataset.v;
     if (go === "close") return phoneMenuOff();
     if (go === "back") { phMenuAt = "mix"; return phMixSheet("slideback"); }
     if (go === "fold") { phMixUnfolded.has(v) ? phMixUnfolded.delete(v) : phMixUnfolded.add(v); return phMixPicker(); }
-    if (who) {
-      if (go === "every") { delete n.pick; delete n.roles; }
-      else if (go === "role") pickRole(n, v);
-      else { const now = team.filter(a => inPick(n, a)).map(a => a.name), next = now.includes(v) ? now.filter(x => x !== v) : [...now, v];
-        delete n.roles; if (!next.length || team.every(a => next.includes(a.name))) delete n.pick; else n.pick = next; }
-    } else {
-      const them = go === "role" ? team.filter(a => a.role === v).map(a => a.name) : [v], all = them.every(x => n.cpick.includes(x));
-      n.cpick = all ? n.cpick.filter(x => !them.includes(x)) : [...new Set([...n.cpick, ...them])];
-    }
+    if (go === "every") { delete n.pick; delete n.roles; }
+    else if (go === "role") pickRole(n, v);
+    else { const now = team.filter(a => inPick(n, a)).map(a => a.name), next = now.includes(v) ? now.filter(x => x !== v) : [...now, v];
+      delete n.roles; if (!next.length || team.every(a => next.includes(a.name))) delete n.pick; else n.pick = next; }
     phMixSave(n); phMixPicker();
+  });
+}
+// a page of the sheet: the roles the threads are counted from, as the desktop pane's Counting (n.troles: those left out)
+function phMixCount(slide) {
+  const sh = $("#phsheet"), n = phMixNode(), {list} = rolesIn(n, "troles"), tick = x => `<span class="phmtick${x ? " on" : ""}">${x ? MENU_ICON.check : ""}</span>`;
+  sh.innerHTML = `<div class="sh tbsheet phmsheet" role="dialog" aria-label="Counted in the threads"><span class="grab"></span>${PH_SHX}` +
+    `<div class="tbhead"><button class="tbback" data-go="back" aria-label="Back to the Combined settings">${PH_ICON.chev}</button><h2>COUNTED IN THE THREADS</h2></div>` +
+    `<div class="rows"><button class="r" data-go="every"><span>Everyone</span>${tick(!n.troles.length)}</button>` +
+    list.map(r => `<button class="r phmrole" data-go="role" data-v="${esc(r.role)}">${roleMark(r)}<span>${esc(plural(r.name))}</span>${tick(!n.troles.includes(r.role))}</button>`).join("") + `</div></div>`;
+  phMixSheetOn(sh, slide);
+  sh.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+    const go = b.dataset.go, v = b.dataset.v;
+    if (go === "close") return phoneMenuOff();
+    if (go === "back") { phMenuAt = "mix"; return phMixSheet("slideback"); }
+    n.troles = go === "every" ? [] : n.troles.includes(v) ? n.troles.filter(r => r !== v) : [...n.troles, v];
+    phMixSave(n); phMixCount();
   });
 }
 // a page of the sheet: which kinds of message show, in the threads and the feed, as the desktop pane's lane filter
@@ -17897,7 +17985,7 @@ backlog) echo '{"counts":{"selected":3}}'; case "$*" in *--status*) for i in 3 2
         t("  and the pane heads it with its summary, its tab naming it", '<div class="thead"><span class="tsum">${esc(sum)}</span></div>' in PAGE, True)
         t("the bars stay out of sight until placed, and are placed before the first state",
           ('html:not(.barsplaced) :is(header,footer){display:none}' in PAGE, -1 < PAGE.find('try { placeBar(); }') < PAGE.find('load().then(() => { if (location.hash')), (True, True))
-        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "fonts", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "tickets", "week"])
+        t("  and its state", sorted(json.loads(code("/api/state")[1])), ["agents", "bench", "compacting", "day", "disk", "even", "fonts", "full", "halting", "lead", "now", "nudgerPaused", "owner", "plan", "plugins", "prRepo", "project", "repos", "reset", "seen", "session", "shownNames", "starting", "tabs", "teamPaused", "teamUp", "termAgents", "tickets", "week"])
         t("the Repositories count: the branches behind, most first, with what keeps one there",
           behind_branches("current api main\nwould update api develop: 3 behind origin/develop\n"
                           "left web main: checked out with 1 uncommitted changes, 26 behind\nleft ops: the fetch failed\n"
