@@ -128,7 +128,7 @@ BUDGET = os.environ.get("AGENTS_BUDGET") or os.path.join(ROOT, "team/agents-budg
 DAY_BUDGET = os.environ.get("AGENTS_DAY_BUDGET") or os.path.join(ROOT, "team/agents-day-budget.sh")
 LEDGER = os.environ.get("AGENTS_DASH_LEDGER") or os.path.join(ROOT, "scripts/ledger-db.sh")
 CLAUDE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
-SEEN_FILE = os.environ.get("AGENTS_SEEN_FILE") or os.path.join(HOME, ".local/state/agents/seen.json")   # what the owner has read, shared by every browser
+SEEN_FILE = os.environ.get("AGENTS_SEEN_FILE") or os.path.join(HOME, ".local/state/agents/seen.json")   # what the owner has read and dealt with, shared by every browser
 SESSIONS = os.path.join(CLAUDE, "sessions")
 PROJECTS = os.path.join(CLAUDE, "projects")
 ACTIVITY = os.environ.get("ACTIVITY_DIR") or os.path.join(STATE_DIR, "activity")   # "<state> <epoch>" per session id, from team/activity-hook.sh
@@ -4217,15 +4217,15 @@ _seen_lock = threading.Lock()
 
 
 def seen_marks():
-    """What the owner has read, kept for every browser: {"seen": {agent: time}, "seenth": {agent: {thread: time}}}, each
-    time that of the newest line read."""
+    """What the owner has read and dealt with, kept for every browser: {"seen": {agent: time}, "seenth": {agent: {thread:
+    time}}, "thclear": {agent: {thread: time}}}, a seen time that of the newest line read, a cleared one the time of the
+    ask the owner marked dealt with."""
     try:
         with open(SEEN_FILE) as f:
             got = json.load(f)
     except (OSError, ValueError):
-        return {"seen": {}, "seenth": {}}
-    return {"seen": got.get("seen") if isinstance(got.get("seen"), dict) else {},
-            "seenth": got.get("seenth") if isinstance(got.get("seenth"), dict) else {}}
+        got = {}
+    return {k: got.get(k) if isinstance(got.get(k), dict) else {} for k in ("seen", "seenth", "thclear")}
 
 
 def seen_merge(new):
@@ -4237,12 +4237,14 @@ def seen_merge(new):
         for name, ts in (new.get("seen") or {}).items():
             if isinstance(name, str):
                 have["seen"][name] = later(have["seen"].get(name), ts)
-        for name, ths in (new.get("seenth") or {}).items():
-            if isinstance(name, str) and isinstance(ths, dict):
-                mine = have["seenth"].setdefault(name, {})
-                for th, ts in ths.items():
-                    if isinstance(th, str):
-                        mine[th] = later(mine.get(th), ts)
+        for kind in ("seenth", "thclear"):
+            for name, ths in (new.get(kind) or {}).items():
+                if isinstance(name, str) and isinstance(ths, dict):
+                    mine = have[kind].setdefault(name, {})
+                    for th, ts in ths.items():
+                        if isinstance(th, str):
+                            mine[th] = later(mine.get(th), ts)
+            have[kind] = {n: {th: ts for th, ts in ths.items() if isinstance(ts, str)} for n, ths in have[kind].items() if isinstance(ths, dict)}
         have["seen"] = {k: v for k, v in have["seen"].items() if isinstance(v, str)}
         os.makedirs(os.path.dirname(SEEN_FILE), exist_ok=True)
         tmp = SEEN_FILE + ".tmp"
@@ -8130,7 +8132,10 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .phmback{display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:22px;background:none;color:var(--text);cursor:pointer}
 #phone .phmback svg{width:22px;height:22px}
 #phone .phmtop > .thask{margin:0 12px 10px}
-#phone .phmask > small{display:block;margin:0 0 4px;font:700 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;opacity:.9}
+#phone .phmask{position:relative}
+#phone .phmclr{position:absolute;z-index:1;top:2px;right:2px;display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;background:none;color:inherit;opacity:.8;cursor:pointer}
+#phone .phmclr svg{width:16px;height:16px}
+#phone .phmask > small{padding-right:28px;display:block;margin:0 0 4px;font:700 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;opacity:.9}
 #phone .phmask .thaskq{color:var(--text)}
 #phone .phmask .phqa{gap:8px}
 #phone .phmask .phqa button{min-height:40px}
@@ -9851,7 +9856,11 @@ function shellNew(id, kind) {
   if (ta) for (const [k, v] of Object.entries({writingsuggestions: "false", spellcheck: "false", autocomplete: "off", autocorrect: "off",
     autocapitalize: "off", "data-gramm": "false", "data-gramm_editor": "false", "data-enable-grammarly": "false"})) ta.setAttribute(k, v);
   const send = data => { if (s.ws?.readyState === 1) s.ws.send(data); };
-  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } if (d[0] !== "\x1b") s.pin = ""; shellTyped(s, d); send(shellEnc.encode(d)); });
+  // A shell open on several screens takes the size of the one last sized to it, so the screen in use gives its own when
+  // it is clicked into, and again as it is typed in (at most each second): the shell always fits the screen being used.
+  const sized = () => { s.sizedAt = Date.now(); send(JSON.stringify({cols: term.cols, rows: term.rows})); };
+  term.textarea?.addEventListener("focus", sized);
+  term.onData(d => { if (s.replay) return; if (s.ended) { if (d === "\r") { s.ended = false; term.reset(); shellOpen(s); } return; } if (d[0] !== "\x1b") s.pin = ""; if (Date.now() - (s.sizedAt || 0) > 1000) sized(); shellTyped(s, d); send(shellEnc.encode(d)); });
   term.onWriteParsed(() => shellPin(s));
   term.onBinary(d => s.replay || send(Uint8Array.from(d, c => c.charCodeAt(0))));
   term.onResize(({cols, rows}) => send(JSON.stringify({cols, rows})));
@@ -13391,12 +13400,13 @@ async function load(tick) {
 // agent whose card is on the page (in tabs, only the picked one), and the open one while its view is. A message from an agent, or to or from
 // it, newer than that is unseen. It is counted only in the lanes the agent's card shows (unseenBy).
 const seen = JSON.parse(localStorage.getItem("seen") || "{}");
-// The marks are kept by the server too, so every browser shares them: each state brings the server's, taken where later
-// than this browser's, and a mark of this browser's later than the server's is sent to it (a second after the last).
+// The marks, and the asks marked dealt with (thCleared), are kept by the server too, so every browser shares them: each
+// state brings the server's, taken where later than this browser's, and a mark of this browser's later than the server's
+// is sent to it (a second after the last).
 let seenSendAt = null, seenSent = "";
 function seenSave() {
-  const body = JSON.stringify({seen, seenth: seenTh});
-  localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh));
+  const body = JSON.stringify({seen, seenth: seenTh, thclear: thCleared});
+  seenKeep();
   if (body === seenSent) return;
   clearTimeout(seenSendAt);
   seenSendAt = setTimeout(() => { seenSent = body; fetch("/api/seen", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body})
@@ -13409,10 +13419,12 @@ function seenShared(got) {
     for (const [k, v] of Object.entries(mine)) if (typeof v === "string" && v > ((theirs || {})[k] || "")) ahead = true;
   };
   join(seen, got.seen);
-  for (const name of new Set([...Object.keys(seenTh), ...Object.keys(got.seenth || {})])) join(seenTh[name] ||= {}, got.seenth?.[name]);
+  for (const [mine, theirs] of [[seenTh, got.seenth], [thCleared, got.thclear]])
+    for (const name of new Set([...Object.keys(mine), ...Object.keys(theirs || {})])) join(mine[name] ||= {}, theirs?.[name]);
   if (ahead) seenSave();
-  else if (took) { localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh)); }
+  else if (took) seenKeep();
 }
+const seenKeep = () => { localStorage.setItem("seen", JSON.stringify(seen)); localStorage.setItem("seenth", JSON.stringify(seenTh)); localStorage.setItem("thclear", JSON.stringify(thCleared)); };
 const SEEN_KINDS = ["said", "peer", "sent"], seenKind = it => SEEN_KINDS.includes(it.kind) && !it.summary;   // a summary is never unread
 // A conversation shown on lines not seen before (a thread with a count opened, or lines arriving while it is shown)
 // marks where they begin with "N new messages", for a few seconds (NEW_FOR), as long as a count shows. The mark is
@@ -13754,7 +13766,7 @@ const thLines = (el, agent) => agent.startsWith(COMB) ? combinedLines(thChosen(a
 const thRedraw = () => { thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; };
 function thDealt(agent, t) {
   if (t.parts) { for (const [a, p] of t.parts) if (p.ask) thDealt(a, p); return; }
-  (thCleared[agent] ||= {})[t.name] = t.ask._asked.at(-1) || ""; localStorage.setItem("thclear", JSON.stringify(thCleared));
+  (thCleared[agent] ||= {})[t.name] = t.ask._asked.at(-1) || ""; seenSave();
 }
 function thRead(agent, t) {
   if (t.parts) { for (const [a, p] of t.parts) thRead(a, p); return; }
@@ -16293,11 +16305,11 @@ function thQuick(text) {
   return thYesNo(text) ? [["Yes", "Yes"], ["No", "No"], ["Why?", "Ask why"]] : [["", "Reply"]];
 }
 // A thread opened: a back arrow, its title and "KEY · stage · who is in it", and each ask open in it pinned under them,
-// amber with its quick answers, green once answered.
+// amber with a cross to mark it dealt with and its quick answers, green once answered.
 function phMixThHead(t) {
   const sub = [t.key !== t.title && t.key, t.key && (t.closed ? "closed" : t.stage), t.agents.map(shown).join(", ")].filter(Boolean).join(" · ");   // the key once, where it is the title
   const ask = x => phMixOpen(x.agent, t.name, x.ask)
-    ? `<div class="thask phmask"><small>Open ask · from ${esc(shown(x.agent))} · ${thAgo(Date.parse(x.ask._asked.at(-1)))}${x.ask._asked.length > 1 ? ` · asked ${x.ask._asked.length}×` : ""}</small>` +
+    ? `<div class="thask phmask"><button class="phmclr" data-phmdealt="${esc(x.agent)}" title="Dealt with: close this ask until it is asked again" aria-label="Dealt with">${MENU_ICON.close}</button><small>Open ask · from ${esc(shown(x.agent))} · ${thAgo(Date.parse(x.ask._asked.at(-1)))}${x.ask._asked.length > 1 ? ` · asked ${x.ask._asked.length}×` : ""}</small>` +
       `<span class="thaskq">${inline(thAskLine(x.ask._askText || x.ask.text))}</span><div class="phqa">${thQuick(x.ask._askText || x.ask.text).map(([w, l]) => `<button data-phmqa="${esc(w)}" data-agent="${esc(x.agent)}">${l}</button>`).join("")}</div></div>`
     : `<div class="thask ok">Answered ${thWhen(phAnswered[x.agent + "\n" + t.name])}</div>`;
   const asks = t.asks.map(ask).join("") || (t.answered && Date.now() - t.answered < ANSWERED_FOR ? `<div class="thask ok">Answered ${thWhen(t.answered)}</div>` : "");
@@ -16415,6 +16427,11 @@ function phMixClick(e) {
     phoneDraw(); f.scrollTop = f.scrollHeight - below;   // the lines that were in view stay there
   }
   else if ((b = at("[data-phmqa]"))) phMixAnswer(b.dataset.agent, phMixTh, b.dataset.phmqa);
+  else if ((b = at("[data-phmdealt]"))) {
+    const x = phMixData().all.find(t => t.name === phMixTh)?.asks.find(a => a.agent === b.dataset.phmdealt);
+    if (x) thDealt(x.agent, {name: phMixTh, ask: x.ask});
+    phoneDraw();
+  }
   else if ((b = at("[data-rep]"))) {
     if (phMixTh != null) combPick[PH_MIX + "\n" + phMixTh] = b.dataset.rep; else { phMixTo = b.dataset.rep; phMixRe = b.dataset.repth; }
     phoneDraw(); $("#phone .phmbox textarea.say")?.focus();
