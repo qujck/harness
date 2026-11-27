@@ -3933,6 +3933,10 @@ Today:
 - Yesterday holds every Done item; Today every Now item. Leave a part out entirely when it would be empty.
 - One bullet per piece of work: a ticket, or several tickets in the same area or feature, whoever worked on them. Combine
   related work from different people into one bullet.
+- In every part, put the bullets in order of importance, the work with the most impact first: first what stopped harm
+  (data lost, wrong or exposed, mail not sent, a security hole, something down in production), then what customers and
+  users see, then what staff see, and last internal tooling and tidy-ups. Between two alike, the one that reaches more
+  people goes first. "Also on" stays last under Today.
 - Where three or more Yesterday bullets on different features share one cause (for example, each was a permission
   that was missing or wrong), take them out of Yesterday and give them a part of their own straight after it, headed
   "Yesterday, <the shared cause in two or three words>:", keeping each as its own bullet with its two sentences.
@@ -3965,6 +3969,8 @@ Today:
 - **Login timeout**: the fix has its PR up for review.
 - **Also on**: AB-15"""
 _standup_lock = threading.Lock()
+_standup_busy = {}   # who -> when the summary being written of their work (empty: everyone's) was asked for
+STANDUP_AGAIN = 60   # seconds in which a summary just written is the answer to asking for it again
 # The text of each merged pull request a summary has been given, by its link: read from GitHub once and kept
 # (a merged one's does not change), the newest STANDUP_PRS of them.
 STANDUP_PR_CACHE = os.path.join(STATE_DIR, "standup-prs.json")
@@ -4038,7 +4044,7 @@ def standup_last(who):
     """The last summary of everyone's work (who empty) or one agent's, for a page that has none yet:
     {"at", "summary", "text": the write-up it was asked for}; {} with none kept, or once it was cleared."""
     k = next((k for k in standup_kept() if (k.get("text") or k.get("cleared")) and k.get("who", "") == who), {})
-    return {} if k.get("cleared") else {x: k[x] for x in ("at", "summary", "text") if x in k}
+    return {**({} if k.get("cleared") else {x: k[x] for x in ("at", "summary", "text") if x in k}), **({"busy": True} if who in _standup_busy else {})}
 
 
 def standup_clear(who):
@@ -4049,18 +4055,24 @@ def standup_clear(who):
 
 def standup_summary(text, fresh=False, who=""):
     """The spoken summary of a stand-up write-up (one agent's, or with no `who` everyone's): (its entry, None), or
-    (None, why it could not be made). Fresh, it is written again even if one is kept for this text, and replaces it. A
-    summary is kept for its text, model and prompt together, so a new model or prompt writes a new one."""
+    (None, why it could not be made). Fresh, it is written again even if one is kept for this text, and replaces it,
+    unless that one was written in the last STANDUP_AGAIN seconds. A summary is kept for its text, model and prompt
+    together, so a new model or prompt writes a new one. Asked while another is being written, it waits for that one,
+    and takes it when it is of the same text (another browser asking for the same summary)."""
     asked, text = text, standup_notes(text)
     model = setting("AGENT_STANDUP_MODEL") or "sonnet"
     key = hashlib.sha256("\0".join((model, STANDUP_PROMPT, text)).encode()).hexdigest()
-    kept = standup_kept()
-    hit = next((k for k in kept if k.get("key") == key), None)
-    if hit and not fresh:
-        return standup_keep({**hit, "at": int(time.time()), "text": asked, "who": who}, kept), None
-    if not _standup_lock.acquire(blocking=False):
+    since = time.time()
+    _standup_busy.setdefault(who, since)
+    if not _standup_lock.acquire(timeout=150):
+        if _standup_busy.get(who) == since:
+            del _standup_busy[who]
         return None, "a summary is already being written: try again in a moment"
     try:
+        kept = standup_kept()
+        hit = next((k for k in kept if k.get("key") == key), None)
+        if hit and (not fresh or hit.get("made", 0) >= since - STANDUP_AGAIN):
+            return standup_keep({**hit, "at": int(time.time()), "text": asked, "who": who}, kept), None
         exe = shutil.which("claude") or next((p for p in ("/opt/homebrew/bin/claude", "/usr/local/bin/claude", os.path.join(HOME, ".local", "bin", "claude")) if os.access(p, os.X_OK)), None)
         if not exe:
             return None, "claude is not installed where the page can find it"
@@ -4080,8 +4092,9 @@ def standup_summary(text, fresh=False, who=""):
         summary = (out.get("result") or "").strip()
         if out.get("is_error") or not summary:
             return None, (summary or r.stderr or "the helper gave no answer").strip()[:300]
-        return standup_keep({"key": key, "at": int(time.time()), "summary": summary, "text": asked, "who": who}, standup_kept()), None
+        return standup_keep({"key": key, "at": int(time.time()), "made": int(time.time()), "summary": summary, "text": asked, "who": who}, standup_kept()), None
     finally:
+        _standup_busy.pop(who, None)
         _standup_lock.release()
 
 
@@ -6767,6 +6780,27 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .wkhead .wksumi.first{margin-left:auto}
 .wkhead .wksumi:hover{background:var(--on);color:var(--text)}
 .wkhead .wksumi svg{width:100%;height:100%}
+#standmode{position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;background:var(--bg);color:var(--text);--fs:1.35}
+#standmode .sthead{display:flex;align-items:center;gap:14px;padding:12px 18px calc(12px) max(18px, env(safe-area-inset-left));padding-top:max(12px, env(safe-area-inset-top));border-bottom:1px solid var(--line)}
+#standmode .sthead > b{font:700 22px var(--sans)}
+#standmode .stclock{margin-left:auto;font:700 30px var(--mono);font-variant-numeric:tabular-nums}
+#standmode .stclock.over{color:var(--red)}
+#standmode .stbtn{display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:50%;background:none;color:inherit;cursor:pointer}
+#standmode .stbtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#standmode .stbtn[data-icon=start] svg{fill:currentColor}
+#standmode .stclose{border:0}
+#standmode .stlist{flex:1;min-height:0;overflow-y:auto;padding:4px max(14px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left))}
+#standmode .stlist > .daylog{overflow:visible;padding:0}
+/* the text the width of the screen: no boxes, and a single line between the parts (the summary, then each list) */
+#standmode .stlist .wksum,#standmode .stlist .workq .sect{margin:0;padding:8px 0;border:0;border-radius:0;background:none}
+#standmode .stlist .workq .sect{border-top:1px solid var(--line2)}
+#standmode .stlist > .daylog:first-child .sect:first-child{border-top:0}
+#standmode .stlist .wksum .wkhead,#standmode .stlist .workq .sect .day,#standmode .stlist.wk .workq .row{padding-left:0;padding-right:0}
+#standmode .stlist .wksum ul{padding-left:18px}
+#standmode .stlist.wk .workq .row > .tx{grid-column:1 / -1}
+.wk .wkpresent{display:grid;place-items:center;width:28px;height:28px;margin-left:-4px;border-radius:7px;color:var(--mute);cursor:pointer}
+.wk .wkpresent:hover{color:var(--text);background:var(--line)}
+.wk .wkpresent svg{width:18px;height:18px}
 .wkcopy,.wkhead .wkcopy{margin-left:auto;font-weight:400;font-size:calc(var(--t-s)*var(--fs,1));color:var(--cyan);cursor:pointer;text-transform:none;letter-spacing:0}
 .workq .wkcopy + .wqfold{margin-left:6px}
 
@@ -8083,6 +8117,19 @@ html.phone #phone{display:flex;flex-direction:column;flex:1;min-height:0;font-si
 #phone .ph-hint{font-size:12px;color:var(--mute);text-align:center}
 #phone .ph-empty{padding:30px 10px;text-align:center;color:var(--mute)}
 #phone .ph-pane{flex:1;min-height:0;display:flex;flex-direction:column}
+/* the Work pane on a phone: its tabs and the present button on one line, the tabs scrolling sideways, a tab's name never
+   broken over two lines, and the Done tab's tools on a line under them; the people one row of small faces, scrolling */
+#phone .wk .wkbar{gap:6px 8px}
+#phone .wk .wktabs{flex:1 1 0;min-width:0;overflow-x:auto;scrollbar-width:none}
+#phone .wk .wktabs::-webkit-scrollbar{display:none}
+#phone .wk .wktabs b{flex:none;white-space:nowrap}
+#phone .wk .wkpresent{flex:none;margin-left:0}
+#phone .wk .wkbar > .wkrange,#phone .wk .wkbar > .wkfilter{flex:1 0 100%}
+#phone .wkpeople{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-top:2px}
+#phone .wkpeople::-webkit-scrollbar{display:none}
+#phone .wkpeople .wkp{flex:none;padding:3px 0}
+#phone .wkpeople .face{width:34px;height:34px}
+#phone .wkpeople .wkpall{font-size:12px}
 /* rows of chips over Combined, Team and the Day log, each scrolling sideways under a finger */
 #phone .ph-chiprow{flex:none;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 2px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 #phone .ph-chiprow::-webkit-scrollbar{display:none}
@@ -9201,6 +9248,7 @@ const MENU_ICON = Object.fromEntries(Object.entries({
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/>',
   summary: '<path d="M2.5 4h11M2.5 8h7M2.5 12h4"/>',
   filter: '<path d="M1.5 4.5h4M9.5 4.5h5M1.5 11.5h7M12.5 11.5h2"/><circle cx="7.5" cy="4.5" r="2"/><circle cx="10.5" cy="11.5" r="2"/>',
+  present: '<rect x="1.5" y="2" width="13" height="8.5" rx="1"/><path d="M8 10.5V12M5 14.5l3-2.5 3 2.5M6.8 4.4v3.7L9.8 6.25z"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`]));
 // A filter button: its icon (and, on the page's, its name), lit while something is left out; a click opens its menu.
 const filterBtn = (cls, key, on, all, list, label, says = "Showing") => `<b class="${cls} fbtn${on.length < all.length ? " some" : ""}" data-menu="${esc(key)}" ` +
@@ -11531,10 +11579,11 @@ const wkSumOf = who => wkSums[who] ||= {text: "", summary: "", at: 0, busy: fals
 async function wkSummarise() {
   const who = wkGet("agent", ""), s = wkSumOf(who), text = wkStandupText(wkData(), "", true), fresh = !!s.summary;
   if (!text || s.busy) return;
-  Object.assign(s, {busy: true, err: ""}); wkRedraw();
+  const was = {summary: s.summary, text: s.text};   // the summary on show goes while the new one is written, and comes back if it fails
+  Object.assign(s, {busy: true, err: "", summary: "", text: ""}); wkRedraw();
   const r = await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, fresh, who})}).catch(() => null);
   if (r?.ok) Object.assign(s, {text, ...await r.json(), busy: false});
-  else Object.assign(s, {busy: false, err: r ? (await r.text()).trim() : "the page did not answer"});
+  else Object.assign(s, was, {busy: false, err: r ? (await r.text()).trim() : "the page did not answer"});
   wkRedraw();
 }
 // Clear empties the summary here and in every other browser, until another is made
@@ -11544,13 +11593,20 @@ async function wkSumClear() {
   Object.assign(s, {summary: "", text: "", err: "", at: Math.floor(Date.now() / 1000)}); wkRedraw();
   await fetch("/api/standup/summary", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({clear: true, who})}).catch(() => null);
 }
+// Every few seconds the server's summary is looked for: a newer one is taken, and one being written for another browser
+// shows here as being written (busy "elsewhere"), with nothing to click, until it is there.
 async function wkSumLook(who, s) {
-  if (s.busy || Date.now() - s.looked < 30000) return;
+  if (s.busy === true || Date.now() - s.looked < 2500) return;
   s.looked = Date.now();
   const k = await fetch("/api/standup/summary?who=" + encodeURIComponent(who)).then(r => r.ok ? r.json() : {}, () => ({})).catch(() => ({}));
-  if (!s.busy && k.summary && k.at > s.at) { Object.assign(s, k, {err: ""}); wkRedraw(); }
+  if (s.busy === true) return;
+  if (k.busy) { if (s.busy !== "elsewhere") { Object.assign(s, {busy: "elsewhere", summary: "", text: "", err: ""}); wkRedraw(); } return; }
+  const done = s.busy === "elsewhere", newer = k.summary && (done || k.at > s.at);
+  if (done) s.busy = false;
+  if (newer) Object.assign(s, k, {err: ""});
+  if (done || newer) wkRedraw();
 }
-setInterval(() => { if (document.querySelector(".wksum")) { const who = wkGet("agent", ""); wkSumLook(who, wkSumOf(who)); } }, 10000);   // the list is not redrawn while the pointer is over it
+setInterval(() => { if (document.querySelector(".wksum")) { const who = wkGet("agent", ""); wkSumLook(who, wkSumOf(who)); } }, 3000);   // the list is not redrawn while the pointer is over it
 function wkSummaryBox(d) {
   const who = wkGet("agent", ""), s = wkSumOf(who), text = wkStandupText(d, "", true), stale = s.summary && s.text !== text;
   wkSumLook(who, s);
@@ -11584,6 +11640,37 @@ function wkStandup(d, n) {
   return wkSummaryBox(d) + wqLists(lists, "standup:", true, owner, (name, items) => name === lists[0][0] && items.length
     ? `<b class="wkcopy" data-wkcopy="${esc(owner || "*")}" title="Copy as a write-up for the stand-up: what each person finished, and what they are on now">Copy write-up</b>` : "", true, [WK_NO_TICKET]);
 }
+// Stand-up mode: the stand-up list over the whole page, larger, kept up to date while it is open, with a timer of
+// STAND_FOR that ▶ starts and ⏸ pauses, red and counting on past its end; ×, Esc or back closes it.
+const STAND_FOR = 3 * 60 * 1000;
+let stand = null;   // {owner, left: ms, since: when it was last started, or 0 while paused}
+const standLeft = () => stand.left - (stand.since ? Date.now() - stand.since : 0);
+const standClock = ms => { const t = Math.round(Math.abs(ms) / 1000); return `${ms < 0 ? "+" : ""}${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+function standDraw() {
+  const el = $("#standmode"); if (!el || !stand) return;
+  const left = standLeft(), clock = el.querySelector(".stclock"), go = el.querySelector("[data-standgo]");
+  clock.textContent = standClock(left); clock.classList.toggle("over", left < 0);
+  const icon = stand.since ? "pause" : "start", tip = stand.since ? "Pause the timer" : "Start the timer";
+  if (go.dataset.icon !== icon) { go.dataset.icon = icon; go.innerHTML = MENU_ICON[icon]; go.title = tip; go.setAttribute("aria-label", tip); }
+  const body = wkStandup(wkData(), {owner: stand.owner}), list = el.querySelector(".stlist");
+  if (list.dataset.html !== body) { const top = list.scrollTop; list.dataset.html = body; list.innerHTML = body; list.scrollTop = top; }
+}
+function standOpen(owner) {
+  stand = {owner, left: STAND_FOR, since: 0, tick: setInterval(standDraw, 1000)};
+  const el = document.createElement("div"); el.id = "standmode"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Stand-up");
+  el.innerHTML = `<div class="sthead"><b>Stand-up</b><span class="stclock"></span><button class="stbtn" data-standgo></button>` +
+    `<button class="stbtn stclose" data-standclose title="Close stand-up mode" aria-label="Close stand-up mode">${MENU_ICON.close}</button></div><div class="stlist wk"></div>`;
+  document.body.append(el); standDraw();
+}
+function standClose() { if (!stand) return; clearInterval(stand.tick); stand = null; $("#standmode")?.remove(); }
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-wkstandmode], [data-standgo], [data-standclose]"); if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  if (b.dataset.wkstandmode != null) standOpen(b.dataset.wkstandmode);
+  else if (b.dataset.standclose != null) standClose();
+  else { stand.left = standLeft(); stand.since = stand.since ? 0 : Date.now(); standDraw(); }
+}, true);
+document.addEventListener("keydown", e => { if (stand && e.key === "Escape") { e.stopPropagation(); standClose(); } }, true);
 function workHtml(big, n) {
   wkOpened = false;
   const d = wkData(), tab = wkTabs().some(([k]) => k === wkGet("tab")) ? wkGet("tab") : "all";
@@ -11599,7 +11686,7 @@ function workHtml(big, n) {
   const sum = `<span class="wkn">${d.tickets.length}</span> in flight · <span class="wkn${needs ? " a" : ""}">${needs}</span> need you · ${wkTodaySum(tday)}` +
     (tab === "standup" && n?.owner ? ` · only ${esc(shown(n.owner))}'s: click the badge again for everyone's` : "");
   return `<div class="teamlog wk" data-name="~work"><div class="thead"><span>Work</span><span class="tsum">${sum}</span>${maxButton(big)}</div>` +
-    `<div class="wkbar">${tabs}${tools}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
+    `<div class="wkbar">${tabs}<b class="wkpresent" data-wkstandmode="${esc(tab === "standup" && n?.owner || "")}" title="Present the stand-up: full screen, with a three-minute timer" aria-label="Present the stand-up">${MENU_ICON.present}</b>${tools}</div>${wkPeopleStrip()}<div class="${tab === "standup" ? "wkstand" : "daylog wklist"}" data-wktab="${tab}">${body}</div></div>`;
 }
 // a redraw the owner asked for (a tab, a row, a filter) is drawn at once, held list or not
 let wkForce = false;
@@ -15722,6 +15809,7 @@ const phoneOn = () => (PHONE_MQ.matches || FRAME) && !ONLY && (FRAME || localSto
 // chosen, the first four (owner, 2026-11-10: "let me choose up to 5 for my toolbar", then "can the toolbar items be
 // reorderable"). The tab showing is one of them.
 const PH_MAX = 5;
+let phWkTab = "";   // the Work tab last scrolled into view on the phone, with the tabs' text then
 function phToolbar() {
   let mine; try { mine = JSON.parse(localStorage.getItem("phonetabs")); } catch (e) {}
   const keys = PH_TABS.map(([k]) => k), on = Array.isArray(mine) ? [...new Set(mine)].filter(k => keys.includes(k)).slice(0, PH_MAX) : [];
@@ -16705,6 +16793,10 @@ function phoneDraw() {
   else if (tab === "work") {
     patch(body, `<div class="ph-pane">${workHtml(false, null)}</div>`);
     body.querySelectorAll(".maxbtn").forEach(b => b.remove());
+    // the tab chosen scrolled into the tabs' row when it is another, or the tabs' counts have changed their widths; the
+    // row is otherwise left where the owner put it
+    const row = body.querySelector(".wktabs"), on = row?.querySelector("b.on"), at = on && on.dataset.wktab + "\n" + row.textContent;
+    if (on && phWkTab !== at) { phWkTab = at; const r = row.getBoundingClientRect(), b = on.getBoundingClientRect(); row.scrollLeft += b.right > r.right ? b.right - r.right + 2 : b.left < r.left ? b.left - r.left - 2 : 0; }
     phLoad(tab);
   }
   else if (tab === "queue") {
@@ -17241,6 +17333,7 @@ addEventListener("popstate", () => { if (open && phoneOn() && !history.state?.ph
     graph: [() => $("#graphbox.on"), closeGraph],
     menu: [() => menu.classList.contains("on") && !menu.dataset.rested, () => menuOff(true)],
     bars: [() => $("#barsheet.on"), barSheetOff],
+    standup: [() => $("#standmode"), standClose],
     sheet: [() => $("#phsheet.on:not(.closing)"), phoneMenuOff],
   };
   let live = [], seq = Date.now(), skip = 0;
