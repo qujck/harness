@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { COMPACTED_TEXT, compactedText, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, pronounsLine, remainingFraction, requestPath, rosterPathOf, softPoint } from './compact.ts'
+import { COMPACTED_TEXT, compactedText, compactWindowOf, configPath, effectiveWindow, guard, hardAtOf, nudgeDue, parseCompactAfter, parseRequest, peopleFileOf, pronounsLine, remainingFraction, requestPath, rosterPathOf, softPoint } from './compact.ts'
 
 const v = (value: unknown) => ({ value }) as never
 const SID = 'sid-1'
@@ -367,4 +367,12 @@ test('…and so does one that is not there', async ($, on) => {
   stage(on, w, s, { vars: { HOME: '/home/me', ROSTER_FILE: '/nowhere.json' } })
   await turn($ as never)
   expect(s.sent).toEqual([COMPACTED_TEXT])
+})
+
+test('a roster that names its people file is followed to it (strength #7164)', () => {
+  expect(peopleFileOf('{"_people_file":"/srv/strength/roster.json","machines":[]}')).toBe('/srv/strength/roster.json')
+  expect(peopleFileOf('{"agents":[]}')).toBeUndefined()
+  expect(peopleFileOf('{"_people_file":"relative.json"}')).toBeUndefined()
+  expect(peopleFileOf('{"_people_file":7}')).toBeUndefined()
+  expect(peopleFileOf('not json')).toBeUndefined()
 })

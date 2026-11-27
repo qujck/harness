@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { type ContextRow, DEFAULT_THRESHOLD_S, type DayTrip, dayTripText, dayVerdict, MAX_NUDGES, NUDGE_ROLES, TARGET_ROLE, decide, describe, envFileValue, freshRows, idleAgents, type NudgeState, nudgeText, parseTarget, selfNudgeText, spellOf, statePaths, ticketsOf } from './nudge.ts'
 import { dueNotices, kindOf, parseQueue, reminder } from './review.ts'
-import { authorEmailOf, current, dueWaiting, forget, leadWaitingLine, parseLeadWaiting, parseRoster, procStartOf, type Roster, type SessionFile } from './watch.ts'
+import { authorEmailOf, current, dueWaiting, forget, leadWaitingLine, parseLeadWaiting, parseRoster, peopleFileOf, procStartOf, type Roster, type SessionFile } from './watch.ts'
 
 const POLL_MS = 10_000
 // How often the nudger looks at the team, in the delivery lead's session.
@@ -126,7 +126,10 @@ async function poll($: EngineInterface, told: Set<string>, nudger: Nudger): Prom
   // the first fix said so in the status bar, with a ⚠ the owner did not want). No ENOENT is logged
   // either (2026-10-16).
   const rosterPath = `${await $.session.root()}/agents/roster.json`
-  const rosterText = await $.fs.read(rosterPath).catch(() => undefined)
+  const gitText = await $.fs.read(rosterPath).catch(() => undefined)
+  const people = typeof gitText === 'string' ? peopleFileOf(gitText) : undefined
+  // a pointer to a file that cannot be read is no roster: nothing watched, never the git file's stale people
+  const rosterText = people ? await $.fs.read(people).catch(() => undefined) : gitText
   if (typeof rosterText !== 'string') { $.ui.status(undefined); await assistant($, told); return }
   const roster = parseRoster(rosterText)
   const files = await sessionFiles($, roster)

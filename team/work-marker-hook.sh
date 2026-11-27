@@ -88,8 +88,9 @@ ticket_of_branch() {
 }
 
 # role_of <name> <roster> -> the roster role for name (any case), or nothing   (pure)
-role_of() {
-  jq -r --arg n "${1,,}" '.agents[] | select((.name | ascii_downcase) == $n) | .role // empty' "$2" 2>/dev/null | head -1
+role_of() {  # <name> <roster>: a roster naming its people's file (`_people_file`, strength #7164) is read there
+  local f="$2" p; p="$(jq -r '._people_file // empty' "$f" 2>/dev/null)"; [[ -n "$p" ]] && f="$p"
+  jq -r --arg n "${1,,}" '.agents[] | select((.name | ascii_downcase) == $n) | .role // empty' "$f" 2>/dev/null | head -1
 }
 
 # mark <tree> <kind> [id] -> the ledger's answer (ok:on:<id>, already:on, no-such-ticket:<id>, ...), or nothing

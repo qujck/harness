@@ -95,7 +95,7 @@ SPARK=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
 # kept within a role, assistants last. A roster appends each new agent at the end, so in file order a new
 # tester drew after the reviewer and the process lead: "in the wrong place on the dashboard". The Delivery
 # tab groups the same way. roster_panel_rows itself stays in file order for its other readers.
-roster() { [ -r "$ROSTER" ] && roster_panel_rows < "$ROSTER" | roster_grouped; }
+roster() { [ -r "$ROSTER" ] && ROSTER_FILE="$ROSTER" _roster_json | roster_panel_rows | roster_grouped; }
 role_rank() {
   case "$1" in
     delivery-lead) echo 0 ;; developer) echo 1 ;; tester) echo 2 ;; code-reviewer|test-reviewer) echo 3 ;;
@@ -148,7 +148,7 @@ live() {
     [ -n "$sock" ] && [ -S "$sock" ] || continue
     email=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^GIT_AUTHOR_EMAIL=//p' | head -1)
     if [ -n "$email" ]; then
-      rostered=$(roster_name_for_email "$email" < "$ROSTER" 2>/dev/null)
+      rostered=$(ROSTER_FILE="$ROSTER" _roster_json | roster_name_for_email "$email" 2>/dev/null)
       [ -n "$rostered" ] && name=$rostered
     fi
     printf '%s\t%s\t%s\n' "$name" "$pid" "${rest//$'\x1f'/$'\t'}"

@@ -89,6 +89,24 @@ ROOT = project_root()
 PROJECT = os.environ.get("HARNESS_PROJECT") or env_file_value(ROOT, "HARNESS_PROJECT") or os.path.basename(ROOT)
 QUEUE = os.path.expanduser(os.environ.get("AGENT_REVIEW_QUEUE") or os.path.join(HOME, ".local/state", PROJECT, "review-queue.json"))
 ROSTER = os.environ.get("ROSTER_FILE") or os.path.join(ROOT, "agents/roster.json")
+
+
+def load_roster(path):
+    """The roster at `path`, its people read from the file its `_people_file` names when it names one
+    (strength keeps its people outside git, #7164; the rules and machines stay in the git file). A pointer
+    to a file that cannot be read gives no people, never the git file's stale ones."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    people = data.pop("_people_file", None) if isinstance(data, dict) else None
+    if people:
+        for k in ("agents", "humans", "assistants"):
+            data.pop(k, None)
+        try:
+            with open(people, encoding="utf-8") as f:
+                data.update(json.load(f))
+        except (OSError, ValueError):
+            data["agents"] = []
+    return data
 LEDGER_DB = os.environ.get("LEDGER_DB") or os.path.join(ROOT, "scripts/ledger-db.sh")
 KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.#/-]{0,254}$")   # the ledger's id: a ticket's slug, or a key such as ABC-123
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
@@ -112,8 +130,7 @@ def die(words):
 def roster():
     """[(name, role id)] for the roster's active agents, in its order."""
     try:
-        with open(ROSTER, encoding="utf-8") as f:
-            data = json.load(f)
+        data = load_roster(ROSTER)
     except (OSError, ValueError):
         return []
     return [(a["name"], a.get("role", "")) for a in data.get("agents") or [] if a.get("status") == "active" and a.get("name")]

@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import { decide, envFileValue, freshRows, idleAgents, mainCheckoutOf, nudgeText, parseTarget, roleWords, spellOf, statePaths, ticketsOf } from './nudge.ts'
-import { parseRoster } from './watch.ts'
+import { parseRoster, peopleFileOf } from './watch.ts'
 
 const ROSTER = JSON.stringify({
   agents: [
@@ -651,4 +651,11 @@ test("the assistant's session, outside any checkout, is told each lead wait nami
   files['/home/me/.local/state/acme/lead-waiting'] = wait(T0 + 60_000)
   await clock.advance(10_000)
   expect(sent.length).toBe(2)
+})
+
+test('a roster that names its people file is followed to it (strength #7164)', () => {
+  expect(peopleFileOf('{"_people_file":"/srv/strength/roster.json","machines":[]}')).toBe('/srv/strength/roster.json')
+  expect(peopleFileOf('{"agents":[]}')).toBeUndefined()
+  expect(peopleFileOf('{"_people_file":"relative.json"}')).toBeUndefined()
+  expect(peopleFileOf('not json')).toBeUndefined()
 })
