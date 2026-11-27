@@ -6926,7 +6926,6 @@ html.phone #dhead .role .rwith .ricon{width:20px;height:20px}
 .thhead.mini:has(.thask) > .thname{display:none}
 .thhead.mini .thask{display:flex;align-items:center;gap:8px;margin-top:0;padding:4px 10px;white-space:nowrap}
 .thhead.mini .thask > small{display:none}
-.teamlog.combined .thhead.mini:has(> .mroles) .thask{margin-right:34px}   /* clear of whose messages show */
 .thhead.mini .thaskq{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .thhead.mini .thask > .phqa{flex:none;flex-wrap:nowrap;margin:0}
 .thhead.mini .thask > .phqa button{min-height:22px}
@@ -7420,8 +7419,6 @@ table.md th{background:var(--line);font-weight:650}
 .teamlog .it .who.ag:not(.to)::before{content:none}
 .teamlog .it.tools .who.ag{margin-right:6px}
 .teamlog .clanes{flex:none;margin-left:auto;font-weight:400}
-.teamlog.combined .thhead > .mroles{position:absolute;right:0;top:9px;font-weight:400}   /* whose messages show, in the open thread's head */
-.teamlog.combined .thhead:has(> .mroles) > .thname{padding-right:34px}
 .thtools .troles{flex:none;margin-right:auto;font-weight:400}
 .thtools .thsumm{flex:1;min-width:0;line-height:1.3;color:var(--mute);font:400 calc(var(--t-s)*var(--fs,1)) var(--sans)}
 .thsetbtn{display:grid;place-items:center;width:22px;height:20px;flex:none;border-radius:var(--r-s);color:var(--mute);cursor:pointer}
@@ -7430,8 +7427,9 @@ table.md th{background:var(--line);font-weight:650}
 .thtools .thmore.down{order:0}
 .thtools .thmore{position:static;margin:0;flex:none;font-size:calc(var(--t-xs)*var(--fs,1));box-shadow:none}
 #menu .thset{width:300px}
-#menu .mchips{display:flex;flex-wrap:wrap;gap:4px;padding:4px 10px 8px}
-#menu .mchips .chip{cursor:pointer;font-size:calc(var(--t-s)*var(--fs,1))}
+#menu .thset .thv{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--mute)}
+#menu .thset .hd.thback{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text)}
+#menu .thset .hd.thback svg{width:14px;height:14px;transform:scaleX(-1)}
 .thitem > .thtop > .thwho{margin:0 0 0 4px;flex:0 1 auto;min-width:20px;height:20px;overflow:hidden;flex-wrap:wrap;align-self:center}   /* only whole faces: one that does not fit wraps out of sight */
 .thitem > .thtop > :is(.thk, .thclosed){flex:none}
 .thitem > .thtop > span:not([class]){min-width:0;overflow-wrap:anywhere}
@@ -12473,8 +12471,7 @@ function combinedConv(a) {
   const from = conv.find(it => it.ts)?.ts;   // what its last conversation carried on from an earlier one is there in both
   return (combinedConvs[a] = {conv, e, all: e.items.filter(it => !from || it.ts < from).concat(conv)}).all;
 }
-// In Threads its list counts the messages from some roles and it shows those from some, each its own choice of the pane's
-// (n.troles and n.mroles: the roles left out). A message to an agent is from whoever sent it; the owner's is the agent's.
+// In Threads its list counts the messages from some roles, the pane's own choice (n.troles: the roles left out). A message to an agent is from whoever sent it; the owner's is the agent's.
 const rolesOut = (n, k) => Array.isArray(n?.[k]) ? n[k] : [];
 const fromRole = (it, a) => ((it.kind === "peer" && ppAgent(it.who)) || ppAgent(a))?.role, notOut = (it, a, out) => !out.length || !out.includes(fromRole(it, a));
 const rolesIn = (n, k) => { const in_ = new Set(combinedAgents(n).map(a => a.role)), list = roleList().filter(r => in_.has(r.role)); return {list, on: list.map(r => r.role).filter(r => !rolesOut(n, k).includes(r))}; };
@@ -12580,10 +12577,10 @@ function combinedHtml(path, n, full, big) {
   const them = combinedAgents(n), chosen = them.map(a => a.name), on = clanesOf(n), key = COMB + path, wide = full && path !== "phone";
   // a message sent from the pane shows at once, as in an agent's own view, until the agent's conversation has it
   // in Threads (its own choice, as an agent's card's), its threads at its left, and only the open one's lines. Its list has a
-  // filter of its own, whose roles are counted in it, and its messages one, whose are shown; with nobody counted the list
-  // stays, for its filter, beside no messages (none is read by having been shown).
-  const threads = wide && thMode(key) === "threads", tout = rolesOut(n, "troles"), mout = threads ? rolesOut(n, "mroles") : [];
-  const every = combinedLines(chosen).filter(it => inCombined(on, it)), lines = every.filter(it => notOut(it, it._agent, mout));
+  // filter of its own, whose roles are counted in it; with nobody counted the list stays, for its filter, beside no
+  // messages (none is read by having been shown).
+  const threads = wide && thMode(key) === "threads", tout = rolesOut(n, "troles");
+  const every = combinedLines(chosen).filter(it => inCombined(on, it)), lines = every;
   const tl = every.filter(it => notOut(it, it._agent, tout)), all = wide ? combinedThreads(key, chosen, tout, tl) : [];
   const has = all.length > 0 || wide && tout.length > 0 && every.some(it => it._thread);
   const thr = threads && has, one = thr && all.length ? thPick(all, key).t : null;
@@ -12595,8 +12592,8 @@ function combinedHtml(path, n, full, big) {
   log.threaded = true;
   const th = one ? one.name : EVERY, mark = full && looking() ? combinedNew(key, th, log) : newMarkAt(key, th);
   if (!one) { if (!full || looking()) seenUpTo(log); } else if (looking()) { thRead(key, one); thReadTo(log, one.name); }
-  const head = (one ? thHeadHtml(one, key).replace(/<\/div>$/, roleFilter(n, "mroles", path) + "</div>") : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
-  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), earlierVer, on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey, mout].join("|");
+  const head = (one ? thHeadHtml(one, key) : "") + (before ? `<button class="earlier" data-earlier="${esc(one ? one.name : "")}">Show earlier messages</button>` : "");
+  const fkey = ["combined", chosen.map(a => a + ":" + paneVer[a] + echoKey(a)), earlierVer, on, full, thr, one?.name, most, mark, head, [...openRuns], noImage.size, paintKey].join("|");
   const keep = $(`#main .pane[data-path="${path}"] .teamlog .feed`)?.dataset.key === fkey;
   const seg = `<div class="cbtns">${filterBtn("clanes", "clanes:" + path, on, CALL, CLANES)}${has ? thSeg(key) : ""}</div>`;
   // a message box under the conversation, to one agent: the open thread's, to whoever combTo says, else the chat opened
@@ -13160,15 +13157,15 @@ function customClicks() {
     const h = el.closest(".hand"), m = meetOf(nodeAt(layout().root, el.closest(".pane").dataset.path));
     if (m) meetPost(m.id, "handover", {name: h.dataset.n, action: el.dataset.hand, text: h.querySelector(".htext")?.value || ""});
   });
-  // a Combined pane's roles counted in its threads, and those whose messages show: All, or any of them
-  main.querySelectorAll(".teamlog.combined :is(.troles, .mroles)").forEach(el => {
-    const path = el.closest(".pane").dataset.path, k = el.matches(".troles") ? "troles" : "mroles", node = () => nodeAt(layout().root, path), {list} = rolesIn(node(), k);
+  // a Combined pane's roles counted in its threads: All, or any of them
+  main.querySelectorAll(".teamlog.combined .troles").forEach(el => {
+    const path = el.closest(".pane").dataset.path, k = "troles", node = () => nodeAt(layout().root, path), {list} = rolesIn(node(), k);
     filterButton(el, [["*", "All", " "], ...list.map(r => [r.role, r.name, roleMark(r)])], () => { const {list, on} = rolesIn(node(), k); return on.length === list.length ? ["*", ...on] : on; },
-      r => r === "*" ? "Every role, or none" : k === "troles" ? "Count this role's messages in the threads" : "Show this role's messages",
+      r => r === "*" ? "Every role, or none" : "Count this role's messages in the threads",
       r => change(l => {
         const n = nodeAt(l.root, path), out = rolesOut(n, k), every = rolesIn(n, k).list.map(x => x.role);
         n[k] = r !== "*" ? out.includes(r) ? out.filter(x => x !== r) : [...out, r] : every.some(x => out.includes(x)) ? [] : every;
-      }), k === "troles" ? "Count in threads" : "Show messages of");
+      }), "Count in threads");
   });
   main.querySelectorAll(".teamlog .clanes").forEach(el => {
     const path = el.closest(".pane").dataset.path;
@@ -13961,27 +13958,34 @@ function thCountWords(n) {
   const name = thRoleName, {list, on} = rolesIn(n, "troles"), out = list.map(r => r.role).filter(r => !on.includes(r));
   return !out.length ? "counting everyone" : !on.length ? "counting no one" : out.length <= 2 ? "counting all but " + out.map(name).join(", ") : on.length <= 2 ? "counting " + on.map(name).join(", ") : `counting ${on.length} roles`;
 }
+// The menu is a row for each setting with its choice beside it; a row opens its own list (thSetAt), a back row returns.
+var thSetAt = "";
 function thSetHtml(key) {
-  const n = key.startsWith(COMB) ? combNode(key) : null;
-  const chip = (k, label, on, icon = "", tip = "") => `<b class="chip${on ? " on" : ""}" data-ths="${esc(k)}"${tip ? ` title="${esc(tip)}"` : ""}>${icon}${esc(label)}</b>`;
-  const sect = (head, chips) => `<div class="hd"><div>${head}</div></div><div class="mchips">${chips}</div>`;
-  const order = sect("Order", TH_SORTS.map(([k, , l]) => chip("sort:" + k, l, k === thSort())).join("") +
-    chip("noclosed", "Remove closed", thNoClosed(), "", "Leave out each thread whose ticket is closed, unless it has something unread or is open"));
-  if (!n) return `<div class="thset">${order}</div>`;
-  const {list, on} = rolesIn(n, "troles"), every = !pickedAny(n);
-  return `<div class="thset">` +
-    sect("Shown", chip("who:", "Everyone", every) + roleList().map(r => chip("who:" + r.role, r.name, !every && roleLit(n, r.role), roleMark(r))).join("")) +
-    sect("Counted in the threads", chip("count:*", "Everyone", on.length === list.length) + list.map(r => chip("count:" + r.role, r.name, on.includes(r.role), roleMark(r))).join("")) +
-    order +
-    sect("Conversation", chip("view:full", "Full", fullView(n)) + chip("view:summary", "Summary", !fullView(n))) +
-    sect("Agents shown as", BADGES.map(([v, l]) => chip("badge:" + v, l, (n.badge || "name") === v)).join("")) + `</div>`;
+  const n = key.startsWith(COMB) ? combNode(key) : null, tick = on => MENU_ICON.check.replace("<svg", `<svg class="tick${on ? "" : " off"}"`);
+  const item = (k, label, on, icon = "", tip = "") => `<div class="mi" data-ths="${esc(k)}"${tip ? ` title="${esc(tip)}"` : ""}>${icon}${esc(label)}${tick(on)}</div>`;
+  const sort = TH_SORTS.find(([k]) => k === thSort());
+  const order = TH_SORTS.map(([k, , l]) => item("sort:" + k, l, k === thSort())).join("") + `<i class="remsep"></i>` +
+    item("noclosed", "Remove closed", thNoClosed(), "", "Leave out each thread whose ticket is closed, unless it has something unread or is open");
+  if (!n) return `<div class="thset"><div class="hd"><div>Order</div></div>${order}</div>`;
+  const {list, on} = rolesIn(n, "troles"), every = !pickedAny(n), cw = thCountWords(n).replace(/^counting /, "");
+  const pages = [
+    ["who", "Shown", thWho(n), () => item("who:", "Everyone", every || roleList().every(r => roleLit(n, r.role))) + roleList().map(r => item("who:" + r.role, r.name, !every && roleLit(n, r.role), roleMark(r))).join("")],
+    ["count", "Counted", cw[0].toUpperCase() + cw.slice(1), () => item("count:*", "Everyone", on.length === list.length) + list.map(r => item("count:" + r.role, r.name, on.includes(r.role), roleMark(r))).join("")],
+    ["order", "Order", sort[2] + (thNoClosed() ? ", closed out" : ""), () => order],
+    ["view", "Conversation", fullView(n) ? "Full" : "Summary", () => item("view:full", "Full", fullView(n)) + item("view:summary", "Summary", !fullView(n))],
+    ["badge", "Agents shown as", (BADGES.find(([v]) => v === (n.badge || "name")) || BADGES[0])[1], () => BADGES.map(([v, l]) => item("badge:" + v, l, (n.badge || "name") === v)).join("")]];
+  const pg = pages.find(([k]) => k === thSetAt);
+  if (pg) return `<div class="thset"><div class="hd thback" data-thpage="">${PH_ICON.chev}<div>${pg[1]}</div></div>${pg[3]()}</div>`;
+  return `<div class="thset">` + pages.map(([k, l, v]) => `<div class="mi" data-thpage="${k}">${l}<span class="thv">${esc(v)}</span>${PH_ICON.chev}</div>`).join("") + `</div>`;
 }
 document.addEventListener("click", e => {
-  const b = e.target.closest?.("[data-thset]"), it = e.target.closest?.("#menu [data-ths]");
-  if (!b && !it) return;
+  const b = e.target.closest?.("[data-thset]"), it = e.target.closest?.("#menu [data-ths]"), pg = e.target.closest?.("#menu [data-thpage]");
+  if (!b && !it && !pg) return;
   e.stopImmediatePropagation(); e.preventDefault();
-  if (b) { const k = "thset:" + b.dataset.thset; if (menuOn(k)) return menuOff(true); menuAt(b, k, thSetHtml(b.dataset.thset)); return; }
-  const key = menu.dataset.key.slice("thset:".length), [what, v] = [it.dataset.ths.split(":")[0], it.dataset.ths.slice(it.dataset.ths.indexOf(":") + 1)];
+  if (b) { const k = "thset:" + b.dataset.thset; if (menuOn(k)) return menuOff(true); thSetAt = ""; menuAt(b, k, thSetHtml(b.dataset.thset)); return; }
+  const key = menu.dataset.key.slice("thset:".length);
+  if (pg) { thSetAt = pg.dataset.thpage; menuAt(null, "thset:" + key, thSetHtml(key), false, true); return; }
+  const [what, v] = [it.dataset.ths.split(":")[0], it.dataset.ths.slice(it.dataset.ths.indexOf(":") + 1)];
   const path = key.startsWith(COMB) ? key.slice(COMB.length) : null;
   const change = f => { const l = layout(), n = nodeAt(l.root, path); f(n); saveLayout(l); };
   if (what === "sort") localStorage.setItem("thsort", v);
@@ -13991,6 +13995,7 @@ document.addEventListener("click", e => {
     n.troles = v !== "*" ? out.includes(v) ? out.filter(x => x !== v) : [...out, v] : every.some(x => out.includes(x)) ? [] : every; });
   else if (what === "view") { change(n => { n.view = v; }); setTimeout(load); }
   else if (what === "badge") change(n => { n.badge = v; });
+  if (["sort", "view", "badge"].includes(what)) thSetAt = "";   // a choice of one returns to the rows
   thFlip = true; draw(); if (open) renderConv(); wkRedraw(); thFlip = false;
   if (menuOn("thset:" + key)) menuAt(null, "thset:" + key, thSetHtml(key), false, true);
 }, true);
