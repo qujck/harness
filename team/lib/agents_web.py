@@ -9050,7 +9050,7 @@ function item(it, compact, agent, tag) {
   }
   // a message of the owner's still queued behind the agent's turn, which can be taken back out to edit
   if (it.kind === "echo") {
-    return `<div class="it owner pending echo"><span class="who">${esc(S.owner || "Owner")}</span>${ag(true)}<span class="tx">${md(it.text, compact === true)}</span><span class="badge" title="Sent from this page; it shows as the agent's own turn once its transcript has it">${it.state}</span></div>`;
+    return `<div class="it owner pending echo"><span class="who">${esc(S.owner || "Owner")}</span>${ag(true)}<span class="tx">${md(it.text, compact === true)}</span><span class="badge" title="Sent from this page; it shows as the agent's own turn once its transcript has it. An agent in the middle of a long step reads it when that step ends">${esc(it.state)}</span></div>`;
   }
   if (it.kind === "pending") {
     return `<div class="it owner pending"><span class="who">${esc(S.owner || "Owner")}</span><span class="tx">${md(it.text, compact === true)}</span><span class="badge" title="Queued: the agent reads it when its turn allows">pending</span></div>`;
@@ -14692,13 +14692,16 @@ function slashKey(e, box, name) {
 }
 document.addEventListener("input", e => { if (e.target.matches?.("textarea.say")) slashShow(e.target); });
 document.addEventListener("focusout", e => { if (e.target === slash.box) setTimeout(() => document.activeElement !== slash.box && slashOff(), 100); });
-// Messages sent from the page, drawn in their agent's conversation the moment Enter is pressed, "sending" and then
-// "sent", until the transcript has them (or a minute has passed): agent -> [{text, at, state}].
-const echoes = {};
+// Messages sent from the page, drawn in their agent's conversation the moment Enter is pressed, "sending", then
+// "sent", then after a minute "waiting for <agent>", until the transcript has them. An agent in the middle of a long
+// step reads a message only when that step ends, so dropping it after a minute (as this did) made the owner's reply
+// vanish from the thread it was typed in and come back much later. ECHO_KEEP only bounds one the transcript never
+// matches. A send that fails puts the text back in the box instead: agent -> [{text, at, state}].
+const echoes = {}, ECHO_WAIT = 60000, ECHO_KEEP = 2 * 3600000;
 function echoItems(items, name) {
   const seen = m => items.some(it => ["owner", "pending"].includes(it.kind) && Date.parse(it.ts) >= m.at - 5000 && (it.text || "").includes(m.text.slice(0, 80)));
-  const mine = echoes[name] = (echoes[name] || []).filter(m => Date.now() - m.at < 60000 && !seen(m));
-  return mine.map(m => ({kind: "echo", text: m.text, state: m.state, ts: new Date(m.at).toISOString(), lane: "owner", who: "", with: ""}));
+  const mine = echoes[name] = (echoes[name] || []).filter(m => Date.now() - m.at < ECHO_KEEP && !seen(m));
+  return mine.map(m => ({kind: "echo", text: m.text, state: m.state === "waiting" ? `waiting for ${shown(name)}` : m.state, ts: new Date(m.at).toISOString(), lane: "owner", who: "", with: ""}));
 }
 const echoKey = name => (echoes[name] || []).map(m => m.at + m.state).join() + (stopping[name] ? "|stopping" : "");
 function echoed(name) { draw(); if (open === name) { renderConv(); const c = $("#dconv"); c.scrollTop = c.scrollHeight; } }
@@ -14725,7 +14728,7 @@ async function say(name, input) {
   try {
     const r = await fetch("/api/agent/" + encodeURIComponent(name) + "/say", {method: "POST", headers: {"Content-Type": "application/json", "X-Team-Say": "1"}, body: JSON.stringify({text, images: sent.map(i => i.path)})});
     if (!r.ok) throw new Error(await r.text());
-    if (echo) { echo.state = "sent"; echoed(name); }
+    if (echo) { echo.state = "sent"; echoed(name); setTimeout(() => { if ((echoes[name] || []).includes(echo)) { echo.state = "waiting"; echoed(name); } }, ECHO_WAIT); }
     if (text) logSent(name, text);
     atts[name] = (atts[name] || []).filter(i => !sent.includes(i)); showAtt(name);
     flash(box(), "sent");
