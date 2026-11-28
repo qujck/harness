@@ -1127,7 +1127,7 @@ def refresh_board():
 
 
 def claims():
-    """Lower-case name -> the first ticket it holds on the claims board, read from the panel's cache; once that is
+    """Lower-case name -> the tickets it holds on the claims board, oldest claim first, read from the panel's cache; once that is
     BOARD_EVERY seconds old one read of the ledger starts in the background, so a page never waits for it. A parked
     claim keeps its developer's name on the board but is not what they are on, so it is skipped."""
     try:
@@ -1144,7 +1144,7 @@ def claims():
                 parts = line.rstrip("\n").split("|")
                 who = parts[2].split()[0].lower() if len(parts) > 2 and parts[2].split() else ""
                 if who and who != "-" and parts[0] and not parts[2].endswith("<= PARKED"):
-                    held.setdefault(who, parts[0])
+                    held.setdefault(who, []).append(parts[0])
     except OSError:
         pass
     return held
@@ -3242,12 +3242,14 @@ def tickets_held(sid):
     return t.tickets() if t else []
 
 
-def on_ticket(sid, held, name):
-    """The ticket an agent is on: the last one its session took up (`work on` / `work switch`; `work off` clears it),
-    else its first unparked claim on the board. The board alone named a ticket parked days ago while the agent's own
-    session was started for another."""
+def on_ticket(sid, held, name, mine):
+    """The ticket an agent is on: the last one its session claimed, while the board still shows it holding that one
+    unparked; else its first unparked claim on the board. The board alone named a ticket parked days ago while the
+    agent's own session was started for another; the session alone named one a long-lived session claimed sixteen
+    days before and had long since finished."""
     took = tickets_held(sid) if sid else []
-    return took[-1][1] if took else held.get(name.lower(), "")
+    last = took[-1][1] if took else ""
+    return last if last in mine.get(name.lower(), ()) else held.get(name.lower(), "")
 
 
 def feed(sid, limit):
@@ -4143,7 +4145,7 @@ def state():
     where, held = panes(), claims()
     _looked.update(live=live, where=where)
     take_shots([w["pane"] for w in where.values()])
-    tfacts = ticket_facts(list(held.values()))
+    tfacts = ticket_facts([v[0] for v in held.values()])
     agents, bench, after, mod = [], [], compact_after(), compact_mod()
     for r in grouped(roster()):
         name = r["name"]
@@ -4172,7 +4174,7 @@ def state():
         ser = series(burns.get(sid), now) if sid else []
         since = ((rec or {}).get("statusUpdatedAt") or 0) / 1000
         want, want_held = wanted(sid) if sid else (None, None)
-        on = on_ticket(sid, held, name)
+        on = on_ticket(sid, {k: v[0] for k, v in held.items()}, name, held)
         if on and on not in tfacts:
             tfacts.update(ticket_facts([on]))
         agents.append({
@@ -17563,13 +17565,16 @@ def self_test():
 
         with open(T + "/dash/board", "w") as f:
             f.write("feat_p|ops|Ada  <= PARKED\nfeat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\nfeat_q|ci|Pip  <= PARKED\n")
-        t("claims: the first unparked ticket each agent holds, unclaimed rows skipped", claims(), {"ada": "feat_x", "tess": "feat_w"})
+        t("claims: the unparked tickets each agent holds, oldest first, unclaimed rows skipped", claims(), {"ada": ["feat_x", "feat_y"], "tess": ["feat_w"]})
         global tickets_held
-        was_th, took = tickets_held, {"s1": [["", "feat_y"], ["2026-11-28T15:54:00Z", "feat_n"]], "s2": [["", "feat_y"], ["2026-11-28T16:00:00Z", ""]]}
+        was_th, took = tickets_held, {"s1": [["", "feat_x"], ["2026-11-28T15:54:00Z", "feat_y"]], "s2": [["", "feat_y"], ["2026-11-28T16:00:00Z", ""]],
+                                      "s4": [["2026-11-12T19:26:50Z", "feat_done"]], "s5": [["2026-11-12T19:26:50Z", "feat_p"]]}
         tickets_held = lambda sid: took.get(sid, [])
-        t("on ticket: the one the session last took up, over the board's first claim; work off clears it; else the board",
-          [on_ticket("s1", claims(), "Ada"), on_ticket("s2", claims(), "Ada"), on_ticket("s3", claims(), "Ada"), on_ticket(None, claims(), "Pip")],
-          ["feat_n", "", "feat_x", ""])
+        mine = claims()
+        first = {k: v[0] for k, v in mine.items()}
+        t("on ticket: the one the session last claimed while still held, else the board's first unparked claim",
+          [on_ticket(s, first, n, mine) for s, n in (("s1", "Ada"), ("s2", "Ada"), ("s3", "Ada"), (None, "Pip"), ("s4", "Ada"), ("s5", "Ada"))],
+          ["feat_y", "feat_x", "feat_x", "", "feat_x", "feat_x"])
         tickets_held = was_th
 
         # a ticket's issue number, read through the ledger's regenerate verb in the background and kept; an id with no
