@@ -9436,6 +9436,35 @@ function threadItems(items, name) {
   }
   return out;
 }
+// One agent's lines threaded (threadItems), with what every other agent said to the owner in the same ticket's thread
+// (harness #483, the owner: "It's not a thread without that"). A ticket's thread is the ticket's, not one agent's: a
+// line another agent tagged [#N], or a developer's or tester's about the ticket it holds, is in #N in each pane that
+// has a #N thread, under its author's name. Only lines in a ticket thread this agent already has are brought in, and
+// only its words with the owner (what it said, and what the owner wrote to it there), never a guessed thread: the
+// others' asks are theirs, so none is brought in as an ask.
+const TICKET_TH = /^([A-Z][A-Z0-9]+-\d+|#[1-9]\d*)$/, ticketPeerMemo = {};
+function paneThreadItems(items, name) {
+  const lines = threadItems(items, name);
+  if (!name || name.startsWith(COMB) || !S?.agents) return lines;
+  const keys = new Set(lines.map(it => it._thread || "").filter(th => TICKET_TH.test(th)));
+  if (!keys.size) return lines;
+  const add = [];
+  for (const b of S.agents) {
+    if (b.name === name) continue;
+    const feed = paneConv[b.name] || b.feed || [], m = ticketPeerMemo[b.name];
+    const theirs = m && m.feed === feed ? m.lines : (ticketPeerMemo[b.name] = {feed, lines: threadItems(feed, b.name)}).lines;
+    for (const it of theirs) if (["said", "owner"].includes(it.kind) && !it.summary && !it._guess && !it._withdraws && keys.has(it._thread || "") && it.ts)
+      add.push({...it, _agent: b.name, _ask: false, _asked: undefined, _peerLine: true});
+  }
+  if (!add.length) return lines;
+  // in time order among this agent's lines; a line with no time (what it is doing now) stays where it is
+  add.sort((x, y) => x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0);
+  const out = [];
+  let i = 0;
+  for (const it of lines) { while (i < add.length && it.ts && add[i].ts < it.ts) out.push(add[i++]); out.push(it); }
+  while (i < add.length) out.push(add[i++]);
+  return out;
+}
 // what an agent writes to withdraw an ask: it is resolved, or the owner need not do anything
 const THREAD_WITHDRAWN = /\b(withdraw(?:n|ing)?\b(?! from)|(?:this|it|that)(?: is|'s) (?:now )?(?:resolved|sorted|fixed)\b|no longer need\b|(?:you )?(?:don't|do not|no longer) need to do anything|nothing (?:more )?for you to do|ignore (?:my|the|that) (?:earlier |last )?(?:ask|question))/i;
 // a message saying something waits on the owner ("MS-181 and MS-188 wait only on Peter's Approve"): the sentence
@@ -9452,7 +9481,7 @@ const threadLabel = it => (it._thread ? `<span class="thl${it._guess ? " guess" 
   (it._asked?.length > 1 ? `<span class="thl ask" title="Asked at ${esc(it._asked.map(t => String(t).slice(11, 16)).join(", "))}">asked ${it._asked.length}×</span>` : "");
 function feedHtml(items, name, compact, on = laneOf(name), only = null, newAfter = null) {
   if (name) items = items.concat(echoItems(items, name));
-  if (!items.threaded) items = threadItems(items, name);   // a Combined pane's are threaded agent by agent (combinedLines)
+  if (!items.threaded) items = only != null ? paneThreadItems(items, name) : threadItems(items, name);   // a ticket thread has every agent's lines in it (#483); a Combined pane's are threaded agent by agent (combinedLines)
   if (only == null && items.some(it => it._shadow)) items = Object.assign(items.filter(it => !it._shadow), {threaded: items.threaded});   // a message whose ask is in another ticket's thread too: once, in its own
   if (only != null && !items.threaded) items = items.filter(it => (it._thread || "") === only || ["ask", "live"].includes(it.kind));
   const hit = it => seekTurn(it, it._agent || name);
@@ -13537,7 +13566,7 @@ addEventListener("focus", backAgain); document.addEventListener("visibilitychang
 function noteNew(name, th, feed) {
   const k = name + "\n" + th, mark = th === EVERY ? seen[name] || "" : thSeen(name, th);
   if (!seen[name] || newMarkAt(name, th) != null) return;
-  if (!threadItems(feed, name).some(it => seenKind(it) && (it.ts || "") > mark && (th === EVERY || (it._thread || "") === th))) return;
+  if (!(th === EVERY ? threadItems : paneThreadItems)(feed, name).some(it => seenKind(it) && (it.ts || "") > mark && (th === EVERY || (it._thread || "") === th))) return;
   newMarks[k] = {after: mark, until: Date.now() + NEW_FOR};
   const redraw = () => { draw(); if (open === name) renderConv(); };   // drawn with the mark at once (it is taken as a draw ends), and again without it
   setTimeout(redraw); setTimeout(() => { delete newMarks[k]; redraw(); }, NEW_FOR + 50);
@@ -13558,7 +13587,7 @@ function markSeen(names) {
     const shownTh = threads && thSel[a.name]?.name !== EVERY ? thSel[a.name]?.name ?? "" : EVERY;
     if (a.name === open || document.querySelector(`.card.full[data-name="${CSS.escape(a.name)}"]`)) noteNew(a.name, shownTh, (a.name === open ? convFeed : paneConv[a.name]) || a.feed);
     if (threads && seen[a.name] && thSel[a.name]?.name !== EVERY) {
-      const th = thSel[a.name]?.name ?? "", m = threadItems(paneConv[a.name] || a.feed, a.name).filter(it => (it._thread || "") === th)
+      const th = thSel[a.name]?.name ?? "", m = paneThreadItems(paneConv[a.name] || a.feed, a.name).filter(it => (it._thread || "") === th)
         .reduce((m, it) => { const t = (it._asked || [it.ts]).at(-1) || ""; return t > m ? t : m; }, "");
       if (m > (seenTh[a.name]?.[th] || "")) (seenTh[a.name] ||= {})[th] = m;
     } else if (newest > (seen[a.name] || "")) seen[a.name] = newest;
@@ -13583,7 +13612,7 @@ function unseenBy(a, feed = a.feed) {
   const out = {}, counted = new Set();
   if (!seen[a.name]) return out;
   const on = laneOf(a.name);
-  for (const it of threadItems(feed, a.name)) {
+  for (const it of paneThreadItems(feed, a.name)) {
     if (!seenKind(it) || !on.includes(it.lane)) continue;
     const th = it._thread || "", last = (it._asked || [it.ts]).at(-1), key = th + "\n" + it.ts;
     if (!last || last <= thSeen(a.name, th) || counted.has(key)) continue;
@@ -13797,7 +13826,7 @@ function threadsOf(items, name, sel = phTh[name] ?? localStorage.getItem("thread
   // only what its filter shows is in the list: a thread with none of its lines shown is left out, but for an open ask
   // (in a Combined pane's, from the roles it counts; the thread open stays in it, at the time of what is counted)
   const counts = it => !cn || notOut(it, name, out), shows = it => cn ? inCombined(on, it) && (counts(it) || (it._thread || "") === sel) : on.includes(it.lane) || ["pending", "echo"].includes(it.kind);
-  for (const it of cn ? combinedItems(items, name) : threadItems(items, name)) {
+  for (const it of cn ? combinedItems(items, name) : paneThreadItems(items, name)) {
     if (["live", "tools", "event", "ask"].includes(it.kind)) continue;
     const th = it._thread || "", ts = Date.parse(it.ts) || 0, t = shows(it) ? get(th) : {};
     const upto = Math.max(ts, ...(it._asked || []).map(x => Date.parse(x) || 0)); t.any = Math.max(t.any, upto); if (counts(it)) t.last = Math.max(t.last, upto);
@@ -13862,7 +13891,7 @@ const thAgent = el => el.closest("#detail") ? open : (el.closest(".card.full[dat
 const thFeed = (el, agent) => el.closest(".card.full[data-name]") ? paneConv[agent] || S.agents.find(a => a.name === agent)?.feed || [] : convFeed;
 const thChosen = key => { const n = combNode(key); return n ? combinedAgents(n).map(a => a.name) : []; };
 const thAll = (el, agent) => agent.startsWith(COMB) ? combinedThreads(agent) : threadsOf(thFeed(el, agent), agent);
-const thLines = (el, agent) => agent.startsWith(COMB) ? combinedLines(thChosen(agent)) : threadItems(thFeed(el, agent), agent);
+const thLines = (el, agent) => agent.startsWith(COMB) ? combinedLines(thChosen(agent)) : paneThreadItems(thFeed(el, agent), agent);
 const thRedraw = () => { thFlip = true; if (open) renderConv(); wkRedraw(); thFlip = false; };
 function thDealt(agent, t) {
   if (t.parts) { for (const [a, p] of t.parts) if (p.ask) thDealt(a, p); return; }
