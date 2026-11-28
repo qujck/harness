@@ -1128,7 +1128,8 @@ def refresh_board():
 
 def claims():
     """Lower-case name -> the first ticket it holds on the claims board, read from the panel's cache; once that is
-    BOARD_EVERY seconds old one read of the ledger starts in the background, so a page never waits for it."""
+    BOARD_EVERY seconds old one read of the ledger starts in the background, so a page never waits for it. A parked
+    claim keeps its developer's name on the board but is not what they are on, so it is skipped."""
     try:
         age = time.time() - os.path.getmtime(BOARD)
     except OSError:
@@ -1142,7 +1143,7 @@ def claims():
             for line in f:
                 parts = line.rstrip("\n").split("|")
                 who = parts[2].split()[0].lower() if len(parts) > 2 and parts[2].split() else ""
-                if who and who != "-" and parts[0]:
+                if who and who != "-" and parts[0] and not parts[2].endswith("<= PARKED"):
                     held.setdefault(who, parts[0])
     except OSError:
         pass
@@ -3241,6 +3242,14 @@ def tickets_held(sid):
     return t.tickets() if t else []
 
 
+def on_ticket(sid, held, name):
+    """The ticket an agent is on: the last one its session took up (`work on` / `work switch`; `work off` clears it),
+    else its first unparked claim on the board. The board alone named a ticket parked days ago while the agent's own
+    session was started for another."""
+    took = tickets_held(sid) if sid else []
+    return took[-1][1] if took else held.get(name.lower(), "")
+
+
 def feed(sid, limit):
     """The last `limit` turns of a session's conversation, oldest first, from the end of its transcript."""
     t = followed(sid)
@@ -4163,6 +4172,9 @@ def state():
         ser = series(burns.get(sid), now) if sid else []
         since = ((rec or {}).get("statusUpdatedAt") or 0) / 1000
         want, want_held = wanted(sid) if sid else (None, None)
+        on = on_ticket(sid, held, name)
+        if on and on not in tfacts:
+            tfacts.update(ticket_facts([on]))
         agents.append({
             "name": name, "fullName": r["fullName"], "role": role, "roleName": role_name, "colour": colour(r["role"]),
             "tab": tab, "live": bool(rec), "status": (rec or {}).get("status") or ("off" if not rec else "?"),
@@ -4171,11 +4183,11 @@ def state():
             "ctxUsed": used, "ctxWindow": window,
             "ctxPct": round(used * 100 / window) if used and window else None,
             "model": row.get("model", ""), "effort": row.get("effort", ""), "login": (row.get("login") or "") if row else None,
-            "ticket": held.get(name.lower(), ""),
-            "ticketNo": (tfacts.get(held.get(name.lower(), "")) or {}).get("ref"),
+            "ticket": on,
+            "ticketNo": (tfacts.get(on) or {}).get("ref"),
             "tickets": tickets_held(sid) if role in ("dev", "tester") else [],
-            "ticketIssue": (tfacts.get(held.get(name.lower(), "")) or {}).get("issue"),
-            "ticketTitle": (tfacts.get(held.get(name.lower(), "")) or {}).get("title", ""),
+            "ticketIssue": (tfacts.get(on) or {}).get("issue"),
+            "ticketTitle": (tfacts.get(on) or {}).get("title", ""),
             "cwd": row.get("worktree") or os.path.basename((rec or row).get("cwd") or ""),
             "series": ser, "rate": last_minute(ser, now), **portraits(name),
             "compacting": bool(sid) and hook_compacting(sid, now), "lastCompact": last_compact(was), "compactAt": compact_points(after, name, window, mod),
@@ -17550,8 +17562,15 @@ def self_test():
           sorted(live_sessions()), ["Ada", "Ada · meeting", "Lea"])
 
         with open(T + "/dash/board", "w") as f:
-            f.write("feat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\n")
-        t("claims: the first ticket each agent holds, unclaimed rows skipped", claims(), {"ada": "feat_x", "tess": "feat_w"})
+            f.write("feat_p|ops|Ada  <= PARKED\nfeat_x|backend|Ada\nfeat_y|docs|Ada\nfeat_z|docs|-\nfeat_w|ci|Tess  <= DEPARTED\nfeat_q|ci|Pip  <= PARKED\n")
+        t("claims: the first unparked ticket each agent holds, unclaimed rows skipped", claims(), {"ada": "feat_x", "tess": "feat_w"})
+        global tickets_held
+        was_th, took = tickets_held, {"s1": [["", "feat_y"], ["2026-11-28T15:54:00Z", "feat_n"]], "s2": [["", "feat_y"], ["2026-11-28T16:00:00Z", ""]]}
+        tickets_held = lambda sid: took.get(sid, [])
+        t("on ticket: the one the session last took up, over the board's first claim; work off clears it; else the board",
+          [on_ticket("s1", claims(), "Ada"), on_ticket("s2", claims(), "Ada"), on_ticket("s3", claims(), "Ada"), on_ticket(None, claims(), "Pip")],
+          ["feat_n", "", "feat_x", ""])
+        tickets_held = was_th
 
         # a ticket's issue number, read through the ledger's regenerate verb in the background and kept; an id with no
         # number is asked again only after TICKET_RETRY, and an id that is not a ticket id is never passed to the ledger

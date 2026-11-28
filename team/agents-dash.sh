@@ -259,7 +259,7 @@ role_colour() {
   printf '\033[38;5;16;48;5;%sm' "$bg"
 }
 
-# claims -> "<lower-case name>\t<ticket id>" for the first ticket each agent holds on the claims board
+# claims -> "<lower-case name>\t<ticket id>" for the first unparked ticket each agent holds on the claims board
 # (`ledger-db.sh board`: id|area|claimed_by). The board is a database read, so the frame never waits for
 # it: the panel keeps the last answer in $CACHE/board and, once that is BOARD_EVERY seconds old, starts one
 # read in the background for the next frame. A read that fails leaves the last answer in place.
@@ -275,7 +275,7 @@ claims() {
       </dev/null >/dev/null 2>&1 &
   fi
   awk -F'|' '{ split($3, a, " "); n = tolower(a[1])
-               if (n != "" && n != "-" && !(n in seen)) { seen[n] = 1; print n "\t" $1 } }' "$f" 2>/dev/null
+               if (n != "" && n != "-" && $3 !~ /<= PARKED$/ && !(n in seen)) { seen[n] = 1; print n "\t" $1 } }' "$f" 2>/dev/null
 }
 
 # disk_line -> the free space on AGENT_DISK_WATCH (a path; blank watches nothing), dim, amber under
@@ -656,7 +656,7 @@ selftest() {
 
   # The claims board: read from the panel's cache, refreshed in the background once it is old.
   printf 'feat_old|backend|Ed\n' > "$CACHE/board"
-  printf '#!/usr/bin/env bash\n[ "$1" = board ] && printf "feat_x|backend|Ed\\nfeat_y|docs|Ed\\nfeat_z|docs|-\\nfeat_w|ci|Ben  <= DEPARTED, NOBODY IS COMING BACK\\n"\n' > "$T/ledger"
+  printf '#!/usr/bin/env bash\n[ "$1" = board ] && printf "feat_x|backend|Ed\\nfeat_y|docs|Ed\\nfeat_z|docs|-\\nfeat_q|ci|Ann  <= PARKED\\nfeat_w|ci|Ben  <= DEPARTED, NOBODY IS COMING BACK\\n"\n' > "$T/ledger"
   LEDGER="$T/ledger"
   t $'ed\tfeat_old' 'claims: a fresh cache is read as it is, without a database read' "$(claims)"
   touch -d '2 hours ago' "$CACHE/board"

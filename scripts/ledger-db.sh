@@ -3194,7 +3194,7 @@ case "${1:-}" in
   # question that an absence would have opened**, which is why this is worse than a blank.
   # `owner_state` is NULL for an unclaimed row and 'active' for the normal case; both print bare, so
   # the board only gains ink where something is actually wrong. (migration 105)
-  board)    _as_me "select id,area,coalesce(claimed_by,'-')||case when owner_state in ('departed','not-an-agent') then '  <= '||upper(owner_state)||', NOBODY IS COMING BACK' else '' end from ledger.v_claims order by claimed_at" ;;
+  board)    _as_me "select id,area,coalesce(claimed_by,'-')||case when owner_state in ('departed','not-an-agent') then '  <= '||upper(owner_state)||', NOBODY IS COMING BACK' when status = 'parked' then '  <= PARKED' else '' end from ledger.v_claims order by claimed_at" ;;
   # the enumerable form of the same fact, for a re-routing pass (v_park_without_owner's analogue)
   orphans)  _as_me "select id,area,claimed_by,owner_state from ledger.v_claim_without_a_live_owner order by claimed_at" ;;
   frontier) _as_me "select id,area,priority from ledger.v_frontier order by priority,id" ;;
